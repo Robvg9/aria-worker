@@ -1,0 +1,170 @@
+name: BattleCruiser Step 4 Safe Mando Audit Filters V1 (Read Only)
+on:
+  push:
+    branches:
+      - aria/bc-step4-android-e2e-20261021
+    paths:
+      - .github/workflows/battlecruiser-step4-mando-audit-filters-v1.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: bc-step4-sales-category-filters-v1
+  cancel-in-progress: false
+jobs:
+  android-mando-audit-filters:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 8
+    steps:
+      - name: Observe read-only Mando audit type/status filters and restore defaults
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          ARIA_RUNTIME_SHARED_SECRET: ${{ secrets.ARIA_RUNTIME_SHARED_SECRET }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import json, os, time, urllib.request, urllib.error
+          project=os.environ.get('SUPABASE_PROJECT_REF','').strip()
+          secret=os.environ.get('ARIA_RUNTIME_SHARED_SECRET','')
+          if not project or not secret: raise SystemExit('BLOCKED: production secrets unavailable')
+          base=f'https://{project}.supabase.co/functions/v1'
+          headers={'Authorization':'Bearer '+secret,'content-type':'application/json','cache-control':'no-store'}
+          mission_id=f"mission_bc_step4_mando_audit_filters_readonly_v1_{os.environ['RUN_ID']}_{os.environ['RUN_ATTEMPT']}"
+          device='android-termux-a1ebcfc7-9287-4603-a0f9-c519d12fd092'
+          marker='BC_STEP4_MANDO_AUDIT_FILTERS_READONLY_V1'
+          command=r"""node <<'NODE'
+          const {executeAndroidAccessibilityJob,probeLocalIpcHealth}=require('./computer-use/android-accessibility-v1.js');
+          const marker='BC_STEP4_MANDO_AUDIT_FILTERS_READONLY_V1',host='battlecruiser.robvg9.workers.dev';
+          const deviceBuild='3708b31b319884f7d42082414a82cdd11450fe2d';
+          const base={target_package:'com.android.chrome',allow_any_app:false,allowed_hosts:[host]};
+          const clean=s=>typeof s==='string'?s.replace(/\s+/g,' ').trim().replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/ig,'[redacted]').slice(0,110):'';
+          const norm=s=>clean(s).toLowerCase().replace(/[áàä]/g,'a').replace(/[éèë]/g,'e').replace(/[íìï]/g,'i').replace(/[óòö]/g,'o').replace(/[úùü]/g,'u').replace(/ñ/g,'n').trim();
+          const wait=ms=>new Promise(r=>setTimeout(r,ms));
+          async function send(q){return await executeAndroidAccessibilityJob({command:JSON.stringify({...base,...q}),timeoutMs:18000});}
+          async function observe(){const r=await send({operation:'observe'}),p=r&&r.payload||{},root=p.root||(p.ui&&p.ui.root)||null;return {r,p,root};}
+          async function action(a){return await send({operation:'action',action:a});}
+          function scan(root){
+            const nodes=[],seen=new Set();let count=0;
+            const walk=(n,path,d)=>{
+              if(!n||typeof n!=='object'||Array.isArray(n)||seen.has(n)||d>28||count>=1200)return;
+              seen.add(n);count++;
+              const names=['name','label','contentDescription','text','hint'].map(k=>clean(n[k])).filter(Boolean);
+              nodes.push({id:typeof n.id==='string'&&n.id?n.id:path,path,role:clean(n.role),className:clean(n.className||n.class),names,text:names.join(' | '),
+                visible:n.visible!==false,clickable:!!n.clickable,enabled:n.enabled!==false,scrollable:!!n.scrollable,bounds:n.bounds||null});
+              if(Array.isArray(n.children))n.children.forEach((c,i)=>walk(c,path+'.'+i,d+1));
+            };
+            walk(root,'0',0);return nodes;
+          }
+          const exact=(nodes,label,opts={})=>nodes.find(n=>n.names.some(t=>norm(t)===norm(label))&&(!opts.visible||n.visible)&&(!opts.clickable||n.clickable)&&(!opts.enabled||n.enabled));
+          const summarize=(obs)=>{
+            const nodes=obs.root?scan(obs.root):[];
+            const types=nodes.filter(n=>n.visible&&(/todos los tipos|^venta$|^compra$|^transferencia$|^vale$|^producto$|^sincronizacion$|^usuario_rol$|^usuario_estado$/i.test(norm(n.text))||/combobox|spinner|listbox/i.test(n.role+' '+n.className)))
+              .slice(0,30).map(n=>({id:n.id,role:n.role,label:clean(n.text),clickable:n.clickable,enabled:n.enabled}));
+            const states=nodes.filter(n=>n.visible&&(/sin registros de auditoria|cargando auditoria|no se pudo cargar auditoria|falta aplicar supabase|no tenes permiso para ver auditoria/i.test(norm(n.text))))
+              .map(n=>({marker:/sin registros de auditoria/i.test(norm(n.text))?'empty':/cargando auditoria/i.test(norm(n.text))?'loading':/permiso/i.test(norm(n.text))?'permission':'error'})).slice(0,5);
+            const menu=nodes.filter(n=>n.visible&&n.clickable&&['Abrir menú','Centro de Mando','Centro de mando','Mando'].includes(n.text)).map(n=>({id:n.id,label:n.text,enabled:n.enabled})).slice(0,5);
+            return {hash:obs.p.evidence_hash||null,nodeCount:nodes.length,types,states,menu,mandoVisible:nodes.some(n=>n.visible&&/centro de mando|auditoria|auditoria y trazabilidad/i.test(norm(n.text))),nodes};
+          };
+          async function fresh(){
+            let cur=await observe();
+            for(let k=0;k<5&&(!cur.root||cur.p.ok!==true);k++){await wait(500);cur=await observe();}
+            return cur;
+          }
+          async function clickAndObserve(node,label,timeline){
+            const r=await action({action:'click',nodeId:node.id});
+            timeline.push({step:label,status:r&&r.status,reason:clean(r&&r.reason||r&&r.payload&&r.payload.reason)});
+            await wait(500);
+            return await fresh();
+          }
+          (async()=>{
+            const h=await probeLocalIpcHealth({timeoutMs:2500}),hp=h&&h.payload||{};
+            const exactBuild=h&&h.ok===true&&String(hp.version_name)==='1.1.23'&&Number(hp.version_code)===29&&String(hp.build_id)===deviceBuild;
+            if(!exactBuild){console.log(JSON.stringify({marker,ok:false,stage:'exact_agent_build_mismatch',build:{ok:!!h?.ok,version_name:hp.version_name||null,version_code:hp.version_code||null,build_id:hp.build_id||null}}));process.exitCode=20;return;}
+            const timeline=[];
+            let nav=await action({action:'navigate',url:'https://'+host});
+            timeline.push({step:'navigate_live',status:nav&&nav.status});
+            await wait(2000);
+            let cur=await fresh(),nodes=cur.root?scan(cur.root):[];
+            for(let k=0;k<8&&!exact(nodes,'Abrir menú',{visible:true,clickable:true,enabled:true});k++){await wait(500);cur=await fresh();nodes=cur.root?scan(cur.root):[];}
+            let open=exact(nodes,'Abrir menú',{visible:true,clickable:true,enabled:true});
+            if(open)cur=await clickAndObserve(open,'open_menu',timeline);
+            else {console.log(JSON.stringify({marker,ok:false,stage:'menu_not_found',timeline,screen:summarize(cur)}));process.exitCode=1;return;}
+            let snap=summarize(cur),mando=exact(snap.nodes,'Centro de Mando',{visible:true,clickable:true,enabled:true})||exact(snap.nodes,'Mando',{visible:true,clickable:true,enabled:true});
+            for(let k=0;k<5&&!mando;k++){
+              const drawer=snap.nodes.find(n=>n.visible&&n.scrollable&&n.path.startsWith('0.0.0.0.2'))||snap.nodes.find(n=>n.visible&&n.scrollable);
+              if(!drawer)break;
+              const sc=await action({action:'scroll',nodeId:drawer.id,direction:k<2?'backward':'forward'});
+              timeline.push({step:'scroll_menu_'+(k+1),status:sc&&sc.status});
+              await wait(300);cur=await fresh();snap=summarize(cur);mando=exact(snap.nodes,'Centro de Mando',{visible:true,clickable:true,enabled:true})||exact(snap.nodes,'Mando',{visible:true,clickable:true,enabled:true});
+            }
+            if(!mando){console.log(JSON.stringify({marker,ok:false,stage:'mando_button_not_found',timeline,screen:{hash:snap.hash,nodeCount:snap.nodeCount,menu:snap.menu}}));process.exitCode=2;return;}
+            cur=await clickAndObserve(mando,'open_mando',timeline);
+            await wait(900);cur=await fresh();snap=summarize(cur);
+            const baseState={hash:snap.hash,nodeCount:snap.nodeCount,mandoVisible:snap.mandoVisible,filterLabels:snap.types.map(x=>({label:x.label,role:x.role})),auditMarkers:snap.states};
+            const outcomes=[];
+            async function setFilter(kind,initialLabel,optionLabel){
+              let s=summarize(cur);
+              let select=s.nodes.find(n=>n.visible&&n.enabled&&(/combobox|spinner|listbox/i.test(n.role+' '+n.className))&&norm(n.text).includes(norm(initialLabel)))
+                ||s.nodes.find(n=>n.visible&&n.clickable&&norm(n.text)===norm(initialLabel));
+              if(!select){outcomes.push({filter:kind,status:'SELECT_NOT_FOUND',baselineHash:s.hash});return false;}
+              cur=await clickAndObserve(select,'open_'+kind+'_select',timeline);
+              s=summarize(cur);
+              let opt=exact(s.nodes,optionLabel,{visible:true,clickable:true,enabled:true});
+              if(!opt) opt=s.nodes.find(n=>n.visible&&n.clickable&&n.enabled&&norm(n.text)===norm(optionLabel));
+              if(!opt){outcomes.push({filter:kind,status:'OPTION_NOT_FOUND',requested:optionLabel,hash:s.hash,types:s.types.map(x=>x.label)});return false;}
+              const before=s.hash;
+              cur=await clickAndObserve(opt,'choose_'+kind+'_'+optionLabel,timeline);
+              s=summarize(cur);
+              const optionVisible=s.types.some(x=>norm(x.label)===norm(optionLabel));
+              outcomes.push({filter:kind,status:'SELECTED_AND_OBSERVED',selected:optionLabel,hashBefore:before,hashAfter:s.hash,hashChanged:!!before&&!!s.hash&&before!==s.hash,visibleOptionStillPresent:optionVisible,auditMarkers:s.states});
+              return true;
+            }
+            const typeOK=await setFilter('type','Todos los tipos','venta');
+            let stateOK=false;
+            if(typeOK)stateOK=await setFilter('status','Todos los estados','error');
+            const finalBeforeRestore=summarize(cur);
+            const clear=exact(finalBeforeRestore.nodes,'Limpiar filtros',{visible:true,clickable:true,enabled:true});
+            let restored=false,final=null;
+            if(clear){
+              cur=await clickAndObserve(clear,'restore_all_audit_filters',timeline);
+              await wait(500);final=summarize(cur);
+              const allTypes=final.types.some(x=>norm(x.label)==='todos los tipos');
+              const allStates=final.types.some(x=>norm(x.label)==='todos los estados');
+              restored=allTypes&&allStates;
+              timeline.push({step:'verify_defaults_restored',status:restored?'succeeded':'failed',allTypes,allStates});
+            }else{
+              timeline.push({step:'restore_all_audit_filters',status:'NOT_FOUND'});
+              final=finalBeforeRestore;
+            }
+            const result={marker,ok:outcomes.length===2&&outcomes.every(x=>x.status==='SELECTED_AND_OBSERVED')&&restored,
+              build:{version_name:hp.version_name,version_code:hp.version_code,build_id:hp.build_id},timeline,baseState,
+              outcomes,restoredToAll:restored,final:{hash:final.hash,nodeCount:final.nodeCount,filterLabels:final.types.map(x=>({label:x.label,role:x.role})),auditMarkers:final.states},
+              safety:{onlyReadRpc:'listar_auditoria_admin',auditRecordsOpened:false,auditWrites:false,businessWrites:false,logoutClicked:false}};
+            console.log(JSON.stringify(result));
+            if(!result.ok)process.exitCode=3;
+          })().catch(e=>{console.log(JSON.stringify({marker,ok:false,error:clean(String(e&&e.message||e))}));process.exitCode=1;});
+          NODE"""
+          metadata={'goal_source':'chat','source_application':'ChatGPT','project_name':'BattleCruiser','source':'battlecruiser_step4_mando_audit_filters_readonly_v1','verification_marker':marker,'device_id':device,'requested_device_id':device,'operation':'shell.execute','executor_type':'device','requested_capability':'shell.execute','command':command,'risk':'READ','timeout_ms':30000,'target_package':'com.android.chrome','allowed_hosts':['battlecruiser.robvg9.workers.dev'],'read_only':True,'business_data_mutated':False,'explicit_device_intent':True,'human_gate_required':False}
+          def post(fn,payload,timeout=75):
+              req=urllib.request.Request(base+'/'+fn,data=json.dumps(payload).encode(),headers=headers,method='POST')
+              try:
+                  with urllib.request.urlopen(req,timeout=timeout) as r:return r.status,json.loads(r.read().decode())
+              except urllib.error.HTTPError as e:
+                  try:return e.code,json.loads(e.read().decode())
+                  except:return e.code,{}
+          code,body=post('aria-direct-v1',{'goal':'Ejecuta shell.execute en el dispositivo Android explicitado, usando el comando Node incluido en metadata para navegar con Accesibilidad Android autorizada en BattleCruiser LIVE y probar solo los filtros locales de categorías Todos, Bebidas, Confituras y Dulces artesanales, restaurando Todos. Captura hashes, conteos y marcadores sanitizados. No añadir al carrito, no confirmar ventas, no cerrar turnos ni escribir datos de negocio. Marcador BC_STEP4_MANDO_AUDIT_FILTERS_READONLY_V1.','mission_id':mission_id,'metadata':metadata})
+          print('DISPATCH_HTTP='+str(code));print('MISSION_ID='+mission_id);print('DISPATCH_STATUS='+str(body.get('dispatch',{}).get('status','unknown')))
+          if code>=300 or body.get('ok') is not True:print(json.dumps(body)[:1200]);raise SystemExit(2)
+          terminal={'succeeded','failed','blocked','rejected','cancelled','human_required','paused'}
+          last={}
+          for i in range(1,61):
+              c,last=post('aria-mission-runner-v22',{'mission_id':mission_id})
+              s=str(last.get('status','unknown'));print('POLL='+json.dumps({'n':i,'http':c,'status':s,'error':last.get('error'),'next_action':last.get('next_action')}))
+              if s in terminal or c in (401,403,404):break
+              time.sleep(3)
+          s=str(last.get('status','unknown'));print('FINAL_STATUS='+s);print('FINAL='+json.dumps({k:last.get(k) for k in ('ok','status','mission_id','error','next_action','executor_types','results') if k in last},ensure_ascii=False)[:6000])
+          if s!='succeeded':raise SystemExit(1)
+          PY
