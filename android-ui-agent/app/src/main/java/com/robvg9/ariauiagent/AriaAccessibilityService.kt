@@ -815,6 +815,8 @@ class AriaAccessibilityService : AccessibilityService() {
             .put("clickable", node.isClickable)
             .put("enabled", node.isEnabled)
             .put("visible", node.isVisibleToUser)
+            .put("checkable", node.isCheckable)
+            .put("checked", node.isChecked)
             .put("focused", node.isFocused)
             .put("scrollable", node.isScrollable)
             .put("bounds", JSONObject()

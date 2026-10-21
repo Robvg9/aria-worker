@@ -335,22 +335,67 @@ function summarizeAndroidUiEvidence(value:unknown){
   const diagnostic=source.diagnostic&&typeof source.diagnostic==='object'?source.diagnostic as Record<string,any>:{};
   const uiDiagnostic=ui.diagnostic&&typeof ui.diagnostic==='object'?ui.diagnostic as Record<string,any>:{};
   const safeString=(value:unknown,max=160)=>typeof value==='string'?value.replace(/[\r\n]+/g,' ').slice(0,max):null;
+  const normalizeUiText=(value:unknown)=>typeof value==='string'
+    ?value.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim()
+    :'';
   const flags={battlecruiser:false,login:false,dashboard:false};
+  const preferenceDefinitions=[
+    {key:'auto_refresh',label:'Actualización automática'},
+    {key:'sync_auto',label:'Sincronización automática'},
+    {key:'sync_on_open',label:'Sincronizar al abrir app'},
+    {key:'sync_wifi_only',label:'Sincronizar solo en Wi-Fi'},
+    {key:'notifications',label:'Notificaciones'},
+    {key:'compact_mode',label:'Modo compacto'}
+  ];
+  const preferenceMatches=new Map<string,any[]>();
+  preferenceDefinitions.forEach((entry:any)=>preferenceMatches.set(entry.key,[]));
+  const preferenceTargets=preferenceDefinitions.map((entry:any)=>({
+    key:entry.key,
+    normalizedLabel:normalizeUiText(entry.label)
+  }));
   let nodeCount=0;
   const visit=(node:any,depth=0):void=>{
     if(!node||typeof node!=='object'||Array.isArray(node)||depth>24||nodeCount>=600)return;
     nodeCount++;
-    const visibleText=['text','name','label','contentDescription']
-      .map(key=>typeof node[key]==='string'?String(node[key]).slice(0,500):'')
-      .join(' ').toLowerCase();
+    const textValues=['text','name','label','contentDescription']
+      .map(key=>typeof node[key]==='string'?String(node[key]).slice(0,500):'');
+    const visibleText=textValues.join(' ').toLowerCase();
     if(/battle\s*cruiser|battlecruiser/.test(visibleText))flags.battlecruiser=true;
     if(/\blog\s*in\b|\bsign\s*in\b|\biniciar sesi[oó]n\b|\bacceder\b/.test(visibleText))flags.login=true;
     if(/\bdashboard\b|\bpanel de control\b/.test(visibleText))flags.dashboard=true;
+    const role=String(node.role||'').toLowerCase();
+    const className=String(node.className||'').toLowerCase();
+    const switchLike=role==='switch'||role==='checkbox'||className.includes('switch')||className.includes('checkbox');
+    if(switchLike&&node.visible!==false){
+      const accessibleNames=['name','label','contentDescription','text']
+        .map(key=>normalizeUiText(node[key])).filter(Boolean);
+      for(const target of preferenceTargets){
+        const isTarget=accessibleNames.some(name=>name===target.normalizedLabel||name.startsWith(target.normalizedLabel+' '));
+        if(isTarget)preferenceMatches.get(target.key)?.push(node);
+      }
+    }
     if(Array.isArray(node.children))for(const child of node.children)visit(child,depth+1);
   };
   const rootNode=ui.root&&typeof ui.root==='object'?ui.root:source.root;
   if(rootNode)visit(rootNode);
   const numberOrNull=(value:unknown)=>Number.isFinite(Number(value))&&value!==null&&value!==''?Number(value):null;
+  const preferenceSwitches=preferenceDefinitions.map((entry:any)=>{
+    const matches=preferenceMatches.get(entry.key)||[];
+    const node=matches.length===1?matches[0]:null;
+    let role:any=null;
+    if(typeof node?.role==='string')role=node.role.toLowerCase();
+    else if(String(node?.className||'').toLowerCase().includes('switch'))role='switch';
+    else if(String(node?.className||'').toLowerCase().includes('checkbox'))role='checkbox';
+    return {
+      key:entry.key,
+      match_count:matches.length,
+      role,
+      checkable:typeof node?.checkable==='boolean'?node.checkable:null,
+      checked:typeof node?.checked==='boolean'?node.checked:null,
+      enabled:typeof node?.enabled==='boolean'?node.enabled:null,
+      visible:typeof node?.visible==='boolean'?node.visible:null
+    };
+  });
   return {
     ok:source.ok===true,
     reason:safeString(source.reason,240),
@@ -363,6 +408,7 @@ function summarizeAndroidUiEvidence(value:unknown){
     battlecruiser_marker_visible:flags.battlecruiser,
     login_marker_visible:flags.login,
     dashboard_marker_visible:flags.dashboard,
+    preference_switches:preferenceSwitches,
     diagnostic:{
       active_package:safeString(diagnostic.activePackage||uiDiagnostic.activePackage),
       active_is_browser:typeof diagnostic.activeIsBrowser==='boolean'?diagnostic.activeIsBrowser:null,
