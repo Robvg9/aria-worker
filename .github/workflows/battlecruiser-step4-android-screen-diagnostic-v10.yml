@@ -78,9 +78,10 @@ jobs:
             const relevantMenu=n.filter(x=>x.visible&&x.names.some(t=>['abrir menu','cerrar menu','configuracion','conectividad','preferencias'].includes(norm(t))))
               .slice(0,12).map(x=>({id:x.id,text:x.text,visible:x.visible,clickable:x.clickable,enabled:x.enabled,scrollable:x.scrollable}));
             const visibleText=sc.nodes.filter(x=>x.visible&&x.text).slice(0,100).map(x=>({id:x.id,role:x.role,text:x.text,bounds:x.bounds}));
+            const scrollables=sc.nodes.filter(x=>x.visible&&x.scrollable).map(x=>({id:x.id,path:x.path,role:x.role,text:x.text,bounds:x.bounds})).slice(0,12);
             const preferenceStates=sc.nodes.filter(x=>/estado de la opcion:\s*(activada|desactivada)\./.test(norm(x.text))).map(x=>({id:x.id,path:x.path,role:x.role,state:stateFromText(x.text),text:x.text,visible:x.visible,enabled:x.enabled,bounds:x.bounds})).slice(0,12);
             const appMarkers=sc.nodes.filter(x=>x.visible&&x.text&&/login|usuario|contrase[nñ]a|entrar|iniciar sesi[oó]n|battlecruiser|centro de control|abrir men[uú]|preferencias|actualizaci[oó]n autom[aá]tica|sincronizaci[oó]n autom[aá]tica/i.test(x.text)).slice(0,50).map(x=>({id:x.id,role:x.role,text:x.text,bounds:x.bounds}));
-            return {packageName:clean(obs.p.packageName||(obs.p.ui&&obs.p.ui.packageName)),evidenceHash:obs.p.evidence_hash||null,uiEvidenceHash:obs.p.ui&&obs.p.ui.evidence_hash||null,nodeCount:sc.nodeCount,prefsTitleVisible,controls,relevantMenu,appMarkers,visibleText,preferenceStates};
+            return {packageName:clean(obs.p.packageName||(obs.p.ui&&obs.p.ui.packageName)),evidenceHash:obs.p.evidence_hash||null,uiEvidenceHash:obs.p.ui&&obs.p.ui.evidence_hash||null,nodeCount:sc.nodeCount,prefsTitleVisible,controls,relevantMenu,appMarkers,visibleText,scrollables,preferenceStates};
           }
           (async()=>{
             const health=await probeLocalIpcHealth({timeoutMs:2500});
@@ -106,12 +107,20 @@ jobs:
                 if(!open){console.log(JSON.stringify({marker,ok:false,stage:'menu_button_missing',actions,screen:snapshot(current)}));process.exitCode=2;return;}
                 const r=await action({action:'click',nodeId:open.id});
                 actions.push({action:'open_menu',target:open.id,status:r&&r.status,reason:clean(r&&r.reason||r&&r.payload&&r.payload.reason)});
-                await pause(300);current=await observe();if(!current.root||current.p.ok!==true){console.log(JSON.stringify({marker,ok:false,stage:'observe_after_menu',actions,reason:clean(current.r&&current.r.reason||current.p.reason)}));process.exitCode=3;return;}sc=scan(current.root);
+                await pause(1100);current=await observe();if(!current.root||current.p.ok!==true){console.log(JSON.stringify({marker,ok:false,stage:'observe_after_menu',actions,reason:clean(current.r&&current.r.reason||current.p.reason)}));process.exitCode=3;return;}sc=scan(current.root);
               }
               prefsButton=find(/^preferencias$/,{visible:true,clickable:true,enabled:true});
               for(let i=0;i<3&&!prefsButton;i++){
-                const drawer=sc.nodes.find(x=>x.id==='0.0.0.0.2.1'&&x.visible&&x.scrollable);
-                if(!drawer){actions.push({action:'scroll_menu',status:'blocked',reason:'visible_scrollable_drawer_not_found'});break;}
+                const drawer=sc.nodes.find(x=>x.id==='0.0.0.0.2.1'&&x.visible&&x.scrollable)
+                  ||sc.nodes.find(x=>x.visible&&x.scrollable&&x.path.startsWith('0.0.0.0.2'))
+                  ||sc.nodes.find(x=>x.visible&&x.scrollable);
+                if(!drawer){
+                  actions.push({action:'wait_menu_drawer',status:'retry',reason:'visible_scrollable_drawer_not_found'});
+                  await pause(700);current=await observe();
+                  if(!current.root||current.p.ok!==true){actions.push({action:'observe_menu_retry',status:'blocked',reason:'observe_failed'});break;}
+                  sc=scan(current.root);prefsButton=find(/^preferencias$/,{visible:true,clickable:true,enabled:true});
+                  continue;
+                }
                 const r=await action({action:'scroll',nodeId:drawer.id,direction:'forward'});
                 actions.push({action:'scroll_menu',target:drawer.id,status:r&&r.status,reason:clean(r&&r.reason||r&&r.payload&&r.payload.reason)});
                 await pause(300);current=await observe();if(!current.root||current.p.ok!==true)break;sc=scan(current.root);
