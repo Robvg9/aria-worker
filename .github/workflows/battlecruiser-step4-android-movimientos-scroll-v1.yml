@@ -265,12 +265,16 @@ jobs:
               actions.push({action:'scroll_body_forward',target:body.id,status:r&&r.status,reason:clean(r&&r.reason||r&&r.payload&&r.payload.reason)});
               await pause(350);current=await observe();
               if(current.root&&current.p.ok===true){sc=scan(current.root);forward=snapshot();}
-              const bodyBack=sc.nodes.find(x=>x.id==='0.0.0'&&x.visible&&x.scrollable)||sc.nodes.find(x=>x.visible&&x.scrollable&&x.path.startsWith('0.0.0'))||sc.nodes.find(x=>x.visible&&x.scrollable);
-              if(bodyBack){
+              let bodyBack=sc.nodes.find(x=>x.id==='0.0.0'&&x.visible&&x.scrollable)||sc.nodes.find(x=>x.visible&&x.scrollable&&x.path.startsWith('0.0.0'))||sc.nodes.find(x=>x.visible&&x.scrollable);
+              for(let backTry=0;bodyBack&&backTry<3;backTry++){
                 r=await action({action:'scroll',nodeId:bodyBack.id,direction:'backward'});
-                actions.push({action:'scroll_body_backward',target:bodyBack.id,status:r&&r.status,reason:clean(r&&r.reason||r&&r.payload&&r.payload.reason)});
-                await pause(350);current=await observe();
-                if(current.root&&current.p.ok===true){sc=scan(current.root);backward=snapshot();}
+                actions.push({action:backTry===0?'scroll_body_backward':'scroll_body_backward_retry_'+backTry,target:bodyBack.id,status:r&&r.status,reason:clean(r&&r.reason||r&&r.payload&&r.payload.reason)});
+                await pause(450);current=await observe();
+                if(!current.root||current.p.ok!==true)break;
+                sc=scan(current.root);backward=snapshot();
+                restored=!!(initial.hash&&backward&&backward.hash===initial.hash);
+                if(restored)break;
+                bodyBack=sc.nodes.find(x=>x.id==='0.0.0'&&x.visible&&x.scrollable)||sc.nodes.find(x=>x.visible&&x.scrollable&&x.path.startsWith('0.0.0'))||sc.nodes.find(x=>x.visible&&x.scrollable);
               }
               restored=!!(initial.hash&&backward&&backward.hash===initial.hash);
             }else actions.push({action:'scroll_body',status:'blocked',reason:'visible_scrollable_not_found'});
@@ -296,15 +300,12 @@ jobs:
           if code>=300 or body.get('ok') is not True:print(json.dumps(body)[:1200]);raise SystemExit(2)
           terminal={'succeeded','failed','blocked','rejected','cancelled','human_required','paused'}
           last={}
-          idle_count=0
           for i in range(1,61):
               c,last=post('aria-mission-runner-v22',{'mission_id':mid})
               s=str(last.get('status','unknown'));print('POLL='+json.dumps({'n':i,'http':c,'status':s,'error':last.get('error'),'next_action':last.get('next_action')}))
               if s in terminal or c in (401,403,404):break
-              idle_count = idle_count + 1 if s == 'idle' else 0
-              if idle_count >= 3:
-                  print('STOP_POLLING=runner_idle_after_android_job')
-                  break
+              # Async device jobs may still be running while the mission endpoint temporarily returns idle.
+              # Continue polling so a late device completion is reconciled before deciding to notify/fail.
               time.sleep(3)
           s=str(last.get('status','unknown'));print('FINAL_STATUS='+s);print('FINAL='+json.dumps({k:last.get(k) for k in ('ok','status','mission_id','error','next_action','executor_types','results') if k in last},ensure_ascii=False)[:6000])
           if s!='succeeded':
