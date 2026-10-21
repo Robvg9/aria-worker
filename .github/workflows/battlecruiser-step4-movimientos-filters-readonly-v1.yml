@@ -49,7 +49,7 @@ jobs:
           async function action(a){return await send({operation:'action',action:a});}
           function scan(root){const nodes=[],seen=new Set();let count=0;const walk=(n,path,d)=>{if(!n||typeof n!=='object'||Array.isArray(n)||seen.has(n)||d>28||count>=1200)return;seen.add(n);count++;const names=['name','label','contentDescription','text','hint'].map(k=>clean(n[k])).filter(Boolean);nodes.push({id:typeof n.id==='string'&&n.id?n.id:path,path,role:clean(n.role),className:clean(n.className||n.class),names,text:names.join(' | '),visible:n.visible!==false,clickable:!!n.clickable,enabled:n.enabled!==false,scrollable:!!n.scrollable,bounds:n.bounds||null});if(Array.isArray(n.children))n.children.forEach((c,i)=>walk(c,path+'.'+i,d+1));};walk(root,'0',0);return nodes;}
           const exact=(nodes,label,opts={})=>nodes.find(n=>n.names.some(t=>norm(t)===norm(label))&&(!opts.visible||n.visible)&&(!opts.clickable||n.clickable)&&(!opts.enabled||n.enabled));
-          const control=(ns,label)=>ns.find(n=>n.visible&&n.enabled&&n.clickable&&norm(n.text)===norm(label))||ns.find(n=>n.enabled&&n.clickable&&norm(n.text)===norm(label));
+          const control=(ns,label)=>ns.find(n=>n.visible&&n.enabled&&n.clickable&&norm(n.text)===norm(label));
           function snapshot(cur){
             const ns=cur.root?scan(cur.root):[];
             return {hash:cur.p&&cur.p.evidence_hash||null,nodeCount:ns.length,
@@ -60,14 +60,12 @@ jobs:
           async function fresh(){let c=await observe();for(let k=0;k<4&&(!c.root||c.p.ok!==true);k++){await wait(450);c=await observe();}return c;}
           async function clickWait(node,label,timeline){const r=await action({action:'click',nodeId:node.id});timeline.push({step:label,status:r&&r.status,reason:clean(r&&r.reason||r&&r.payload&&r.payload.reason)});await wait(450);return fresh();}
           async function scrollBodyUntil(cur,predicate,timeline){
-            for(let k=0;k<8;k++){
+            for(let k=0;k<5;k++){
               let ns=cur.root?scan(cur.root):[];
               if(predicate(ns))return cur;
-              const body=ns.find(n=>n.id==='0.0.0'&&n.visible&&n.scrollable)||ns.find(n=>n.visible&&n.scrollable&&n.path.startsWith('0.0.0'))||ns.find(n=>n.visible&&n.scrollable);
-              if(!body)break;
-              const r=await action({action:'scroll',nodeId:body.id,direction:'backward'});
-              timeline.push({step:'scroll_movimientos_to_filters_'+(k+1),status:r&&r.status,reason:clean(r&&r.reason||r&&r.payload&&r.payload.reason)});
-              await wait(300);cur=await fresh();
+              const r=await action({action:'swipe',x1:540,y1:1900,x2:540,y2:900,durationMs:450});
+              timeline.push({step:'swipe_movimientos_to_filters_'+(k+1),status:r&&r.status,reason:clean(r&&r.reason||r&&r.payload&&r.payload.reason)});
+              await wait(450);cur=await fresh();
             }
             return cur;
           }
@@ -100,7 +98,7 @@ jobs:
             }
             if(!dest){console.log(JSON.stringify({marker,ok:false,stage:'movimientos_button_not_found',timeline,screen:snapshot(cur)}));process.exitCode=2;return;}
             cur=await clickWait(dest,'open_movimientos',timeline);await wait(700);cur=await fresh();
-            const hasFilterSet=n=>!!control(n,'Todos los almacenes')&&!!control(n,'Todos los tipos')&&!!control(n,'Aplicar');
+            const hasFilterSet=n=>!!control(n,'Todos los almacenes')&&!!control(n,'Todos los tipos');
             cur=await scrollBodyUntil(cur,hasFilterSet,timeline);
             const baseline=snapshot(cur);ns=cur.root?scan(cur.root):[];
             const typeSel=control(ns,'Todos los tipos');
@@ -112,6 +110,11 @@ jobs:
               const labels=ns.filter(n=>n.visible&&n.text&&/todos los tipos|venta|compra|transf|vale/i.test(norm(n.text))).map(n=>clean(n.text)).slice(0,20);
               outcomes.push({filter:'type',status:'selected_and_observed',selected:'Venta',hashBefore:chosen.hashBefore,hashAfter:chosen.hashAfter,hashChanged:chosen.hashChanged,labels});
               ns=cur.root?scan(cur.root):[];let apply=control(ns,'Aplicar');
+              for(let k=0;k<3&&!apply;k++){
+                const swipe=await action({action:'swipe',x1:540,y1:1900,x2:540,y2:900,durationMs:450});
+                timeline.push({step:'swipe_movimientos_apply_after_venta_'+(k+1),status:swipe&&swipe.status,reason:clean(swipe&&swipe.reason||swipe&&swipe.payload&&swipe.payload.reason)});
+                await wait(450);cur=await fresh();ns=cur.root?scan(cur.root):[];apply=control(ns,'Aplicar');
+              }
               if(apply){cur=await clickWait(apply,'apply_type_filter',timeline);await wait(450);outcomes.push({filter:'apply_after_venta',status:'clicked',hash:cur.p&&cur.p.evidence_hash||null,screen:snapshot(cur)});}
               else outcomes.push({filter:'apply_after_venta',status:'not_found'});
             }else outcomes.push({filter:'type',status:chosen.stage,requested:'Venta'});
@@ -123,7 +126,12 @@ jobs:
               const back=await chooseOption(cur,'Todos los tipos',timeline,'restore_type_all');
               if(back.ok){
                 cur=back.cur;ns=cur.root?scan(cur.root):[];
-                const apply=control(ns,'Aplicar');
+                let apply=control(ns,'Aplicar');
+                for(let k=0;k<3&&!apply;k++){
+                  const swipe=await action({action:'swipe',x1:540,y1:1900,x2:540,y2:900,durationMs:450});
+                  timeline.push({step:'swipe_movimientos_apply_after_restore_'+(k+1),status:swipe&&swipe.status,reason:clean(swipe&&swipe.reason||swipe&&swipe.payload&&swipe.payload.reason)});
+                  await wait(450);cur=await fresh();ns=cur.root?scan(cur.root):[];apply=control(ns,'Aplicar');
+                }
                 if(apply){cur=await clickWait(apply,'apply_restored_type_all',timeline);await wait(400);}
                 cur=await scrollBodyUntil(cur,hasFilterSet,timeline);ns=cur.root?scan(cur.root):[];
                 restoredSelection=!!control(ns,'Todos los tipos');
