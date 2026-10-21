@@ -1,0 +1,138 @@
+name: BattleCruiser Step 4 Sales View Mode Switch V2 (Reuse Existing Chrome Tab)
+# Android device reconnected; re-run safe filter selection and restoration test.
+on:
+  push:
+    branches:
+      - aria/bc-step4-android-e2e-20261021
+    paths:
+      - .github/workflows/battlecruiser-step4-sales-view-mode-switch-v2.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: bc-step4-sales-view-mode-switch-v2-${{ github.run_id }}
+  cancel-in-progress: false
+jobs:
+  android-sales-view-mode-switch-v2:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 8
+    steps:
+      - name: Observe read-only Mando audit type/status filters and restore defaults
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          ARIA_RUNTIME_SHARED_SECRET: ${{ secrets.ARIA_RUNTIME_SHARED_SECRET }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import json, os, time, urllib.request, urllib.error
+          project=os.environ.get('SUPABASE_PROJECT_REF','').strip()
+          secret=os.environ.get('ARIA_RUNTIME_SHARED_SECRET','')
+          if not project or not secret: raise SystemExit('BLOCKED: production secrets unavailable')
+          base=f'https://{project}.supabase.co/functions/v1'
+          headers={'Authorization':'Bearer '+secret,'content-type':'application/json','cache-control':'no-store'}
+          mission_id=f"mission_bc_step4_sales_view_mode_switch_v2_{os.environ['RUN_ID']}_{os.environ['RUN_ATTEMPT']}"
+          device='android-termux-a1ebcfc7-9287-4603-a0f9-c519d12fd092'
+          marker='BC_STEP4_VENTAS_VIEW_MODE_SWITCH_V2_REUSE_TAB'
+          command=r"""node <<'NODE'
+          const {executeAndroidAccessibilityJob,probeLocalIpcHealth}=require('./computer-use/android-accessibility-v1.js');
+          const marker='BC_STEP4_VENTAS_VIEW_MODE_SWITCH_V2_REUSE_TAB',host='battlecruiser.robvg9.workers.dev';
+          const expectedBuild='3708b31b319884f7d42082414a82cdd11450fe2d';
+          const base={target_package:'com.android.chrome',allow_any_app:false,allowed_hosts:[host]};
+          const clean=s=>typeof s==='string'?s.replace(/\s+/g,' ').trim().replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/ig,'[redacted]').slice(0,140):'';
+          const norm=s=>clean(s).toLowerCase().replace(/[áàä]/g,'a').replace(/[éèë]/g,'e').replace(/[íìï]/g,'i').replace(/[óòö]/g,'o').replace(/[úùü]/g,'u').replace(/ñ/g,'n').trim();
+          const wait=ms=>new Promise(r=>setTimeout(r,ms));
+          async function send(q,timeoutMs=12000){return await executeAndroidAccessibilityJob({command:JSON.stringify({...base,...q}),timeoutMs});}
+          async function observe(){const r=await send({operation:'observe'},6000),p=r&&r.payload||{},root=p.root||(p.ui&&p.ui.root)||null;return {r,p,root};}
+          async function action(a){return await send({operation:'action',action:a},10000);}
+          function scan(root){const nodes=[],seen=new Set();let count=0;const walk=(n,path,d)=>{if(!n||typeof n!=='object'||Array.isArray(n)||seen.has(n)||d>28||count>=1200)return;seen.add(n);count++;const names=['name','label','contentDescription','text','hint'].map(k=>clean(n[k])).filter(Boolean);nodes.push({id:typeof n.id==='string'&&n.id?n.id:path,path,role:clean(n.role),className:clean(n.className||n.class),names,text:names.join(' | '),visible:n.visible!==false,clickable:!!n.clickable,enabled:n.enabled!==false,scrollable:!!n.scrollable,bounds:n.bounds||null});if(Array.isArray(n.children))n.children.forEach((c,i)=>walk(c,path+'.'+i,d+1));};walk(root,'0',0);return nodes;}
+          const exact=(nodes,label)=>nodes.find(n=>n.names.some(t=>norm(t)===norm(label))&&n.visible&&n.clickable&&n.enabled);
+          const contains=(ns,part)=>ns.find(n=>n.visible&&n.clickable&&n.enabled&&norm(n.text).includes(norm(part)));
+          const findMenu=ns=>exact(ns,'Abrir menú')||exact(ns,'Abrir menu');
+          async function fresh(){let cur=await observe();for(let k=0;k<3&&(!cur.root||cur.p.ok!==true);k++){await wait(350);cur=await observe();}return cur;}
+          async function clickWait(n,label,timeline){const r=await action({action:'click',nodeId:n.id});timeline.push({step:label,status:r&&r.status,reason:clean(r&&r.reason||r&&r.payload&&r.payload.reason)});await wait(450);return fresh();}
+          function digest(cur){const ns=cur.root?scan(cur.root):[];return {hash:cur.p&&cur.p.evidence_hash||null,nodeCount:ns.length,visibleTexts:ns.filter(n=>n.visible&&n.text).slice(0,45).map(n=>({text:clean(n.text),role:n.role,clickable:n.clickable,className:n.className,bounds:n.bounds})),viewLabels:ns.filter(n=>n.visible&&n.text&&/buscador|catálogo|catalogo|carrito|cargando productos/i.test(norm(n.text))).slice(0,20).map(n=>({text:clean(n.text),role:n.role,clickable:n.clickable,bounds:n.bounds}))};}
+          async function waitForViews(cur,timeline){
+            let ns=cur.root?scan(cur.root):[],finder=contains(ns,'Buscador'),catalog=contains(ns,'Catálogo')||contains(ns,'Catalogo');
+            for(let k=0;k<12&&(!finder||!catalog||ns.some(n=>n.visible&&norm(n.text).includes('cargando productos')));k++){
+              await wait(850);cur=await fresh();ns=cur.root?scan(cur.root):[];finder=contains(ns,'Buscador');catalog=contains(ns,'Catálogo')||contains(ns,'Catalogo');
+              timeline.push({step:'wait_sales_catalog_'+(k+1),status:(!ns.some(n=>n.visible&&norm(n.text).includes('cargando productos'))?'loaded_or_no_spinner':'still_loading'),finderVisible:!!finder,catalogVisible:!!catalog});
+            }
+            return {cur,ns,finder,catalog};
+          }
+          (async()=>{
+            const h=await probeLocalIpcHealth({timeoutMs:2500}),hp=h&&h.payload||{};
+            const exactBuild=h&&h.ok===true&&String(hp.version_name)==='1.1.23'&&Number(hp.version_code)===29&&String(hp.build_id)===expectedBuild;
+            if(!exactBuild){console.log(JSON.stringify({marker,ok:false,stage:'exact_agent_build_mismatch',build:{ok:!!h?.ok,version_name:hp.version_name||null,version_code:hp.version_code||null,build_id:hp.build_id||null}}));process.exitCode=20;return;}
+            const timeline=[];
+            let cur=await fresh(),ns=cur.root?scan(cur.root):[],menu=findMenu(ns);
+            // Reuse an existing Chrome tab. Do not keep creating blank duplicate tabs.
+            if(!menu){
+              const tabs=ns.find(n=>n.visible&&n.enabled&&n.clickable&&/ver\s*\d+\s*pestañas|ver\s*pestañas|tabs/i.test(norm(n.text)));
+              if(tabs){
+                cur=await clickWait(tabs,'open_existing_chrome_tab_switcher',timeline);
+                for(let k=0;k<6&&!menu;k++){
+                  ns=cur.root?scan(cur.root):[];
+                  let tab=ns.find(n=>n.visible&&n.enabled&&n.clickable&&/(battlecruiser|workers\.dev)/i.test(n.text)&&!/cerrar|close|eliminar/i.test(norm(n.text)));
+                  if(tab){
+                    cur=await clickWait(tab,'select_existing_battlecruiser_tab_'+(k+1),timeline);
+                    await wait(1000);cur=await fresh();ns=cur.root?scan(cur.root):[];menu=findMenu(ns);
+                    if(menu)break;
+                  } else {
+                    const scroller=ns.find(n=>n.visible&&n.scrollable)||ns.find(n=>n.visible&&/pestañas abiertas/i.test(norm(n.text)));
+                    if(!scroller)break;
+                    const sr=await action({action:'swipe',x1:540,y1:1850,x2:540,y2:800,durationMs:420});
+                    timeline.push({step:'scroll_existing_tab_grid_'+(k+1),status:sr&&sr.status,reason:clean(sr&&sr.reason||sr&&sr.payload&&sr.payload.reason)});
+                    await wait(350);cur=await fresh();
+                  }
+                }
+              }
+            }
+            if(!menu){
+              console.log(JSON.stringify({marker,ok:false,stage:'no_existing_battlecruiser_tab_with_menu',timeline,screen:digest(cur),safety:{businessWrites:false,cartConfirmed:false,stockMutated:false}}));
+              process.exitCode=1;return;
+            }
+            cur=await clickWait(menu,'open_menu',timeline);
+            ns=cur.root?scan(cur.root):[];
+            let sales=ns.find(n=>n.visible&&n.clickable&&n.enabled&&norm(n.text)==='ventas')||ns.find(n=>n.visible&&n.clickable&&n.enabled&&n.names.some(t=>norm(t)==='ventas'));
+            if(!sales){console.log(JSON.stringify({marker,ok:false,stage:'sales_destination_not_found',timeline,screen:digest(cur)}));process.exitCode=2;return;}
+            cur=await clickWait(sales,'open_sales',timeline);await wait(700);cur=await fresh();
+            let waited=await waitForViews(cur,timeline);cur=waited.cur;
+            const before=digest(cur);let finder=waited.finder,catalog=waited.catalog;
+            if(!finder||!catalog){console.log(JSON.stringify({marker,ok:false,stage:'sales_view_controls_not_ready',timeline,before,controls:{finder:!!finder,catalog:!!catalog},safety:{businessWrites:false,cartConfirmed:false,stockMutated:false}}));process.exitCode=3;return;}
+            const afterFinder=await clickWait(finder,'switch_to_sales_search_view',timeline);
+            const searchDigest=digest(afterFinder),finderChanged=!!before.hash&&!!searchDigest.hash&&before.hash!==searchDigest.hash;
+            ns=afterFinder.root?scan(afterFinder.root):[];catalog=contains(ns,'Catálogo')||contains(ns,'Catalogo');
+            if(!catalog){console.log(JSON.stringify({marker,ok:false,stage:'catalog_button_missing_after_search_mode',timeline,before,searchView:searchDigest,finderChanged,safety:{businessWrites:false,cartConfirmed:false,stockMutated:false}}));process.exitCode=4;return;}
+            const afterCatalog=await clickWait(catalog,'restore_sales_catalog_view',timeline);
+            const finalDigest=digest(afterCatalog),catalogChanged=!!searchDigest.hash&&!!finalDigest.hash&&searchDigest.hash!==finalDigest.hash;
+            ns=afterCatalog.root?scan(afterCatalog.root):[];
+            const finderFinal=contains(ns,'Buscador'),catalogFinal=contains(ns,'Catálogo')||contains(ns,'Catalogo');
+            const ok=finderChanged&&catalogChanged&&!!finderFinal&&!!catalogFinal;
+            const result={marker,ok,build:{version_name:hp.version_name,version_code:hp.version_code,build_id:hp.build_id},timeline,before,searchView:searchDigest,catalogView:finalDigest,checks:{finderModeChanged:finderChanged,catalogModeChanged:catalogChanged,bothModeControlsPresent:!!finderFinal&&!!catalogFinal},safety:{existingChromeTabReused:true,viewModeSwitchesOnly:true,productDetailsOpened:false,cartModified:false,formsSubmitted:false,saleConfirmed:false,businessWrites:false,stockMutated:false,logoutClicked:false}};
+            console.log(JSON.stringify(result));if(!ok)process.exitCode=5;
+          })().catch(e=>{console.log(JSON.stringify({marker,ok:false,error:clean(String(e&&e.message||e))}));process.exitCode=1;});
+          NODE"""
+          metadata={'goal_source':'chat','source_application':'ChatGPT','project_name':'BattleCruiser','source':'battlecruiser_step4_sales_view_mode_switch_v2','verification_marker':marker,'device_id':device,'requested_device_id':device,'operation':'shell.execute','executor_type':'device','requested_capability':'shell.execute','command':command,'risk':'READ','timeout_ms':45000,'target_package':'com.android.chrome','allowed_hosts':['battlecruiser.robvg9.workers.dev'],'read_only':True,'business_data_mutated':False,'explicit_device_intent':True,'human_gate_required':False}
+          def post(fn,payload,timeout=75):
+              req=urllib.request.Request(base+'/'+fn,data=json.dumps(payload).encode(),headers=headers,method='POST')
+              try:
+                  with urllib.request.urlopen(req,timeout=timeout) as r:return r.status,json.loads(r.read().decode())
+              except urllib.error.HTTPError as e:
+                  try:return e.code,json.loads(e.read().decode())
+                  except:return e.code,{}
+          code,body=post('aria-direct-v1',{'goal':'Selecciona una pestaña Chrome existente de BattleCruiser LIVE y alterna Ventas entre Buscador y Catálogo; termina en Catálogo. No crear pestañas nuevas si existe una página LIVE accesible. No abrir productos, editar carrito ni confirmar ventas. Agente 1.1.23 exacto. Marcador BC_STEP4_VENTAS_VIEW_MODE_SWITCH_V2_REUSE_TAB.','mission_id':mission_id,'metadata':metadata})
+          print('DISPATCH_HTTP='+str(code));print('MISSION_ID='+mission_id);print('DISPATCH_STATUS='+str(body.get('dispatch',{}).get('status','unknown')))
+          if code>=300 or body.get('ok') is not True:print(json.dumps(body)[:1200]);raise SystemExit(2)
+          terminal={'succeeded','failed','blocked','rejected','cancelled','human_required','paused'}
+          last={}
+          for i in range(1,61):
+              c,last=post('aria-mission-runner-v22',{'mission_id':mission_id})
+              s=str(last.get('status','unknown'));print('POLL='+json.dumps({'n':i,'http':c,'status':s,'error':last.get('error'),'next_action':last.get('next_action')}))
+              if s in terminal or c in (401,403,404):break
+              time.sleep(3)
+          s=str(last.get('status','unknown'));print('FINAL_STATUS='+s);print('FINAL='+json.dumps({k:last.get(k) for k in ('ok','status','mission_id','error','next_action','executor_types','results') if k in last},ensure_ascii=False)[:6000])
+          if s!='succeeded':raise SystemExit(1)
+          PY
