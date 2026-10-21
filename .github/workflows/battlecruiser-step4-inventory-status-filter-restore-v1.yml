@@ -74,7 +74,7 @@ jobs:
             }
             if(!dest){console.log(JSON.stringify({marker,ok:false,stage:'inventory_button_not_found',timeline,screen:snapshot(cur)}));process.exitCode=2;return;}
             r=await action({action:'click',nodeId:dest.id});timeline.push({step:'open_inventory',status:r&&r.status,reason:clean(r&&r.reason||r&&r.payload&&r.payload.reason)});await wait(800);cur=await fresh();
-            let ns=cur.root?scan(cur.root):[];
+            ns=cur.root?scan(cur.root):[];
             let statusSel=exact(ns,'Todos los estados',{visible:true,clickable:true,enabled:true});
             for(let k=0;k<3&&!statusSel;k++){
               r=await action({action:'swipe',x1:540,y1:1900,x2:540,y2:900,durationMs:450});
