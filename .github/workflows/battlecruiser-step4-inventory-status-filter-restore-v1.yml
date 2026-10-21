@@ -108,6 +108,7 @@ jobs:
             const statusHashChanged=!!menuHash&&!!filteredHash&&menuHash!==filteredHash;
             const result={marker,ok:r&&r.status==='succeeded'&&statusHashChanged&&defaultStatus&&defaultWarehouse&&!!(clearResult&&clearResult.status==='succeeded'),build:{version_name:hp.version_name,version_code:hp.version_code,build_id:hp.build_id},timeline,before,filtered,after,statusHashChanged,defaultStatus,defaultWarehouse,safety:{filtersOnly:true,recordsOpened:false,formsSubmitted:false,businessWrites:false,stockMutated:false,logoutClicked:false}};
             console.log(JSON.stringify(result));if(!result.ok)process.exitCode=5;
+          })().catch(e=>{console.log(JSON.stringify({marker,ok:false,error:clean(String(e&&e.message||e))}));process.exitCode=1;});
           NODE"""
           metadata={'goal_source':'chat','source_application':'ChatGPT','project_name':'BattleCruiser','source':'battlecruiser_step4_inventory_status_filter_restore_v1','verification_marker':marker,'device_id':device,'requested_device_id':device,'operation':'shell.execute','executor_type':'device','requested_capability':'shell.execute','command':command,'risk':'READ','timeout_ms':45000,'target_package':'com.android.chrome','allowed_hosts':['battlecruiser.robvg9.workers.dev'],'read_only':True,'business_data_mutated':False,'explicit_device_intent':True,'human_gate_required':False}
           def post(fn,payload,timeout=75):
