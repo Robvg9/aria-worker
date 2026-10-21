@@ -9,7 +9,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: bc-step4-android-tree-scan-v4
+  group: bc-step4-android-tree-scan-v4-accentfix
   cancel-in-progress: false
 jobs:
   android-tree-scan:
