@@ -142,8 +142,8 @@ jobs:
             }else timeline.push({step:'restore_type_all',status:'not_found'});
             const final=snapshot(cur);ns=cur.root?scan(cur.root):[];
             const finalType=control(ns,'Todos los tipos'),finalWarehouse=control(ns,'Todos los almacenes'),applyBtn=control(ns,'Aplicar');
-            const baseSummary=baseline.controls.find(x=>/^\\d+\\s+movimientos$/i.test(norm(x.text)))?.text||null;
-            const finalSummary=final.controls.find(x=>/^\\d+\\s+movimientos$/i.test(norm(x.text)))?.text||null;
+            const baseSummary=baseline.controls.find(x=>/^\d+\s+movimientos$/i.test(norm(x.text)))?.text||null;
+            const finalSummary=final.controls.find(x=>/^\d+\s+movimientos$/i.test(norm(x.text)))?.text||null;
             const summaryRestored=!!baseSummary&&!!finalSummary&&norm(baseSummary)===norm(finalSummary);
             const selectionObserved=outcomes.some(x=>x.filter==='type'&&x.status==='selected_and_observed'&&x.hashChanged===true);
             const ok=selectionObserved&&restoredSelection&&!!finalType&&!!finalWarehouse&&summaryRestored;
