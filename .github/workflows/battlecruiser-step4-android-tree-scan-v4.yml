@@ -103,7 +103,7 @@ jobs:
             const isPrefs=()=>scanned.nodes.some(n=>n.visible&&n.names.some(v=>/preferencias personales|actualizacion automatica|sincronizacion automatica|sincronizar al abrir app|sincronizar solo en wi.fi|modo compacto/i.test(norm(v))));
             let drawerOpen=scanned.nodes.some(n=>n.visible&&n.names.some(v=>exact(v,'cerrar menu')));
             if(!isPrefs()&&!drawerOpen){
-              const open=find(/abrir menu/,{visible:true,clickable:true,enabled:true});
+              const open=find(/abrir men[uú]/i,{visible:true,clickable:true,enabled:true});
               if(open){
                 const r=await action({action:'click',nodeId:open.id});
                 actions.push({action:'open_navigation_drawer',target:open.id,status:r&&r.status,reason:clean(r&&r.reason||r&&r.payload&&r.payload.reason)});
