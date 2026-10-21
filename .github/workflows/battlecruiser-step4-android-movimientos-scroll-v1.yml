@@ -102,11 +102,28 @@ jobs:
             return {packageName:clean(obs.p.packageName||(obs.p.ui&&obs.p.ui.packageName)),evidenceHash:obs.p.evidence_hash||null,uiEvidenceHash:obs.p.ui&&obs.p.ui.evidence_hash||null,nodeCount:sc.nodeCount,prefsTitleVisible,controls,relevantMenu,appMarkers,visibleText,scrollables,preferenceStates};
           }
           (async()=>{
-            const health=await probeLocalIpcHealth({timeoutMs:2500});
+            let health=await probeLocalIpcHealth({timeoutMs:2500});
+            let bootstrap=null;
+            if(!health||health.ok!==true){
+              // The no-op wait is read-only; it exercises the agent's own command-receiver fallback/recovery before we gate on build identity.
+              try{
+                bootstrap=await send({operation:'action',action:{action:'wait',ms:0}},4500);
+                await pause(500);
+                health=await probeLocalIpcHealth({timeoutMs:2500});
+              }catch(e){bootstrap={status:'failed',reason:clean(String(e&&e.message||e))};}
+            }
             const hp=health&&health.payload||{};
-            const agentBuild={ok:health&&health.ok===true,version_name:hp.version_name||health&&health.metadata&&health.metadata.version_name||null,version_code:hp.version_code||health&&health.metadata&&health.metadata.version_code||null,build_id:hp.build_id||health&&health.metadata&&health.metadata.build_id||null};
+            const hm=health&&health.metadata||{};
+            const agentBuild={ok:health&&health.ok===true,version_name:hp.version_name||hm.version_name||null,version_code:hp.version_code||hm.version_code||null,build_id:hp.build_id||hm.build_id||null};
             agentBuild.exact_build=agentBuild.ok===true&&String(agentBuild.version_name)==='1.1.23'&&Number(agentBuild.version_code)===29&&String(agentBuild.build_id)==='3708b31b319884f7d42082414a82cdd11450fe2d';
-            if(!agentBuild.exact_build){console.log(JSON.stringify({marker,ok:false,stage:'exact_agent_build_mismatch',agentBuild}));process.exitCode=20;return;}
+            if(!agentBuild.exact_build){
+              console.log(JSON.stringify({marker,ok:false,stage:'exact_agent_build_mismatch',agentBuild,
+                health_reason:clean(health&&health.reason||''),
+                health_status:health&&health.status||null,
+                health_metadata:{transport:hm.transport||null,expected_protocol:hm.expected_protocol||null,actual_protocol:hm.actual_protocol||null},
+                read_only_bootstrap:bootstrap?{status:bootstrap.status||null,reason:clean(bootstrap.reason||bootstrap.payload&&bootstrap.payload.reason||''),transport:bootstrap.metadata&&bootstrap.metadata.transport||null,attempt:bootstrap.metadata&&bootstrap.metadata.attempt||null,recovery_attempted:bootstrap.metadata&&bootstrap.metadata.recovery_attempted===true,payload_build:{version_name:bootstrap.payload&&bootstrap.payload.version_name||null,version_code:bootstrap.payload&&bootstrap.payload.version_code||null,build_id:bootstrap.payload&&bootstrap.payload.build_id||null}}:null
+              }));process.exitCode=20;return;
+            }
             const actions=[];
             let current=await observe();
             if(!current.root||current.p.ok!==true){
