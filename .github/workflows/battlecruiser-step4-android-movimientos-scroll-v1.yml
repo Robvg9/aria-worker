@@ -7,7 +7,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: bc-step4-android-movimientos-scroll-v1-settings-recovery
+  group: bc-step4-android-movimientos-scroll-v1-notification-recovery
   cancel-in-progress: false
 jobs:
   android-movimientos-scroll-v1:
@@ -104,7 +104,7 @@ jobs:
           }
           (async()=>{
             let health=await probeLocalIpcHealth({timeoutMs:2200});
-            let bootstrap=null, termuxOpen=null, diagBefore=null, observeRecovery=null;
+            let bootstrap=null, termuxOpen=null, diagBefore=null, observeRecovery=null, recoveryNotification=null;
             const safeProbe=(bin,args,timeout=1800)=>{
               try {
                 const r=spawnSync(bin,args,{encoding:'utf8',timeout,maxBuffer:250000});
@@ -143,6 +143,19 @@ jobs:
                   health=await probeLocalIpcHealth({timeoutMs:2200});
                 }catch(e){observeRecovery={status:'failed',reason:clean(String(e&&e.message||e))};}
               }
+              if(!health||health.ok!==true){
+                // One local heads-up helps the owner restore the OS-protected service; this is not used as test evidence.
+                recoveryNotification=safeProbe('termux-notification',[
+                  '--id','bc-step4-accessibility-recovery-20261021',
+                  '--title','BattleCruiser — Paso 4/15',
+                  '--content','Acción manual puntual: abre ARIA Local Mission y confirma que su servicio de Accesibilidad esté activado. El control remoto no puede abrir Ajustes desde segundo plano.',
+                  '--priority','high','--alert-once'
+                ],3000);
+                if(recoveryNotification.status===0){
+                  await pause(15000);
+                  health=await probeLocalIpcHealth({timeoutMs:2500});
+                }
+              }
             }
             const hp=health&&health.payload||{};
             const hm=health&&health.metadata||{};
@@ -153,6 +166,7 @@ jobs:
                 health:localHealthSummary(health),
                 preflight:diagBefore,
                 openBattleCruiserViaAndroid:termuxOpen,
+                recoveryNotification,
                 readOnlyWait:bootstrap?{status:bootstrap.status||null,reason:clean(bootstrap.reason||bootstrap.payload&&bootstrap.payload.reason||''),transport:bootstrap.metadata&&bootstrap.metadata.transport||null,attempt:bootstrap.metadata&&bootstrap.metadata.attempt||null,recovery_attempted:bootstrap.metadata&&bootstrap.metadata.recovery_attempted===true,fallback_reason:clean(bootstrap.metadata&&bootstrap.metadata.fallback_reason||''),payload_build:{version_name:bootstrap.payload&&bootstrap.payload.version_name||null,version_code:bootstrap.payload&&bootstrap.payload.version_code||null,build_id:bootstrap.payload&&bootstrap.payload.build_id||null}}:null,
                 readOnlyObserve:observeRecovery?{status:observeRecovery.status||null,reason:clean(observeRecovery.reason||observeRecovery.payload&&observeRecovery.payload.reason||''),transport:observeRecovery.metadata&&observeRecovery.metadata.transport||null,attempt:observeRecovery.metadata&&observeRecovery.metadata.attempt||null,recovery_attempted:observeRecovery.metadata&&observeRecovery.metadata.recovery_attempted===true}:null
               }));process.exitCode=20;return;
