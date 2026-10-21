@@ -73,7 +73,7 @@ jobs:
             }
             if(!destination){ns=cur.root?scan(cur.root):[];console.log(JSON.stringify({marker,ok:false,stage:'movimientos_button_not_found',timeline,screen:{hash:cur.p?.evidence_hash||null,nodeCount:ns.length,visibleLabels:ns.filter(n=>n.visible&&n.text&&targetLabel.test(n.text)).slice(0,80)}}));process.exitCode=2;return;}
             r=await action({action:'click',nodeId:destination.id});timeline.push({step:'open_movimientos',status:r&&r.status,reason:clean(r&&r.reason||r&&r.payload&&r.payload.reason)});await wait(650);cur=await fresh();
-            const ns=cur.root?scan(cur.root):[];
+            ns=cur.root?scan(cur.root):[];
             const labels=ns.filter(n=>n.text&&targetLabel.test(n.text)).map(n=>({id:n.id,path:n.path,role:n.role,className:n.className,text:clean(n.text),visible:n.visible,clickable:n.clickable,enabled:n.enabled,scrollable:n.scrollable,bounds:n.bounds})).slice(0,100);
             const scrollables=ns.filter(n=>n.scrollable).map(n=>({id:n.id,path:n.path,role:n.role,visible:n.visible,clickable:n.clickable,bounds:n.bounds})).slice(0,20);
             const editables=ns.filter(n=>/edittext|textbox|combobox|spinner|date/i.test(n.className+' '+n.role)).map(n=>({id:n.id,path:n.path,role:n.role,className:n.className,text:clean(n.text),visible:n.visible,clickable:n.clickable,enabled:n.enabled,bounds:n.bounds})).slice(0,30);
