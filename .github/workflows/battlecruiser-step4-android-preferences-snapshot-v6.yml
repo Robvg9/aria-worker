@@ -7,7 +7,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: bc-step4-android-preferences-snapshot-v6
+  group: bc-step4-android-preferences-snapshot-v6-loadfix
   cancel-in-progress: false
 jobs:
   android-preferences:
@@ -81,9 +81,9 @@ jobs:
             const actions=[];
             const nav=await action({action:'navigate',url:'https://'+host});
             actions.push({action:'navigate',status:nav&&nav.status,reason:clean(nav&&nav.reason||nav&&nav.payload&&nav.payload.reason)});
-            await pause(2300);
+            await pause(5000);
             let current=await observe();
-            for(let i=0;i<4&&(!current.root||current.p.ok!==true);i++){await pause(700);current=await observe();}
+            for(let i=0;i<8&&(!current.root||current.p.ok!==true||scan(current.root).nodeCount<70);i++){await pause(1000);current=await observe();}
             if(!current.root||current.p.ok!==true){console.log(JSON.stringify({marker,ok:false,stage:'initial_observe',actions,reason:clean(current.r&&current.r.reason||current.p.reason)}));process.exitCode=1;return;}
             let sc=scan(current.root);
             const find=(re,opts={})=>sc.nodes.find(x=>x.names.some(t=>re.test(norm(t)))&&(!opts.visible||x.visible)&&(!opts.clickable||x.clickable)&&(!opts.enabled||x.enabled));
