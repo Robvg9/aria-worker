@@ -10,7 +10,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: bc-step4-movimientos-filters-readonly-v1
+  group: bc-step4-movimientos-filters-readonly-v1-${{ github.run_id }}
   cancel-in-progress: false
 jobs:
   android-movimientos-filters-readonly-v1:
