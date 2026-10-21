@@ -1,4 +1,5 @@
 name: BattleCruiser Step 4 Product Search Filter and Restore V2 (Read Only)
+# Android accessibility service restored 2026-10-21; rerun the read-only physical search/restore check.
 on:
   push:
     branches:
