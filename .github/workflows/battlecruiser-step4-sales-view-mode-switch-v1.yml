@@ -76,10 +76,15 @@ jobs:
               sales=ns.find(n=>n.visible&&n.clickable&&n.enabled&&n.names.some(t=>norm(t)==='ventas'));
             }
             if(!sales){console.log(JSON.stringify({marker,ok:false,stage:'sales_destination_not_found',timeline,screen:digest(cur)}));process.exitCode=2;return;}
-            cur=await clickWait(sales,'open_sales',timeline);await wait(600);cur=await fresh();
-            const before=digest(cur);
+            cur=await clickWait(sales,'open_sales',timeline);await wait(700);cur=await fresh();
             let nsNow=cur.root?scan(cur.root):[];
             let finder=contains(nsNow,'Buscador'),catalog=contains(nsNow,'Catálogo')||contains(nsNow,'Catalogo');
+            // Wait for LIVE products to finish loading before judging whether the mode controls exist.
+            for(let k=0;k<10&&(!finder||!catalog||nsNow.some(n=>n.visible&&norm(n.text).includes('cargando productos')));k++){
+              await wait(900);cur=await fresh();nsNow=cur.root?scan(cur.root):[];
+              finder=contains(nsNow,'Buscador');catalog=contains(nsNow,'Catálogo')||contains(nsNow,'Catalogo');
+            }
+            const before=digest(cur);
             if(!finder||!catalog){console.log(JSON.stringify({marker,ok:false,stage:'view_mode_buttons_not_actionable',timeline,before,controls:{finder:finder?{id:finder.id,text:clean(finder.text),bounds:finder.bounds}:null,catalog:catalog?{id:catalog.id,text:clean(catalog.text),bounds:catalog.bounds}:null},safety:{businessWrites:false,cartConfirmed:false,stockMutated:false}}));process.exitCode=3;return;}
             const afterFinder=await clickWait(finder,'switch_to_sales_search_view',timeline);
             const searchDigest=digest(afterFinder);
