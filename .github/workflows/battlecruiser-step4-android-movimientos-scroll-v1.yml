@@ -296,11 +296,47 @@ jobs:
           if code>=300 or body.get('ok') is not True:print(json.dumps(body)[:1200]);raise SystemExit(2)
           terminal={'succeeded','failed','blocked','rejected','cancelled','human_required','paused'}
           last={}
+          idle_count=0
           for i in range(1,61):
               c,last=post('aria-mission-runner-v22',{'mission_id':mid})
               s=str(last.get('status','unknown'));print('POLL='+json.dumps({'n':i,'http':c,'status':s,'error':last.get('error'),'next_action':last.get('next_action')}))
               if s in terminal or c in (401,403,404):break
+              idle_count = idle_count + 1 if s == 'idle' else 0
+              if idle_count >= 3:
+                  print('STOP_POLLING=runner_idle_after_android_job')
+                  break
               time.sleep(3)
           s=str(last.get('status','unknown'));print('FINAL_STATUS='+s);print('FINAL='+json.dumps({k:last.get(k) for k in ('ok','status','mission_id','error','next_action','executor_types','results') if k in last},ensure_ascii=False)[:6000])
-          if s!='succeeded':raise SystemExit(1)
+          if s!='succeeded':
+              notification_mid=f"mission_bc_step4_android_accessibility_recovery_notification_{os.environ['RUN_ID']}_{os.environ['RUN_ATTEMPT']}"
+              notification_goal=("Send exactly one harmless Android notification to the explicitly enrolled Android Termux device asking the owner to open ARIA Local Mission, enable its Accessibility service in Android Settings, and return Chrome/BattleCruiser to the foreground. Use the device notification capability android.notification / notifications.push; do not use a shell notification command. Do not open system Settings remotely, change preferences, touch business data, submit forms, or claim the UI test passed.")
+              notification_metadata={
+                  'goal_source':'chat','source_application':'ChatGPT','project_name':'BattleCruiser',
+                  'source':'battlecruiser_step4_android_accessibility_recovery_notification',
+                  'device_id':device,'requested_device_id':device,
+                  'requested_capability':'notifications.push','operation':'android.notification',
+                  'executor_type':'device','explicit_device_intent':True,'risk':'LOW_RISK_WRITE',
+                  'human_gate_required':False,'business_data_mutated':False,
+                  'notification_id':f"bc-step4-accessibility-recovery-{os.environ['RUN_ID']}-{os.environ['RUN_ATTEMPT']}",
+                  'kind':'device_ui_recovery','title':'BattleCruiser — Paso 4/15',
+                  'message':'Para continuar las pruebas físicas: abre ARIA Local Mission y activa su servicio de Accesibilidad en Ajustes de Android; después vuelve a Chrome/BattleCruiser. No repitas las pruebas de PC.',
+                  'priority':'high','severity':'warning'
+              }
+              nc,nb=post('aria-direct-v1',{'goal':notification_goal,'mission_id':notification_mid,'metadata':notification_metadata})
+              print('RECOVERY_NOTIFICATION_DISPATCH='+json.dumps({'http':nc,'ok':nb.get('ok'),'queue':nb.get('queue'),'dispatch':nb.get('dispatch'),'mission_id':notification_mid},ensure_ascii=False)[:3000])
+              notification_status='not_dispatched'
+              nl={}
+              if nc<300 and nb.get('ok') is True:
+                  n_idle=0
+                  for ni in range(1,31):
+                      ncode,nl=post('aria-mission-runner-v22',{'mission_id':notification_mid})
+                      notification_status=str(nl.get('status','unknown'))
+                      print('NOTIFICATION_POLL='+json.dumps({'n':ni,'http':ncode,'status':notification_status,'error':nl.get('error'),'next_action':nl.get('next_action')}))
+                      if notification_status in terminal or ncode in (401,403,404):break
+                      n_idle=n_idle+1 if notification_status=='idle' else 0
+                      if n_idle>=4:break
+                      time.sleep(2)
+              print('RECOVERY_NOTIFICATION_FINAL='+json.dumps({'status':notification_status,'mission_id':notification_mid,'result':{k:nl.get(k) for k in ('error','next_action','executor_types','results') if k in nl}},ensure_ascii=False)[:6000])
+              print('STEP4_ANDROID_STATUS=BLOCKED_HUMAN_ACTION_REQUIRED')
+              raise SystemExit(1)
           PY
