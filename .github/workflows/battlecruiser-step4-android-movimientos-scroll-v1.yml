@@ -8,7 +8,7 @@ permissions:
   contents: read
 concurrency:
   group: bc-step4-android-movimientos-scroll-v1-notification-recovery
-  cancel-in-progress: false
+  cancel-in-progress: true
 jobs:
   android-movimientos-scroll-v1:
     runs-on: ubuntu-latest
