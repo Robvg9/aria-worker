@@ -1,0 +1,118 @@
+﻿name: BattleCruiser Step 4 Android Preference Switch E2E (Read Only)
+on:
+  push:
+    branches:
+      - aria/bc-step4-android-e2e-20261021
+    paths:
+      - .github/workflows/battlecruiser-step4-android-switch-readonly.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: bc-step4-android-switch-e2e
+  cancel-in-progress: false
+jobs:
+  android-switches:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 15
+    steps:
+      - name: Dispatch governed physical Android read-only mission
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          ARIA_RUNTIME_SHARED_SECRET: ${{ secrets.ARIA_RUNTIME_SHARED_SECRET }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          GITHUB_STEP_SUMMARY: ${{ github.step_summary }}
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import json, os, sys, time, urllib.request, urllib.error
+
+          project = os.environ.get('SUPABASE_PROJECT_REF', '').strip()
+          secret = os.environ.get('ARIA_RUNTIME_SHARED_SECRET', '')
+          if not project or not secret:
+              raise SystemExit('BLOCKED: required production secrets are unavailable; secret values are never printed')
+          base = f'https://{project}.supabase.co/functions/v1'
+          headers = {'Authorization': 'Bearer ' + secret, 'content-type': 'application/json', 'cache-control': 'no-store'}
+          mission_id = f"mission_bc_step4_android_preferences_readonly_{os.environ['RUN_ID']}_{os.environ['RUN_ATTEMPT']}"
+          goal = (
+            'BattleCruiser Paso 4/15 — ejecutar una observación física real de UI Android estrictamente READ ONLY. '
+            'El dispositivo Android ya tiene instalado ARIA Android UI Agent v1.1.22, el servicio de accesibilidad activado y la PWA abierta. '
+            'Usa la capacidad computer.use.android en el teléfono Android registrado; la app objetivo es Chrome y el único host web permitido es battlecruiser.robvg9.workers.dev. '
+            'Si no estás en Preferencias, navega únicamente por el menú de BattleCruiser y scroll hasta Preferencias. No cambies ajustes. '
+            'Inspecciona estos seis interruptores: Actualización automática (auto_refresh), Sincronización automática (sync_auto), '
+            'Sincronizar al abrir app (sync_on_open), Sincronizar solo en Wi-Fi (sync_wifi_only), Notificaciones (notifications), '
+            'Modo compacto (compact_mode). Captura para cada uno match_count, role, checkable, checked, enabled y visible; conserva hash de evidencia/árbol y recuento de nodos. '
+            'Los booleanos deben proceder del árbol accesible real; no infieras ni inventes valores y no marques PASS si checked o checkable es null. '
+            'NO pulses ningún interruptor, NO pulses Restaurar preferencias, NO envíes formularios ni mensajes, NO cierres sesión, NO hagas acciones de negocio y no modifiques datos. '
+            'Guarda la evidencia sanitizada y termina tras una lectura. Marca explícitamente cualquier falta de visibilidad o coincidencia; no reintentes acciones de negocio.'
+          )
+          metadata = {
+            'goal_source': 'chat',
+            'source_application': 'ChatGPT',
+            'project_name': 'BattleCruiser',
+            'source': 'battlecruiser_step4_preferences_switch_e2e',
+            'verification_marker': 'BC_STEP4_ANDROID_PREF_SWITCHES_READONLY_V1',
+            'device_id': 'android-termux-a1ebcfc7-9287-4603-a0f9-c519d12fd092',
+            'operation': 'computer.use.android',
+            'executor_type': 'device',
+            'requested_capability': 'computer.use.android',
+            'target_package': 'com.android.chrome',
+            'allowed_hosts': ['battlecruiser.robvg9.workers.dev'],
+            'read_only': True,
+            'business_data_mutated': False,
+            'timeout_ms': 30000,
+            'explicit_device_intent': True,
+            'human_gate_required': False
+          }
+
+          def post(fn, payload, timeout=60):
+              req = urllib.request.Request(base + '/' + fn, data=json.dumps(payload).encode(), headers=headers, method='POST')
+              try:
+                  with urllib.request.urlopen(req, timeout=timeout) as resp:
+                      raw = resp.read().decode(errors='replace')
+                      try: return resp.status, json.loads(raw)
+                      except Exception: return resp.status, {'raw_excerpt': raw[:1000]}
+              except urllib.error.HTTPError as exc:
+                  raw = exc.read().decode(errors='replace')
+                  try: body = json.loads(raw)
+                  except Exception: body = {'raw_excerpt': raw[:1000]}
+                  return exc.code, body
+
+          code, submitted = post('aria-direct-v1', {'goal': goal, 'mission_id': mission_id, 'metadata': metadata}, 90)
+          print('DISPATCH_HTTP=' + str(code))
+          print('MISSION_ID=' + mission_id)
+          print('DISPATCH_STATUS=' + str(submitted.get('dispatch', {}).get('status', 'unknown')))
+          print('QUEUE_STATUS=' + str(submitted.get('queue', {}).get('status', 'unknown')))
+          print('INTAKE_STATUS=' + str((submitted.get('mission') or {}).get('status', 'unknown')))
+          if code >= 300 or submitted.get('ok') is not True:
+              print('DISPATCH_ERROR=' + json.dumps(submitted, ensure_ascii=False)[:1800])
+              raise SystemExit(2)
+
+          terminal = {'succeeded', 'failed', 'blocked', 'rejected', 'cancelled', 'human_required', 'paused'}
+          latest = {}
+          for attempt in range(1, 91):
+              status_code, latest = post('aria-mission-runner-v22', {'mission_id': mission_id}, 75)
+              status = str(latest.get('status', 'unknown'))
+              safe = {'poll': attempt, 'http': status_code, 'status': status,
+                      'error': latest.get('error'), 'next_action': latest.get('next_action'),
+                      'executor_types': latest.get('executor_types'), 'mission_id': latest.get('mission_id', mission_id)}
+              print('POLL=' + json.dumps(safe, ensure_ascii=False))
+              if status in terminal:
+                  break
+              if status_code in (401, 403, 404):
+                  break
+              time.sleep(4)
+
+          status = str(latest.get('status', 'unknown'))
+          print('FINAL_STATUS=' + status)
+          print('FINAL_SUMMARY=' + json.dumps({k: latest.get(k) for k in ('ok','status','mission_id','error','next_action','executor_types','results','recovery_update') if k in latest}, ensure_ascii=False)[:5000])
+          if os.path.isfile(os.environ.get('GITHUB_STEP_SUMMARY', '')):
+              with open(os.environ['GITHUB_STEP_SUMMARY'], 'a', encoding='utf-8') as f:
+                  f.write('\n## BattleCruiser Step 4 Android preference E2E\n')
+                  f.write(f'- Mission: `{mission_id}`\n- Final status: `{status}`\n- Dispatch HTTP: `{code}`\n')
+                  f.write('- No preference switches or business actions were clicked by this workflow.\n')
+          if status != 'succeeded':
+              raise SystemExit(1)
+          PY
