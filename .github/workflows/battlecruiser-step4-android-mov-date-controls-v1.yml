@@ -1,0 +1,115 @@
+name: BattleCruiser Step 4 Android Movimientos Date Controls V1 (Read Only)
+on:
+  push:
+    branches:
+      - aria/bc-step4-android-e2e-20261021
+    paths:
+      - .github/workflows/battlecruiser-step4-android-mov-date-controls-v1.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: bc-step4-android-mov-date-controls-v1-${{ github.run_id }}
+  cancel-in-progress: true
+jobs:
+  android-preferences-e2e:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 12
+    steps:
+      - name: Run governed Android navigation and read-only preference capture
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          ARIA_RUNTIME_SHARED_SECRET: ${{ secrets.ARIA_RUNTIME_SHARED_SECRET }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import json, os, sys, time, urllib.request, urllib.error
+          project = os.environ.get('SUPABASE_PROJECT_REF', '').strip()
+          secret = os.environ.get('ARIA_RUNTIME_SHARED_SECRET', '')
+          if not project or not secret:
+              raise SystemExit('BLOCKED: required production secrets unavailable; values are not printed')
+          base = f'https://{project}.supabase.co/functions/v1'
+          headers = {'Authorization': 'Bearer ' + secret, 'content-type': 'application/json', 'cache-control': 'no-store'}
+          mission_id = f"mission_bc_step4_android_mov_date_controls_v1_{os.environ['RUN_ID']}_{os.environ['RUN_ATTEMPT']}"
+          device_id = 'android-termux-a1ebcfc7-9287-4603-a0f9-c519d12fd092'
+          host = 'battlecruiser.robvg9.workers.dev'
+          marker = 'BC_STEP4_ANDROID_PREF_SWITCHES_READONLY_V3'
+          goal = (
+            'BattleCruiser Paso 4/15, verificación física Android de solo lectura: abrir Movimientos, exponer los filtros con un gesto táctil, abrir y cerrar Desde y Hasta con Atrás, sin seleccionar fechas. '
+            'Confirmar que cada selector abre y que al cerrarlo vuelve a la lista. No aplicar filtros, abrir filas, ejecutar operaciones comerciales ni modificar stock. Marcador BC_STEP4_ANDROID_MOV_DATE_CONTROLS_V1.'
+          )
+          def ui_step(step_id, input_payload, depends=None, timeout=30000, title=None):
+              return {
+                'id':step_id,'title':title or step_id,'operation':'computer.use.android','executor_type':'device',
+                'target':{'type':'device','device_id':device_id},'input':input_payload,'risk':'READ','timeout_ms':timeout,
+                'policy':{'tool_use':True,'no_side_effects':True,'read_only_audit':True,'explicit_device_intent':True,'spanish_output_required':True},
+                'depends_on':depends or [],'verify':{'response_content_nonempty':True},
+                'selection':{'selection_reason':'Allowlisted physical Android UI navigation/read only','requested_device_id':device_id,'verification_marker':marker,'requested_capability':'computer.use.android'}
+              }
+          common = {'target_package':'com.android.chrome','allow_any_app':False,'allowed_hosts':[host]}
+          plan = [
+            ui_step('navigate_live',{'operation':'action','action':{'action':'navigate','url':'https://battlecruiser.robvg9.workers.dev'},**common},title='Abrir BattleCruiser LIVE en Chrome'),
+            ui_step('wait_live',{'operation':'action','action':{'action':'wait','ms':1200},**common},['navigate_live'],title='Esperar a que cargue la aplicación'),
+            ui_step('open_navigation_menu',{'operation':'action','action':{'action':'click','nodeId':'0.0.0.0.2.2.0'},**common},['wait_live'],title='Abrir el menú principal'),
+            ui_step('scroll_menu_for_movements',{'operation':'action','action':{'action':'scroll','nodeId':'0.0.0.0.2.1','direction':'forward'},**common},['open_navigation_menu'],title='Desplazar el menú de navegación'),
+            ui_step('open_movements',{'operation':'action','action':{'action':'click','nodeId':'0.0.0.0.2.1.2.8'},**common},['scroll_menu_for_movements'],title='Abrir Movimientos'),
+            ui_step('wait_movements',{'operation':'action','action':{'action':'wait','ms':700},**common},['open_movements'],title='Esperar a que aparezcan los controles'),
+            ui_step('swipe_dates_into_view',{'operation':'action','action':{'action':'swipe','x1':540,'y1':1900,'x2':540,'y2':900,'durationMs':420},**common},['wait_movements'],title='Desplazar físicamente el contenido hasta Desde y Hasta'),
+            ui_step('observe_dates_before',{'operation':'observe',**common},['swipe_dates_into_view'],title='Registrar los campos de fecha antes de interactuar'),
+            ui_step('open_desde',{'operation':'action','action':{'action':'click','nodeId':'0.0.0.0.2.3.1.6.1'},**common},['observe_dates_before'],title='Abrir selector Desde sin cambiar la fecha'),
+            ui_step('dismiss_desde',{'operation':'action','action':{'action':'press','keyCode':4},**common},['open_desde'],title='Cerrar Desde con Atrás sin elegir una fecha'),
+            ui_step('observe_after_desde',{'operation':'observe',**common},['dismiss_desde'],title='Comprobar que se volvió a Movimientos'),
+            ui_step('swipe_hasta_into_view',{'operation':'action','action':{'action':'swipe','x1':540,'y1':1900,'x2':540,'y2':900,'durationMs':420},**common},['observe_after_desde'],title='Asegurar que Hasta queda dentro del área visible'),
+            ui_step('open_hasta',{'operation':'action','action':{'action':'click','nodeId':'0.0.0.0.2.3.1.6.3'},**common},['swipe_hasta_into_view'],title='Abrir selector Hasta sin cambiar la fecha'),
+            ui_step('dismiss_hasta',{'operation':'action','action':{'action':'press','keyCode':4},**common},['open_hasta'],title='Cerrar Hasta con Atrás sin elegir una fecha'),
+            ui_step('observe_dates_final',{'operation':'observe',**common},['dismiss_hasta'],title='Comprobar que la lista de Movimientos vuelve a estar visible')
+          ]
+          metadata = {
+            'goal_source':'chat','source_application':'ChatGPT','project_name':'BattleCruiser',
+            'source':'battlecruiser_step4_android_mov_date_controls_v1','verification_marker':'BC_STEP4_ANDROID_MOV_DATE_CONTROLS_V1',
+            'device_id':device_id,'requested_device_id':device_id,'operation':'computer.use.android',
+            'executor_type':'device','requested_capability':'computer.use.android',
+            'target_package':'com.android.chrome','allowed_hosts':[host],
+            'start_url':'https://battlecruiser.robvg9.workers.dev','read_only':True,
+            'business_data_mutated':False,'risk':'READ','timeout_ms':18000,
+            'explicit_device_intent':True,'human_gate_required':False
+          }
+          checkpoint = {'plan':plan,'stage':'execution','completed_steps':[],'attempts':{},'results':{},'pending_jobs':{},'read_only':True,'verification_marker':marker}
+          def post(fn,payload,timeout=60,trigger=None):
+              h=dict(headers)
+              if trigger: h['x-aria-trigger']=trigger
+              req=urllib.request.Request(base+'/'+fn,data=json.dumps(payload).encode(),headers=h,method='POST')
+              try:
+                  with urllib.request.urlopen(req,timeout=timeout) as resp:
+                      raw=resp.read().decode(errors='replace')
+                      try: return resp.status,json.loads(raw)
+                      except Exception: return resp.status,{'raw_excerpt':raw[:500]}
+              except urllib.error.HTTPError as exc:
+                  raw=exc.read().decode(errors='replace')
+                  try: body=json.loads(raw)
+                  except Exception: body={'raw_excerpt':raw[:500]}
+                  return exc.code,body
+          code,intake=post('aria-mission-intake-v1',{'goal':goal,'mission_id':mission_id,'metadata':metadata,'checkpoint':checkpoint},60)
+          print('INTAKE_HTTP='+str(code)); print('MISSION_ID='+mission_id); print('PLAN_STEPS='+str(len(plan))); print('INTAKE_OK='+str(intake.get('ok')))
+          if code>=300 or intake.get('ok') is not True:
+              print('INTAKE_ERROR='+json.dumps(intake,ensure_ascii=False)[:1500]); raise SystemExit(2)
+          code,kick=post('aria-canonical-runtime-v1',{'mission_id':mission_id},90,'mission-tick')
+          print('CANONICAL_HTTP='+str(code)); print('CANONICAL_STATUS='+str(kick.get('status','unknown'))); print('CANONICAL_ERROR='+str(kick.get('error',''))[:300])
+          if code>=300 or kick.get('ok') is False:
+              print('CANONICAL_BODY='+json.dumps({k:v for k,v in kick.items() if k not in ('token','secret')},ensure_ascii=False)[:1500]); raise SystemExit(3)
+          terminal={'succeeded','failed','blocked','rejected','cancelled','human_required','paused'}
+          latest=kick
+          for attempt in range(1,76):
+              status_code,latest=post('aria-mission-runner-v22',{'mission_id':mission_id},75)
+              status=str(latest.get('status','unknown'))
+              print('POLL='+json.dumps({'attempt':attempt,'http':status_code,'status':status,'error':latest.get('error'),'next_action':latest.get('next_action'),'mission_id':mission_id},ensure_ascii=False))
+              if status in terminal or status_code in (401,403,404): break
+              time.sleep(4)
+          status=str(latest.get('status','unknown'))
+          print('FINAL_STATUS='+status)
+          print('FINAL_SUMMARY='+json.dumps({k:latest.get(k) for k in ('ok','status','mission_id','error','next_action','executor_types','results','recovery_update') if k in latest},ensure_ascii=False)[:4000])
+          if status!='succeeded': raise SystemExit(1)
+          PY
