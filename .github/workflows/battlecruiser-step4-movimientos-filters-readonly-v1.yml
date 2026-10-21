@@ -65,7 +65,7 @@ jobs:
               if(predicate(ns))return cur;
               const body=ns.find(n=>n.id==='0.0.0'&&n.visible&&n.scrollable)||ns.find(n=>n.visible&&n.scrollable&&n.path.startsWith('0.0.0'))||ns.find(n=>n.visible&&n.scrollable);
               if(!body)break;
-              const r=await action({action:'scroll',nodeId:body.id,direction:'forward'});
+              const r=await action({action:'scroll',nodeId:body.id,direction:'backward'});
               timeline.push({step:'scroll_movimientos_to_filters_'+(k+1),status:r&&r.status,reason:clean(r&&r.reason||r&&r.payload&&r.payload.reason)});
               await wait(300);cur=await fresh();
             }
