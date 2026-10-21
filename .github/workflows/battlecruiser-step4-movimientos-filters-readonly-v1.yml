@@ -110,16 +110,18 @@ jobs:
               const labels=ns.filter(n=>n.visible&&n.text&&/todos los tipos|venta|compra|transf|vale/i.test(norm(n.text))).map(n=>clean(n.text)).slice(0,20);
               outcomes.push({filter:'type',status:'selected_and_observed',selected:'Venta',hashBefore:chosen.hashBefore,hashAfter:chosen.hashAfter,hashChanged:chosen.hashChanged,labels});
               ns=cur.root?scan(cur.root):[];let apply=control(ns,'Aplicar');
-              for(let k=0;k<3&&!apply;k++){
-                const swipe=await action({action:'swipe',x1:540,y1:1900,x2:540,y2:900,durationMs:450});
-                timeline.push({step:'swipe_movimientos_apply_after_venta_'+(k+1),status:swipe&&swipe.status,reason:clean(swipe&&swipe.reason||swipe&&swipe.payload&&swipe.payload.reason)});
-                await wait(450);cur=await fresh();ns=cur.root?scan(cur.root):[];apply=control(ns,'Aplicar');
-              }
+              if(apply){cur=await clickWait(apply,'apply_type_filter',timeline);await wait(450);outcomes.push({filter:'apply_after_venta',status:'clicked',hash:cur.p&&cur.p.evidence_hash||null,screen:snapshot(cur)});}
+              else outcomes.push({filter:'apply_after_venta',status:'not_found_auto_filter_or_clipped'});
               if(apply){cur=await clickWait(apply,'apply_type_filter',timeline);await wait(450);outcomes.push({filter:'apply_after_venta',status:'clicked',hash:cur.p&&cur.p.evidence_hash||null,screen:snapshot(cur)});}
               else outcomes.push({filter:'apply_after_venta',status:'not_found'});
             }else outcomes.push({filter:'type',status:chosen.stage,requested:'Venta'});
             ns=cur.root?scan(cur.root):[];
             let currentType=control(ns,'Venta')||control(ns,'Todos los tipos');
+            for(let k=0;k<4&&!currentType;k++){
+              const swipe=await action({action:'swipe',x1:540,y1:900,x2:540,y2:1900,durationMs:450});
+              timeline.push({step:'swipe_back_to_movimientos_type_filter_'+(k+1),status:swipe&&swipe.status,reason:clean(swipe&&swipe.reason||swipe&&swipe.payload&&swipe.payload.reason)});
+              await wait(450);cur=await fresh();ns=cur.root?scan(cur.root):[];currentType=control(ns,'Venta')||control(ns,'Todos los tipos');
+            }
             let restoredSelection=false;
             if(currentType){
               cur=await clickWait(currentType,'open_type_filter_for_restore',timeline);
@@ -133,8 +135,14 @@ jobs:
                   await wait(450);cur=await fresh();ns=cur.root?scan(cur.root):[];apply=control(ns,'Aplicar');
                 }
                 if(apply){cur=await clickWait(apply,'apply_restored_type_all',timeline);await wait(400);}
-                cur=await scrollBodyUntil(cur,hasFilterSet,timeline);ns=cur.root?scan(cur.root):[];
-                restoredSelection=!!control(ns,'Todos los tipos');
+                ns=cur.root?scan(cur.root):[];
+                let restoredType=control(ns,'Todos los tipos');
+                for(let k=0;k<4&&!restoredType;k++){
+                  const swipe=await action({action:'swipe',x1:540,y1:900,x2:540,y2:1900,durationMs:450});
+                  timeline.push({step:'swipe_back_to_restored_movimientos_type_'+(k+1),status:swipe&&swipe.status,reason:clean(swipe&&swipe.reason||swipe&&swipe.payload&&swipe.payload.reason)});
+                  await wait(450);cur=await fresh();ns=cur.root?scan(cur.root):[];restoredType=control(ns,'Todos los tipos');
+                }
+                restoredSelection=!!restoredType;
               }
             }else timeline.push({step:'restore_type_all',status:'not_found'});
             const final=snapshot(cur);ns=cur.root?scan(cur.root):[];
