@@ -13,6 +13,7 @@ const {
 } = require('../computer-use/android-accessibility-v1');
 const { resolveAndroidUiHealth, markAndroidUiExecutionSuccess } = require('../agents/termux/android-ui-health-state');
 const healthState = fs.readFileSync(path.join(__dirname, '..', 'agents', 'termux', 'android-ui-health-state.js'), 'utf8');
+const accessibilityService = fs.readFileSync(path.join(__dirname, '..', 'android-ui-agent', 'app', 'src', 'main', 'java', 'com', 'robvg9', 'ariauiagent', 'AriaAccessibilityService.kt'), 'utf8');
 
 assert.equal(PACKAGE, 'com.robvg9.ariauiagent.debug');
 assert.equal(LOCAL_IPC_URL, 'http://127.0.0.1:45874/execute');
@@ -30,6 +31,10 @@ assert.ok(transport.includes('http://127.0.0.1:45874/execute'));
 assert.ok(transport.includes('http://127.0.0.1:45874/health'));
 assert.ok(transport.includes('android-local-http'));
 assert.ok(transport.includes('probeLocalIpcHealth'));
+assert.ok(accessibilityService.includes('val maxNodes = payload.optInt("max_nodes", 240).coerceIn(32, 300)'), 'Android UI tree must use a bounded node budget for IPC responsiveness');
+assert.ok(accessibilityService.includes('NodeBudget(maxCount = maxNodes)'), 'observe and post-action UI trees must honor the bounded node budget');
+assert.ok(accessibilityService.includes('installedApprovedBrowsers: List<String> by lazy'), 'installed browser package checks must be cached per service');
+
 assert.ok(transport.includes('REQUIRED_IPC_PROTOCOL'));
 assert.ok(transport.includes('cross_profile_loopback'));
 assert.ok(transport.includes('android_local_ipc_protocol_mismatch'));
