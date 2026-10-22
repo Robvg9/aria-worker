@@ -1,7 +1,32 @@
 'use strict';
 
 const crypto = require('node:crypto');
+const fs = require('node:fs');
+const path = require('node:path');
 const { spawn } = require('node:child_process');
+
+/**
+ * Resolve Termux's app-compatible am wrapper before the Android system binary.
+ * /system/bin/am identifies its caller as com.android.shell and fails from the
+ * Termux app UID on modern Android. Termux ships its own app-UID-compatible
+ * implementation at $PREFIX/bin/am.
+ */
+function resolveAndroidAmPath(env = process.env, existsSync = fs.existsSync) {
+  const prefixes = [
+    env.PREFIX,
+    env.TERMUX__PREFIX,
+    '/data/data/com.termux/files/usr'
+  ].filter((value, index, values) =>
+    typeof value === 'string' && value.length > 0 && values.indexOf(value) === index
+  );
+  for (const prefix of prefixes) {
+    const candidate = path.join(prefix, 'bin', 'am');
+    try {
+      if (existsSync(candidate)) return candidate;
+    } catch (_) {}
+  }
+  return 'am';
+}
 
 const PACKAGE = 'com.robvg9.ariauiagent.debug'; // Backward-compatible export; local HTTP does not depend on APK package id.
 const IPC_TOKEN = '4fa3c34b8093d0ac3633fd58ade90bc224827f2a7b21cf29f26931c637e34d76';
@@ -37,7 +62,7 @@ function executeAndroidCommandReceiver({ request, timeoutMs = 8000 } = {}) {
     const started = Date.now();
     // Use the caller's own Android user/profile. Omitting --user selects USER_CURRENT
     // (-2), which an app UID such as Termux cannot send for on Android 16.
-    const child = spawn('am', [
+    const child = spawn(resolveAndroidAmPath(), [
       'broadcast', '--user', String(userId),
       '-a', 'com.robvg9.ariauiagent.ACTION_EXECUTE',
       '-n', `${PACKAGE}/.CommandReceiver`,
@@ -245,7 +270,7 @@ async function executeLocalIpcJob({ request, timeoutMs = 12000 } = {}) {
 function recoverAndroidUiAgentProcess({ timeoutMs = 8000 } = {}) {
   return new Promise((resolve) => {
     const effectiveTimeout = Math.max(1000, Math.min(Number(timeoutMs) || 8000, 12000));
-    const child = spawn('am', [
+    const child = spawn(resolveAndroidAmPath(), [
       'start',
       '-n',
       `${PACKAGE}/.MainActivity`,
@@ -343,6 +368,7 @@ async function executeAndroidAccessibilityJob({ command, timeoutMs = 12000, reso
 }
 
 module.exports = Object.freeze({
+  resolveAndroidAmPath,
   PACKAGE,
   LOCAL_IPC_URL,
   LOCAL_IPC_HEALTH_URL,
