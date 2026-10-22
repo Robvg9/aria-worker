@@ -69,7 +69,7 @@ acquire_lock() {
   rm -f "$LOCK_DIR/pid" || { echo "[ARIA] could not remove stale PID file" >&2; exit 1; }
   rmdir "$LOCK_DIR" 2>/dev/null || { echo "[ARIA] could not safely remove stale lock directory" >&2; exit 1; }
   mkdir "$LOCK_DIR" 2>/dev/null || { echo "[ARIA] could not acquire supervisor lock" >&2; exit 1; }
-  printf '%s\\n' "${BASHPID:-$}" > "$LOCK_DIR/pid"
+  printf '%s\n' "${BASHPID:-$}" > "$LOCK_DIR/pid"
 }
 
 release_lock() {
