@@ -1,0 +1,75 @@
+name: BattleCruiser Step 4 Android Submit LIVE URL V3 (Read Only)
+on:
+  push:
+    branches:
+      - aria/bc-step4-android-e2e-20261021
+    paths:
+      - .github/workflows/battlecruiser-step4-android-submit-live-url-v3.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: bc-step4-android-submit-live-url-v3-${{ github.run_id }}
+  cancel-in-progress: false
+jobs:
+  android-submit-live-url:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 5
+    steps:
+      - name: Submit only the visible allowlisted Chrome URL and observe app tree
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          ARIA_RUNTIME_SHARED_SECRET: ${{ secrets.ARIA_RUNTIME_SHARED_SECRET }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import json, os, urllib.request, urllib.error
+          project=os.environ.get('SUPABASE_PROJECT_REF','').strip()
+          secret=os.environ.get('ARIA_RUNTIME_SHARED_SECRET','')
+          if not project or not secret: raise SystemExit('BLOCKED: runtime secrets unavailable')
+          base=f'https://{project}.supabase.co/functions/v1'
+          headers={'Authorization':'Bearer '+secret,'content-type':'application/json','cache-control':'no-store'}
+          mission_id=f"mission_bc_step4_android_submit_live_url_v3_{os.environ['RUN_ID']}_{os.environ['RUN_ATTEMPT']}"
+          device='android-termux-a1ebcfc7-9287-4603-a0f9-c519d12fd092'
+          host='battlecruiser.robvg9.workers.dev'
+          marker='BC_STEP4_ANDROID_SUBMIT_LIVE_URL_V3'
+          command=r"""node <<'NODE'
+          const {probeLocalIpcHealth,executeAndroidAccessibilityJob}=require('./computer-use/android-accessibility-v1.js');
+          const host='battlecruiser.robvg9.workers.dev';
+          const marker='BC_STEP4_ANDROID_SUBMIT_LIVE_URL_V3';
+          const base={target_package:'com.android.chrome',allow_any_app:false,allowed_hosts:[host]};
+          const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+          const clean=s=>typeof s==='string'?s.replace(/\s+/g,' ').trim().replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/ig,'[redacted]').slice(0,140):'';
+          const norm=s=>clean(s).toLowerCase().replace(/[áàä]/g,'a').replace(/[éèë]/g,'e').replace(/[íìï]/g,'i').replace(/[óòö]/g,'o').replace(/[úùü]/g,'u').replace(/ñ/g,'n');
+          function scan(root){const nodes=[],seen=new Set();let count=0;const walk=(n,path,d)=>{if(!n||typeof n!=='object'||Array.isArray(n)||seen.has(n)||d>28||count>=1200)return;seen.add(n);count++;const names=['name','label','contentDescription','text','hint'].map(k=>clean(n[k])).filter(Boolean);nodes.push({id:typeof n.id==='string'&&n.id?n.id:path,path,role:clean(n.role),className:clean(n.className||n.class),names,text:names.join(' | '),visible:n.visible!==false,clickable:!!n.clickable,enabled:n.enabled!==false,scrollable:!!n.scrollable,bounds:n.bounds||null});if(Array.isArray(n.children))n.children.forEach((c,i)=>walk(c,path+'.'+i,d+1));};walk(root,'0',0);return nodes;}
+          async function observe(){const r=await executeAndroidAccessibilityJob({command:JSON.stringify({...base,operation:'observe'}),timeoutMs:9000});const p=r&&r.payload||{},root=p.root||(p.ui&&p.ui.root)||null;return {r,p,root,nodes:root?scan(root):[]};}
+          async function act(action){return executeAndroidAccessibilityJob({command:JSON.stringify({...base,operation:'action',action}),timeoutMs:12000});}
+          (async()=>{const h=await probeLocalIpcHealth({timeoutMs:3000}),hp=h&&h.payload||{},timeline=[];let cur=await observe();timeline.push({step:'before_address_submit',status:cur.r?.status||null,reason:clean(cur.r?.reason),nodeCount:cur.nodes.length});
+            const appLoaded=ns=>ns.some(n=>n.visible&&/reportes disponibles|abrir reporte ventas|centro de control/i.test(norm(n.text)));
+            if(cur.nodes.length&&!appLoaded(cur.nodes)){const addr=cur.nodes.find(n=>n.visible&&n.clickable&&n.enabled&&(norm(n.role)==='textbox'||/edittext/i.test(n.className))&&(norm(n.text).includes(norm(host))||/buscar en google o escribir una url/i.test(norm(n.text))));if(addr){
+              const click=await act({action:'click',nodeId:addr.id});timeline.push({step:'click_address_textbox',status:click?.status||null,reason:clean(click?.reason||click?.payload?.reason),target:{id:addr.id,role:addr.role,className:addr.className,text:clean(addr.text),bounds:addr.bounds}});
+              await wait(350);const enter=await act({action:'press',keyCode:66});timeline.push({step:'press_enter_on_visible_address',status:enter?.status||null,reason:clean(enter?.reason||enter?.payload?.reason)});
+              await wait(2800);cur=await observe();timeline.push({step:'observe_after_submit',status:cur.r?.status||null,reason:clean(cur.r?.reason),nodeCount:cur.nodes.length});
+            }else timeline.push({step:'address_textbox_not_found',status:'blocked',labels:cur.nodes.filter(n=>n.visible&&n.text).slice(0,20).map(n=>clean(n.text))});}
+            const labels=cur.nodes.filter(n=>n.visible&&n.text).slice(0,100).map(n=>({text:clean(n.text),role:n.role,className:n.className,clickable:n.clickable,enabled:n.enabled,bounds:n.bounds}));
+            const app=labels.filter(n=>/reportes disponibles|abrir reporte|informacion detallada|centro de control|productos|ventas|compras/i.test(norm(n.text)));
+            const summary={marker,ok:!!(h?.ok===true&&cur.r?.status==='succeeded'&&cur.root&&cur.nodes.length>0&&appLoaded(cur.nodes)),health:{ok:!!h?.ok,status:h?.status||null,version_name:hp.version_name||null,version_code:hp.version_code||null,build_id:hp.build_id||null},timeline,screen:{status:cur.r?.status||null,reason:cur.r?.reason||null,nodeCount:cur.nodes.length,evidence_hash:cur.p?.evidence_hash||null,appLabels:app,visibleLabels:labels},safety:{onlyAllowlistedUrl:true,noBusinessButtonsClicked:true,noFormsSubmitted:true,businessWrites:false,stockMutated:false,rolesOrUsersChanged:false}};
+            console.log(JSON.stringify(summary));if(!summary.ok)process.exitCode=3;})().catch(e=>{console.log(JSON.stringify({marker,ok:false,error:clean(String(e&&e.stack||e)),safety:{businessWrites:false,stockMutated:false,formsSubmitted:false}}));process.exitCode=1});
+          NODE"""
+          metadata={'goal_source':'chat','source_application':'ChatGPT','project_name':'BattleCruiser','source':'battlecruiser_step4_android_submit_live_url_v3','verification_marker':marker,'device_id':device,'requested_device_id':device,'operation':'shell.execute','executor_type':'device','requested_capability':'shell.execute','command':command,'risk':'READ','timeout_ms':40000,'target_package':'com.android.chrome','allowed_hosts':[host],'read_only':True,'business_data_mutated':False,'explicit_device_intent':True,'human_gate_required':False}
+          def post(fn,payload,timeout=45):
+              req=urllib.request.Request(base+'/'+fn,data=json.dumps(payload).encode(),headers=headers,method='POST')
+              try:
+                  with urllib.request.urlopen(req,timeout=timeout) as r:return r.status,json.loads(r.read().decode())
+              except urllib.error.HTTPError as e:
+                  try:return e.code,json.loads(e.read().decode())
+                  except:return e.code,{}
+          code,body=post('aria-direct-v1',{'goal':'On Android, if BattleCruiser is not already visible, click the currently visible Chrome address textbox containing the allowlisted LIVE host and press Enter. Then observe the UI tree only. No business controls/forms. Marker BC_STEP4_ANDROID_SUBMIT_LIVE_URL_V3.','mission_id':mission_id,'metadata':metadata})
+          print('DISPATCH_HTTP='+str(code));print('MISSION_ID='+mission_id);print('DISPATCH_STATUS='+str(body.get('dispatch',{}).get('status','unknown')))
+          if code>=300 or body.get('ok') is not True: print(json.dumps(body)[:1500]);raise SystemExit(2)
+          print('DISPATCH_ACCEPTED_FOR_ASYNC_EXECUTION=true')
+          print('FINAL_RESULT_MUST_BE_READ_FROM_EXECUTION_JOB_FOR_THIS_MISSION')
+          PY
