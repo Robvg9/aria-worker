@@ -64,7 +64,7 @@ jobs:
             const h=await probeLocalIpcHealth({timeoutMs:2200}),hp=h&&h.payload||{};
             if(!(h&&h.ok===true&&String(hp.version_name)==='1.1.23'&&Number(hp.version_code)===29&&String(hp.build_id)===expected)){console.log(JSON.stringify({marker,ok:false,stage:'agent_build',version:hp.version_name,code:hp.version_code,build:hp.build_id}));process.exitCode=20;return;}
             const timeline=[];
-            let r=await action({action:'navigate',url:'https://'+host+'/'});timeline.push({step:'navigate_live',status:r&&r.status,reason:clean(r&&r.reason||r&&r.payload&&r.payload.reason)});await wait(3000);
+            let r=await action({action:'navigate',url:'https://'+host+'/'});timeline.push({step:'navigate_live',status:r&&r.status,reason:clean(r&&r.reason||r&&r.payload&&r.payload.reason)});await wait(400);r=await action({action:'press',keyCode:66});timeline.push({step:'submit_url_enter',status:r&&r.status,reason:clean(r&&r.reason||r&&r.payload&&r.payload.reason)});await wait(2500);
             let cur=await fresh(),ns=cur.root?scan(cur.root):[];
             let report=named(ns,'Reportes');
             if(!report){
