@@ -82,10 +82,21 @@ jobs:
             const exactBuild=h&&h.ok===true&&String(hp.version_name)==='1.1.23'&&Number(hp.version_code)===29&&String(hp.build_id)===expectedBuild;
             if(!exactBuild){console.log(JSON.stringify({marker,ok:false,stage:'exact_agent_build_mismatch',build:{ok:!!h?.ok,version_name:hp.version_name||null,version_code:hp.version_code||null,build_id:hp.build_id||null}}));process.exitCode=20;return;}
             const timeline=[];
-            let r=await action({action:'navigate',url:'https://'+host+'/'});timeline.push({step:'navigate_live',status:r&&r.status,reason:clean(r&&r.reason||r&&r.payload&&r.payload.reason)});await wait(1300);
+            let r=await action({action:'launch_app'});timeline.push({step:'launch_chrome_foreground',status:r&&r.status,reason:clean(r&&r.reason||r&&r.payload&&r.payload.reason)});await wait(600);
+            r=await action({action:'navigate',url:'https://'+host+'/'});timeline.push({step:'navigate_live',status:r&&r.status,reason:clean(r&&r.reason||r&&r.payload&&r.payload.reason)});await wait(4200);
             let cur=await fresh(),ns=cur.root?scan(cur.root):[],menu=exact(ns,'Abrir menú')||exact(ns,'Abrir menu');
-            for(let k=0;k<6&&!menu;k++){await wait(300);cur=await fresh();ns=cur.root?scan(cur.root):[];menu=exact(ns,'Abrir menú')||exact(ns,'Abrir menu');}
-            if(!menu){console.log(JSON.stringify({marker,ok:false,stage:'menu_not_found',timeline,screen:snapshot(cur),safety:{businessWrites:false,stockMutated:false,formsSubmitted:false}}));process.exitCode=1;return;}
+            for(let k=0;k<10&&(!menu||ns.length<40);k++){await wait(500);cur=await fresh();ns=cur.root?scan(cur.root):[];menu=exact(ns,'Abrir menú')||exact(ns,'Abrir menu');}
+            if(!menu){
+              timeline.push({step:'recover_chrome_and_navigate_again',status:'started'});
+              r=await action({action:'launch_app'});timeline.push({step:'launch_chrome_retry',status:r&&r.status,reason:clean(r&&r.reason||r&&r.payload&&r.payload.reason)});await wait(700);
+              r=await action({action:'navigate',url:'https://'+host+'/'});timeline.push({step:'navigate_live_retry',status:r&&r.status,reason:clean(r&&r.reason||r&&r.payload&&r.payload.reason)});await wait(4000);
+              cur=await fresh();ns=cur.root?scan(cur.root):[];menu=exact(ns,'Abrir menú')||exact(ns,'Abrir menu');
+              for(let k=0;k<8&&!menu;k++){await wait(500);cur=await fresh();ns=cur.root?scan(cur.root):[];menu=exact(ns,'Abrir menú')||exact(ns,'Abrir menu');}
+            }
+            if(!menu){
+              const visibleTexts=ns.filter(n=>n.visible&&n.text).slice(0,45).map(n=>({text:clean(n.text),role:n.role,className:n.className,clickable:n.clickable,bounds:n.bounds}));
+              console.log(JSON.stringify({marker,ok:false,stage:'menu_not_found_after_foreground_recovery',timeline,screen:{...snapshot(cur),visibleTexts},safety:{businessWrites:false,stockMutated:false,formsSubmitted:false}}));process.exitCode=1;return;
+            }
             cur=await clickWait(menu,'open_menu',timeline);
             ns=cur.root?scan(cur.root):[];
             let dest=exact(ns,'Reportes');
