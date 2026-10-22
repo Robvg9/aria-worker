@@ -68,8 +68,32 @@ stop_existing_supervisor() {
   case "$old_cmd" in
     *"agents/termux/start-agent.sh"*) ;;
     *)
-      echo "[ARIA] refusing to replace unrelated locked process pid=$old_pid" >&2
-      return 1
+      # A shell PID may be the supervisor even when its command line is
+      # generic because the supervisor is sourced. Preserve ambiguous shells.
+      local old_comm=""
+      old_comm="$(cat "/proc/$old_pid/comm" 2>/dev/null || true)"
+      case "$old_comm" in
+        bash|sh|*bash*|*sh*)
+          echo "[ARIA] preserving ambiguous shell lock pid=$old_pid comm=$old_comm" >&2
+          return 1
+          ;;
+        '')
+          echo "[ARIA] cannot identify locked process pid=$old_pid; preserving lock" >&2
+          return 1
+          ;;
+      esac
+
+      local unexpected_entry=""
+      unexpected_entry="$(find "$LOCK_DIR" -mindepth 1 -maxdepth 1 ! -name pid -print -quit 2>/dev/null || true)"
+      if [ -n "$unexpected_entry" ]; then
+        echo "[ARIA] stale PID detected but lock has unexpected contents; preserving: $unexpected_entry" >&2
+        return 1
+      fi
+
+      echo "[ARIA] stale lock: PID $old_pid is $old_comm, not the supervisor; repairing"
+      rm -f "$LOCK_PID_FILE" || { echo "[ARIA] could not remove stale PID file" >&2; return 1; }
+      rmdir "$LOCK_DIR" 2>/dev/null || { echo "[ARIA] could not safely remove stale lock directory" >&2; return 1; }
+      return 0
       ;;
   esac
 
