@@ -43,8 +43,8 @@ jobs:
           const transportBefore=fs.readFileSync(transportPath,'utf8');
           const oldHardcoded="'broadcast', '--user', '0',";
           const currentProfile="'broadcast', '--user', String(localAndroidUserId()),";
-          const oldBare="'broadcast',\\n      '-a', 'com.robvg9.ariauiagent.ACTION_EXECUTE',";
-          const newProfile="'broadcast', '--user', String(localAndroidUserId()),\\n      '-a', 'com.robvg9.ariauiagent.ACTION_EXECUTE',";
+          const oldBare="'broadcast',\n      '-a', 'com.robvg9.ariauiagent.ACTION_EXECUTE',";
+          const newProfile="'broadcast', '--user', String(localAndroidUserId()),\n      '-a', 'com.robvg9.ariauiagent.ACTION_EXECUTE',";
           const hardcodedCount=transportBefore.split(oldHardcoded).length-1;
           const bareCount=transportBefore.split(oldBare).length-1;
           let transportPatch={status:'blocked_no_unique_safe_match',hardcodedCount,bareCount};
