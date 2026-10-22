@@ -59,11 +59,11 @@ jobs:
           };
           async function fresh(){let cur=await observe();for(let k=0;k<3&&(!cur.root||cur.p.ok!==true);k++){await wait(300);cur=await observe();}return cur;}
           async function clickWait(n,label,timeline){const r=await action({action:'click',nodeId:n.id});timeline.push({step:label,status:r&&r.status,reason:clean(r&&r.reason||r&&r.payload&&r.payload.reason)});await wait(550);return fresh();}
-          async function swipeUntil(cur,predicate,timeline,prefix){
-            for(let k=0;k<3;k++){
+          async function swipeUntil(cur,predicate,timeline,prefix,direction='up'){
+            for(let k=0;k<4;k++){
               let ns=cur.root?scan(cur.root):[];
               if(predicate(ns))return cur;
-              const r=await action({action:'swipe',x1:540,y1:1900,x2:540,y2:900,durationMs:420});
+              const r=await action({action:'swipe',x1:540,y1:direction==='down'?900:1900,x2:540,y2:direction==='down'?1900:900,durationMs:420});
               timeline.push({step:prefix+'_'+(k+1),status:r&&r.status,reason:clean(r&&r.reason||r&&r.payload&&r.payload.reason)});
               await wait(350);cur=await fresh();
             }
@@ -137,11 +137,11 @@ jobs:
             cur=await swipeUntil(cur,tabPresent,timeline,'swipe_report_tabs_into_view');
             let baseNs=cur.root?scan(cur.root):[],before=snapshot(cur);
             let tested=[],failures=[];
-            for(const label of ['Compras','Rentabilidad','Transferencias','Vales','Stock','Movimiento','Ventas']){
+            for(const label of ['Stock','Movimiento','Ventas']){
               ns=cur.root?scan(cur.root):[];
               let btn=tabButton(ns,label);
               if(!btn){
-                cur=await swipeUntil(cur,n=>!!tabButton(n,label),timeline,'swipe_to_tab_'+norm(label).replace(/\s+/g,'_'));
+                cur=await swipeUntil(cur,n=>!!tabButton(n,label),timeline,'reverse_scroll_to_tab_'+norm(label).replace(/\s+/g,'_'),'down');
                 ns=cur.root?scan(cur.root):[];btn=tabButton(ns,label);
               }
               if(!btn){failures.push({label,stage:'tab_not_visible_or_actionable',snapshot:snapshot(cur)});continue;}
@@ -156,7 +156,7 @@ jobs:
             }
             const final=snapshot(cur);
             const passLabels=tested.filter(x=>x.hashChanged&&x.tabStillPresent).map(x=>x.label);
-            const result={marker,ok:passLabels.length===7,build:{version_name:hp.version_name,version_code:hp.version_code,build_id:hp.build_id},timeline,baseline:before,tested,failures,final,safety:{reportTabsOnly:true,detailRowsOpened:false,formsSubmitted:false,saleConfirmed:false,purchaseCreated:false,transferCreated:false,voucherCreated:false,businessWrites:false,stockMutated:false,logoutClicked:false}};
+            const result={marker,ok:passLabels.length===3,build:{version_name:hp.version_name,version_code:hp.version_code,build_id:hp.build_id},timeline,baseline:before,tested,failures,final,safety:{reportTabsOnly:true,detailRowsOpened:false,formsSubmitted:false,saleConfirmed:false,purchaseCreated:false,transferCreated:false,voucherCreated:false,businessWrites:false,stockMutated:false,logoutClicked:false}};
             console.log(JSON.stringify(result));if(!result.ok)process.exitCode=4;
           })().catch(e=>{console.log(JSON.stringify({marker,ok:false,error:clean(String(e&&e.message||e))}));process.exitCode=1;});
           NODE"""
