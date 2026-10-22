@@ -19,13 +19,57 @@ acquire_lock() {
   if [ -f "$LOCK_DIR/pid" ]; then
     existing_pid="$(cat "$LOCK_DIR/pid" 2>/dev/null || true)"
   fi
-  if [ -n "$existing_pid" ] && kill -0 "$existing_pid" 2>/dev/null; then
-    echo "[ARIA] supervisor already running pid=$existing_pid"
-    exit 0
+  case "$existing_pid" in
+    ''|*[!0-9]*)
+      echo "[ARIA] lock PID is missing or invalid; preserving lock for manual inspection" >&2
+      exit 1
+      ;;
+  esac
+
+  # PID numbers can be reused by Android. kill -0 alone does not prove that
+  # the recorded process owns this supervisor lock.
+  if kill -0 "$existing_pid" 2>/dev/null; then
+    local existing_cmdline=''
+    if [ -r "/proc/$existing_pid/cmdline" ]; then
+      existing_cmdline="$(tr '\\000' ' ' < "/proc/$existing_pid/cmdline" 2>/dev/null || true)"
+    elif command -v ps >/dev/null 2>&1; then
+      existing_cmdline="$(ps -p "$existing_pid" -o args= 2>/dev/null || true)"
+    else
+      echo "[ARIA] cannot inspect lock PID $existing_pid; preserving lock" >&2
+      exit 1
+    fi
+
+    case "$existing_cmdline" in
+      *"$AGENT_SCRIPT"*)
+        echo "[ARIA] supervisor already running pid=$existing_pid"
+        exit 0
+        ;;
+      '')
+        echo "[ARIA] lock PID $existing_pid is visible but its command line cannot be verified; preserving lock" >&2
+        exit 1
+        ;;
+      *)
+        echo "[ARIA] stale lock: PID $existing_pid is not this supervisor; attempting safe repair"
+        ;;
+    esac
   fi
-  rm -rf "$LOCK_DIR" 2>/dev/null || true
+
+  # Remove only the expected pid file, and only if no other lock contents
+  # exist. Never recursively delete a lock directory that may hold state.
+  if ! command -v find >/dev/null 2>&1; then
+    echo "[ARIA] find unavailable; preserving lock for manual inspection" >&2
+    exit 1
+  fi
+  local unexpected_entry=''
+  unexpected_entry="$(find "$LOCK_DIR" -mindepth 1 -maxdepth 1 ! -name pid -print -quit 2>/dev/null || true)"
+  if [ -n "$unexpected_entry" ]; then
+    echo "[ARIA] lock contains unexpected entries; preserving directory: $unexpected_entry" >&2
+    exit 1
+  fi
+  rm -f "$LOCK_DIR/pid" || { echo "[ARIA] could not remove stale PID file" >&2; exit 1; }
+  rmdir "$LOCK_DIR" 2>/dev/null || { echo "[ARIA] could not safely remove stale lock directory" >&2; exit 1; }
   mkdir "$LOCK_DIR" 2>/dev/null || { echo "[ARIA] could not acquire supervisor lock" >&2; exit 1; }
-  printf '%s\n' "${BASHPID:-$$}" > "$LOCK_DIR/pid"
+  printf '%s\\n' "${BASHPID:-$}" > "$LOCK_DIR/pid"
 }
 
 release_lock() {
