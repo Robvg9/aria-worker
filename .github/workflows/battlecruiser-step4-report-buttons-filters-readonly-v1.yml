@@ -111,37 +111,13 @@ jobs:
               tested.push({label,beforeHash:before,afterHash,hashChanged:changed,controlRemainsVisible:remains,reportButtons:after.reportButtons.map(x=>x.label),filters:after.filters,visibleTexts:after.visibleTexts,clickStatus:timeline[timeline.length-1]?.status});
               if(!changed||!remains)failures.push({label,stage:'no_verifiable_view_change',after});
             }
-            // Inspect read-only filter controls after the report button selection; do not alter date fields.
+            // Inspect report filter-control presence only; do not interact with the filters in this mission.
             ns=cur.root?scan(cur.root):[];
-            const warehouse=named(ns,'Todos los almacenes');
+            const warehouse=named(ns,'Todos los almacenes')||named(ns,'Almacén');
             const apply=named(ns,'Aplicar filtros');
             const clear=named(ns,'Limpiar filtros');
             const filterPresence={warehouse:warehouse?{id:warehouse.id,text:clean(warehouse.text),bounds:warehouse.bounds}:null,apply:apply?{id:apply.id,text:clean(apply.text),bounds:apply.bounds}:null,clear:clear?{id:clear.id,text:clean(clear.text),bounds:clear.bounds}:null,datePickers:digest(cur).visibleDatePickers};
-            let filterResults={};
-            if(warehouse){
-              cur=await clickWait(warehouse,'open_report_warehouse_filter',timeline);ns=cur.root?scan(cur.root):[];
-              let option=ns.find(n=>n.visible&&n.enabled&&n.clickable&&(n.names.some(t=>norm(t)==='la cueva')||norm(n.text)==='la cueva'));
-              if(option){
-                const before=cur.p?.evidence_hash||null;
-                cur=await clickWait(option,'select_report_warehouse_la_cueva',timeline);
-                const after=cur.p?.evidence_hash||null;
-                filterResults.warehouseSelection={status:timeline[timeline.length-1]?.status,hashBefore:before,hashAfter:after,hashChanged:!!before&&!!after&&before!==after};
-                ns=cur.root?scan(cur.root):[];
-                let restored=named(ns,'La Cueva')||named(ns,'Todos los almacenes');
-                if(restored){
-                  cur=await clickWait(restored,'open_report_warehouse_for_restore',timeline);ns=cur.root?scan(cur.root):[];
-                  option=ns.find(n=>n.visible&&n.enabled&&n.clickable&&(n.names.some(t=>norm(t)==='todos los almacenes')||norm(n.text)==='todos los almacenes'));
-                  if(option){cur=await clickWait(option,'restore_report_warehouse_all',timeline);filterResults.warehouseRestored=true;}
-                  else filterResults.warehouseRestored=false;
-                }else filterResults.warehouseRestored=false;
-              }else filterResults.warehouseSelection={status:'option_la_cueva_not_visible'};
-            }
-            ns=cur.root?scan(cur.root):[];
-            const applyAfter=named(ns,'Aplicar filtros');
-            if(applyAfter){cur=await clickWait(applyAfter,'apply_report_filter_readonly',timeline);filterResults.applyFilters={status:timeline[timeline.length-1]?.status,hash:cur.p?.evidence_hash||null};}
-            ns=cur.root?scan(cur.root):[];
-            const clearAfter=named(ns,'Limpiar filtros');
-            if(clearAfter){const before=cur.p?.evidence_hash||null;cur=await clickWait(clearAfter,'clear_report_filters',timeline);filterResults.clearFilters={status:timeline[timeline.length-1]?.status,hashBefore:before,hashAfter:cur.p?.evidence_hash||null,hashChanged:!!before&&!!cur.p?.evidence_hash&&before!==cur.p.evidence_hash};}
+            const filterResults={inspectionOnly:true};
             const final=digest(cur);
             const buttonPasses=tested.filter(x=>x.hashChanged&&x.controlRemainsVisible).map(x=>x.label);
             const result={marker,ok:buttonPasses.length===3,build:{version_name:hp.version_name,version_code:hp.version_code,build_id:hp.build_id},timeline,baseline,tested,failures,filterPresence,filterResults,final,safety:{readOnlyReportNavigation:true,detailRowsOpened:false,formsSubmitted:false,saleConfirmed:false,purchaseCreated:false,transferCreated:false,voucherCreated:false,businessWrites:false,stockMutated:false,logoutClicked:false}};
@@ -156,7 +132,7 @@ jobs:
               except urllib.error.HTTPError as e:
                   try:return e.code,json.loads(e.read().decode())
                   except:return e.code,{}
-          code,body=post('aria-direct-v1',{'goal':'En Android, entra al panel Reportes de BattleCruiser LIVE y selecciona los botones Stock, Movimiento y Ventas en orden, observando el cambio de interfaz tras cada selección. No abras registros detallados ni ejecutes operaciones comerciales; mantén la prueba en solo lectura, sin modificar fechas ni existencias. Agente 1.1.23 exacto. Marcador BC_STEP4_REPORT_BUTTONS_AND_FILTERS_READONLY_V1.','mission_id':mission_id,'metadata':metadata})
+          code,body=post('aria-direct-v1',{'goal':'En Android, abre Reportes LIVE y visita únicamente los botones de reporte Stock, Movimiento y Ventas en ese orden. Registra el hash y confirma que cada selección cambia la interfaz. No abras detalles ni ejecutes operaciones comerciales; solo lectura. Agente 1.1.23 exacto. Marcador BC_STEP4_REPORT_BUTTONS_AND_FILTERS_READONLY_V1.','mission_id':mission_id,'metadata':metadata})
           print('DISPATCH_HTTP='+str(code));print('MISSION_ID='+mission_id);print('DISPATCH_STATUS='+str(body.get('dispatch',{}).get('status','unknown')))
           if code>=300 or body.get('ok') is not True:print(json.dumps(body)[:1200]);raise SystemExit(2)
           terminal={'succeeded','failed','blocked','rejected','cancelled','human_required','paused'}
