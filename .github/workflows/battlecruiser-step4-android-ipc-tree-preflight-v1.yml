@@ -35,6 +35,7 @@ jobs:
           mission_id=f"mission_bc_step4_android_ipc_tree_preflight_{os.environ['RUN_ID']}_{os.environ['RUN_ATTEMPT']}"
           device='android-termux-a1ebcfc7-9287-4603-a0f9-c519d12fd092'
           marker='BC_STEP4_ANDROID_IPC_TREE_PREFLIGHT_V1'
+          host='battlecruiser.robvg9.workers.dev'
           command=r"""node <<'NODE'
           const {probeLocalIpcHealth,executeAndroidAccessibilityJob}=require('./computer-use/android-accessibility-v1.js');
           const marker='BC_STEP4_ANDROID_IPC_TREE_PREFLIGHT_V1';
