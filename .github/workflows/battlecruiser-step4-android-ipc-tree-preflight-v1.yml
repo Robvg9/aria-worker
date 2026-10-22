@@ -61,7 +61,7 @@ jobs:
           }
           console.log('ANDROID_TRANSPORT_PATCH='+JSON.stringify(transportPatch));
           const {probeLocalIpcHealth,probeAndroidCommandReceiver,executeAndroidAccessibilityJob}=require('./computer-use/android-accessibility-v1.js');
-          const marker='BC_STEP4_ANDROID_IPC_TREE_PREFLIGHT_V1';
+          const marker='BC_STEP4_ANDROID_AGENT_RECOVERY_V3';
           const host='battlecruiser.robvg9.workers.dev';
 
           const {spawnSync}=require('node:child_process');
@@ -92,16 +92,47 @@ jobs:
           }
           const packageFiles=probe('sh',['-c',"ls -l \"$PREFIX/bin/am\" \"$PREFIX/libexec/termux-am/am.apk\" 2>&1; dpkg -L termux-am 2>&1 | head -20"],6000);
           const appAmExists=fs.existsSync(appAmPath);
+          let packageDebug=probe('pm',['path','com.robvg9.ariauiagent.debug']);
+          let packageRelease=probe('pm',['path','com.robvg9.ariauiagent']);
+          const apkUrl='https://raw.githubusercontent.com/Robvg9/aria-worker/rwht-apk-public/rwht-public/aria-android-ui-agent-v1.apk';
+          const apkExpectedSha256='9d28643413117df34025849bacbf0cf28e3ac8d7b506490df6efae9686155f96';
+          const apkPath=path.join(process.env.HOME,'.cache','aria-android-ui-agent-v1.apk');
+          let apkRecovery={attempted:false,status:'skipped',reason:'UI Agent package already visible'};
+          if(packageDebug.status!==0 && packageRelease.status!==0){
+            fs.mkdirSync(path.dirname(apkPath),{recursive:true});
+            const dl=probe('curl',['-fL','--retry','2','--connect-timeout','10','--max-time','45',apkUrl,'-o',apkPath],50000);
+            let actualSha256=null,bytes=null,verified=false,openResult=null;
+            if(dl.status===0 && fs.existsSync(apkPath)){
+              const bytesBuf=fs.readFileSync(apkPath);bytes=bytesBuf.length;
+              actualSha256=crypto.createHash('sha256').update(bytesBuf).digest('hex');
+              verified=bytes>1000000 && actualSha256===apkExpectedSha256;
+            }
+            if(verified){
+              const termuxOpen=path.join(prefix,'bin','termux-open');
+              openResult=probe(termuxOpen,[apkPath],15000);
+            }
+            apkRecovery={attempted:true,status:verified&&openResult?.status===0?'installer_open_requested':'blocked',download:dl.status,bytes,actualSha256,expectedSha256:apkExpectedSha256,verified,installerOpen:openResult,apkPath,manualInstallMayBeRequired:true};
+            if(verified&&openResult?.status===0){
+              // Give the owner time to confirm the native Android package installer, then read back
+              // package registration. Never use shell pm install or attempt to bypass Android consent.
+              for(let i=0;i<12;i++){
+                await new Promise(r=>setTimeout(r,5000));
+                packageDebug=probe('pm',['path','com.robvg9.ariauiagent.debug']);
+                packageRelease=probe('pm',['path','com.robvg9.ariauiagent']);
+                if(packageDebug.status===0||packageRelease.status===0)break;
+              }
+            }
+          }
           let activityLaunch={attempted:false,status:'skipped',reason:'Termux AM wrapper absent',appAmPath,appAmExists,effectiveAmPath};
-          if(appAmExists){
-            activityLaunch={attempted:true,appAmPath,appAmExists,...probe(appAmPath,['start','-n','com.robvg9.ariauiagent.debug/.MainActivity'],12000)};
+          if(appAmExists && (packageDebug.status===0||packageRelease.status===0)){
+            const targetPackage=packageDebug.status===0?'com.robvg9.ariauiagent.debug':'com.robvg9.ariauiagent';
+            activityLaunch={attempted:true,targetPackage,appAmPath,appAmExists,...probe(appAmPath,['start','-n',targetPackage+'/.MainActivity'],12000)};
           }
           const diag={
             toolsBefore:tools,
             termuxAmInstall,termuxAmRepair,
             toolsAfter,packageFiles,appAmPath,appAmExists,effectiveAmPath,
-            packageDebug:probe('pm',['path','com.robvg9.ariauiagent.debug']),
-            packageRelease:probe('pm',['path','com.robvg9.ariauiagent']),
+            packageDebug,packageRelease,apkRecovery,
             enabledAccessibilitySettings:probe('settings',['get','secure','enabled_accessibility_services']),
             matchingProcesses:probe('sh',['-c',"ps -A | grep -E 'ariauiagent|com.termux' | head -12"]),
             ipcListener:probe('sh',['-c'," (toybox netstat -ltn 2>/dev/null || netstat -ltn 2>/dev/null) | grep '45874' | head -4"]),
@@ -149,7 +180,7 @@ jobs:
               except urllib.error.HTTPError as e:
                   try:return e.code,json.loads(e.read().decode())
                   except:return e.code,{}
-          code,body=post('aria-direct-v1',{'goal':'Install the official Termux app-level am helper only if the system am is the only available one, launch the installed ARIA UI Agent if available, then observe the tree and navigate Chrome only to the allowlisted BattleCruiser LIVE URL. Do not click business controls or submit forms. Marker BC_STEP4_ANDROID_AGENT_RECOVERY_V2.','mission_id':mission_id,'metadata':metadata})
+          code,body=post('aria-direct-v1',{'goal':'If both ARIA UI Agent package IDs are missing, download and SHA-256 verify the published official UI Agent APK, open Android's native installer via Termux, wait for consent/install read-back, launch the package via the Termux app-level AM wrapper, then observe the tree and navigate Chrome only to the allowlisted BattleCruiser LIVE URL. Do not click business controls or submit forms. Marker BC_STEP4_ANDROID_AGENT_RECOVERY_V3.','mission_id':mission_id,'metadata':metadata})
           print('DISPATCH_HTTP='+str(code));print('MISSION_ID='+mission_id);print('DISPATCH_STATUS='+str(body.get('dispatch',{}).get('status','unknown')))
           if code>=300 or body.get('ok') is not True: print(json.dumps(body)[:1200]);raise SystemExit(2)
           terminal={'succeeded','failed','blocked','rejected','cancelled','human_required','paused'}
