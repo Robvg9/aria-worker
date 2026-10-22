@@ -34,6 +34,11 @@ assert.ok(transport.includes('cross_profile_loopback'));
 assert.ok(transport.includes('android_local_ipc_protocol_mismatch'));
 assert.ok(transport.includes('process.getuid'));
 assert.ok(transport.includes('attempt <= 3'));
+assert.ok(
+  !transport.includes("'--user', '0'"),
+  'Android receiver broadcast must use Termux current user/profile; explicit user 0 can be rejected from app UID',
+);
+assert.ok(transport.includes("'broadcast',"), 'Android receiver fallback must use a broadcast to the installed receiver');
 assert.ok(transport.includes('recoverAndroidUiAgentProcess'), 'IPC retries must include Android UI Agent process recovery');
 assert.ok(transport.includes("spawn('am'"), 'IPC recovery must launch through Android activity manager');
 assert.ok(fs.readFileSync(path.join(__dirname, '..', 'android-ui-agent', 'app', 'src', 'main', 'java', 'com', 'robvg9', 'ariauiagent', 'AriaAccessibilityService.kt'), 'utf8').includes('"swipe" -> gestureSwipe'));
