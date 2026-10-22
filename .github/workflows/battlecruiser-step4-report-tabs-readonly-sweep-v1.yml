@@ -78,9 +78,16 @@ jobs:
             return {hash:cur.p&&cur.p.evidence_hash||null,nodeCount:ns.length,controls,headline:headline?clean(headline.text):null,countMarkers,visibleReportText:ns.filter(n=>n.visible&&n.text&&/reporte|informe|ventas|compras|rentabilidad|transferencias|vales|stock|movimiento|filtro|fecha|almac[eé]n/i.test(norm(n.text))).slice(0,35).map(n=>({text:clean(n.text),role:n.role,clickable:n.clickable,enabled:n.enabled,bounds:n.bounds}))};
           }
           (async()=>{
-            const h=await probeLocalIpcHealth({timeoutMs:2500}),hp=h&&h.payload||{};
-            const exactBuild=h&&h.ok===true&&String(hp.version_name)==='1.1.23'&&Number(hp.version_code)===29&&String(hp.build_id)===expectedBuild;
-            if(!exactBuild){console.log(JSON.stringify({marker,ok:false,stage:'exact_agent_build_mismatch',build:{ok:!!h?.ok,version_name:hp.version_name||null,version_code:hp.version_code||null,build_id:hp.build_id||null}}));process.exitCode=20;return;}
+            let h=null,hp={},exactBuild=false;
+            const healthAttempts=[];
+            for(let attempt=1;attempt<=4;attempt++){
+              h=await probeLocalIpcHealth({timeoutMs:3500});hp=h&&h.payload||{};
+              exactBuild=h&&h.ok===true&&String(hp.version_name)==='1.1.23'&&Number(hp.version_code)===29&&String(hp.build_id)===expectedBuild;
+              healthAttempts.push({attempt,ok:!!h?.ok,version_name:hp.version_name||null,version_code:hp.version_code||null,build_id:hp.build_id||null});
+              if(exactBuild)break;
+              await wait(900);
+            }
+            if(!exactBuild){console.log(JSON.stringify({marker,ok:false,stage:'exact_agent_build_mismatch_after_retries',healthAttempts}));process.exitCode=20;return;}
             const timeline=[];
             let cur=await fresh(),ns=cur.root?scan(cur.root):[],menu=exact(ns,'Abrir menú')||exact(ns,'Abrir menu');
             const visitedTabs=new Set(),tabAttempts=[];
