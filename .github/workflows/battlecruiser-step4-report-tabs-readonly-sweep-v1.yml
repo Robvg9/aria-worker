@@ -1,0 +1,147 @@
+name: BattleCruiser Step 4 Report Tabs Read-Only Sweep V1
+# Android device reconnected; re-run safe filter selection and restoration test.
+on:
+  push:
+    branches:
+      - aria/bc-step4-android-e2e-20261021
+    paths:
+      - .github/workflows/battlecruiser-step4-report-tabs-readonly-sweep-v1.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: bc-step4-report-tabs-readonly-sweep-v1-${{ github.run_id }}
+  cancel-in-progress: false
+jobs:
+  android-report-tabs-readonly-sweep-v1:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 8
+    steps:
+      - name: Observe read-only Mando audit type/status filters and restore defaults
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          ARIA_RUNTIME_SHARED_SECRET: ${{ secrets.ARIA_RUNTIME_SHARED_SECRET }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import json, os, time, urllib.request, urllib.error
+          project=os.environ.get('SUPABASE_PROJECT_REF','').strip()
+          secret=os.environ.get('ARIA_RUNTIME_SHARED_SECRET','')
+          if not project or not secret: raise SystemExit('BLOCKED: production secrets unavailable')
+          base=f'https://{project}.supabase.co/functions/v1'
+          headers={'Authorization':'Bearer '+secret,'content-type':'application/json','cache-control':'no-store'}
+          mission_id=f"mission_bc_step4_report_tabs_readonly_sweep_v1_{os.environ['RUN_ID']}_{os.environ['RUN_ATTEMPT']}"
+          device='android-termux-a1ebcfc7-9287-4603-a0f9-c519d12fd092'
+          marker='BC_STEP4_REPORT_TABS_READONLY_SWEEP_V1'
+          command=r"""node <<'NODE'
+          const {executeAndroidAccessibilityJob,probeLocalIpcHealth}=require('./computer-use/android-accessibility-v1.js');
+          const marker='BC_STEP4_REPORT_TABS_READONLY_SWEEP_V1',host='battlecruiser.robvg9.workers.dev';
+          const expectedBuild='3708b31b319884f7d42082414a82cdd11450fe2d';
+          const base={target_package:'com.android.chrome',allow_any_app:false,allowed_hosts:[host]};
+          const clean=s=>typeof s==='string'?s.replace(/\s+/g,' ').trim().replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/ig,'[redacted]').slice(0,120):'';
+          const norm=s=>clean(s).toLowerCase().replace(/[áàä]/g,'a').replace(/[éèë]/g,'e').replace(/[íìï]/g,'i').replace(/[óòö]/g,'o').replace(/[úùü]/g,'u').replace(/ñ/g,'n').trim();
+          const wait=ms=>new Promise(r=>setTimeout(r,ms));
+          async function send(q,timeoutMs=10000){return await executeAndroidAccessibilityJob({command:JSON.stringify({...base,...q}),timeoutMs});}
+          async function observe(){const r=await send({operation:'observe'},5000),p=r&&r.payload||{},root=p.root||(p.ui&&p.ui.root)||null;return {r,p,root};}
+          async function action(a){return await send({operation:'action',action:a},9000);}
+          function scan(root){const nodes=[],seen=new Set();let count=0;const walk=(n,path,d)=>{if(!n||typeof n!=='object'||Array.isArray(n)||seen.has(n)||d>28||count>=1200)return;seen.add(n);count++;const names=['name','label','contentDescription','text','hint'].map(k=>clean(n[k])).filter(Boolean);nodes.push({id:typeof n.id==='string'&&n.id?n.id:path,path,role:clean(n.role),className:clean(n.className||n.class),names,text:names.join(' | '),visible:n.visible!==false,clickable:!!n.clickable,enabled:n.enabled!==false,scrollable:!!n.scrollable,bounds:n.bounds||null});if(Array.isArray(n.children))n.children.forEach((c,i)=>walk(c,path+'.'+i,d+1));};walk(root,'0',0);return nodes;}
+          const exact=(ns,label)=>ns.find(n=>n.names.some(t=>norm(t)===norm(label))&&n.visible&&n.clickable&&n.enabled);
+          const tabButton=(ns,label)=>{
+            const want=norm(label);
+            const candidates=ns.filter(n=>n.visible&&n.enabled&&n.clickable&&(
+              n.names.some(t=>norm(t)===want||norm(t).endsWith(' '+want))||
+              norm(n.text)===want||norm(n.text).endsWith(' '+want)
+            ));
+            return candidates.find(n=>norm(n.role)==='button'||/button/i.test(n.className))||candidates[0]||null;
+          };
+          async function fresh(){let cur=await observe();for(let k=0;k<3&&(!cur.root||cur.p.ok!==true);k++){await wait(300);cur=await observe();}return cur;}
+          async function clickWait(n,label,timeline){const r=await action({action:'click',nodeId:n.id});timeline.push({step:label,status:r&&r.status,reason:clean(r&&r.reason||r&&r.payload&&r.payload.reason)});await wait(550);return fresh();}
+          async function swipeUntil(cur,predicate,timeline,prefix){
+            for(let k=0;k<3;k++){
+              let ns=cur.root?scan(cur.root):[];
+              if(predicate(ns))return cur;
+              const r=await action({action:'swipe',x1:540,y1:1900,x2:540,y2:900,durationMs:420});
+              timeline.push({step:prefix+'_'+(k+1),status:r&&r.status,reason:clean(r&&r.reason||r&&r.payload&&r.payload.reason)});
+              await wait(350);cur=await fresh();
+            }
+            return cur;
+          }
+          const labels=['Ventas','Compras','Rentabilidad','Transferencias','Vales','Stock','Movimiento'];
+          function snapshot(cur){
+            const ns=cur.root?scan(cur.root):[];
+            const controls=labels.map(label=>({label,node:tabButton(ns,label)})).filter(x=>x.node).map(x=>({label:x.label,id:x.node.id,role:x.node.role,className:x.node.className,bounds:x.node.bounds}));
+            const headline=ns.find(n=>n.visible&&n.text&&/^(ventas|compras|rentabilidad|transferencias|vales|stock|movimiento)(\s|$)/i.test(norm(n.text)));
+            const countMarkers=ns.filter(n=>n.visible&&n.text&&/^\d+\s+(registros|resultados|movimientos|ventas|compras)$/i.test(norm(n.text))).map(n=>clean(n.text)).slice(0,6);
+            return {hash:cur.p&&cur.p.evidence_hash||null,nodeCount:ns.length,controls,headline:headline?clean(headline.text):null,countMarkers,visibleReportText:ns.filter(n=>n.visible&&n.text&&/reporte|informe|ventas|compras|rentabilidad|transferencias|vales|stock|movimiento|filtro|fecha|almac[eé]n/i.test(norm(n.text))).slice(0,35).map(n=>({text:clean(n.text),role:n.role,clickable:n.clickable,enabled:n.enabled,bounds:n.bounds}))};
+          }
+          (async()=>{
+            const h=await probeLocalIpcHealth({timeoutMs:2500}),hp=h&&h.payload||{};
+            const exactBuild=h&&h.ok===true&&String(hp.version_name)==='1.1.23'&&Number(hp.version_code)===29&&String(hp.build_id)===expectedBuild;
+            if(!exactBuild){console.log(JSON.stringify({marker,ok:false,stage:'exact_agent_build_mismatch',build:{ok:!!h?.ok,version_name:hp.version_name||null,version_code:hp.version_code||null,build_id:hp.build_id||null}}));process.exitCode=20;return;}
+            const timeline=[];
+            let r=await action({action:'navigate',url:'https://'+host+'/'});timeline.push({step:'navigate_live',status:r&&r.status,reason:clean(r&&r.reason||r&&r.payload&&r.payload.reason)});await wait(1300);
+            let cur=await fresh(),ns=cur.root?scan(cur.root):[],menu=exact(ns,'Abrir menú')||exact(ns,'Abrir menu');
+            for(let k=0;k<6&&!menu;k++){await wait(300);cur=await fresh();ns=cur.root?scan(cur.root):[];menu=exact(ns,'Abrir menú')||exact(ns,'Abrir menu');}
+            if(!menu){console.log(JSON.stringify({marker,ok:false,stage:'menu_not_found',timeline,screen:snapshot(cur),safety:{businessWrites:false,stockMutated:false,formsSubmitted:false}}));process.exitCode=1;return;}
+            cur=await clickWait(menu,'open_menu',timeline);
+            ns=cur.root?scan(cur.root):[];
+            let dest=exact(ns,'Reportes');
+            for(let k=0;k<4&&!dest;k++){
+              const drawer=ns.find(n=>n.visible&&n.scrollable&&n.path.startsWith('0.0.0.0.2'))||ns.find(n=>n.visible&&n.scrollable);
+              if(!drawer)break;
+              r=await action({action:'swipe',x1:540,y1:1800,x2:540,y2:850,durationMs:420});
+              timeline.push({step:'swipe_menu_to_reportes_'+(k+1),status:r&&r.status});await wait(350);cur=await fresh();ns=cur.root?scan(cur.root):[];dest=exact(ns,'Reportes');
+            }
+            if(!dest){console.log(JSON.stringify({marker,ok:false,stage:'reportes_menu_item_not_found',timeline,screen:snapshot(cur),safety:{businessWrites:false,stockMutated:false,formsSubmitted:false}}));process.exitCode=2;return;}
+            cur=await clickWait(dest,'open_reportes_panel',timeline);await wait(700);cur=await fresh();
+            const tabPresent=ns=>labels.some(label=>!!tabButton(ns,label));
+            cur=await swipeUntil(cur,tabPresent,timeline,'swipe_report_tabs_into_view');
+            let baseNs=cur.root?scan(cur.root):[],before=snapshot(cur);
+            let tested=[],failures=[];
+            for(const label of ['Compras','Rentabilidad','Transferencias','Vales','Stock','Movimiento','Ventas']){
+              ns=cur.root?scan(cur.root):[];
+              let btn=tabButton(ns,label);
+              if(!btn){
+                cur=await swipeUntil(cur,n=>!!tabButton(n,label),timeline,'swipe_to_tab_'+norm(label).replace(/\s+/g,'_'));
+                ns=cur.root?scan(cur.root):[];btn=tabButton(ns,label);
+              }
+              if(!btn){failures.push({label,stage:'tab_not_visible_or_actionable',snapshot:snapshot(cur)});continue;}
+              const beforeHash=cur.p&&cur.p.evidence_hash||null;
+              const beforeSnap=snapshot(cur);
+              cur=await clickWait(btn,'select_report_tab_'+norm(label).replace(/\s+/g,'_'),timeline);
+              const afterSnap=snapshot(cur),afterHash=cur.p&&cur.p.evidence_hash||null;
+              const changed=!!beforeHash&&!!afterHash&&beforeHash!==afterHash;
+              const tabStillPresent=!!tabButton(cur.root?scan(cur.root):[],label);
+              tested.push({label,beforeHash,afterHash,hashChanged:changed,tabStillPresent,headline:afterSnap.headline,countMarkers:afterSnap.countMarkers,visibleTabLabels:afterSnap.controls.map(x=>x.label),clickStatus:timeline[timeline.length-1]?.status});
+              if(!changed||!tabStillPresent)failures.push({label,stage:'no_verifiable_view_change',before:beforeSnap,after:afterSnap});
+            }
+            const final=snapshot(cur);
+            const passLabels=tested.filter(x=>x.hashChanged&&x.tabStillPresent).map(x=>x.label);
+            const result={marker,ok:passLabels.length===7,build:{version_name:hp.version_name,version_code:hp.version_code,build_id:hp.build_id},timeline,baseline:before,tested,failures,final,safety:{reportTabsOnly:true,detailRowsOpened:false,formsSubmitted:false,saleConfirmed:false,purchaseCreated:false,transferCreated:false,voucherCreated:false,businessWrites:false,stockMutated:false,logoutClicked:false}};
+            console.log(JSON.stringify(result));if(!result.ok)process.exitCode=4;
+          })().catch(e=>{console.log(JSON.stringify({marker,ok:false,error:clean(String(e&&e.message||e))}));process.exitCode=1;});
+          NODE"""
+          metadata={'goal_source':'chat','source_application':'ChatGPT','project_name':'BattleCruiser','source':'battlecruiser_step4_report_tabs_readonly_sweep_v1','verification_marker':marker,'device_id':device,'requested_device_id':device,'operation':'shell.execute','executor_type':'device','requested_capability':'shell.execute','command':command,'risk':'READ','timeout_ms':45000,'target_package':'com.android.chrome','allowed_hosts':['battlecruiser.robvg9.workers.dev'],'read_only':True,'business_data_mutated':False,'explicit_device_intent':True,'human_gate_required':False}
+          def post(fn,payload,timeout=75):
+              req=urllib.request.Request(base+'/'+fn,data=json.dumps(payload).encode(),headers=headers,method='POST')
+              try:
+                  with urllib.request.urlopen(req,timeout=timeout) as r:return r.status,json.loads(r.read().decode())
+              except urllib.error.HTTPError as e:
+                  try:return e.code,json.loads(e.read().decode())
+                  except:return e.code,{}
+          code,body=post('aria-direct-v1',{'goal':'En Android, abre Reportes LIVE y visita únicamente las siete pestañas Ventas, Compras, Rentabilidad, Transferencias, Vales, Stock y Movimiento. Registra hash y etiquetas genéricas tras cada cambio de pestaña, terminando en Ventas. No abras detalles ni ejecutes operaciones; no escribas datos comerciales. Exige agente 1.1.23 exacto. Marcador BC_STEP4_REPORT_TABS_READONLY_SWEEP_V1.','mission_id':mission_id,'metadata':metadata})
+          print('DISPATCH_HTTP='+str(code));print('MISSION_ID='+mission_id);print('DISPATCH_STATUS='+str(body.get('dispatch',{}).get('status','unknown')))
+          if code>=300 or body.get('ok') is not True:print(json.dumps(body)[:1200]);raise SystemExit(2)
+          terminal={'succeeded','failed','blocked','rejected','cancelled','human_required','paused'}
+          last={}
+          for i in range(1,61):
+              c,last=post('aria-mission-runner-v22',{'mission_id':mission_id})
+              s=str(last.get('status','unknown'));print('POLL='+json.dumps({'n':i,'http':c,'status':s,'error':last.get('error'),'next_action':last.get('next_action')}))
+              if s in terminal or c in (401,403,404):break
+              time.sleep(3)
+          s=str(last.get('status','unknown'));print('FINAL_STATUS='+s);print('FINAL='+json.dumps({k:last.get(k) for k in ('ok','status','mission_id','error','next_action','executor_types','results') if k in last},ensure_ascii=False)[:6000])
+          if s!='succeeded':raise SystemExit(1)
+          PY
