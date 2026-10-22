@@ -1,0 +1,171 @@
+name: BattleCruiser Step 4 Report Buttons and Filters Read-Only V1
+# Android device reconnected; re-run safe filter selection and restoration test.
+on:
+  push:
+    branches:
+      - aria/bc-step4-android-e2e-20261021
+    paths:
+      - .github/workflows/battlecruiser-step4-report-buttons-filters-readonly-v1.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: bc-step4-report-buttons-filters-readonly-v1-${{ github.run_id }}
+  cancel-in-progress: false
+jobs:
+  android-report-buttons-filters-readonly-v1:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 8
+    steps:
+      - name: Observe read-only Mando audit type/status filters and restore defaults
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          ARIA_RUNTIME_SHARED_SECRET: ${{ secrets.ARIA_RUNTIME_SHARED_SECRET }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import json, os, time, urllib.request, urllib.error
+          project=os.environ.get('SUPABASE_PROJECT_REF','').strip()
+          secret=os.environ.get('ARIA_RUNTIME_SHARED_SECRET','')
+          if not project or not secret: raise SystemExit('BLOCKED: production secrets unavailable')
+          base=f'https://{project}.supabase.co/functions/v1'
+          headers={'Authorization':'Bearer '+secret,'content-type':'application/json','cache-control':'no-store'}
+          mission_id=f"mission_bc_step4_report_buttons_filters_readonly_v1_{os.environ['RUN_ID']}_{os.environ['RUN_ATTEMPT']}"
+          device='android-termux-a1ebcfc7-9287-4603-a0f9-c519d12fd092'
+          marker='BC_STEP4_REPORT_BUTTONS_AND_FILTERS_READONLY_V1'
+          command=r"""node <<'NODE'
+          const {executeAndroidAccessibilityJob,probeLocalIpcHealth}=require('./computer-use/android-accessibility-v1.js');
+          const marker='BC_STEP4_REPORT_BUTTONS_AND_FILTERS_READONLY_V1',host='battlecruiser.robvg9.workers.dev';
+          const expectedBuild='3708b31b319884f7d42082414a82cdd11450fe2d';
+          const base={target_package:'com.android.chrome',allow_any_app:false,allowed_hosts:[host]};
+          const clean=s=>typeof s==='string'?s.replace(/\s+/g,' ').trim().replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/ig,'[redacted]').slice(0,120):'';
+          const norm=s=>clean(s).toLowerCase().replace(/[áàä]/g,'a').replace(/[éèë]/g,'e').replace(/[íìï]/g,'i').replace(/[óòö]/g,'o').replace(/[úùü]/g,'u').replace(/ñ/g,'n').trim();
+          const wait=ms=>new Promise(r=>setTimeout(r,ms));
+          async function send(q,timeoutMs=10000){return await executeAndroidAccessibilityJob({command:JSON.stringify({...base,...q}),timeoutMs});}
+          async function observe(){const r=await send({operation:'observe'},5000),p=r&&r.payload||{},root=p.root||(p.ui&&p.ui.root)||null;return {r,p,root};}
+          async function action(a){return await send({operation:'action',action:a},9000);}
+          function scan(root){const nodes=[],seen=new Set();let count=0;const walk=(n,path,d)=>{if(!n||typeof n!=='object'||Array.isArray(n)||seen.has(n)||d>28||count>=1200)return;seen.add(n);count++;const names=['name','label','contentDescription','text','hint'].map(k=>clean(n[k])).filter(Boolean);nodes.push({id:typeof n.id==='string'&&n.id?n.id:path,path,role:clean(n.role),className:clean(n.className||n.class),names,text:names.join(' | '),visible:n.visible!==false,clickable:!!n.clickable,enabled:n.enabled!==false,scrollable:!!n.scrollable,bounds:n.bounds||null});if(Array.isArray(n.children))n.children.forEach((c,i)=>walk(c,path+'.'+i,d+1));};walk(root,'0',0);return nodes;}
+          async function fresh(){let c=await observe();for(let k=0;k<3&&(!c.root||c.p.ok!==true);k++){await wait(300);c=await observe();}return c;}
+          async function clickWait(node,label,timeline){const r=await action({action:'click',nodeId:node.id});timeline.push({step:label,status:r&&r.status,reason:clean(r&&r.reason||r&&r.payload&&r.payload.reason)});await wait(550);return fresh();}
+          const reportLabels=['Ventas','Compras','Rentabilidad','Transferencias','Vales','Stock','Movimiento'];
+          function reportButton(ns,label){
+            const wanted=norm(label);
+            const candidates=ns.filter(n=>n.visible&&n.enabled&&n.clickable&&(
+              n.names.some(t=>norm(t)===norm('Abrir reporte '+label)||norm(t).endsWith(' '+wanted))||
+              norm(n.text)===norm('Abrir reporte '+label)||norm(n.text).endsWith(' '+wanted)
+            ));
+            return candidates.find(n=>norm(n.role)==='button'||/button/i.test(n.className))||candidates[0]||null;
+          }
+          function named(ns,label){const wanted=norm(label);return ns.find(n=>n.visible&&n.enabled&&n.clickable&&(n.names.some(t=>norm(t)===wanted)||norm(n.text)===wanted))||null;}
+          function digest(cur){
+            const ns=cur.root?scan(cur.root):[];
+            const buttons=reportLabels.map(label=>({label,node:reportButton(ns,label)})).filter(x=>x.node).map(x=>({label:x.label,id:x.node.id,text:clean(x.node.text),role:x.node.role,bounds:x.node.bounds}));
+            const filters=ns.filter(n=>n.visible&&n.text&&/todos los almacenes|aplicar filtros|limpiar filtros|desde|hasta|almac[eé]n/i.test(norm(n.text))).slice(0,24).map(n=>({text:clean(n.text),role:n.role,clickable:n.clickable,enabled:n.enabled,bounds:n.bounds,id:n.id}));
+            const datePickers=ns.filter(n=>n.visible&&n.enabled&&n.clickable&&/DatePicker/i.test(n.className)&&n.bounds&&(Number(n.bounds.bottom)-Number(n.bounds.top))>=70&&Number(n.bounds.bottom)<=2205).map(n=>({id:n.id,bounds:n.bounds,role:n.role,className:n.className}));
+            const visibleTexts=ns.filter(n=>n.visible&&n.text&&/reporte|evoluci[oó]n|productos con mayor|disponibles|ventas|compras|rentabilidad|transferencias|vales|stock|movimiento|fecha|almac[eé]n|filtros/i.test(norm(n.text))).slice(0,40).map(n=>({text:clean(n.text),role:n.role,clickable:n.clickable,enabled:n.enabled,bounds:n.bounds}));
+            return {hash:cur.p&&cur.p.evidence_hash||null,nodeCount:ns.length,reportButtons:buttons,filters,visibleDatePickers:datePickers,visibleTexts};
+          }
+          async function swipe(cur,direction,timeline,label){const r=await action({action:'swipe',x1:540,y1:direction==='up'?1900:900,x2:540,y2:direction==='up'?900:1900,durationMs:430});timeline.push({step:label,status:r&&r.status,reason:clean(r&&r.reason||r&&r.payload&&r.payload.reason)});await wait(350);return await fresh();}
+          async function ensureButton(cur,label,timeline){
+            let ns=cur.root?scan(cur.root):[],btn=reportButton(ns,label);
+            for(let k=0;k<4&&!btn;k++){cur=await swipe(cur,'down',timeline,'reverse_scroll_to_report_'+norm(label).replace(/\s+/g,'_')+'_'+(k+1));ns=cur.root?scan(cur.root):[];btn=reportButton(ns,label);}
+            return {cur,btn};
+          }
+          (async()=>{
+            const health=await probeLocalIpcHealth({timeoutMs:2500}),hp=health&&health.payload||{};
+            const exactBuild=health&&health.ok===true&&String(hp.version_name)==='1.1.23'&&Number(hp.version_code)===29&&String(hp.build_id)===expectedBuild;
+            if(!exactBuild){console.log(JSON.stringify({marker,ok:false,stage:'exact_agent_build_mismatch',build:{ok:!!health?.ok,version_name:hp.version_name||null,version_code:hp.version_code||null,build_id:hp.build_id||null}}));process.exitCode=20;return;}
+            const timeline=[],tested=[],failures=[];
+            let cur=await fresh(),ns=cur.root?scan(cur.root):[];
+            const menu=ns.find(n=>n.visible&&n.enabled&&n.clickable&&n.names.some(t=>norm(t)==='abrir menú'||norm(t)==='abrir menu'));
+            let baseline=digest(cur);
+            // Preserve current authenticated tab and work from the open Reports panel; do not navigate back to login.
+            let missingStart=reportButton(ns,'Stock')===null&&reportButton(ns,'Movimiento')===null&&reportButton(ns,'Ventas')===null;
+            if(missingStart){
+              const reportPanelVisible=ns.some(n=>n.visible&&n.text&&/evoluci[oó]n de ventas|reportes disponibles/i.test(norm(n.text)));
+              if(!reportPanelVisible&&menu){
+                cur=await clickWait(menu,'open_menu_from_current_session',timeline);ns=cur.root?scan(cur.root):[];
+                const reports=ns.find(n=>n.visible&&n.enabled&&n.clickable&&n.names.some(t=>norm(t)==='reportes')||n.visible&&n.enabled&&n.clickable&&norm(n.text)==='reportes');
+                if(reports){cur=await clickWait(reports,'open_reportes_panel',timeline);}else{
+                  console.log(JSON.stringify({marker,ok:false,stage:'neither_report_panel_nor_menu_destination',timeline,screen:digest(cur),safety:{no_credentials_entered:true,businessWrites:false,stockMutated:false}}));process.exitCode=1;return;
+                }
+              } else if(!reportPanelVisible){
+                console.log(JSON.stringify({marker,ok:false,stage:'report_panel_not_current_session',timeline,screen:digest(cur),safety:{no_credentials_entered:true,businessWrites:false,stockMutated:false}}));process.exitCode=1;return;
+              }
+            }
+            // Return the report buttons to the viewport without navigating away.
+            cur=await swipe(cur,'down',timeline,'reverse_scroll_to_report_buttons_1');
+            cur=await swipe(cur,'down',timeline,'reverse_scroll_to_report_buttons_2');
+            baseline=digest(cur);
+            for(const label of ['Stock','Movimiento','Ventas']){
+              const found=await ensureButton(cur,label,timeline);cur=found.cur;
+              if(!found.btn){failures.push({label,stage:'report_button_not_visible_or_actionable',screen:digest(cur)});continue;}
+              const before=cur.p&&cur.p.evidence_hash||null;
+              cur=await clickWait(found.btn,'select_report_'+norm(label).replace(/\s+/g,'_'),timeline);
+              const after=digest(cur),afterHash=cur.p&&cur.p.evidence_hash||null;
+              const changed=!!before&&!!afterHash&&before!==afterHash;
+              const remains=!!reportButton(cur.root?scan(cur.root):[],label);
+              tested.push({label,beforeHash:before,afterHash,hashChanged:changed,controlRemainsVisible:remains,reportButtons:after.reportButtons.map(x=>x.label),filters:after.filters,visibleTexts:after.visibleTexts,clickStatus:timeline[timeline.length-1]?.status});
+              if(!changed||!remains)failures.push({label,stage:'no_verifiable_view_change',after});
+            }
+            // Inspect read-only filter controls after the report button selection; do not alter date fields.
+            ns=cur.root?scan(cur.root):[];
+            const warehouse=named(ns,'Todos los almacenes');
+            const apply=named(ns,'Aplicar filtros');
+            const clear=named(ns,'Limpiar filtros');
+            const filterPresence={warehouse:warehouse?{id:warehouse.id,text:clean(warehouse.text),bounds:warehouse.bounds}:null,apply:apply?{id:apply.id,text:clean(apply.text),bounds:apply.bounds}:null,clear:clear?{id:clear.id,text:clean(clear.text),bounds:clear.bounds}:null,datePickers:digest(cur).visibleDatePickers};
+            let filterResults={};
+            if(warehouse){
+              cur=await clickWait(warehouse,'open_report_warehouse_filter',timeline);ns=cur.root?scan(cur.root):[];
+              let option=ns.find(n=>n.visible&&n.enabled&&n.clickable&&(n.names.some(t=>norm(t)==='la cueva')||norm(n.text)==='la cueva'));
+              if(option){
+                const before=cur.p?.evidence_hash||null;
+                cur=await clickWait(option,'select_report_warehouse_la_cueva',timeline);
+                const after=cur.p?.evidence_hash||null;
+                filterResults.warehouseSelection={status:timeline[timeline.length-1]?.status,hashBefore:before,hashAfter:after,hashChanged:!!before&&!!after&&before!==after};
+                ns=cur.root?scan(cur.root):[];
+                let restored=named(ns,'La Cueva')||named(ns,'Todos los almacenes');
+                if(restored){
+                  cur=await clickWait(restored,'open_report_warehouse_for_restore',timeline);ns=cur.root?scan(cur.root):[];
+                  option=ns.find(n=>n.visible&&n.enabled&&n.clickable&&(n.names.some(t=>norm(t)==='todos los almacenes')||norm(n.text)==='todos los almacenes'));
+                  if(option){cur=await clickWait(option,'restore_report_warehouse_all',timeline);filterResults.warehouseRestored=true;}
+                  else filterResults.warehouseRestored=false;
+                }else filterResults.warehouseRestored=false;
+              }else filterResults.warehouseSelection={status:'option_la_cueva_not_visible'};
+            }
+            ns=cur.root?scan(cur.root):[];
+            const applyAfter=named(ns,'Aplicar filtros');
+            if(applyAfter){cur=await clickWait(applyAfter,'apply_report_filter_readonly',timeline);filterResults.applyFilters={status:timeline[timeline.length-1]?.status,hash:cur.p?.evidence_hash||null};}
+            ns=cur.root?scan(cur.root):[];
+            const clearAfter=named(ns,'Limpiar filtros');
+            if(clearAfter){const before=cur.p?.evidence_hash||null;cur=await clickWait(clearAfter,'clear_report_filters',timeline);filterResults.clearFilters={status:timeline[timeline.length-1]?.status,hashBefore:before,hashAfter:cur.p?.evidence_hash||null,hashChanged:!!before&&!!cur.p?.evidence_hash&&before!==cur.p.evidence_hash};}
+            const final=digest(cur);
+            const buttonPasses=tested.filter(x=>x.hashChanged&&x.controlRemainsVisible).map(x=>x.label);
+            const result={marker,ok:buttonPasses.length===3,build:{version_name:hp.version_name,version_code:hp.version_code,build_id:hp.build_id},timeline,baseline,tested,failures,filterPresence,filterResults,final,safety:{readOnlyReportNavigation:true,detailRowsOpened:false,formsSubmitted:false,saleConfirmed:false,purchaseCreated:false,transferCreated:false,voucherCreated:false,businessWrites:false,stockMutated:false,logoutClicked:false}};
+            console.log(JSON.stringify(result));if(!result.ok)process.exitCode=4;
+          })().catch(e=>{console.log(JSON.stringify({marker,ok:false,error:clean(String(e&&e.message||e))}));process.exitCode=1;});
+          NODE"""
+          metadata={'goal_source':'chat','source_application':'ChatGPT','project_name':'BattleCruiser','source':'battlecruiser_step4_report_buttons_filters_readonly_v1','verification_marker':marker,'device_id':device,'requested_device_id':device,'operation':'shell.execute','executor_type':'device','requested_capability':'shell.execute','command':command,'risk':'READ','timeout_ms':90000,'target_package':'com.android.chrome','allowed_hosts':['battlecruiser.robvg9.workers.dev'],'read_only':True,'business_data_mutated':False,'explicit_device_intent':True,'human_gate_required':False}
+          def post(fn,payload,timeout=75):
+              req=urllib.request.Request(base+'/'+fn,data=json.dumps(payload).encode(),headers=headers,method='POST')
+              try:
+                  with urllib.request.urlopen(req,timeout=timeout) as r:return r.status,json.loads(r.read().decode())
+              except urllib.error.HTTPError as e:
+                  try:return e.code,json.loads(e.read().decode())
+                  except:return e.code,{}
+          code,body=post('aria-direct-v1',{'goal':'En la sesión LIVE de Android ya autenticada, restaura a la vista los botones de Reportes Stock, Movimiento y Ventas; prueba cada botón y registra hash. Si el mismo panel expone filtros de almacén/Aplicar/Limpiar, compruébalos en modo lectura y sin cambiar fechas. No abrir detalles ni crear operaciones. Agente 1.1.23 exacto. Marcador BC_STEP4_REPORT_BUTTONS_AND_FILTERS_READONLY_V1.','mission_id':mission_id,'metadata':metadata})
+          print('DISPATCH_HTTP='+str(code));print('MISSION_ID='+mission_id);print('DISPATCH_STATUS='+str(body.get('dispatch',{}).get('status','unknown')))
+          if code>=300 or body.get('ok') is not True:print(json.dumps(body)[:1200]);raise SystemExit(2)
+          terminal={'succeeded','failed','blocked','rejected','cancelled','human_required','paused'}
+          last={}
+          for i in range(1,61):
+              c,last=post('aria-mission-runner-v22',{'mission_id':mission_id})
+              s=str(last.get('status','unknown'));print('POLL='+json.dumps({'n':i,'http':c,'status':s,'error':last.get('error'),'next_action':last.get('next_action')}))
+              if s in terminal or c in (401,403,404):break
+              time.sleep(3)
+          s=str(last.get('status','unknown'));print('FINAL_STATUS='+s);print('FINAL='+json.dumps({k:last.get(k) for k in ('ok','status','mission_id','error','next_action','executor_types','results') if k in last},ensure_ascii=False)[:6000])
+          if s!='succeeded':raise SystemExit(1)
+          PY
