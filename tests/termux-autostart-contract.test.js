@@ -49,7 +49,7 @@ assert.ok(installer.includes('chmod 700 "$AGENT_DIR/agents/termux/start-agent.sh
 assert.ok(boot.includes('. "$SUPERVISOR"'));
 assert.ok(!boot.includes('exec bash "$SUPERVISOR"'));
 assert.ok(installer.includes('kill_descendants'));
-assert.ok(installer.includes('refusing to replace unrelated locked process'));
+assert.ok(installer.includes('preserving ambiguous shell lock'), 'installer must refuse to terminate a potentially live shell supervisor');
 assert.ok(installer.includes('/proc/$old_pid/comm'), 'installer must identify a recycled lock PID');
 assert.ok(installer.includes('stale lock: PID $old_pid is $old_comm, not the supervisor; repairing'), 'installer must recover a confirmed stale non-shell lock PID');
 assert.ok(installer.includes('preserving ambiguous shell lock'), 'installer must preserve ambiguous shell PIDs');
