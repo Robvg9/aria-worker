@@ -1,0 +1,83 @@
+name: BattleCruiser Step 4 Android Current Tree Read Only
+on:
+  push:
+    branches: [aria/bc-step4-android-e2e-20261021]
+    paths: [.github/workflows/battlecruiser-step4-android-current-tree-readonly-v1.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  android-tree-read:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 6
+    steps:
+      - name: Read current accessibility labels on the authorized Android
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          ARIA_RUNTIME_SHARED_SECRET: ${{ secrets.ARIA_RUNTIME_SHARED_SECRET }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import json, os, time, urllib.request, urllib.error
+          project=os.environ.get('SUPABASE_PROJECT_REF','').strip(); secret=os.environ.get('ARIA_RUNTIME_SHARED_SECRET','')
+          if not project or not secret: raise SystemExit('BLOCKED: runtime secrets unavailable')
+          base=f'https://{project}.supabase.co/functions/v1'
+          headers={'Authorization':'Bearer '+secret,'content-type':'application/json','cache-control':'no-store'}
+          mid=f"mission_bc_step4_android_current_tree_readonly_v1_{os.environ['RUN_ID']}_{os.environ['RUN_ATTEMPT']}"
+          dev='android-termux-a1ebcfc7-9287-4603-a0f9-c519d12fd092'; host='battlecruiser.robvg9.workers.dev'
+          marker='BC_STEP4_ANDROID_CURRENT_TREE_READONLY_V1'
+          command=r"""node <<'NODE'
+          const {executeAndroidAccessibilityJob,probeLocalIpcHealth}=require('./computer-use/android-accessibility-v1.js');
+          const marker='BC_STEP4_ANDROID_CURRENT_TREE_READONLY_V1',host='battlecruiser.robvg9.workers.dev';
+          const clean=s=>typeof s==='string'?s.replace(/\s+/g,' ').trim().replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/ig,'[redacted]').slice(0,120):'';
+          const norm=s=>clean(s).toLowerCase().replace(/[áàä]/g,'a').replace(/[éèë]/g,'e').replace(/[íìï]/g,'i').replace(/[óòö]/g,'o').replace(/[úùü]/g,'u').replace(/ñ/g,'n').trim();
+          (async()=>{
+            const h=await probeLocalIpcHealth({timeoutMs:2500}),hp=h&&h.payload||{};
+            if(!(h&&h.ok===true&&String(hp.version_name)==='1.1.23'&&Number(hp.version_code)===29&&String(hp.build_id)==='3708b31b319884f7d42082414a82cdd11450fe2d')){
+              console.log(JSON.stringify({marker,ok:false,stage:'agent_build_mismatch',build:{version_name:hp.version_name||null,version_code:hp.version_code||null,build_id:hp.build_id||null}}));process.exitCode=20;return;
+            }
+            const r=await executeAndroidAccessibilityJob({command:JSON.stringify({operation:'observe',target_package:'com.android.chrome',allow_any_app:false,allowed_hosts:[host]}),timeoutMs:15000});
+            const p=r&&r.payload||{},root=p.root||(p.ui&&p.ui.root)||null,all=[],seen=new Set();let count=0;
+            const walk=(n,path,d)=>{if(!n||typeof n!=='object'||Array.isArray(n)||seen.has(n)||d>28||count>=1200)return;seen.add(n);count++;
+              const names=['name','label','contentDescription','text','hint'].map(k=>clean(n[k])).filter(Boolean);
+              const t=names.join(' | ');if(t||n.clickable||n.scrollable)all.push({id:typeof n.id==='string'&&n.id?n.id:path,path,role:clean(n.role),className:clean(n.className||n.class),text:t,visible:n.visible!==false,clickable:!!n.clickable,enabled:n.enabled!==false,scrollable:!!n.scrollable,bounds:n.bounds||null});
+              if(Array.isArray(n.children))n.children.forEach((c,i)=>walk(c,path+'.'+i,d+1));};
+            walk(root,'0',0);
+            const wanted=[['turno-almacen-abrir',/^selecciona un almacen$/],['turno-filtro-estado',/^todos los estados$/],['turno-filtro-almacen',/^todos los almacenes$/],['turnos-refrescar-btn',/^refrescar$/],['mov-filtro-desde',/^desde$/],['mov-filtro-hasta',/^hasta$/]];
+            const controls=wanted.map(([key,re])=>{const xs=all.filter(n=>re.test(norm(n.text)));const a=xs.find(n=>n.visible&&n.clickable&&n.enabled);return {key,count:xs.length,visible:xs.filter(n=>n.visible).length,actionable:!!a,node:a||xs[0]||null};});
+            console.log(JSON.stringify({marker,ok:r&&r.status==='succeeded'&&!!root,hash:p.evidence_hash||null,nodeCount:all.length,controls,visibleLabels:all.filter(n=>n.visible&&n.text&&/turnos|movimientos|almacen|estados|refrescar|desde|hasta/i.test(norm(n.text))).slice(0,35),safety:{observeOnly:true,noClicks:true,businessDataChanged:false,stockChanged:false}}));
+            if(!root)process.exitCode=1;
+          })().catch(e=>{console.log(JSON.stringify({marker,ok:false,error:clean(String(e&&e.message||e))}));process.exitCode=1;});
+          NODE"""
+          step={'id':'observe_current_tree','title':'Observe the current allowed Chrome tab','operation':'shell.execute','executor_type':'device','target':{'type':'device','device_id':dev},'input':{'command':command,'operation':'shell.execute'},'risk':'READ','timeout_ms':25000,'policy':{'tool_use':True,'no_side_effects':True,'read_only_audit':True,'explicit_device_intent':True},'depends_on':[],'verify':{'stdout_contains':marker,'expected_exit_code':0},'selection':{'selection_reason':'Read-only accessibility tree inspection','requested_device_id':dev,'verification_marker':marker,'requested_capability':'shell.execute'}}
+          metadata={'goal_source':'chat','source_application':'ChatGPT','project_name':'BattleCruiser','source':'battlecruiser_step4_android_current_tree_readonly_v1','verification_marker':marker,'device_id':dev,'requested_device_id':dev,'operation':'shell.execute','executor_type':'device','requested_capability':'shell.execute','command':command,'risk':'READ','timeout_ms':25000,'target_package':'com.android.chrome','allowed_hosts':[host],'read_only':True,'business_data_mutated':False,'explicit_device_intent':True,'human_gate_required':False}
+          checkpoint={'plan':[step],'stage':'execution','completed_steps':[],'attempts':{},'results':{},'pending_jobs':{},'read_only':True,'verification_marker':marker}
+          goal='Read only: capture the current accessibility tree on the authorized Android Chrome tab, extract only generic filter/button presence and bounds, and do not interact with controls. Marker '+marker
+          def post(fn,payload,timeout=75,trigger=None):
+              hh=dict(headers)
+              if trigger: hh['x-aria-trigger']=trigger
+              req=urllib.request.Request(base+'/'+fn,data=json.dumps(payload).encode(),headers=hh,method='POST')
+              try:
+                  with urllib.request.urlopen(req,timeout=timeout) as r:return r.status,json.loads(r.read().decode())
+              except urllib.error.HTTPError as e:
+                  try:return e.code,json.loads(e.read().decode())
+                  except:return e.code,{}
+          code,a=post('aria-mission-intake-v1',{'goal':goal,'mission_id':mid,'metadata':metadata,'checkpoint':checkpoint},60)
+          print('INTAKE_HTTP='+str(code));print('MISSION_ID='+mid);print('INTAKE_OK='+str(a.get('ok')))
+          if code>=300 or a.get('ok') is not True: print(json.dumps(a)[:900]);raise SystemExit(2)
+          code,b=post('aria-canonical-runtime-v1',{'mission_id':mid},90,'mission-tick')
+          print('CANONICAL_HTTP='+str(code));print('CANONICAL_STATUS='+str(b.get('status','unknown')))
+          if code>=300 or b.get('ok') is False: raise SystemExit(3)
+          terminal={'succeeded','failed','blocked','rejected','cancelled','human_required','paused'}
+          last=b
+          for i in range(1,46):
+              c,last=post('aria-mission-runner-v22',{'mission_id':mid},75)
+              st=str(last.get('status','unknown'));print('POLL='+json.dumps({'n':i,'http':c,'status':st,'error':last.get('error'),'next_action':last.get('next_action')}))
+              if st in terminal or c in (401,403,404):break
+              time.sleep(3)
+          st=str(last.get('status','unknown'));print('FINAL_STATUS='+st)
+          if st!='succeeded':raise SystemExit(1)
+          PY
