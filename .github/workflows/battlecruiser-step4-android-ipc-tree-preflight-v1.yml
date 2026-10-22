@@ -134,6 +134,20 @@ jobs:
           const norm=s=>clean(s).toLowerCase().replace(/[áàä]/g,'a').replace(/[éèë]/g,'e').replace(/[íìï]/g,'i').replace(/[óòö]/g,'o').replace(/[úùü]/g,'u').replace(/ñ/g,'n');
           function scan(root){const nodes=[],seen=new Set();let count=0;const walk=(n,path,d)=>{if(!n||typeof n!=='object'||Array.isArray(n)||seen.has(n)||d>28||count>=1200)return;seen.add(n);count++;const names=['name','label','contentDescription','text','hint'].map(k=>clean(n[k])).filter(Boolean);nodes.push({id:typeof n.id==='string'&&n.id?n.id:path,path,role:clean(n.role),className:clean(n.className||n.class),names,text:names.join(' | '),visible:n.visible!==false,clickable:!!n.clickable,enabled:n.enabled!==false,scrollable:!!n.scrollable,bounds:n.bounds||null});if(Array.isArray(n.children))n.children.forEach((c,i)=>walk(c,path+'.'+i,d+1));};walk(root,'0',0);return nodes;}
           (async()=>{
+            if(apkRecovery.attempted && apkRecovery.verified && apkRecovery.installerOpen?.status===0){
+              // Wait for the owner to accept Android's native installer; never install silently.
+              for(let i=0;i<12;i++){
+                await new Promise(r=>setTimeout(r,5000));
+                packageDebug=probe('pm',['path','com.robvg9.ariauiagent.debug']);
+                packageRelease=probe('pm',['path','com.robvg9.ariauiagent']);
+                if(packageDebug.status===0||packageRelease.status===0)break;
+              }
+              if(appAmExists && (packageDebug.status===0||packageRelease.status===0)){
+                const targetPackage=packageDebug.status===0?'com.robvg9.ariauiagent.debug':'com.robvg9.ariauiagent';
+                activityLaunch={attempted:true,targetPackage,appAmPath,appAmExists,...probe(appAmPath,['start','-n',targetPackage+'/.MainActivity'],12000)};
+              }
+              console.log('ANDROID_POST_INSTALL_DIAG='+JSON.stringify({apkRecovery,packageDebug,packageRelease,activityLaunch}));
+            }
             let h=await probeLocalIpcHealth({timeoutMs:3000}),hp=h&&h.payload||{};
             let activityStart=null;
             if(!h?.ok){
