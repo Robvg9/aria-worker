@@ -82,7 +82,7 @@ jobs:
               s=str(last.get('status','unknown'))
               print('POLL='+json.dumps({'n':i,'http':c,'status':s,'error':last.get('error'),'next_action':last.get('next_action')}))
               if s in terminal or c in (401,403,404):break
-                            time.sleep(2)
+              time.sleep(2)
           s=str(last.get('status','unknown'));print('FINAL_STATUS='+s);print('FINAL='+json.dumps({k:last.get(k) for k in ('ok','status','mission_id','error','next_action','executor_types','results') if k in last},ensure_ascii=False)[:6000])
           if s!='succeeded':raise SystemExit(1)
           PY
