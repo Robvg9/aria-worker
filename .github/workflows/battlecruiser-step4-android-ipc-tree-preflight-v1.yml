@@ -80,7 +80,6 @@ jobs:
           let activityLaunch={attempted:false,status:'skipped',reason:'termux-am unavailable'};
           if(termuxAmPath && termuxAmPath!==''){
             activityLaunch={attempted:true,...probe('termux-am',['start','-n','com.robvg9.ariauiagent.debug/.MainActivity'],8000)};
-            await new Promise(r=>setTimeout(r,1500));
           }
           const diag={
             tools,
