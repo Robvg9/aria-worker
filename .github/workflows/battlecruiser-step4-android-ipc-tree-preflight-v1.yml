@@ -172,7 +172,7 @@ jobs:
             console.log(JSON.stringify(summary));if(!summary.ok)process.exitCode=3;
           })().catch(e=>{console.log(JSON.stringify({marker,ok:false,error:clean(String(e&&e.message||e))}));process.exitCode=1});
           NODE"""
-          metadata={'goal_source':'chat','source_application':'ChatGPT','project_name':'BattleCruiser','source':'battlecruiser_step4_android_agent_recovery_v2','verification_marker':marker,'device_id':device,'requested_device_id':device,'operation':'shell.execute','executor_type':'device','requested_capability':'shell.execute','command':command,'risk':'WRITE','timeout_ms':120000,'target_package':'com.android.chrome','allowed_hosts':[host],'read_only':False,'business_data_mutated':False,'explicit_device_intent':True,'human_gate_required':False}
+          metadata={'goal_source':'chat','source_application':'ChatGPT','project_name':'BattleCruiser','source':'battlecruiser_step4_android_agent_recovery_v3','verification_marker':marker,'device_id':device,'requested_device_id':device,'operation':'shell.execute','executor_type':'device','requested_capability':'shell.execute','command':command,'risk':'WRITE','timeout_ms':120000,'target_package':'com.android.chrome','allowed_hosts':[host],'read_only':False,'business_data_mutated':False,'explicit_device_intent':True,'human_gate_required':False}
           def post(fn,payload,timeout=45):
               req=urllib.request.Request(base+'/'+fn,data=json.dumps(payload).encode(),headers=headers,method='POST')
               try:
@@ -180,7 +180,7 @@ jobs:
               except urllib.error.HTTPError as e:
                   try:return e.code,json.loads(e.read().decode())
                   except:return e.code,{}
-          code,body=post('aria-direct-v1',{'goal':'If both ARIA UI Agent package IDs are missing, download and SHA-256 verify the published official UI Agent APK, open Android's native installer via Termux, wait for consent/install read-back, launch the package via the Termux app-level AM wrapper, then observe the tree and navigate Chrome only to the allowlisted BattleCruiser LIVE URL. Do not click business controls or submit forms. Marker BC_STEP4_ANDROID_AGENT_RECOVERY_V3.','mission_id':mission_id,'metadata':metadata})
+          code,body=post('aria-direct-v1',{'goal':'If both ARIA UI Agent package IDs are missing, download and SHA-256 verify the published official UI Agent APK, open the native Android package installer through Termux, wait for consent/install read-back, launch the package via the Termux app-level AM wrapper, then observe the tree and navigate Chrome only to the allowlisted BattleCruiser LIVE URL. Do not click business controls or submit forms. Marker BC_STEP4_ANDROID_AGENT_RECOVERY_V3.','mission_id':mission_id,'metadata':metadata})
           print('DISPATCH_HTTP='+str(code));print('MISSION_ID='+mission_id);print('DISPATCH_STATUS='+str(body.get('dispatch',{}).get('status','unknown')))
           if code>=300 or body.get('ok') is not True: print(json.dumps(body)[:1200]);raise SystemExit(2)
           terminal={'succeeded','failed','blocked','rejected','cancelled','human_required','paused'}
