@@ -43,12 +43,12 @@ jobs:
           const clean=s=>typeof s==='string'?s.replace(/\s+/g,' ').trim().replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/ig,'[redacted]').slice(0,130):'';
           const norm=s=>clean(s).toLowerCase().replace(/[áàä]/g,'a').replace(/[éèë]/g,'e').replace(/[íìï]/g,'i').replace(/[óòö]/g,'o').replace(/[úùü]/g,'u').replace(/ñ/g,'n').trim();
           const wait=ms=>new Promise(r=>setTimeout(r,ms));
-          async function send(q,timeoutMs=7000){return await executeAndroidAccessibilityJob({command:JSON.stringify({...base,...q}),timeoutMs});}
-          async function observe(){const r=await send({operation:'observe'},4500),p=r&&r.payload||{},root=p.root||(p.ui&&p.ui.root)||null;return {r,p,root};}
-          async function action(a){return await send({operation:'action',action:a},6000);}
+          async function send(q,timeoutMs=12000){return await executeAndroidAccessibilityJob({command:JSON.stringify({...base,...q}),timeoutMs});}
+          async function observe(){const r=await send({operation:'observe'},6000),p=r&&r.payload||{},root=p.root||(p.ui&&p.ui.root)||null;return {r,p,root};}
+          async function action(a){return await send({operation:'action',action:a},10000);}
           function scan(root){const nodes=[],seen=new Set();let count=0;const walk=(n,path,d)=>{if(!n||typeof n!=='object'||Array.isArray(n)||seen.has(n)||d>28||count>=1100)return;seen.add(n);count++;const names=['name','label','contentDescription','text','hint'].map(k=>clean(n[k])).filter(Boolean);nodes.push({id:typeof n.id==='string'&&n.id?n.id:path,path,role:clean(n.role),className:clean(n.className||n.class),names,text:names.join(' | '),visible:n.visible!==false,clickable:!!n.clickable,enabled:n.enabled!==false,scrollable:!!n.scrollable,bounds:n.bounds||null});if(Array.isArray(n.children))n.children.forEach((c,i)=>walk(c,path+'.'+i,d+1));};walk(root,'0',0);return nodes;}
           const named=(ns,label)=>ns.find(n=>n.visible&&n.enabled&&n.clickable&&n.names.some(t=>norm(t)===norm(label)));
-          async function fresh(){let c=await observe();if(!c.root||c.p.ok!==true){await wait(250);c=await observe();}return c;}
+          async function fresh(){let c=await observe();for(let k=0;k<4&&(!c.root||c.p.ok!==true);k++){await wait(400);c=await observe();}return c;}
           async function clickWait(n,label,steps){const r=await action({action:'click',nodeId:n.id});steps.push({step:label,status:r&&r.status,reason:clean(r&&r.reason||r&&r.payload&&r.payload.reason)});await wait(300);return await fresh();}
           function reportSnapshot(cur){
             const ns=cur.root?scan(cur.root):[];
@@ -64,7 +64,7 @@ jobs:
             const h=await probeLocalIpcHealth({timeoutMs:2200}),hp=h&&h.payload||{};
             if(!(h&&h.ok===true&&String(hp.version_name)==='1.1.23'&&Number(hp.version_code)===29&&String(hp.build_id)===expected)){console.log(JSON.stringify({marker,ok:false,stage:'agent_build',version:hp.version_name,code:hp.version_code,build:hp.build_id}));process.exitCode=20;return;}
             const timeline=[];
-            let r=await action({action:'navigate',url:'https://'+host+'/'});timeline.push({step:'navigate_live',status:r&&r.status});await wait(800);
+            let r=await action({action:'navigate',url:'https://'+host+'/'});timeline.push({step:'navigate_live',status:r&&r.status,reason:clean(r&&r.reason||r&&r.payload&&r.payload.reason)});await wait(1000);
             let cur=await fresh(),ns=cur.root?scan(cur.root):[];
             let report=named(ns,'Reportes');
             if(!report){
@@ -72,7 +72,7 @@ jobs:
               if(menu){cur=await clickWait(menu,'open_menu',timeline);ns=cur.root?scan(cur.root):[];report=named(ns,'Reportes');}
             }
             if(!report){
-              r=await action({action:'swipe',x1:360,y1:1800,x2:360,y2:850,durationMs:380});timeline.push({step:'one_swipe_to_reportes_nav',status:r&&r.status});await wait(300);cur=await fresh();ns=cur.root?scan(cur.root):[];report=named(ns,'Reportes');
+              for(let k=0;k<6&&!report;k++){ns=cur.root?scan(cur.root):[];const drawer=ns.find(n=>n.visible&&n.scrollable&&n.path.startsWith('0.0.0.0.2'))||ns.find(n=>n.visible&&n.scrollable);if(!drawer)break;r=await action({action:'scroll',nodeId:drawer.id,direction:k<3?'backward':'forward'});timeline.push({step:'scroll_menu_'+(k+1),status:r&&r.status,reason:clean(r&&r.reason||r&&r.payload&&r.payload.reason)});await wait(400);cur=await fresh();ns=cur.root?scan(cur.root):[];report=named(ns,'Reportes');}
             }
             if(!report){console.log(JSON.stringify({marker,ok:false,stage:'reportes_nav_not_found',timeline,screen:reportSnapshot(cur)}));process.exitCode=1;return;}
             cur=await clickWait(report,'open_reportes',timeline);
