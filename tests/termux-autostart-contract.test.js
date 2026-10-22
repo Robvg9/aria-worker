@@ -49,7 +49,21 @@ assert.ok(installer.includes('chmod 700 "$AGENT_DIR/agents/termux/start-agent.sh
 assert.ok(boot.includes('. "$SUPERVISOR"'));
 assert.ok(!boot.includes('exec bash "$SUPERVISOR"'));
 assert.ok(installer.includes('kill_descendants'));
-assert.ok(installer.includes('refusing to replace unrelated locked process'));
+assert.ok(installer.includes('preserving ambiguous shell lock'), 'installer must refuse to terminate a potentially live shell supervisor');
+assert.ok(installer.includes('/proc/$old_pid/comm'), 'installer must identify a recycled lock PID');
+assert.ok(installer.includes('stale lock: PID $old_pid is $old_comm, not the supervisor; repairing'), 'installer must recover a confirmed stale non-shell lock PID');
+assert.ok(installer.includes('preserving ambiguous shell lock'), 'installer must preserve ambiguous shell PIDs');
+assert.ok(installer.includes('find "$LOCK_DIR" -mindepth 1 -maxdepth 1 ! -name pid'), 'installer must preserve unexpected lock contents');
+const installerStaleRecovery = installer.slice(
+  installer.indexOf('case "$old_cmd" in'),
+  installer.indexOf('\n\n  echo "[ARIA] replacing existing supervisor'),
+);
+assert.ok(!installerStaleRecovery.includes('rm -rf "$LOCK_DIR"'), 'stale-lock recovery must not recursively delete the lock directory');
+const staleLockRepair = supervisor.slice(
+  supervisor.indexOf('stale lock: PID'),
+  supervisor.indexOf('\n}\n\nrelease_lock'),
+);
+assert.ok(staleLockRepair.includes('BASHPID:-$$') && staleLockRepair.includes('LOCK_DIR/pid'), 'stale-lock repair must write a valid fallback PID');
 assert.ok(installer.includes('replacing existing supervisor'));
 assert.ok(installer.includes('supervisor.log'));
 assert.ok(!installer.includes('ARIA_DEVICE_TOKEN='));
