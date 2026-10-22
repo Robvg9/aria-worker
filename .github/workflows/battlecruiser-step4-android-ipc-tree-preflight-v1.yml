@@ -17,7 +17,7 @@ jobs:
     environment: production
     timeout-minutes: 5
     steps:
-      - name: Observe Android tree; navigate to allowed app URL only if no active window
+      - name: Install Termux AM helper if missing; relaunch agent; observe Android tree
         env:
           SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
           ARIA_RUNTIME_SHARED_SECRET: ${{ secrets.ARIA_RUNTIME_SHARED_SECRET }}
@@ -133,7 +133,7 @@ jobs:
             console.log(JSON.stringify(summary));if(!summary.ok)process.exitCode=3;
           })().catch(e=>{console.log(JSON.stringify({marker,ok:false,error:clean(String(e&&e.message||e))}));process.exitCode=1});
           NODE"""
-          metadata={'goal_source':'chat','source_application':'ChatGPT','project_name':'BattleCruiser','source':'battlecruiser_step4_android_ipc_tree_preflight_v1','verification_marker':marker,'device_id':device,'requested_device_id':device,'operation':'shell.execute','executor_type':'device','requested_capability':'shell.execute','command':command,'risk':'READ','timeout_ms':30000,'target_package':'com.android.chrome','allowed_hosts':[host],'read_only':True,'business_data_mutated':False,'explicit_device_intent':True,'human_gate_required':False}
+          metadata={'goal_source':'chat','source_application':'ChatGPT','project_name':'BattleCruiser','source':'battlecruiser_step4_android_agent_recovery_v2','verification_marker':marker,'device_id':device,'requested_device_id':device,'operation':'shell.execute','executor_type':'device','requested_capability':'shell.execute','command':command,'risk':'WRITE','timeout_ms':120000,'target_package':'com.android.chrome','allowed_hosts':[host],'read_only':False,'business_data_mutated':False,'explicit_device_intent':True,'human_gate_required':False}
           def post(fn,payload,timeout=45):
               req=urllib.request.Request(base+'/'+fn,data=json.dumps(payload).encode(),headers=headers,method='POST')
               try:
