@@ -54,7 +54,11 @@ assert.ok(installer.includes('/proc/$old_pid/comm'), 'installer must identify a 
 assert.ok(installer.includes('stale lock: PID $old_pid is $old_comm, not the supervisor; repairing'), 'installer must recover a confirmed stale non-shell lock PID');
 assert.ok(installer.includes('preserving ambiguous shell lock'), 'installer must preserve ambiguous shell PIDs');
 assert.ok(installer.includes('find "$LOCK_DIR" -mindepth 1 -maxdepth 1 ! -name pid'), 'installer must preserve unexpected lock contents');
-assert.ok(!installer.includes('rm -rf "$LOCK_DIR" 2>/dev/null || true\n  return 0'), 'stale-lock recovery must not recursively delete the lock directory');
+const installerStaleRecovery = installer.slice(
+  installer.indexOf('case "$old_cmd" in'),
+  installer.indexOf('\n\n  echo "[ARIA] replacing existing supervisor'),
+);
+assert.ok(!installerStaleRecovery.includes('rm -rf "$LOCK_DIR"'), 'stale-lock recovery must not recursively delete the lock directory');
 assert.ok(supervisor.includes('printf \'%s\\n\' "${BASHPID:-$}" > "$LOCK_DIR/pid"'), 'stale-lock repair must write a valid fallback PID');
 assert.ok(installer.includes('replacing existing supervisor'));
 assert.ok(installer.includes('supervisor.log'));
