@@ -1,4 +1,4 @@
-name: BattleCruiser Step 4 Android Window Recovery + Tree Preflight V1 (Read Only)
+name: BattleCruiser Step 4 Android Agent Recovery — Termux Activity Manager
 on:
   push:
     branches:
@@ -34,7 +34,7 @@ jobs:
           headers={'Authorization':'Bearer '+secret,'content-type':'application/json','cache-control':'no-store'}
           mission_id=f"mission_bc_step4_android_ipc_tree_preflight_{os.environ['RUN_ID']}_{os.environ['RUN_ATTEMPT']}"
           device='android-termux-a1ebcfc7-9287-4603-a0f9-c519d12fd092'
-          marker='BC_STEP4_ANDROID_IPC_TREE_PREFLIGHT_V1'
+          marker='BC_STEP4_ANDROID_AGENT_RECOVERY_V2'
           host='battlecruiser.robvg9.workers.dev'
           command=r"""node <<'NODE'
           const fs=require('node:fs'), path=require('node:path'), crypto=require('node:crypto');
@@ -75,14 +75,23 @@ jobs:
             const raw=probe('am',['broadcast','--user',String(Math.floor(process.getuid()/100000)),'-a','com.robvg9.ariauiagent.ACTION_EXECUTE','-n',packageName+'/.CommandReceiver','--es','payload_b64',testPayload,'--es','ipc_token',tokenMatch?.[1]||''],5000);
             receiverProbes[packageName]={...raw,stdout:safe(raw.stdout),stderr:safe(raw.stderr),responseDataPresent:/Broadcast completed: result=\d+, data="/.test(raw.stdout||'')};
           }
-          const tools=probe('sh',['-c',"for x in termux-am am termux-open-url termux-open pm; do printf '%s=' \"$x\"; command -v \"$x\" 2>/dev/null || true; done; printf 'PREFIX=%s\\n' \"$PREFIX\"; id"],4000);
-          const termuxAmPath=(tools.stdout.match(/termux-am=([^\\n]+)/)||[])[1]?.trim();
-          let activityLaunch={attempted:false,status:'skipped',reason:'termux-am unavailable'};
-          if(termuxAmPath && termuxAmPath!==''){
-            activityLaunch={attempted:true,...probe('termux-am',['start','-n','com.robvg9.ariauiagent.debug/.MainActivity'],8000)};
+          const toolsCommand="for x in termux-am am termux-open-url termux-open pm pkg; do printf '%s=' \"$x\"; command -v \"$x\" 2>/dev/null || true; printf '\\n'; done; printf 'PREFIX=%s\\n' \"$PREFIX\"; id";
+          const tools=probe('sh',['-c',toolsCommand],5000);
+          const currentAmPath=(tools.stdout.match(/^am=(.+)$/m)||[])[1]?.trim()||'';
+          let termuxAmInstall={attempted:false,status:'skipped',reason:'Termux app-level am already available'};
+          if(!currentAmPath || currentAmPath==='/system/bin/am'){
+            termuxAmInstall={attempted:true,...probe('pkg',['install','-y','termux-am'],90000)};
+          }
+          const toolsAfter=probe('sh',['-c',toolsCommand],5000);
+          const effectiveAmPath=(toolsAfter.stdout.match(/^am=(.+)$/m)||[])[1]?.trim()||'';
+          let activityLaunch={attempted:false,status:'skipped',reason:'no app-level am available'};
+          if(effectiveAmPath && effectiveAmPath!=='/system/bin/am'){
+            activityLaunch={attempted:true,...probe('am',['start','-n','com.robvg9.ariauiagent.debug/.MainActivity'],12000)};
           }
           const diag={
-            tools,
+            toolsBefore:tools,
+            termuxAmInstall,
+            toolsAfter,
             packageDebug:probe('pm',['path','com.robvg9.ariauiagent.debug']),
             packageRelease:probe('pm',['path','com.robvg9.ariauiagent']),
             enabledAccessibilitySettings:probe('settings',['get','secure','enabled_accessibility_services']),
@@ -132,12 +141,12 @@ jobs:
               except urllib.error.HTTPError as e:
                   try:return e.code,json.loads(e.read().decode())
                   except:return e.code,{}
-          code,body=post('aria-direct-v1',{'goal':'Read Android accessibility IPC; if and only if no active application window exists, navigate Chrome to the allowed BattleCruiser LIVE URL and observe. Do not click report/business controls or submit forms. Marker BC_STEP4_ANDROID_IPC_TREE_PREFLIGHT_V1.','mission_id':mission_id,'metadata':metadata})
+          code,body=post('aria-direct-v1',{'goal':'Install the official Termux app-level am helper only if the system am is the only available one, launch the installed ARIA UI Agent if available, then observe the tree and navigate Chrome only to the allowlisted BattleCruiser LIVE URL. Do not click business controls or submit forms. Marker BC_STEP4_ANDROID_AGENT_RECOVERY_V2.','mission_id':mission_id,'metadata':metadata})
           print('DISPATCH_HTTP='+str(code));print('MISSION_ID='+mission_id);print('DISPATCH_STATUS='+str(body.get('dispatch',{}).get('status','unknown')))
           if code>=300 or body.get('ok') is not True: print(json.dumps(body)[:1200]);raise SystemExit(2)
           terminal={'succeeded','failed','blocked','rejected','cancelled','human_required','paused'}
           last={}
-          for i in range(1,41):
+          for i in range(1,66):
               c,last=post('aria-mission-runner-v22',{'mission_id':mission_id})
               s=str(last.get('status','unknown'))
               print('POLL='+json.dumps({'n':i,'http':c,'status':s,'error':last.get('error'),'next_action':last.get('next_action')}))
