@@ -8,7 +8,8 @@ const {
   LOCAL_IPC_URL,
   LOCAL_IPC_HEALTH_URL,
   probeLocalIpcHealth,
-  executeAndroidAccessibilityJob
+  executeAndroidAccessibilityJob,
+  resolveAndroidAmPath
 } = require('../computer-use/android-accessibility-v1');
 const { resolveAndroidUiHealth, markAndroidUiExecutionSuccess } = require('../agents/termux/android-ui-health-state');
 const healthState = fs.readFileSync(path.join(__dirname, '..', 'agents', 'termux', 'android-ui-health-state.js'), 'utf8');
@@ -39,7 +40,19 @@ assert.ok(transport.includes("'broadcast', '--user', String(userId)"), 'Android 
 assert.ok(!transport.includes("'--user', '0'"), 'Android receiver must not hard-code Android user 0');
 assert.ok(transport.includes("'broadcast',"), 'Android receiver fallback must use a broadcast to the installed receiver');
 assert.ok(transport.includes('recoverAndroidUiAgentProcess'), 'IPC retries must include Android UI Agent process recovery');
-assert.ok(transport.includes("spawn('am'"), 'IPC recovery must launch through Android activity manager');
+assert.ok(transport.includes('function resolveAndroidAmPath'), 'Termux app-compatible am wrapper resolver must exist');
+assert.ok(transport.includes('spawn(resolveAndroidAmPath(), ['), 'Android IPC and recovery must use the resolved Termux am wrapper');
+assert.equal(
+  resolveAndroidAmPath({ PREFIX: '/data/data/com.termux/files/usr' }, p => p === '/data/data/com.termux/files/usr/bin/am'),
+  '/data/data/com.termux/files/usr/bin/am',
+  'PREFIX app-compatible am wrapper must be preferred',
+);
+assert.equal(
+  resolveAndroidAmPath({ TERMUX__PREFIX: '/data/data/com.termux/files/usr' }, p => p === '/data/data/com.termux/files/usr/bin/am'),
+  '/data/data/com.termux/files/usr/bin/am',
+  'TERMUX__PREFIX app-compatible am wrapper must be supported',
+);
+assert.equal(resolveAndroidAmPath({}, () => false), 'am', 'fallback should be bounded when no Termux wrapper exists');
 assert.ok(fs.readFileSync(path.join(__dirname, '..', 'android-ui-agent', 'app', 'src', 'main', 'java', 'com', 'robvg9', 'ariauiagent', 'AriaAccessibilityService.kt'), 'utf8').includes('"swipe" -> gestureSwipe'));
 assert.ok(fs.readFileSync(path.join(__dirname, '..', 'android-ui-agent', 'app', 'src', 'main', 'java', 'com', 'robvg9', 'ariauiagent', 'AriaAccessibilityService.kt'), 'utf8').includes('dispatchGesture(gesture'));
 assert.ok(fs.readFileSync(path.join(__dirname, '..', 'android-ui-agent', 'app', 'src', 'main', 'java', 'com', 'robvg9', 'ariauiagent', 'AriaAccessibilityService.kt'), 'utf8').includes('phase = "click_post_action"'), 'click post-action window resolution must use bounded retries');
