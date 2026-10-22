@@ -90,7 +90,7 @@ jobs:
             }
             if(!exactBuild){console.log(JSON.stringify({marker,ok:false,stage:'exact_agent_build_mismatch_after_read_only_recovery',healthAttempts}));process.exitCode=20;return;}
             const timeline=[];
-            let cur=await fresh(),ns=cur.root?scan(cur.root):[],menu=exact(ns,'Abrir menú')||exact(ns,'Abrir menu');
+            let cur=await fresh(),ns=cur.root?scan(cur.root):[],openMenu=exact(ns,'Abrir menú')||exact(ns,'Abrir menu'),closeMenu=exact(ns,'Cerrar menú')||exact(ns,'Cerrar menu'),menu=openMenu||closeMenu,menuAlreadyOpen=!openMenu&&!!closeMenu;
             const visitedTabs=new Set(),tabAttempts=[];
             const tabSwitcher=n=>n.find(x=>x.visible&&x.enabled&&x.clickable&&/ver\s*\d+\s*pestañas/i.test(norm(x.text)));
             if(!menu){
@@ -109,7 +109,7 @@ jobs:
                   tabAttempts.push({attempt:attempt+1,status:'selecting_existing_tab',path:candidate.path,title:clean(candidate.text),bounds:candidate.bounds});
                   cur=await clickWait(candidate,'select_existing_battlecruiser_tab_'+(attempt+1),timeline);
                   ns=cur.root?scan(cur.root):[];
-                  menu=exact(ns,'Abrir menú')||exact(ns,'Abrir menu');
+                  openMenu=exact(ns,'Abrir menú')||exact(ns,'Abrir menu');closeMenu=exact(ns,'Cerrar menú')||exact(ns,'Cerrar menu');menu=openMenu||closeMenu;menuAlreadyOpen=!openMenu&&!!closeMenu;
                   for(let waitNo=0;waitNo<5&&!menu;waitNo++){
                     await wait(400);cur=await fresh();ns=cur.root?scan(cur.root):[];menu=exact(ns,'Abrir menú')||exact(ns,'Abrir menu');
                   }
@@ -130,7 +130,7 @@ jobs:
               const visibleTexts=ns.filter(n=>n.visible&&n.text).slice(0,55).map(n=>({text:clean(n.text),role:n.role,className:n.className,clickable:n.clickable,bounds:n.bounds}));
               console.log(JSON.stringify({marker,ok:false,stage:'no_authenticated_existing_battlecruiser_tab_found',timeline,tabAttempts,screen:{...snapshot(cur),visibleTexts},safety:{no_credentials_entered:true,businessWrites:false,stockMutated:false,formsSubmitted:false}}));process.exitCode=1;return;
             }
-            cur=await clickWait(menu,'open_menu',timeline);
+            if(!menuAlreadyOpen){cur=await clickWait(menu,'open_menu',timeline);}else{timeline.push({step:'menu_already_open',status:'observed',target:{id:menu.id,path:menu.path,text:menu.text,bounds:menu.bounds}});}
             ns=cur.root?scan(cur.root):[];
             let dest=exact(ns,'Reportes');
             for(let k=0;k<4&&!dest;k++){
