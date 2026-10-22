@@ -59,7 +59,11 @@ const installerStaleRecovery = installer.slice(
   installer.indexOf('\n\n  echo "[ARIA] replacing existing supervisor'),
 );
 assert.ok(!installerStaleRecovery.includes('rm -rf "$LOCK_DIR"'), 'stale-lock recovery must not recursively delete the lock directory');
-assert.ok(supervisor.includes('printf \'%s\\n\' "${BASHPID:-$}" > "$LOCK_DIR/pid"'), 'stale-lock repair must write a valid fallback PID');
+const staleLockRepair = supervisor.slice(
+  supervisor.indexOf('stale lock: PID'),
+  supervisor.indexOf('\\n}\\n\\nrelease_lock'),
+);
+assert.ok(staleLockRepair.includes('${BASHPID:-$$}\" > \"$LOCK_DIR/pid\"'), 'stale-lock repair must write a valid fallback PID');
 assert.ok(installer.includes('replacing existing supervisor'));
 assert.ok(installer.includes('supervisor.log'));
 assert.ok(!installer.includes('ARIA_DEVICE_TOKEN='));
