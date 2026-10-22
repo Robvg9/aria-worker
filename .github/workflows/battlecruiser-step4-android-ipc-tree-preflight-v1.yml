@@ -41,19 +41,23 @@ jobs:
           const repoRoot=process.env.HOME+'/aria-agent';
           const transportPath=path.join(repoRoot,'computer-use/android-accessibility-v1.js');
           const transportBefore=fs.readFileSync(transportPath,'utf8');
-          const oldUserArg="'broadcast', '--user', '0',";
-          const occurrenceCount=transportBefore.split(oldUserArg).length-1;
-          let transportPatch={status:'not_needed',occurrences:occurrenceCount};
-          if(occurrenceCount===1){
-            const backupPath=path.join(process.env.HOME,'.aria-step4-android-accessibility-v1.pre-current-user-fix-20261022.bak');
+          const oldHardcoded="'broadcast', '--user', '0',";
+          const currentProfile="'broadcast', '--user', String(localAndroidUserId()),";
+          const oldBare="'broadcast',\\n      '-a', 'com.robvg9.ariauiagent.ACTION_EXECUTE',";
+          const newProfile="'broadcast', '--user', String(localAndroidUserId()),\\n      '-a', 'com.robvg9.ariauiagent.ACTION_EXECUTE',";
+          const hardcodedCount=transportBefore.split(oldHardcoded).length-1;
+          const bareCount=transportBefore.split(oldBare).length-1;
+          let transportPatch={status:'blocked_no_unique_safe_match',hardcodedCount,bareCount};
+          if(hardcodedCount===1||bareCount===1){
+            const backupPath=path.join(process.env.HOME,'.aria-step4-android-accessibility-v1.pre-dynamic-profile-fix-20261022.bak');
             if(!fs.existsSync(backupPath)) fs.copyFileSync(transportPath,backupPath);
-            const transportAfter=transportBefore.replace(oldUserArg,"'broadcast',");
+            const transportAfter=hardcodedCount===1
+              ? transportBefore.replace(oldHardcoded,currentProfile)
+              : transportBefore.replace(oldBare,newProfile);
             fs.writeFileSync(transportPath,transportAfter,'utf8');
-            transportPatch={status:'applied_exact_single_replacement',backupCreated:true,before_sha256:crypto.createHash('sha256').update(transportBefore).digest('hex'),after_sha256:crypto.createHash('sha256').update(transportAfter).digest('hex'),remainingExplicitUser0:transportAfter.includes(oldUserArg)};
-          }else if(occurrenceCount===0){
-            transportPatch.status='already_current_user_or_local_source_differs';
-          }else{
-            transportPatch.status='blocked_unexpected_multiple_matches_no_write';
+            transportPatch={status:'patched_unique_broadcast_target_to_calling_profile',backupCreated:true,before_sha256:crypto.createHash('sha256').update(transportBefore).digest('hex'),after_sha256:crypto.createHash('sha256').update(transportAfter).digest('hex'),hardcodedUser0:transportAfter.includes(oldHardcoded),dynamicProfile:transportAfter.includes(currentProfile)};
+          }else if(transportBefore.includes(currentProfile)){
+            transportPatch={status:'already_dynamic_current_profile'};
           }
           console.log('ANDROID_TRANSPORT_PATCH='+JSON.stringify(transportPatch));
           const {probeLocalIpcHealth,probeAndroidCommandReceiver,executeAndroidAccessibilityJob}=require('./computer-use/android-accessibility-v1.js');
@@ -66,7 +70,7 @@ jobs:
           let directReceiver={status:'blocked',reason:'ipc token constant not found'};
           if(tokenMatch){
             const testPayload=Buffer.from(JSON.stringify({operation:'action',action:{action:'wait',ms:0}}),'utf8').toString('base64');
-            const raw=spawnSync('am',['broadcast','-a','com.robvg9.ariauiagent.ACTION_EXECUTE','-n','com.robvg9.ariauiagent.debug/.CommandReceiver','--es','payload_b64',testPayload,'--es','ipc_token',tokenMatch[1]],{encoding:'utf8',timeout:5000});
+            const raw=spawnSync('am',['broadcast','--user',String(Math.floor(process.getuid()/100000)),'-a','com.robvg9.ariauiagent.ACTION_EXECUTE','-n','com.robvg9.ariauiagent.debug/.CommandReceiver','--es','payload_b64',testPayload,'--es','ipc_token',tokenMatch[1]],{encoding:'utf8',timeout:5000});
             const safe=s=>String(s||'').replace(/data="[A-Za-z0-9+/=]+"/g,'data="[redacted]"').replace(new RegExp(tokenMatch[1],'g'),'[token]').slice(0,1400);
             directReceiver={status:raw.status,error:raw.error?.message||null,stdout:safe(raw.stdout),stderr:safe(raw.stderr)};
           }
