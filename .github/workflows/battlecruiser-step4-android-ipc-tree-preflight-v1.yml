@@ -1,4 +1,4 @@
-name: BattleCruiser Step 4 Android IPC Tree Preflight V1 (Read Only)
+name: BattleCruiser Step 4 Android Window Recovery + Tree Preflight V1 (Read Only)
 on:
   push:
     branches:
@@ -17,7 +17,7 @@ jobs:
     environment: production
     timeout-minutes: 5
     steps:
-      - name: Observe current Android accessibility IPC and tree without navigation
+      - name: Observe Android tree; navigate to allowed app URL only if no active window
         env:
           SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
           ARIA_RUNTIME_SHARED_SECRET: ${{ secrets.ARIA_RUNTIME_SHARED_SECRET }}
@@ -47,10 +47,20 @@ jobs:
           (async()=>{
             const h=await probeLocalIpcHealth({timeoutMs:3000}),hp=h&&h.payload||{};
             const receiver=await probeAndroidCommandReceiver({timeoutMs:3000});
-            const req=await executeAndroidAccessibilityJob({command:JSON.stringify({...base,operation:'observe'}),timeoutMs:9000});
-            const p=req&&req.payload||{},root=p.root||(p.ui&&p.ui.root)||null,ns=root?scan(root):[];
+            let req=await executeAndroidAccessibilityJob({command:JSON.stringify({...base,operation:'observe'}),timeoutMs:9000});
+            let p=req&&req.payload||{},root=p.root||(p.ui&&p.ui.root)||null,ns=root?scan(root):[];
+            let recoveryNavigation={attempted:false,status:'not_needed',reason:null};
+            if(!root||ns.length===0||String(req?.reason||'').includes('no_active_application_window')){
+              recoveryNavigation.attempted=true;
+              const nav=await executeAndroidAccessibilityJob({command:JSON.stringify({...base,operation:'action',action:{action:'navigate',url:'https://'+host+'/'}),timeoutMs:12000});
+              recoveryNavigation.status=nav?.status||'unknown';
+              recoveryNavigation.reason=clean(nav?.reason||nav?.payload?.reason||'');
+              await new Promise(r=>setTimeout(r,1800));
+              req=await executeAndroidAccessibilityJob({command:JSON.stringify({...base,operation:'observe'}),timeoutMs:9000});
+              p=req&&req.payload||{};root=p.root||(p.ui&&p.ui.root)||null;ns=root?scan(root):[];
+            }
             const labels=ns.filter(n=>n.visible&&n.text).slice(0,80).map(n=>({text:clean(n.text),role:n.role,className:n.className,clickable:n.clickable,scrollable:n.scrollable,bounds:n.bounds}));
-            const summary={marker,ok:!!(h&&h.ok===true&&req&&req.status==='succeeded'&&root&&ns.length>0),health:{ok:!!h?.ok,status:h?.status||null,version_name:hp.version_name||null,version_code:hp.version_code||null,build_id:hp.build_id||null,reason:h?.reason||null},receiver:{ok:!!receiver?.ok,reason:receiver?.reason||null,transport:receiver?.metadata?.transport||null},observe:{status:req?.status||null,reason:req?.reason||null,ok:p.ok??null,nodeCount:ns.length,evidence_hash:p.evidence_hash||null,reportQuickActions:labels.filter(n=>/abrir reporte (ventas|compras|rentabilidad|transferencias|stock|movimiento)/i.test(n.text)),chromeBar:labels.filter(n=>/buscar en google o escribir una url|pestanas|personalizar y controlar google chrome/i.test(n.text)),labels},safety:{navigationPerformed:false,buttonActionsPerformed:false,formsSubmitted:false,businessWrites:false,stockMutated:false}};
+            const summary={marker,ok:!!(h&&h.ok===true&&req&&req.status==='succeeded'&&root&&ns.length>0),health:{ok:!!h?.ok,status:h?.status||null,version_name:hp.version_name||null,version_code:hp.version_code||null,build_id:hp.build_id||null,reason:h?.reason||null},receiver:{ok:!!receiver?.ok,reason:receiver?.reason||null,transport:receiver?.metadata?.transport||null},recoveryNavigation,observe:{status:req?.status||null,reason:req?.reason||null,ok:p.ok??null,nodeCount:ns.length,evidence_hash:p.evidence_hash||null,reportQuickActions:labels.filter(n=>/abrir reporte (ventas|compras|rentabilidad|transferencias|stock|movimiento)/i.test(n.text)),chromeBar:labels.filter(n=>/buscar en google o escribir una url|pestanas|personalizar y controlar google chrome/i.test(n.text)),labels},safety:{navigationPerformed:recoveryNavigation.attempted,onlyAllowedBattlecruiserUrl:true,buttonActionsPerformed:false,formsSubmitted:false,businessWrites:false,stockMutated:false}};
             console.log(JSON.stringify(summary));if(!summary.ok)process.exitCode=3;
           })().catch(e=>{console.log(JSON.stringify({marker,ok:false,error:clean(String(e&&e.message||e))}));process.exitCode=1});
           NODE"""
@@ -62,7 +72,7 @@ jobs:
               except urllib.error.HTTPError as e:
                   try:return e.code,json.loads(e.read().decode())
                   except:return e.code,{}
-          code,body=post('aria-direct-v1',{'goal':'Read Android accessibility IPC health and current screen tree only; do not navigate or click any control. Marker BC_STEP4_ANDROID_IPC_TREE_PREFLIGHT_V1.','mission_id':mission_id,'metadata':metadata})
+          code,body=post('aria-direct-v1',{'goal':'Read Android accessibility IPC; if and only if no active application window exists, navigate Chrome to the allowed BattleCruiser LIVE URL and observe. Do not click report/business controls or submit forms. Marker BC_STEP4_ANDROID_IPC_TREE_PREFLIGHT_V1.','mission_id':mission_id,'metadata':metadata})
           print('DISPATCH_HTTP='+str(code));print('MISSION_ID='+mission_id);print('DISPATCH_STATUS='+str(body.get('dispatch',{}).get('status','unknown')))
           if code>=300 or body.get('ok') is not True: print(json.dumps(body)[:1200]);raise SystemExit(2)
           terminal={'succeeded','failed','blocked','rejected','cancelled','human_required','paused'}
