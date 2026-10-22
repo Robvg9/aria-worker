@@ -88,7 +88,16 @@ jobs:
           const norm=s=>clean(s).toLowerCase().replace(/[áàä]/g,'a').replace(/[éèë]/g,'e').replace(/[íìï]/g,'i').replace(/[óòö]/g,'o').replace(/[úùü]/g,'u').replace(/ñ/g,'n');
           function scan(root){const nodes=[],seen=new Set();let count=0;const walk=(n,path,d)=>{if(!n||typeof n!=='object'||Array.isArray(n)||seen.has(n)||d>28||count>=1200)return;seen.add(n);count++;const names=['name','label','contentDescription','text','hint'].map(k=>clean(n[k])).filter(Boolean);nodes.push({id:typeof n.id==='string'&&n.id?n.id:path,path,role:clean(n.role),className:clean(n.className||n.class),names,text:names.join(' | '),visible:n.visible!==false,clickable:!!n.clickable,enabled:n.enabled!==false,scrollable:!!n.scrollable,bounds:n.bounds||null});if(Array.isArray(n.children))n.children.forEach((c,i)=>walk(c,path+'.'+i,d+1));};walk(root,'0',0);return nodes;}
           (async()=>{
-            const h=await probeLocalIpcHealth({timeoutMs:3000}),hp=h&&h.payload||{};
+            let h=await probeLocalIpcHealth({timeoutMs:3000}),hp=h&&h.payload||{};
+            let activityStart=null;
+            if(!h?.ok){
+              const launch=spawnSync('am',['start','-n','com.robvg9.ariauiagent.debug/.MainActivity'],{encoding:'utf8',timeout:5000});
+              const safeLaunch=s=>String(s||'').replace(/data="[A-Za-z0-9+/=]+"/g,'data="[redacted]"').slice(0,800);
+              activityStart={status:launch.status,error:launch.error?.message||null,stdout:safeLaunch(launch.stdout),stderr:safeLaunch(launch.stderr)};
+              console.log('ANDROID_ACTIVITY_START_DIAG='+JSON.stringify(activityStart));
+              await new Promise(r=>setTimeout(r,1200));
+              h=await probeLocalIpcHealth({timeoutMs:3000});hp=h&&h.payload||{};
+            }
             const receiver=await probeAndroidCommandReceiver({timeoutMs:3000});
             let req=await executeAndroidAccessibilityJob({command:JSON.stringify({...base,operation:'observe'}),timeoutMs:9000});
             let p=req&&req.payload||{},root=p.root||(p.ui&&p.ui.root)||null,ns=root?scan(root):[];
@@ -103,7 +112,7 @@ jobs:
               p=req&&req.payload||{};root=p.root||(p.ui&&p.ui.root)||null;ns=root?scan(root):[];
             }
             const labels=ns.filter(n=>n.visible&&n.text).slice(0,80).map(n=>({text:clean(n.text),role:n.role,className:n.className,clickable:n.clickable,scrollable:n.scrollable,bounds:n.bounds}));
-            const summary={marker,ok:!!(h&&h.ok===true&&req&&req.status==='succeeded'&&root&&ns.length>0),health:{ok:!!h?.ok,status:h?.status||null,version_name:hp.version_name||null,version_code:hp.version_code||null,build_id:hp.build_id||null,reason:h?.reason||null},receiver:{ok:!!receiver?.ok,reason:receiver?.reason||null,transport:receiver?.metadata?.transport||null,exit_code:receiver?.metadata?.exit_code??null,duration_ms:receiver?.metadata?.duration_ms??null,stderr:clean(receiver?.metadata?.stderr||'')},recoveryNavigation,observe:{status:req?.status||null,reason:req?.reason||null,ok:p.ok??null,nodeCount:ns.length,evidence_hash:p.evidence_hash||null,reportQuickActions:labels.filter(n=>/abrir reporte (ventas|compras|rentabilidad|transferencias|stock|movimiento)/i.test(n.text)),chromeBar:labels.filter(n=>/buscar en google o escribir una url|pestanas|personalizar y controlar google chrome/i.test(n.text)),labels},safety:{navigationPerformed:recoveryNavigation.attempted,onlyAllowedBattlecruiserUrl:true,buttonActionsPerformed:false,formsSubmitted:false,businessWrites:false,stockMutated:false}};
+            const summary={marker,ok:!!(h&&h.ok===true&&req&&req.status==='succeeded'&&root&&ns.length>0),health:{ok:!!h?.ok,status:h?.status||null,version_name:hp.version_name||null,version_code:hp.version_code||null,build_id:hp.build_id||null,reason:h?.reason||null,activityStart},receiver:{ok:!!receiver?.ok,reason:receiver?.reason||null,transport:receiver?.metadata?.transport||null,exit_code:receiver?.metadata?.exit_code??null,duration_ms:receiver?.metadata?.duration_ms??null,stderr:clean(receiver?.metadata?.stderr||'')},recoveryNavigation,observe:{status:req?.status||null,reason:req?.reason||null,ok:p.ok??null,nodeCount:ns.length,evidence_hash:p.evidence_hash||null,reportQuickActions:labels.filter(n=>/abrir reporte (ventas|compras|rentabilidad|transferencias|stock|movimiento)/i.test(n.text)),chromeBar:labels.filter(n=>/buscar en google o escribir una url|pestanas|personalizar y controlar google chrome/i.test(n.text)),labels},safety:{navigationPerformed:recoveryNavigation.attempted,onlyAllowedBattlecruiserUrl:true,buttonActionsPerformed:false,formsSubmitted:false,businessWrites:false,stockMutated:false}};
             console.log(JSON.stringify(summary));if(!summary.ok)process.exitCode=3;
           })().catch(e=>{console.log(JSON.stringify({marker,ok:false,error:clean(String(e&&e.message||e))}));process.exitCode=1});
           NODE"""
