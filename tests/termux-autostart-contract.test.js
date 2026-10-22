@@ -24,6 +24,15 @@ assert.ok(supervisor.includes('continuing with local checkout'), 'pull failure/t
 assert.ok(supervisor.includes('node "$AGENT_SCRIPT"'));
 assert.ok(supervisor.includes('LOCK_DIR="${ARIA_AGENT_LOCK_DIR:-$HOME/.aria-agent.lock}"'));
 assert.ok(supervisor.includes('BASHPID:-'), 'supervisor lock must use the actual subshell pid');
+const acquireLock = supervisor.slice(
+  supervisor.indexOf('acquire_lock() {'),
+  supervisor.indexOf('\n}\n\nrelease_lock'),
+);
+assert.ok(acquireLock.includes('/proc/$existing_pid/cmdline'), 'lock recovery must verify process identity, not only PID existence');
+assert.ok(acquireLock.includes('stale lock: PID'), 'PID reuse must be reported as a stale lock');
+assert.ok(acquireLock.includes('find "$LOCK_DIR" -mindepth 1'), 'lock recovery must preserve unexpected lock contents');
+assert.ok(!acquireLock.includes('rm -rf "$LOCK_DIR"'), 'lock acquisition must not recursively delete potentially unrelated state');
+assert.ok(acquireLock.includes('BASHPID:-$'), 'recovered lock must record a valid fallback PID');
 assert.ok(!supervisor.includes('printf \'%s\\n\' "$"'));
 assert.ok(!supervisor.includes('= "$" ]'));
 
