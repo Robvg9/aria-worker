@@ -52,7 +52,7 @@ jobs:
             let recoveryNavigation={attempted:false,status:'not_needed',reason:null};
             if(!root||ns.length===0||String(req?.reason||'').includes('no_active_application_window')){
               recoveryNavigation.attempted=true;
-              const nav=await executeAndroidAccessibilityJob({command:JSON.stringify({...base,operation:'action',action:{action:'navigate',url:'https://'+host+'/'}),timeoutMs:12000});
+              const nav=await executeAndroidAccessibilityJob({command:JSON.stringify({...base,operation:'action',action:{action:'navigate',url:'https://'+host+'/'}}),timeoutMs:12000});
               recoveryNavigation.status=nav?.status||'unknown';
               recoveryNavigation.reason=clean(nav?.reason||nav?.payload?.reason||'');
               await new Promise(r=>setTimeout(r,1800));
