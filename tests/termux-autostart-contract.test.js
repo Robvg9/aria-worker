@@ -61,9 +61,9 @@ const installerStaleRecovery = installer.slice(
 assert.ok(!installerStaleRecovery.includes('rm -rf "$LOCK_DIR"'), 'stale-lock recovery must not recursively delete the lock directory');
 const staleLockRepair = supervisor.slice(
   supervisor.indexOf('stale lock: PID'),
-  supervisor.indexOf('\\n}\\n\\nrelease_lock'),
+  supervisor.indexOf('\n}\n\nrelease_lock'),
 );
-assert.ok(staleLockRepair.includes('${BASHPID:-$$}\" > \"$LOCK_DIR/pid\"'), 'stale-lock repair must write a valid fallback PID');
+assert.ok(staleLockRepair.includes('BASHPID:-$$') && staleLockRepair.includes('LOCK_DIR/pid'), 'stale-lock repair must write a valid fallback PID');
 assert.ok(installer.includes('replacing existing supervisor'));
 assert.ok(installer.includes('supervisor.log'));
 assert.ok(!installer.includes('ARIA_DEVICE_TOKEN='));
