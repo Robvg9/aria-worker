@@ -162,6 +162,22 @@ jobs:
             }
             timeline.push({step:'verify_reportes_panel_controls',target:reportesTarget,checks:ready.checks});
             if(!Object.values(ready.checks).every(Boolean)){
+              ns=cur.root?scan(cur.root):[];
+              const shortcut=ns.find(n=>n.visible&&n.enabled&&n.clickable&&onScreen(n)&&n.names.some(t=>norm(t)==='abrir reporte ventas'));
+              if(shortcut){
+                timeline.push({step:'fallback_report_shortcut_target',id:shortcut.id,path:shortcut.path,text:shortcut.text,bounds:shortcut.bounds});
+                cur=await clickWait(shortcut,'fallback_open_report_shortcut_ventas',timeline);await wait(700);cur=await fresh();ready=await readiness(cur);
+                for(let k=0;k<4&&!Object.values(ready.checks).every(Boolean);k++){
+                  r=await action({action:'swipe',x1:540,y1:1850,x2:540,y2:850,durationMs:420});
+                  timeline.push({step:'scroll_shortcut_report_to_filters_'+(k+1),status:r&&r.status,reason:clean(r&&r.reason||r&&r.payload&&r.payload.reason)});
+                  await wait(350);cur=await fresh();ready=await readiness(cur);
+                }
+                timeline.push({step:'verify_shortcut_report_filters',checks:ready.checks});
+              }else{
+                timeline.push({step:'fallback_report_shortcut_target',status:'not_found'});
+              }
+            }
+            if(!Object.values(ready.checks).every(Boolean)){
               const current=snapshot(cur);
               console.log(JSON.stringify({marker,ok:false,stage:'reportes_panel_not_verified_filters_missing',build:{version_name:hp.version_name,version_code:hp.version_code,build_id:hp.build_id},timeline,reportesTarget,checks:ready.checks,screen:current,safety:{filtersOnly:true,formsSubmitted:false,businessWrites:false,stockMutated:false}}));
               process.exitCode=5;return;
