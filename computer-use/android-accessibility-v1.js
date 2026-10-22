@@ -27,8 +27,11 @@ function executeAndroidCommandReceiver({ request, timeoutMs = 8000 } = {}) {
   return new Promise((resolve) => {
     const encoded = Buffer.from(JSON.stringify(request), 'utf8').toString('base64');
     const started = Date.now();
+    // Do not pass --user 0. Termux executes as an app UID and Android can reject
+    // explicit cross-user broadcasts even when user 0 is the apparent caller.
+    // Omitting the selector routes this governed IPC request to Termux's current Android user/profile.
     const child = spawn('am', [
-      'broadcast', '--user', '0',
+      'broadcast',
       '-a', 'com.robvg9.ariauiagent.ACTION_EXECUTE',
       '-n', `${PACKAGE}/.CommandReceiver`,
       '--es', 'payload_b64', encoded,
