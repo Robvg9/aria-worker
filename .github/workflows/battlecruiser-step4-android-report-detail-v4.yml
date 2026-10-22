@@ -1,0 +1,136 @@
+name: BattleCruiser Step 4 Android M45 Detail Rows V4 (Read Only)
+on:
+  push:
+    branches:
+      - aria/bc-step4-android-e2e-20261021
+    paths:
+      - .github/workflows/battlecruiser-step4-android-report-detail-v4.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: bc-step4-android-report-detail-v4-${{ github.run_id }}
+  cancel-in-progress: false
+jobs:
+  android-report-detail-v4:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 7
+    steps:
+      - name: Navigate to M45 reports and observe detailed results without writes
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          ARIA_RUNTIME_SHARED_SECRET: ${{ secrets.ARIA_RUNTIME_SHARED_SECRET }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import json, os, urllib.request, urllib.error
+          project=os.environ.get('SUPABASE_PROJECT_REF','').strip()
+          secret=os.environ.get('ARIA_RUNTIME_SHARED_SECRET','')
+          if not project or not secret: raise SystemExit('BLOCKED: runtime secrets unavailable')
+          base=f'https://{project}.supabase.co/functions/v1'
+          headers={'Authorization':'Bearer '+secret,'content-type':'application/json','cache-control':'no-store'}
+          mission_id=f"mission_bc_step4_android_report_detail_v4_{os.environ['RUN_ID']}_{os.environ['RUN_ATTEMPT']}"
+          device='android-termux-a1ebcfc7-9287-4603-a0f9-c519d12fd092'
+          host='battlecruiser.robvg9.workers.dev'
+          marker='BC_STEP4_ANDROID_M45_DETAIL_ROWS_V4'
+          command=r"""node <<'NODE'
+          const {probeLocalIpcHealth,executeAndroidAccessibilityJob}=require('./computer-use/android-accessibility-v1.js');
+          const host='battlecruiser.robvg9.workers.dev',marker='BC_STEP4_ANDROID_M45_DETAIL_ROWS_V4';
+          const base={target_package:'com.android.chrome',allow_any_app:false,allowed_hosts:[host]};
+          const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+          const clean=s=>typeof s==='string'?s.replace(/\s+/g,' ').trim().replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/ig,'[redacted]').slice(0,180):'';
+          const norm=s=>clean(s).toLowerCase().replace(/[áàä]/g,'a').replace(/[éèë]/g,'e').replace(/[íìï]/g,'i').replace(/[óòö]/g,'o').replace(/[úùü]/g,'u').replace(/ñ/g,'n');
+          function scan(root){const nodes=[],seen=new Set();let count=0;const walk=(n,path,d)=>{if(!n||typeof n!=='object'||Array.isArray(n)||seen.has(n)||d>28||count>=1400)return;seen.add(n);count++;const names=['name','label','contentDescription','text','hint'].map(k=>clean(n[k])).filter(Boolean);nodes.push({id:typeof n.id==='string'&&n.id?n.id:path,path,role:clean(n.role),className:clean(n.className||n.class),names,text:names.join(' | '),visible:n.visible!==false,clickable:!!n.clickable,enabled:n.enabled!==false,scrollable:!!n.scrollable,bounds:n.bounds||null});if(Array.isArray(n.children))n.children.forEach((c,i)=>walk(c,path+'.'+i,d+1));};walk(root,'0',0);return nodes;}
+          async function observe(){const r=await executeAndroidAccessibilityJob({command:JSON.stringify({...base,operation:'observe'}),timeoutMs:9000});const p=r&&r.payload||{},root=p.root||(p.ui&&p.ui.root)||null;return {r,p,root,nodes:root?scan(root):[]};}
+          async function act(action){return executeAndroidAccessibilityJob({command:JSON.stringify({...base,operation:'action',action}),timeoutMs:12000});}
+          const visible=n=>!!n&&n.visible&&n.clickable&&n.enabled;
+          const exact=(ns,label)=>ns.find(n=>visible(n)&&n.names.some(t=>norm(t)===norm(label)));
+          const byContains=(ns,part)=>ns.find(n=>visible(n)&&n.names.some(t=>norm(t).includes(norm(part))));
+          async function fresh(){let c=await observe();for(let k=0;k<2&&(!c.root||c.r?.status!=='succeeded');k++){await wait(300);c=await observe();}return c;}
+          async function clickNode(node,label,timeline){if(!node)return null;const r=await act({action:'click',nodeId:node.id});timeline.push({step:label,status:r?.status||null,reason:clean(r?.reason||r?.payload?.reason),target:{id:node.id,text:clean(node.text),bounds:node.bounds}});await wait(700);return await fresh();}
+          async function swipe(dir,label,timeline){const a=dir==='forward'?{action:'swipe',x1:540,y1:1900,x2:540,y2:900,durationMs:420}:{action:'swipe',x1:540,y1:900,x2:540,y2:1900,durationMs:420};const r=await act(a);timeline.push({step:label,status:r?.status||null,reason:clean(r?.reason||r?.payload?.reason)});await wait(350);return await fresh();}
+          function appLoaded(ns){return ns.some(n=>visible(n)&&norm(n.text)==='abrir menu')&&ns.some(n=>n.visible&&norm(n.text)==='battlecruiser');}
+          function quick(ns,label){return ns.find(n=>visible(n)&&n.names.some(t=>norm(t)===norm('Abrir reporte '+label)));}
+          const reports=['Ventas','Compras','Rentabilidad','Transferencias','Stock','Movimiento'];
+          const reportSpecific={
+            'Ventas':/total\s*\$|sin ventas|total de ventas|fecha.*almacen|venta\s*#/i,
+            'Compras':/compra\s*#|historial de compras|sin compras|proveedor|lote/i,
+            'Rentabilidad':/margen|rentabilidad|costo conocido|ingreso.*costo|sin costo/i,
+            'Transferencias':/transferencia\s*#|origen|destino|sin transferencias|estado.*transfer/i,
+            'Stock':/stock|existencia|unidades disponibles|almacen.*producto|sin productos/i,
+            'Movimiento':/movimiento\s*#|tipo de movimiento|entrada|salida|sin movimientos|referencia/i
+          };
+          (async()=>{
+            const h=await probeLocalIpcHealth({timeoutMs:3000}),hp=h&&h.payload||{},timeline=[];
+            let cur=await fresh();
+            timeline.push({step:'initial_app_tree',status:cur.r?.status||null,reason:clean(cur.r?.reason),nodeCount:cur.nodes.length,authenticatedOwnerVisible:cur.nodes.some(n=>n.visible&&/roberto.*dueno/i.test(norm(n.text)))});
+            if(!appLoaded(cur.nodes)){
+              const nav=await act({action:'navigate',url:'https://'+host+'/'});
+              timeline.push({step:'navigate_allowlisted_url',status:nav?.status||null,reason:clean(nav?.reason||nav?.payload?.reason)});
+              await wait(900);cur=await fresh();
+              if(!appLoaded(cur.nodes)){
+                const addr=cur.nodes.find(n=>n.visible&&n.clickable&&n.enabled&&(/textbox|edittext/i.test(n.role+' '+n.className))&&norm(n.text).includes(norm(host)));
+                if(addr){cur=await clickNode(addr,'focus_allowlisted_address',timeline);const enter=await act({action:'press',keyCode:66});timeline.push({step:'submit_allowlisted_address',status:enter?.status||null,reason:clean(enter?.reason||enter?.payload?.reason)});await wait(2200);cur=await fresh();}
+              }
+            }
+            if(!appLoaded(cur.nodes)){
+              const labels=cur.nodes.filter(n=>n.visible&&n.text).slice(0,60).map(n=>({text:clean(n.text),role:n.role,className:n.className,bounds:n.bounds}));
+              console.log(JSON.stringify({marker,ok:false,stage:'authenticated_app_window_not_ready',health:{ok:!!h?.ok,version:hp.version_name||null,build:hp.build_id||null},timeline,screen:{nodeCount:cur.nodes.length,status:cur.r?.status,reason:cur.r?.reason,labels},safety:{businessWrites:false,formsSubmitted:false,stockMutated:false}}));process.exitCode=3;return;
+            }
+            let menu=exact(cur.nodes,'Abrir menú')||exact(cur.nodes,'Abrir menu');
+            if(menu)cur=await clickNode(menu,'open_navigation_menu',timeline);
+            let dest=exact(cur.nodes,'Reportes');
+            for(let k=0;k<4&&!dest;k++){cur=await swipe('forward','scroll_menu_for_reportes_'+(k+1),timeline);dest=exact(cur.nodes,'Reportes');}
+            for(let k=0;k<3&&!dest;k++){cur=await swipe('backward','reverse_menu_for_reportes_'+(k+1),timeline);dest=exact(cur.nodes,'Reportes');}
+            if(!dest){const labels=cur.nodes.filter(n=>n.visible&&n.text).slice(0,75).map(n=>({text:clean(n.text),role:n.role,className:n.className,bounds:n.bounds}));console.log(JSON.stringify({marker,ok:false,stage:'reportes_navigation_target_not_found',timeline,labels,safety:{businessWrites:false,formsSubmitted:false,stockMutated:false}}));process.exitCode=4;return;}
+            cur=await clickNode(dest,'open_reportes_panel',timeline);await wait(850);cur=await fresh();
+            let quickCount=reports.filter(x=>quick(cur.nodes,x)).length;
+            for(let k=0;k<4&&quickCount<5;k++){cur=await swipe('forward','scroll_report_quick_actions_'+(k+1),timeline);quickCount=reports.filter(x=>quick(cur.nodes,x)).length;}
+            if(quickCount<5){const labels=cur.nodes.filter(n=>n.visible&&n.text).slice(-60).map(n=>({text:clean(n.text),role:n.role,className:n.className,bounds:n.bounds}));console.log(JSON.stringify({marker,ok:false,stage:'m45_quick_actions_not_visible',timeline,quickCount,labels,safety:{businessWrites:false,formsSubmitted:false,stockMutated:false}}));process.exitCode=5;return;}
+            const tested=[];
+            for(const name of reports){
+              let btn=quick(cur.nodes,name);
+              for(let k=0;k<3&&!btn;k++){cur=await swipe('backward','scroll_to_quick_'+norm(name)+'_'+(k+1),timeline);btn=quick(cur.nodes,name);}
+              if(!btn){tested.push({name,interaction:'not_found'});continue;}
+              const beforeHash=cur.p?.evidence_hash||null;
+              cur=await clickNode(btn,'open_report_'+norm(name),timeline);
+              await wait(700);cur=await fresh();
+              let detailDisclosure=cur.nodes.some(n=>n.visible&&norm(n.text).includes('informacion detallada'));
+              let evidence=[];
+              for(let k=0;k<4;k++){
+                evidence=cur.nodes.filter(n=>n.visible&&n.text&&reportSpecific[name].test(n.text)&&!/abrir reporte|top productos vendidos|los productos con mayor peso|reportes disponibles/i.test(norm(n.text))).map(n=>({text:clean(n.text),role:n.role,className:n.className,bounds:n.bounds})).slice(-18);
+                if(evidence.length)break;
+                cur=await swipe('forward','scroll_detail_'+norm(name)+'_'+(k+1),timeline);
+                detailDisclosure=detailDisclosure||cur.nodes.some(n=>n.visible&&norm(n.text).includes('informacion detallada'));
+              }
+              const afterHash=cur.p?.evidence_hash||null;
+              const activeNode=cur.nodes.find(n=>n.visible&&n.names.some(t=>norm(t)===norm('Abrir reporte '+name)));
+              tested.push({name,interaction:timeline.findLast?.(x=>x.step==='open_report_'+norm(name))?.status||'recorded',beforeHash,afterHash,hashChanged:!!beforeHash&&!!afterHash&&beforeHash!==afterHash,detailDisclosureVisible:detailDisclosure,reportSpecificRowsObserved:evidence.length>0,evidence,activeButtonText:activeNode?clean(activeNode.text):null});
+            }
+            let back=cur;
+            for(let k=0;k<4&&!quick(back.nodes,'Ventas');k++)back=await swipe('backward','restore_sales_access_'+(k+1),timeline);
+            const sales=quick(back.nodes,'Ventas');
+            let restored=false;
+            if(sales){back=await clickNode(sales,'restore_default_report_ventas',timeline);await wait(500);restored=!!quick(back.nodes,'Ventas');}
+            const finalLabels=back.nodes.filter(n=>n.visible&&n.text).slice(-45).map(n=>({text:clean(n.text),role:n.role,bounds:n.bounds}));
+            const summary={marker,ok:tested.length===6&&tested.every(x=>x.interaction==='succeeded'&&x.hashChanged&&x.detailDisclosureVisible&&x.reportSpecificRowsObserved)&&restored,health:{ok:!!h?.ok,version_name:hp.version_name||null,version_code:hp.version_code||null,build_id:hp.build_id||null},timeline,reportPanelOpened:true,quickActionsFound:quickCount,tested,restoredDefaultSales:restored,final:{nodeCount:back.nodes.length,evidence_hash:back.p?.evidence_hash||null,labels:finalLabels},safety:{reportsReadOnly:true,noBusinessFormsSubmitted:true,businessWrites:false,stockMutated:false,rolesOrUsersChanged:false,logoutClicked:false}};
+            console.log(JSON.stringify(summary));if(!summary.ok)process.exitCode=6;
+          })().catch(e=>{console.log(JSON.stringify({marker,ok:false,error:clean(String(e&&e.stack||e)),safety:{businessWrites:false,formsSubmitted:false,stockMutated:false}}));process.exitCode=1});
+          NODE"""
+          metadata={'goal_source':'chat','source_application':'ChatGPT','project_name':'BattleCruiser','source':'battlecruiser_step4_android_report_detail_v4','verification_marker':marker,'device_id':device,'requested_device_id':device,'operation':'shell.execute','executor_type':'device','requested_capability':'shell.execute','command':command,'risk':'READ','timeout_ms':120000,'target_package':'com.android.chrome','allowed_hosts':[host],'read_only':True,'business_data_mutated':False,'explicit_device_intent':True,'human_gate_required':False}
+          def post(fn,payload,timeout=45):
+              req=urllib.request.Request(base+'/'+fn,data=json.dumps(payload).encode(),headers=headers,method='POST')
+              try:
+                  with urllib.request.urlopen(req,timeout=timeout) as r:return r.status,json.loads(r.read().decode())
+              except urllib.error.HTTPError as e:
+                  try:return e.code,json.loads(e.read().decode())
+                  except:return e.code,{}
+          code,body=post('aria-direct-v1',{'goal':'On the already-authenticated Android BattleCruiser LIVE app, open Reportes from the visible navigation menu. Activate the six visible M45 report shortcuts one by one, scroll into Información detallada and record visible report-specific rows. Restore Ventas. Read-only only; no business forms or mutations. Marker BC_STEP4_ANDROID_M45_DETAIL_ROWS_V4.','mission_id':mission_id,'metadata':metadata})
+          print('DISPATCH_HTTP='+str(code));print('MISSION_ID='+mission_id);print('DISPATCH_STATUS='+str(body.get('dispatch',{}).get('status','unknown')))
+          if code>=300 or body.get('ok') is not True: print(json.dumps(body)[:1500]);raise SystemExit(2)
+          print('DISPATCH_ACCEPTED_FOR_ASYNC_EXECUTION=true')
+          print('SOURCE_OF_FINAL_RESULT=aria_internal.execution_jobs exact mission id')
+          PY
