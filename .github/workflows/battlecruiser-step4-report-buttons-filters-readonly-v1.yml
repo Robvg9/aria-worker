@@ -85,7 +85,7 @@ jobs:
             // Preserve current authenticated tab and work from the open Reports panel; do not navigate back to login.
             let missingStart=reportButton(ns,'Stock')===null&&reportButton(ns,'Movimiento')===null&&reportButton(ns,'Ventas')===null;
             if(missingStart){
-              const reportPanelVisible=ns.some(n=>n.visible&&n.text&&/evoluci[oó]n de ventas|reportes disponibles/i.test(norm(n.text)));
+              const reportPanelVisible=ns.some(n=>n.text&&/evoluci[oó]n de ventas|reportes disponibles|abrir reporte (ventas|compras|rentabilidad|transferencias|stock|movimiento)/i.test(norm(n.text)));
               if(!reportPanelVisible&&menu){
                 cur=await clickWait(menu,'open_menu_from_current_session',timeline);ns=cur.root?scan(cur.root):[];
                 const reports=ns.find(n=>n.visible&&n.enabled&&n.clickable&&n.names.some(t=>norm(t)==='reportes')||n.visible&&n.enabled&&n.clickable&&norm(n.text)==='reportes');
@@ -156,7 +156,7 @@ jobs:
               except urllib.error.HTTPError as e:
                   try:return e.code,json.loads(e.read().decode())
                   except:return e.code,{}
-          code,body=post('aria-direct-v1',{'goal':'En la sesión LIVE de Android ya autenticada, restaura a la vista los botones de Reportes Stock, Movimiento y Ventas; prueba cada botón y registra hash. Si el mismo panel expone filtros de almacén/Aplicar/Limpiar, compruébalos en modo lectura y sin cambiar fechas. No abrir detalles ni crear operaciones. Agente 1.1.23 exacto. Marcador BC_STEP4_REPORT_BUTTONS_AND_FILTERS_READONLY_V1.','mission_id':mission_id,'metadata':metadata})
+          code,body=post('aria-direct-v1',{'goal':'En Android, entra al panel Reportes de BattleCruiser LIVE y selecciona los botones Stock, Movimiento y Ventas en orden, observando el cambio de interfaz tras cada selección. No abras registros detallados ni ejecutes operaciones comerciales; mantén la prueba en solo lectura, sin modificar fechas ni existencias. Agente 1.1.23 exacto. Marcador BC_STEP4_REPORT_BUTTONS_AND_FILTERS_READONLY_V1.','mission_id':mission_id,'metadata':metadata})
           print('DISPATCH_HTTP='+str(code));print('MISSION_ID='+mission_id);print('DISPATCH_STATUS='+str(body.get('dispatch',{}).get('status','unknown')))
           if code>=300 or body.get('ok') is not True:print(json.dumps(body)[:1200]);raise SystemExit(2)
           terminal={'succeeded','failed','blocked','rejected','cancelled','human_required','paused'}
