@@ -37,6 +37,11 @@ jobs:
           marker='BC_STEP4_ANDROID_IPC_TREE_PREFLIGHT_V1'
           host='battlecruiser.robvg9.workers.dev'
           command=r"""node <<'NODE'
+          const {spawnSync}=require('node:child_process');
+          const repoRoot=process.env.HOME+'/aria-agent';
+          const pull=spawnSync('git',['-C',repoRoot,'pull','--ff-only','origin','main'],{encoding:'utf8',timeout:20000});
+          const pullSummary={status:pull.status,error:pull.error?.message||null,stdout:String(pull.stdout||'').trim().slice(0,900),stderr:String(pull.stderr||'').trim().slice(0,500)};
+          console.log('ARIA_REPO_UPDATE='+JSON.stringify(pullSummary));
           const {probeLocalIpcHealth,probeAndroidCommandReceiver,executeAndroidAccessibilityJob}=require('./computer-use/android-accessibility-v1.js');
           const marker='BC_STEP4_ANDROID_IPC_TREE_PREFLIGHT_V1';
           const host='battlecruiser.robvg9.workers.dev';
