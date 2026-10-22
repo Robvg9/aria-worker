@@ -80,14 +80,17 @@ jobs:
           (async()=>{
             let h=null,hp={},exactBuild=false;
             const healthAttempts=[];
-            for(let attempt=1;attempt<=4;attempt++){
+            for(let attempt=1;attempt<=3;attempt++){
               h=await probeLocalIpcHealth({timeoutMs:3500});hp=h&&h.payload||{};
               exactBuild=h&&h.ok===true&&String(hp.version_name)==='1.1.23'&&Number(hp.version_code)===29&&String(hp.build_id)===expectedBuild;
-              healthAttempts.push({attempt,ok:!!h?.ok,version_name:hp.version_name||null,version_code:hp.version_code||null,build_id:hp.build_id||null});
+              healthAttempts.push({attempt,stage:'probe_health',ok:!!h?.ok,reason:clean(h?.reason),status:h?.status||null,metadata:h?.metadata||null,version_name:hp.version_name||null,version_code:hp.version_code||null,build_id:hp.build_id||null});
               if(exactBuild)break;
-              await wait(900);
+              // Read-only observe triggers the documented agent recovery path; it does not click or navigate.
+              const warmup=await send({operation:'observe'},12000);
+              healthAttempts.push({attempt,stage:'read_only_observe_recovery',status:warmup?.status||null,reason:clean(warmup?.reason||warmup?.payload?.reason),transport:warmup?.metadata?.transport||null,build_id:warmup?.metadata?.build_id||warmup?.payload?.build_id||null});
+              await wait(800);
             }
-            if(!exactBuild){console.log(JSON.stringify({marker,ok:false,stage:'exact_agent_build_mismatch_after_retries',healthAttempts}));process.exitCode=20;return;}
+            if(!exactBuild){console.log(JSON.stringify({marker,ok:false,stage:'exact_agent_build_mismatch_after_read_only_recovery',healthAttempts}));process.exitCode=20;return;}
             const timeline=[];
             let cur=await fresh(),ns=cur.root?scan(cur.root):[],menu=exact(ns,'Abrir menú')||exact(ns,'Abrir menu');
             const visitedTabs=new Set(),tabAttempts=[];
