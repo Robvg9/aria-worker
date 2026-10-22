@@ -1,0 +1,103 @@
+name: BattleCruiser Step 4 Turnos UI Observe V2
+on:
+  push:
+    branches: [aria/bc-step4-android-e2e-20261021]
+    paths: [.github/workflows/battlecruiser-step4-turnos-observe-ui-v2.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: bc-step4-turnos-observe-ui-v2-${{ github.run_id }}
+  cancel-in-progress: false
+jobs:
+  android-ui-observe:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 8
+    steps:
+      - name: Governed read-only Android UI observation
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          ARIA_RUNTIME_SHARED_SECRET: ${{ secrets.ARIA_RUNTIME_SHARED_SECRET }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import json, os, sys, time, urllib.request, urllib.error
+          project=os.environ.get('SUPABASE_PROJECT_REF','').strip()
+          secret=os.environ.get('ARIA_RUNTIME_SHARED_SECRET','')
+          if not project or not secret:
+              raise SystemExit('BLOCKED: runtime secrets unavailable')
+          base=f'https://{project}.supabase.co/functions/v1'
+          headers={'Authorization':'Bearer '+secret,'content-type':'application/json','cache-control':'no-store'}
+          mission_id=f"mission_bc_step4_turnos_observe_ui_v2_{os.environ['RUN_ID']}_{os.environ['RUN_ATTEMPT']}"
+          device='android-termux-a1ebcfc7-9287-4603-a0f9-c519d12fd092'
+          host='battlecruiser.robvg9.workers.dev'
+          marker='BC_STEP4_TURNOS_OBSERVE_UI_V2'
+          common={'target_package':'com.android.chrome','allow_any_app':False,'allowed_hosts':[host]}
+          def step(i,op,action=None,depends=None,title=None):
+              payload={'operation':op,**common}
+              if action is not None: payload['action']=action
+              return {'id':i,'title':title or i,'operation':'computer.use.android','executor_type':'device',
+                'target':{'type':'device','device_id':device},'input':payload,'risk':'READ','timeout_ms':30000,
+                'policy':{'tool_use':True,'no_side_effects':True,'read_only_audit':True,'explicit_device_intent':True},
+                'depends_on':depends or [],'verify':{'response_content_nonempty':True},
+                'selection':{'selection_reason':'physical Android read-only UI observation','requested_device_id':device,
+                'verification_marker':marker,'requested_capability':'computer.use.android'}}
+          plan=[
+            step('navigate_live','action',{'action':'navigate','url':'https://'+host},title='Open approved LIVE host'),
+            step('wait_live','action',{'action':'wait','ms':1400},['navigate_live'],'Wait for LIVE'),
+            step('open_menu','action',{'action':'click','nodeId':'0.0.0.0.2.2.0'},['wait_live'],'Open navigation menu'),
+            step('scroll_menu','action',{'action':'scroll','nodeId':'0.0.0.0.2.1','direction':'forward'},['open_menu'],'Scroll navigation menu'),
+            step('open_turnos','action',{'action':'click','nodeId':'0.0.0.0.2.1.2.9'},['scroll_menu'],'Open Turnos panel'),
+            step('wait_turnos','action',{'action':'wait','ms':900},['open_turnos'],'Wait for panel render'),
+            step('observe_top','observe',depends=['wait_turnos'],title='Capture visible accessibility tree'),
+            step('swipe_lower_1','action',{'action':'swipe','x1':540,'y1':1900,'x2':540,'y2':900,'durationMs':430},['observe_top'],'Move screen to lower controls'),
+            step('observe_lower_1','observe',depends=['swipe_lower_1'],title='Capture lower accessibility tree'),
+            step('swipe_lower_2','action',{'action':'swipe','x1':540,'y1':1900,'x2':540,'y2':900,'durationMs':430},['observe_lower_1'],'Continue screen observation'),
+            step('observe_lower_2','observe',depends=['swipe_lower_2'],title='Capture final accessibility tree')
+          ]
+          metadata={'goal_source':'chat','source_application':'ChatGPT','project_name':'BattleCruiser',
+            'source':'battlecruiser_step4_turnos_observe_ui_v2','verification_marker':marker,
+            'device_id':device,'requested_device_id':device,'operation':'computer.use.android',
+            'executor_type':'device','requested_capability':'computer.use.android','target_package':'com.android.chrome',
+            'allowed_hosts':[host],'read_only':True,'business_data_mutated':False,'risk':'READ',
+            'timeout_ms':30000,'explicit_device_intent':True,'human_gate_required':False}
+          checkpoint={'plan':plan,'stage':'execution','completed_steps':[],'attempts':{},'results':{},'pending_jobs':{},
+            'read_only':True,'verification_marker':marker}
+          goal=('BattleCruiser Step 4/15: navigate on the authorized Android phone to the Turnos panel and capture the accessibility tree '
+            'before and after physical screen swipes. Read-only observation only; no business actions or form submissions. Marker '+marker+'.')
+          def post(fn,payload,timeout=75,trigger=None):
+              h=dict(headers)
+              if trigger: h['x-aria-trigger']=trigger
+              req=urllib.request.Request(base+'/'+fn,data=json.dumps(payload).encode(),headers=h,method='POST')
+              try:
+                  with urllib.request.urlopen(req,timeout=timeout) as r:
+                      raw=r.read().decode(errors='replace')
+                      try:return r.status,json.loads(raw)
+                      except:return r.status,{'raw_excerpt':raw[:400]}
+              except urllib.error.HTTPError as e:
+                  raw=e.read().decode(errors='replace')
+                  try:return e.code,json.loads(raw)
+                  except:return e.code,{'raw_excerpt':raw[:400]}
+          code,intake=post('aria-mission-intake-v1',{'goal':goal,'mission_id':mission_id,'metadata':metadata,'checkpoint':checkpoint},60)
+          print('INTAKE_HTTP='+str(code));print('MISSION_ID='+mission_id);print('INTAKE_OK='+str(intake.get('ok')))
+          if code>=300 or intake.get('ok') is not True:
+              print('INTAKE_ERROR='+json.dumps(intake,ensure_ascii=False)[:1000]);raise SystemExit(2)
+          code,kick=post('aria-canonical-runtime-v1',{'mission_id':mission_id},90,'mission-tick')
+          print('CANONICAL_HTTP='+str(code));print('CANONICAL_STATUS='+str(kick.get('status','unknown')))
+          if code>=300 or kick.get('ok') is False: raise SystemExit(3)
+          terminal={'succeeded','failed','blocked','rejected','cancelled','human_required','paused'}
+          latest=kick
+          for attempt in range(1,61):
+              c,latest=post('aria-mission-runner-v22',{'mission_id':mission_id},75)
+              status=str(latest.get('status','unknown'))
+              print('POLL='+json.dumps({'attempt':attempt,'http':c,'status':status,'error':latest.get('error'),'next_action':latest.get('next_action')},ensure_ascii=False))
+              if status in terminal or c in (401,403,404): break
+              time.sleep(4)
+          status=str(latest.get('status','unknown'))
+          print('FINAL_STATUS='+status)
+          print('FINAL_SUMMARY='+json.dumps({k:latest.get(k) for k in ('ok','status','mission_id','error','next_action','executor_types','results') if k in latest},ensure_ascii=False)[:4000])
+          if status!='succeeded': raise SystemExit(1)
+          PY
