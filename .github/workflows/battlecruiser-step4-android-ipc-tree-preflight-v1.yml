@@ -112,16 +112,6 @@ jobs:
               openResult=probe(termuxOpen,[apkPath],15000);
             }
             apkRecovery={attempted:true,status:verified&&openResult?.status===0?'installer_open_requested':'blocked',download:dl.status,bytes,actualSha256,expectedSha256:apkExpectedSha256,verified,installerOpen:openResult,apkPath,manualInstallMayBeRequired:true};
-            if(verified&&openResult?.status===0){
-              // Give the owner time to confirm the native Android package installer, then read back
-              // package registration. Never use shell pm install or attempt to bypass Android consent.
-              for(let i=0;i<12;i++){
-                await new Promise(r=>setTimeout(r,5000));
-                packageDebug=probe('pm',['path','com.robvg9.ariauiagent.debug']);
-                packageRelease=probe('pm',['path','com.robvg9.ariauiagent']);
-                if(packageDebug.status===0||packageRelease.status===0)break;
-              }
-            }
           }
           let activityLaunch={attempted:false,status:'skipped',reason:'Termux AM wrapper absent',appAmPath,appAmExists,effectiveAmPath};
           if(appAmExists && (packageDebug.status===0||packageRelease.status===0)){
