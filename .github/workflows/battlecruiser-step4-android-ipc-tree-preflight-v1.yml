@@ -37,11 +37,25 @@ jobs:
           marker='BC_STEP4_ANDROID_IPC_TREE_PREFLIGHT_V1'
           host='battlecruiser.robvg9.workers.dev'
           command=r"""node <<'NODE'
-          const {spawnSync}=require('node:child_process');
+          const fs=require('node:fs'), path=require('node:path'), crypto=require('node:crypto');
           const repoRoot=process.env.HOME+'/aria-agent';
-          const pull=spawnSync('git',['-C',repoRoot,'pull','--ff-only','origin','main'],{encoding:'utf8',timeout:20000});
-          const pullSummary={status:pull.status,error:pull.error?.message||null,stdout:String(pull.stdout||'').trim().slice(0,900),stderr:String(pull.stderr||'').trim().slice(0,500)};
-          console.log('ARIA_REPO_UPDATE='+JSON.stringify(pullSummary));
+          const transportPath=path.join(repoRoot,'computer-use/android-accessibility-v1.js');
+          const transportBefore=fs.readFileSync(transportPath,'utf8');
+          const oldUserArg="'broadcast', '--user', '0',";
+          const occurrenceCount=transportBefore.split(oldUserArg).length-1;
+          let transportPatch={status:'not_needed',occurrences:occurrenceCount};
+          if(occurrenceCount===1){
+            const backupPath=path.join(process.env.HOME,'.aria-step4-android-accessibility-v1.pre-current-user-fix-20261022.bak');
+            if(!fs.existsSync(backupPath)) fs.copyFileSync(transportPath,backupPath);
+            const transportAfter=transportBefore.replace(oldUserArg,"'broadcast',");
+            fs.writeFileSync(transportPath,transportAfter,'utf8');
+            transportPatch={status:'applied_exact_single_replacement',backupCreated:true,before_sha256:crypto.createHash('sha256').update(transportBefore).digest('hex'),after_sha256:crypto.createHash('sha256').update(transportAfter).digest('hex'),remainingExplicitUser0:transportAfter.includes(oldUserArg)};
+          }else if(occurrenceCount===0){
+            transportPatch.status='already_current_user_or_local_source_differs';
+          }else{
+            transportPatch.status='blocked_unexpected_multiple_matches_no_write';
+          }
+          console.log('ANDROID_TRANSPORT_PATCH='+JSON.stringify(transportPatch));
           const {probeLocalIpcHealth,probeAndroidCommandReceiver,executeAndroidAccessibilityJob}=require('./computer-use/android-accessibility-v1.js');
           const marker='BC_STEP4_ANDROID_IPC_TREE_PREFLIGHT_V1';
           const host='battlecruiser.robvg9.workers.dev';
