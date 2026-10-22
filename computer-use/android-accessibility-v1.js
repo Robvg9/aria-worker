@@ -24,14 +24,21 @@ function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 function executeAndroidCommandReceiver({ request, timeoutMs = 8000 } = {}) {
+  const userId = localAndroidUserId();
+  if (!Number.isInteger(userId) || userId < 0) {
+    return Promise.resolve({
+      status: 'failed',
+      reason: 'android_command_receiver_user_unknown',
+      metadata: { transport: 'android-command-receiver' }
+    });
+  }
   return new Promise((resolve) => {
     const encoded = Buffer.from(JSON.stringify(request), 'utf8').toString('base64');
     const started = Date.now();
-    // Do not pass --user 0. Termux executes as an app UID and Android can reject
-    // explicit cross-user broadcasts even when user 0 is the apparent caller.
-    // Omitting the selector routes this governed IPC request to Termux's current Android user/profile.
+    // Use the caller's own Android user/profile. Omitting --user selects USER_CURRENT
+    // (-2), which an app UID such as Termux cannot send for on Android 16.
     const child = spawn('am', [
-      'broadcast',
+      'broadcast', '--user', String(userId),
       '-a', 'com.robvg9.ariauiagent.ACTION_EXECUTE',
       '-n', `${PACKAGE}/.CommandReceiver`,
       '--es', 'payload_b64', encoded,
@@ -71,7 +78,7 @@ function executeAndroidCommandReceiver({ request, timeoutMs = 8000 } = {}) {
         finish({
           status: 'failed',
           reason: code === 0 ? 'android_command_receiver_invalid_response' : 'android_command_receiver_failed',
-          metadata: { transport: 'android-command-receiver', exit_code: code, stderr: stderr.slice(-1000), duration_ms: Date.now() - started }
+          metadata: { transport: 'android-command-receiver', exit_code: code, user_id: userId, stderr: stderr.slice(0, 1000), stdout: stdout.replace(/data="[A-Za-z0-9+/=]+"/g, 'data="[redacted]"').replace(new RegExp(IPC_TOKEN, 'g'), '[redacted]').slice(0, 1000), duration_ms: Date.now() - started }
         });
         return;
       }
