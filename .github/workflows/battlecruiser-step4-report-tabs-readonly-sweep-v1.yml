@@ -82,20 +82,45 @@ jobs:
             const exactBuild=h&&h.ok===true&&String(hp.version_name)==='1.1.23'&&Number(hp.version_code)===29&&String(hp.build_id)===expectedBuild;
             if(!exactBuild){console.log(JSON.stringify({marker,ok:false,stage:'exact_agent_build_mismatch',build:{ok:!!h?.ok,version_name:hp.version_name||null,version_code:hp.version_code||null,build_id:hp.build_id||null}}));process.exitCode=20;return;}
             const timeline=[];
-            let r=await action({action:'launch_app'});timeline.push({step:'launch_chrome_foreground',status:r&&r.status,reason:clean(r&&r.reason||r&&r.payload&&r.payload.reason)});await wait(600);
-            r=await action({action:'navigate',url:'https://'+host+'/'});timeline.push({step:'navigate_live',status:r&&r.status,reason:clean(r&&r.reason||r&&r.payload&&r.payload.reason)});await wait(4200);
             let cur=await fresh(),ns=cur.root?scan(cur.root):[],menu=exact(ns,'Abrir menú')||exact(ns,'Abrir menu');
-            for(let k=0;k<10&&(!menu||ns.length<40);k++){await wait(500);cur=await fresh();ns=cur.root?scan(cur.root):[];menu=exact(ns,'Abrir menú')||exact(ns,'Abrir menu');}
+            const visitedTabs=new Set(),tabAttempts=[];
+            const tabSwitcher=n=>n.find(x=>x.visible&&x.enabled&&x.clickable&&/ver\s*\d+\s*pestañas/i.test(norm(x.text)));
             if(!menu){
-              timeline.push({step:'recover_chrome_and_navigate_again',status:'started'});
-              r=await action({action:'launch_app'});timeline.push({step:'launch_chrome_retry',status:r&&r.status,reason:clean(r&&r.reason||r&&r.payload&&r.payload.reason)});await wait(700);
-              r=await action({action:'navigate',url:'https://'+host+'/'});timeline.push({step:'navigate_live_retry',status:r&&r.status,reason:clean(r&&r.reason||r&&r.payload&&r.payload.reason)});await wait(4000);
-              cur=await fresh();ns=cur.root?scan(cur.root):[];menu=exact(ns,'Abrir menú')||exact(ns,'Abrir menu');
-              for(let k=0;k<8&&!menu;k++){await wait(500);cur=await fresh();ns=cur.root?scan(cur.root):[];menu=exact(ns,'Abrir menú')||exact(ns,'Abrir menu');}
+              let switcher=tabSwitcher(ns);
+              if(switcher){
+                cur=await clickWait(switcher,'open_chrome_existing_tab_switcher',timeline);
+                for(let attempt=0;attempt<8&&!menu;attempt++){
+                  ns=cur.root?scan(cur.root):[];
+                  const candidates=ns.filter(x=>x.visible&&x.enabled&&x.clickable&&/(battlecruiser|workers\.dev)/i.test(x.text)&&!/cerrar|close|eliminar/i.test(norm(x.text)));
+                  const candidate=candidates.find(x=>!visitedTabs.has(x.path+'|'+norm(x.text)));
+                  if(!candidate){
+                    tabAttempts.push({attempt:attempt+1,status:'no_unvisited_battlecruiser_tab',candidateCount:candidates.length});
+                    break;
+                  }
+                  const key=candidate.path+'|'+norm(candidate.text);visitedTabs.add(key);
+                  tabAttempts.push({attempt:attempt+1,status:'selecting_existing_tab',path:candidate.path,title:clean(candidate.text),bounds:candidate.bounds});
+                  cur=await clickWait(candidate,'select_existing_battlecruiser_tab_'+(attempt+1),timeline);
+                  ns=cur.root?scan(cur.root):[];
+                  menu=exact(ns,'Abrir menú')||exact(ns,'Abrir menu');
+                  for(let waitNo=0;waitNo<5&&!menu;waitNo++){
+                    await wait(400);cur=await fresh();ns=cur.root?scan(cur.root):[];menu=exact(ns,'Abrir menú')||exact(ns,'Abrir menu');
+                  }
+                  if(menu)break;
+                  switcher=tabSwitcher(ns);
+                  if(!switcher){
+                    tabAttempts.push({attempt:attempt+1,status:'tab_switcher_not_available_after_selection',screen:snapshot(cur)});
+                    break;
+                  }
+                  cur=await clickWait(switcher,'return_to_chrome_tab_switcher_'+(attempt+1),timeline);
+                }
+              } else {
+                tabAttempts.push({status:'chrome_tab_switcher_button_not_found'});
+              }
             }
             if(!menu){
-              const visibleTexts=ns.filter(n=>n.visible&&n.text).slice(0,45).map(n=>({text:clean(n.text),role:n.role,className:n.className,clickable:n.clickable,bounds:n.bounds}));
-              console.log(JSON.stringify({marker,ok:false,stage:'menu_not_found_after_foreground_recovery',timeline,screen:{...snapshot(cur),visibleTexts},safety:{businessWrites:false,stockMutated:false,formsSubmitted:false}}));process.exitCode=1;return;
+              ns=cur.root?scan(cur.root):[];
+              const visibleTexts=ns.filter(n=>n.visible&&n.text).slice(0,55).map(n=>({text:clean(n.text),role:n.role,className:n.className,clickable:n.clickable,bounds:n.bounds}));
+              console.log(JSON.stringify({marker,ok:false,stage:'no_authenticated_existing_battlecruiser_tab_found',timeline,tabAttempts,screen:{...snapshot(cur),visibleTexts},safety:{no_credentials_entered:true,businessWrites:false,stockMutated:false,formsSubmitted:false}}));process.exitCode=1;return;
             }
             cur=await clickWait(menu,'open_menu',timeline);
             ns=cur.root?scan(cur.root):[];
@@ -135,7 +160,7 @@ jobs:
             console.log(JSON.stringify(result));if(!result.ok)process.exitCode=4;
           })().catch(e=>{console.log(JSON.stringify({marker,ok:false,error:clean(String(e&&e.message||e))}));process.exitCode=1;});
           NODE"""
-          metadata={'goal_source':'chat','source_application':'ChatGPT','project_name':'BattleCruiser','source':'battlecruiser_step4_report_tabs_readonly_sweep_v1','verification_marker':marker,'device_id':device,'requested_device_id':device,'operation':'shell.execute','executor_type':'device','requested_capability':'shell.execute','command':command,'risk':'READ','timeout_ms':45000,'target_package':'com.android.chrome','allowed_hosts':['battlecruiser.robvg9.workers.dev'],'read_only':True,'business_data_mutated':False,'explicit_device_intent':True,'human_gate_required':False}
+          metadata={'goal_source':'chat','source_application':'ChatGPT','project_name':'BattleCruiser','source':'battlecruiser_step4_report_tabs_readonly_sweep_v1','verification_marker':marker,'device_id':device,'requested_device_id':device,'operation':'shell.execute','executor_type':'device','requested_capability':'shell.execute','command':command,'risk':'READ','timeout_ms':90000,'target_package':'com.android.chrome','allowed_hosts':['battlecruiser.robvg9.workers.dev'],'read_only':True,'business_data_mutated':False,'explicit_device_intent':True,'human_gate_required':False}
           def post(fn,payload,timeout=75):
               req=urllib.request.Request(base+'/'+fn,data=json.dumps(payload).encode(),headers=headers,method='POST')
               try:
