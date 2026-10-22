@@ -28,3 +28,5 @@ jobs:
         run: node tests/device-job-contract.test.js
       - name: Android RWHT planner syntax
         run: node -e "require('./computer-use/android-rwht-v1')"
+      - name: Termux stale-lock recovery contract
+        run: node tests/termux-autostart-contract.test.js
