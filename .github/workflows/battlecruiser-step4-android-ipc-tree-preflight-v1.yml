@@ -1,0 +1,78 @@
+name: BattleCruiser Step 4 Android IPC Tree Preflight V1 (Read Only)
+on:
+  push:
+    branches:
+      - aria/bc-step4-android-e2e-20261021
+    paths:
+      - .github/workflows/battlecruiser-step4-android-ipc-tree-preflight-v1.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: bc-step4-android-ipc-tree-preflight-${{ github.run_id }}
+  cancel-in-progress: false
+jobs:
+  android-ipc-tree-preflight:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 5
+    steps:
+      - name: Observe current Android accessibility IPC and tree without navigation
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          ARIA_RUNTIME_SHARED_SECRET: ${{ secrets.ARIA_RUNTIME_SHARED_SECRET }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import json, os, time, urllib.request, urllib.error
+          project=os.environ.get('SUPABASE_PROJECT_REF','').strip()
+          secret=os.environ.get('ARIA_RUNTIME_SHARED_SECRET','')
+          if not project or not secret: raise SystemExit('BLOCKED: required production secrets unavailable')
+          base=f'https://{project}.supabase.co/functions/v1'
+          headers={'Authorization':'Bearer '+secret,'content-type':'application/json','cache-control':'no-store'}
+          mission_id=f"mission_bc_step4_android_ipc_tree_preflight_{os.environ['RUN_ID']}_{os.environ['RUN_ATTEMPT']}"
+          device='android-termux-a1ebcfc7-9287-4603-a0f9-c519d12fd092'
+          marker='BC_STEP4_ANDROID_IPC_TREE_PREFLIGHT_V1'
+          command=r"""node <<'NODE'
+          const {probeLocalIpcHealth,executeAndroidAccessibilityJob}=require('./computer-use/android-accessibility-v1.js');
+          const marker='BC_STEP4_ANDROID_IPC_TREE_PREFLIGHT_V1';
+          const host='battlecruiser.robvg9.workers.dev';
+          const base={target_package:'com.android.chrome',allow_any_app:false,allowed_hosts:[host]};
+          const clean=s=>typeof s==='string'?s.replace(/\\s+/g,' ').trim().replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,}/ig,'[redacted]').slice(0,150):'';
+          const norm=s=>clean(s).toLowerCase().replace(/[áàä]/g,'a').replace(/[éèë]/g,'e').replace(/[íìï]/g,'i').replace(/[óòö]/g,'o').replace(/[úùü]/g,'u').replace(/ñ/g,'n');
+          function scan(root){const nodes=[],seen=new Set();let count=0;const walk=(n,path,d)=>{if(!n||typeof n!=='object'||Array.isArray(n)||seen.has(n)||d>28||count>=1200)return;seen.add(n);count++;const names=['name','label','contentDescription','text','hint'].map(k=>clean(n[k])).filter(Boolean);nodes.push({id:typeof n.id==='string'&&n.id?n.id:path,path,role:clean(n.role),className:clean(n.className||n.class),names,text:names.join(' | '),visible:n.visible!==false,clickable:!!n.clickable,enabled:n.enabled!==false,scrollable:!!n.scrollable,bounds:n.bounds||null});if(Array.isArray(n.children))n.children.forEach((c,i)=>walk(c,path+'.'+i,d+1));};walk(root,'0',0);return nodes;}
+          (async()=>{
+            const h=await probeLocalIpcHealth({timeoutMs:3000}),hp=h&&h.payload||{};
+            const req=await executeAndroidAccessibilityJob({command:JSON.stringify({...base,operation:'observe'}),timeoutMs:9000});
+            const p=req&&req.payload||{},root=p.root||(p.ui&&p.ui.root)||null,ns=root?scan(root):[];
+            const labels=ns.filter(n=>n.visible&&n.text).slice(0,80).map(n=>({text:clean(n.text),role:n.role,className:n.className,clickable:n.clickable,scrollable:n.scrollable,bounds:n.bounds}));
+            const summary={marker,ok:!!(h&&h.ok===true&&req&&req.status==='succeeded'&&root&&ns.length>0),health:{ok:!!h?.ok,status:h?.status||null,version_name:hp.version_name||null,version_code:hp.version_code||null,build_id:hp.build_id||null,reason:h?.reason||null},observe:{status:req?.status||null,reason:req?.reason||null,ok:p.ok??null,nodeCount:ns.length,evidence_hash:p.evidence_hash||null,reportQuickActions:labels.filter(n=>/abrir reporte (ventas|compras|rentabilidad|transferencias|stock|movimiento)/i.test(n.text)),chromeBar:labels.filter(n=>/buscar en google o escribir una url|pestanas|personalizar y controlar google chrome/i.test(n.text)),labels},safety:{navigationPerformed:false,buttonActionsPerformed:false,formsSubmitted:false,businessWrites:false,stockMutated:false}};
+            console.log(JSON.stringify(summary));if(!summary.ok)process.exitCode=3;
+          })().catch(e=>{console.log(JSON.stringify({marker,ok:false,error:clean(String(e&&e.message||e))}));process.exitCode=1});
+          NODE"""
+          metadata={'goal_source':'chat','source_application':'ChatGPT','project_name':'BattleCruiser','source':'battlecruiser_step4_android_ipc_tree_preflight_v1','verification_marker':marker,'device_id':device,'requested_device_id':device,'operation':'shell.execute','executor_type':'device','requested_capability':'shell.execute','command':command,'risk':'READ','timeout_ms':30000,'target_package':'com.android.chrome','allowed_hosts':[host],'read_only':True,'business_data_mutated':False,'explicit_device_intent':True,'human_gate_required':False}
+          def post(fn,payload,timeout=45):
+              req=urllib.request.Request(base+'/'+fn,data=json.dumps(payload).encode(),headers=headers,method='POST')
+              try:
+                  with urllib.request.urlopen(req,timeout=timeout) as r:return r.status,json.loads(r.read().decode())
+              except urllib.error.HTTPError as e:
+                  try:return e.code,json.loads(e.read().decode())
+                  except:return e.code,{}
+          code,body=post('aria-direct-v1',{'goal':'Read Android accessibility IPC health and current screen tree only; do not navigate or click any control. Marker BC_STEP4_ANDROID_IPC_TREE_PREFLIGHT_V1.','mission_id':mission_id,'metadata':metadata})
+          print('DISPATCH_HTTP='+str(code));print('MISSION_ID='+mission_id);print('DISPATCH_STATUS='+str(body.get('dispatch',{}).get('status','unknown')))
+          if code>=300 or body.get('ok') is not True: print(json.dumps(body)[:1200]);raise SystemExit(2)
+          terminal={'succeeded','failed','blocked','rejected','cancelled','human_required','paused'}
+          last={};idle_count=0
+          for i in range(1,41):
+              c,last=post('aria-mission-runner-v22',{'mission_id':mission_id})
+              s=str(last.get('status','unknown'))
+              print('POLL='+json.dumps({'n':i,'http':c,'status':s,'error':last.get('error'),'next_action':last.get('next_action')}))
+              if s in terminal or c in (401,403,404):break
+              idle_count=idle_count+1 if s=='idle' else 0
+              if idle_count>=8: break
+              time.sleep(2)
+          s=str(last.get('status','unknown'));print('FINAL_STATUS='+s);print('FINAL='+json.dumps({k:last.get(k) for k in ('ok','status','mission_id','error','next_action','executor_types','results') if k in last},ensure_ascii=False)[:6000])
+          if s!='succeeded':raise SystemExit(1)
+          PY
