@@ -50,6 +50,14 @@ class AriaAccessibilityService : AccessibilityService() {
         "com.microsoft.emmx", "com.sec.android.app.sbrowser", "com.android.browser"
     )
 
+    // Package visibility checks are Binder calls. Cache this stable per-service result
+    // instead of repeating up to 14 PackageManager lookups on every observe retry.
+    private val installedApprovedBrowsers: List<String> by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        approvedBrowsers.filter { pkg ->
+            runCatching { packageManager.getPackageInfo(pkg, 0) }.isSuccess
+        }
+    }
+
     private var overlayView: View? = null
     private var overlayPanel: LinearLayout? = null
     private var overlayStatus: TextView? = null
@@ -315,13 +323,17 @@ class AriaAccessibilityService : AccessibilityService() {
             val payload = JSONObject(payloadJson)
             val targetPackage = payload.optString("target_package").trim().ifEmpty { null }
             val allowAnyApp = payload.optBoolean("allow_any_app", false)
+            // Keep diagnostic/observe responses bounded for mobile IPC.
+            // Callers may request fewer nodes, but cannot force an unbounded tree walk.
+            val maxNodes = payload.optInt("max_nodes", 240).coerceIn(32, 300)
             when (payload.optString("operation", "action")) {
-                "observe" -> observeResponse(targetPackage, allowAnyApp)
+                "observe" -> observeResponse(targetPackage, allowAnyApp, maxNodes)
                 "action" -> actionResponse(
                     payload.optJSONObject("action"),
                     targetPackage,
                     allowAnyApp,
-                    allowedHosts(payload.optJSONArray("allowed_hosts"))
+                    allowedHosts(payload.optJSONArray("allowed_hosts")),
+                    maxNodes
                 )
                 else -> error("operation_unsupported")
             }
@@ -381,7 +393,7 @@ class AriaAccessibilityService : AccessibilityService() {
         return result
     }
 
-    private fun observeResponse(targetPackage: String?, allowAnyApp: Boolean): JSONObject {
+    private fun observeResponse(targetPackage: String?, allowAnyApp: Boolean, maxNodes: Int): JSONObject {
         val (root, lastDiag) = if (targetPackage.isNullOrBlank() || approvedBrowsers.contains(targetPackage)) {
             resolveBrowserWithRetries(12, 200L, true, "observe")
         } else {
@@ -389,7 +401,7 @@ class AriaAccessibilityService : AccessibilityService() {
         }
         if (root == null) return error("no_active_application_window").put("diagnostic", lastDiag)
         refreshAccessibilityRoot(root)
-        val tree = serializeNode(root, "0", 0, NodeBudget())
+        val tree = serializeNode(root, "0", 0, NodeBudget(maxCount = maxNodes))
         return JSONObject()
             .put("ok", true)
             .put("packageName", root.packageName?.toString())
@@ -402,7 +414,8 @@ class AriaAccessibilityService : AccessibilityService() {
         action: JSONObject?,
         targetPackage: String?,
         allowAnyApp: Boolean,
-        allowedHosts: Set<String>
+        allowedHosts: Set<String>,
+        maxNodes: Int
     ): JSONObject {
         if (action == null) return error("action_required")
         val result = executeAction(action, targetPackage, allowAnyApp, allowedHosts)
@@ -415,7 +428,7 @@ class AriaAccessibilityService : AccessibilityService() {
         }
         if (observed == null) return error("post_action_window_missing").put("diagnostic", diag)
         refreshAccessibilityRoot(observed)
-        val ui = serializeNode(observed, "0", 0, NodeBudget())
+        val ui = serializeNode(observed, "0", 0, NodeBudget(maxCount = maxNodes))
         return result
             .put("ui", JSONObject()
                 .put("ok", true)
@@ -617,9 +630,7 @@ class AriaAccessibilityService : AccessibilityService() {
         diag.put("activeIsOwnApp", activeIsOwn)
         diag.put("preferWindowsScan", preferWindowsScan)
         val installed = JSONArray()
-        for (pkg in approvedBrowsers) {
-            if (runCatching { packageManager.getPackageInfo(pkg, 0) }.isSuccess) installed.put(pkg)
-        }
+        installedApprovedBrowsers.forEach(installed::put)
         diag.put("installedApprovedBrowsers", installed)
         if (!preferWindowsScan && active != null && activePackage != null && !activeIsOwn && approvedBrowsers.contains(activePackage)) {
             diag.put("source", "rootInActiveWindow")
@@ -638,6 +649,8 @@ class AriaAccessibilityService : AccessibilityService() {
         var best: AccessibilityNodeInfo? = null
         var bestLayer = Int.MIN_VALUE
         var bestActive = false
+        var appWindows = 0
+        var appWindowsWithRoot = 0
         for (window in currentWindows) {
             val row = JSONObject()
             row.put("type", window.type)
@@ -648,6 +661,10 @@ class AriaAccessibilityService : AccessibilityService() {
                 row.put("isFocused", window.isFocused)
             }
             val candidate = try { window.root } catch (_: Exception) { null }
+            if (window.type == AccessibilityWindowInfo.TYPE_APPLICATION) {
+                appWindows += 1
+                if (candidate != null) appWindowsWithRoot += 1
+            }
             row.put("hasRoot", candidate != null)
             val pkg = candidate?.packageName?.toString()
             row.put("packageName", pkg)
@@ -660,12 +677,6 @@ class AriaAccessibilityService : AccessibilityService() {
             if (best == null || (isActiveWin && !bestActive) || (isActiveWin == bestActive && window.layer > bestLayer)) {
                 best = candidate; bestLayer = window.layer; bestActive = isActiveWin
             }
-        }
-        var appWindows = 0; var appWindowsWithRoot = 0
-        for (window in currentWindows) {
-            if (window.type != AccessibilityWindowInfo.TYPE_APPLICATION) continue
-            appWindows += 1
-            if (try { window.root } catch (_: Exception) { null } != null) appWindowsWithRoot += 1
         }
         diag.put("applicationWindowCount", appWindows)
         diag.put("applicationWindowsWithRoot", appWindowsWithRoot)
