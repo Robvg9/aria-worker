@@ -84,14 +84,22 @@ jobs:
           }
           const toolsAfter=probe('sh',['-c',toolsCommand],5000);
           const effectiveAmPath=(toolsAfter.stdout.match(/^am=(.+)$/m)||[])[1]?.trim()||'';
-          let activityLaunch={attempted:false,status:'skipped',reason:'no app-level am available'};
-          if(effectiveAmPath && effectiveAmPath!=='/system/bin/am'){
-            activityLaunch={attempted:true,...probe('am',['start','-n','com.robvg9.ariauiagent.debug/.MainActivity'],12000)};
+          const prefix=process.env.PREFIX||'/data/data/com.termux/files/usr';
+          const appAmPath=path.join(prefix,'bin','am');
+          let termuxAmRepair={attempted:false,status:'skipped',reason:'Termux AM files already present'};
+          if(!fs.existsSync(appAmPath)){
+            termuxAmRepair={attempted:true,...probe('apt',['reinstall','-y','termux-am'],90000)};
+          }
+          const packageFiles=probe('sh',['-c',"ls -l \"$PREFIX/bin/am\" \"$PREFIX/libexec/termux-am/am.apk\" 2>&1; dpkg -L termux-am 2>&1 | head -20"],6000);
+          const appAmExists=fs.existsSync(appAmPath);
+          let activityLaunch={attempted:false,status:'skipped',reason:'Termux AM wrapper absent',appAmPath,appAmExists,effectiveAmPath};
+          if(appAmExists){
+            activityLaunch={attempted:true,appAmPath,appAmExists,...probe(appAmPath,['start','-n','com.robvg9.ariauiagent.debug/.MainActivity'],12000)};
           }
           const diag={
             toolsBefore:tools,
-            termuxAmInstall,
-            toolsAfter,
+            termuxAmInstall,termuxAmRepair,
+            toolsAfter,packageFiles,appAmPath,appAmExists,effectiveAmPath,
             packageDebug:probe('pm',['path','com.robvg9.ariauiagent.debug']),
             packageRelease:probe('pm',['path','com.robvg9.ariauiagent']),
             enabledAccessibilitySettings:probe('settings',['get','secure','enabled_accessibility_services']),
