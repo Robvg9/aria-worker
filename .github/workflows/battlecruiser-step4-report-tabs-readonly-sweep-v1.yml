@@ -48,13 +48,11 @@ jobs:
           async function observe(){const r=await send({operation:'observe'},5000),p=r&&r.payload||{},root=p.root||(p.ui&&p.ui.root)||null;return {r,p,root};}
           async function action(a){return await send({operation:'action',action:a},9000);}
           function scan(root){const nodes=[],seen=new Set();let count=0;const walk=(n,path,d)=>{if(!n||typeof n!=='object'||Array.isArray(n)||seen.has(n)||d>28||count>=1200)return;seen.add(n);count++;const names=['name','label','contentDescription','text','hint'].map(k=>clean(n[k])).filter(Boolean);nodes.push({id:typeof n.id==='string'&&n.id?n.id:path,path,role:clean(n.role),className:clean(n.className||n.class),names,text:names.join(' | '),visible:n.visible!==false,clickable:!!n.clickable,enabled:n.enabled!==false,scrollable:!!n.scrollable,bounds:n.bounds||null});if(Array.isArray(n.children))n.children.forEach((c,i)=>walk(c,path+'.'+i,d+1));};walk(root,'0',0);return nodes;}
-          const exact=(ns,label)=>ns.find(n=>n.names.some(t=>norm(t)===norm(label))&&n.visible&&n.clickable&&n.enabled);
+          const onScreen=n=>{const b=n&&n.bounds;if(!b)return true;const l=Number(b.left),t=Number(b.top),r=Number(b.right),bt=Number(b.bottom);return Number.isFinite(l)&&Number.isFinite(t)&&Number.isFinite(r)&&Number.isFinite(bt)&&r>l&&bt>t&&r>0&&bt>258&&l<1080&&t<2205;};
+          const exact=(ns,label)=>ns.find(n=>n.names.some(t=>norm(t)===norm(label))&&n.visible&&n.clickable&&n.enabled&&onScreen(n));
           const tabButton=(ns,label)=>{
             const want=norm(label);
-            const candidates=ns.filter(n=>n.visible&&n.enabled&&n.clickable&&(
-              n.names.some(t=>norm(t)===want||norm(t).endsWith(' '+want))||
-              norm(n.text)===want||norm(n.text).endsWith(' '+want)
-            ));
+            const candidates=ns.filter(n=>n.visible&&n.enabled&&n.clickable&&onScreen(n)&&n.names.some(t=>norm(t)===want));
             return candidates.find(n=>norm(n.role)==='button'||/button/i.test(n.className))||candidates[0]||null;
           };
           async function fresh(){let cur=await observe();for(let k=0;k<3&&(!cur.root||cur.p.ok!==true);k++){await wait(300);cur=await observe();}return cur;}
@@ -142,8 +140,34 @@ jobs:
               timeline.push({step:'swipe_menu_to_reportes_'+(k+1),status:r&&r.status});await wait(350);cur=await fresh();ns=cur.root?scan(cur.root):[];dest=exact(ns,'Reportes');
             }
             if(!dest){console.log(JSON.stringify({marker,ok:false,stage:'reportes_menu_item_not_found',timeline,screen:snapshot(cur),safety:{businessWrites:false,stockMutated:false,formsSubmitted:false}}));process.exitCode=2;return;}
+            const reportesTarget={id:dest.id,path:dest.path,text:dest.text,role:dest.role,className:dest.className,bounds:dest.bounds};
             cur=await clickWait(dest,'open_reportes_panel',timeline);await wait(700);cur=await fresh();
-            const tabPresent=ns=>labels.some(label=>!!tabButton(ns,label));
+            const readiness=async current=>{
+              let currentNs=current.root?scan(current.root):[];
+              const has=(rx)=>currentNs.some(n=>n.visible&&n.names.some(t=>rx.test(norm(t)))&&onScreen(n));
+              const checks={
+                desde:has(/^desde$/),
+                hasta:has(/^hasta$/),
+                almacen:has(/todos los almacenes/),
+                aplicar:has(/^(generar reporte|aplicar filtros|aplicar)$/),
+                limpiar:has(/^(limpiar|limpiar filtros)$/)
+              };
+              return {checks,currentNs};
+            };
+            let ready=await readiness(cur);
+            for(let k=0;k<4&&!Object.values(ready.checks).every(Boolean);k++){
+              r=await action({action:'swipe',x1:540,y1:1850,x2:540,y2:850,durationMs:420});
+              timeline.push({step:'scroll_reportes_to_filters_'+(k+1),status:r&&r.status,reason:clean(r&&r.reason||r&&r.payload&&r.payload.reason)});
+              await wait(350);cur=await fresh();ready=await readiness(cur);
+            }
+            timeline.push({step:'verify_reportes_panel_controls',target:reportesTarget,checks:ready.checks});
+            if(!Object.values(ready.checks).every(Boolean)){
+              const current=snapshot(cur);
+              console.log(JSON.stringify({marker,ok:false,stage:'reportes_panel_not_verified_filters_missing',build:{version_name:hp.version_name,version_code:hp.version_code,build_id:hp.build_id},timeline,reportesTarget,checks:ready.checks,screen:current,safety:{filtersOnly:true,formsSubmitted:false,businessWrites:false,stockMutated:false}}));
+              process.exitCode=5;return;
+            }
+            ns=cur.root?scan(cur.root):[];
+            const tabPresent=ns=>labels.filter(label=>label!=='Vales').some(label=>!!tabButton(ns,label));
             cur=await swipeUntil(cur,tabPresent,timeline,'swipe_report_tabs_into_view');
             let baseNs=cur.root?scan(cur.root):[],before=snapshot(cur);
             let tested=[],failures=[];
