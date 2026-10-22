@@ -132,29 +132,47 @@ jobs:
               const quickFound=quickLabels.map(label=>({label,node:quickButton(ns,label)}));
               if(quickFound.filter(x=>x.node).length>=5){
                 const quickBase=snapshot(cur),quickResults=[];
+                const scrollPage=async(direction,step)=>{let currentNs=cur.root?scan(cur.root):[];const sc=currentNs.find(n=>n.visible&&n.scrollable&&n.path.startsWith('0.0.0.0'))||currentNs.find(n=>n.visible&&n.scrollable);if(sc){r=await action({action:'scroll',nodeId:sc.id,direction});}else{r=await action({action:'swipe',x1:540,y1:direction==='forward'?1850:850,x2:540,y2:direction==='forward'?850:1850,durationMs:420});}timeline.push({step,status:r&&r.status,reason:clean(r&&r.reason||r&&r.payload&&r.payload.reason)});await wait(350);cur=await fresh();return cur;};
+                const dataEvidence=nodes=>nodes.filter(n=>n.visible&&n.text&&/sin ventas|sin compras|sin transferencias|sin movimientos|sin stock|sin datos|error al cargar|cargando reporte|reporte de|total \\$|registros|pagina \\d|margen|costo|inventario|transferencia|movimiento|la cueva|tu mejor opcion|unidades|precio|fecha/i.test(norm(n.text))&&!/abrir reporte|reportes disponibles|top productos vendidos|los productos con mayor peso|mostrando todos los disponibles|ver todos|informacion detallada/i.test(norm(n.text)));
+                let previousDetailSignature=null;
                 for(const label of quickLabels){
                   ns=cur.root?scan(cur.root):[];
-                  const btn=quickButton(ns,label);
-                  if(!btn){quickResults.push({label,status:'quick_button_not_visible'});continue;}
+                  let btn=quickButton(ns,label);
+                  for(let k=0;k<4&&!btn;k++){cur=await scrollPage('backward','scroll_back_to_m45_'+norm(label).replace(/\\s+/g,'_')+'_'+(k+1));ns=cur.root?scan(cur.root):[];btn=quickButton(ns,label);}
+                  if(!btn){quickResults.push({label,status:'quick_button_not_visible_after_scroll'});continue;}
                   const before=snapshot(cur);
-                  const beforeTexts=ns.filter(n=>n.visible&&n.text).map(n=>norm(n.text));
                   cur=await clickWait(btn,'open_m45_report_'+norm(label).replace(/\\s+/g,'_'),timeline);
-                  await wait(1200);cur=await fresh();ns=cur.root?scan(cur.root):[];
+                  await wait(1500);cur=await fresh();
+                  // M45 opens the detailed disclosure; the report rows are lower in the panel, so scroll into the actual rows before judging.
+                  let detailNodes=cur.root?scan(cur.root):[];
+                  for(let k=0;k<3;k++){
+                    const currentEvidence=dataEvidence(detailNodes);
+                    const detailVisible=detailNodes.some(n=>n.visible&&n.text&&norm(n.text).includes('informacion detallada'));
+                    if(currentEvidence.length>=2&&detailVisible)break;
+                    cur=await scrollPage('forward','scroll_to_m45_detail_'+norm(label).replace(/\\s+/g,'_')+'_'+(k+1));
+                    detailNodes=cur.root?scan(cur.root):[];
+                  }
                   const after=snapshot(cur);
-                  const afterTexts=ns.filter(n=>n.visible&&n.text).map(n=>norm(n.text));
+                  const afterTexts=detailNodes.filter(n=>n.visible&&n.text).map(n=>norm(n.text));
                   const afterDisclosure=afterTexts.some(t=>t.includes('informacion detallada'));
-                  const detailCandidates=ns.filter(n=>n.visible&&n.text&&(/sin ventas|sin compras|sin transferencias|sin datos|error al cargar|cargando reporte|reporte de|total \\$|registros|pagina \\d|no hay/i.test(norm(n.text))));
-                  const textChanged=JSON.stringify(beforeTexts)!==JSON.stringify(afterTexts);
+                  const evidence=dataEvidence(detailNodes).slice(-25).map(n=>({text:clean(n.text),role:n.role,className:n.className,bounds:n.bounds}));
+                  const detailSignature=JSON.stringify(evidence.map(x=>x.text));
                   const hashChanged=!!before.hash&&!!after.hash&&before.hash!==after.hash;
-                  const changed=hashChanged&&textChanged;
-                  quickResults.push({label,status:timeline[timeline.length-1]?.status,hashBefore:before.hash,hashAfter:after.hash,hashChanged,textChanged,detailDisclosureVisible:afterDisclosure,detailEvidence:detailCandidates.slice(-18).map(n=>({text:clean(n.text),role:n.role,className:n.className,bounds:n.bounds})),visibleTextTail:afterTexts.slice(-25)});
+                  const detailRowsObserved=evidence.length>0;
+                  const detailChangedFromPrevious=previousDetailSignature===null?detailRowsObserved:detailSignature!==previousDetailSignature&&detailRowsObserved;
+                  previousDetailSignature=detailSignature;
+                  quickResults.push({label,status:timeline.findLast?.(x=>x.step==='open_m45_report_'+norm(label).replace(/\\s+/g,'_'))?.status||'recorded',hashBefore:before.hash,hashAfter:after.hash,hashChanged,detailDisclosureVisible:afterDisclosure,detailRowsObserved,detailChangedFromPrevious,detailEvidence:evidence,visibleTextTail:afterTexts.slice(-30)});
                 }
+                // Return to the default report view, then leave the quick-action panel reachable.
                 ns=cur.root?scan(cur.root):[];
+                for(let k=0;k<4&&!quickButton(ns,'Ventas');k++){cur=await scrollPage('backward','restore_scroll_to_m45_sales_'+(k+1));ns=cur.root?scan(cur.root):[];}
                 const restore=quickButton(ns,'Ventas');
                 let restored=false;
-                if(restore){cur=await clickWait(restore,'restore_m45_report_ventas',timeline);await wait(700);cur=await fresh();const fs=cur.root?scan(cur.root):[];restored=!!quickButton(fs,'Ventas');}
+                if(restore){cur=await clickWait(restore,'restore_m45_report_ventas',timeline);await wait(1000);cur=await fresh();const fs=cur.root?scan(cur.root):[];restored=!!quickButton(fs,'Ventas');}
                 const final=snapshot(cur);
-                const result={marker,ok:quickResults.length===6&&quickResults.every(x=>x.status==='succeeded'&&x.hashChanged&&x.textChanged)&&restored,stage:'m45_visible_quick_report_sweep',build:{version_name:hp.version_name,version_code:hp.version_code,build_id:hp.build_id},timeline,baseline:quickBase,tested:quickResults,restored,final,safety:{visibleReportSelectorsOnly:true,readOnlyReportQueries:true,formsSubmitted:false,businessWrites:false,stockMutated:false,logoutClicked:false}};
+                const distinctDetails=quickResults.slice(1).every(x=>x.detailChangedFromPrevious);
+                const allObserved=quickResults.length===6&&quickResults.every(x=>x.status==='succeeded'&&x.hashChanged&&x.detailDisclosureVisible&&x.detailRowsObserved);
+                const result={marker,ok:allObserved&&distinctDetails&&restored,stage:'m45_visible_quick_report_sweep_with_detail_scroll',build:{version_name:hp.version_name,version_code:hp.version_code,build_id:hp.build_id},timeline,baseline:quickBase,tested:quickResults,distinctDetails,restored,final,safety:{visibleReportSelectorsOnly:true,readOnlyReportQueries:true,formsSubmitted:false,businessWrites:false,stockMutated:false,logoutClicked:false}};
                 console.log(JSON.stringify(result));if(!result.ok)process.exitCode=4;return;
               }
               const visibleTexts=ns.filter(n=>n.visible&&n.text).slice(0,70).map(n=>({text:clean(n.text),role:n.role,className:n.className,clickable:n.clickable,bounds:n.bounds}));
