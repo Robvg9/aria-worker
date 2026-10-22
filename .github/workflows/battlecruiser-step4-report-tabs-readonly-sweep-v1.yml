@@ -127,8 +127,38 @@ jobs:
             }
             if(!menu){
               ns=cur.root?scan(cur.root):[];
-              const visibleTexts=ns.filter(n=>n.visible&&n.text).slice(0,55).map(n=>({text:clean(n.text),role:n.role,className:n.className,clickable:n.clickable,bounds:n.bounds}));
-              console.log(JSON.stringify({marker,ok:false,stage:'no_authenticated_existing_battlecruiser_tab_found',timeline,tabAttempts,screen:{...snapshot(cur),visibleTexts},safety:{no_credentials_entered:true,businessWrites:false,stockMutated:false,formsSubmitted:false}}));process.exitCode=1;return;
+              const quickLabels=['Ventas','Compras','Rentabilidad','Transferencias','Stock','Movimiento'];
+              const quickButton=(nodes,label)=>nodes.find(n=>n.visible&&n.enabled&&n.clickable&&onScreen(n)&&n.names.some(t=>norm(t)===norm('Abrir reporte '+label)));
+              const quickFound=quickLabels.map(label=>({label,node:quickButton(ns,label)}));
+              if(quickFound.filter(x=>x.node).length>=5){
+                const quickBase=snapshot(cur),quickResults=[];
+                for(const label of quickLabels){
+                  ns=cur.root?scan(cur.root):[];
+                  const btn=quickButton(ns,label);
+                  if(!btn){quickResults.push({label,status:'quick_button_not_visible'});continue;}
+                  const before=snapshot(cur);
+                  const beforeTexts=ns.filter(n=>n.visible&&n.text).map(n=>norm(n.text));
+                  cur=await clickWait(btn,'open_m45_report_'+norm(label).replace(/\\s+/g,'_'),timeline);
+                  await wait(1200);cur=await fresh();ns=cur.root?scan(cur.root):[];
+                  const after=snapshot(cur);
+                  const afterTexts=ns.filter(n=>n.visible&&n.text).map(n=>norm(n.text));
+                  const afterDisclosure=afterTexts.some(t=>t.includes('informacion detallada'));
+                  const detailCandidates=ns.filter(n=>n.visible&&n.text&&(/sin ventas|sin compras|sin transferencias|sin datos|error al cargar|cargando reporte|reporte de|total \\$|registros|pagina \\d|no hay/i.test(norm(n.text))));
+                  const textChanged=JSON.stringify(beforeTexts)!==JSON.stringify(afterTexts);
+                  const hashChanged=!!before.hash&&!!after.hash&&before.hash!==after.hash;
+                  const changed=hashChanged&&textChanged;
+                  quickResults.push({label,status:timeline[timeline.length-1]?.status,hashBefore:before.hash,hashAfter:after.hash,hashChanged,textChanged,detailDisclosureVisible:afterDisclosure,detailEvidence:detailCandidates.slice(-18).map(n=>({text:clean(n.text),role:n.role,className:n.className,bounds:n.bounds})),visibleTextTail:afterTexts.slice(-25)});
+                }
+                ns=cur.root?scan(cur.root):[];
+                const restore=quickButton(ns,'Ventas');
+                let restored=false;
+                if(restore){cur=await clickWait(restore,'restore_m45_report_ventas',timeline);await wait(700);cur=await fresh();const fs=cur.root?scan(cur.root):[];restored=!!quickButton(fs,'Ventas');}
+                const final=snapshot(cur);
+                const result={marker,ok:quickResults.length===6&&quickResults.every(x=>x.status==='succeeded'&&x.hashChanged&&x.textChanged)&&restored,stage:'m45_visible_quick_report_sweep',build:{version_name:hp.version_name,version_code:hp.version_code,build_id:hp.build_id},timeline,baseline:quickBase,tested:quickResults,restored,final,safety:{visibleReportSelectorsOnly:true,readOnlyReportQueries:true,formsSubmitted:false,businessWrites:false,stockMutated:false,logoutClicked:false}};
+                console.log(JSON.stringify(result));if(!result.ok)process.exitCode=4;return;
+              }
+              const visibleTexts=ns.filter(n=>n.visible&&n.text).slice(0,70).map(n=>({text:clean(n.text),role:n.role,className:n.className,clickable:n.clickable,bounds:n.bounds}));
+              console.log(JSON.stringify({marker,ok:false,stage:'no_authenticated_existing_battlecruiser_tab_or_report_quick_actions_found',timeline,tabAttempts,quickFound:quickFound.map(x=>({label:x.label,found:!!x.node,bounds:x.node?.bounds})),screen:{...snapshot(cur),visibleTexts},safety:{no_credentials_entered:true,businessWrites:false,stockMutated:false,formsSubmitted:false}}));process.exitCode=1;return;
             }
             if(!menuAlreadyOpen){cur=await clickWait(menu,'open_menu',timeline);}else{timeline.push({step:'menu_already_open',status:'observed',target:{id:menu.id,path:menu.path,text:menu.text,bounds:menu.bounds}});}
             ns=cur.root?scan(cur.root):[];
