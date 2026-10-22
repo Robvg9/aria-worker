@@ -75,9 +75,15 @@ jobs:
               for(let k=0;k<6&&!report;k++){ns=cur.root?scan(cur.root):[];const drawer=ns.find(n=>n.visible&&n.scrollable&&n.path.startsWith('0.0.0.0.2'))||ns.find(n=>n.visible&&n.scrollable);if(!drawer)break;r=await action({action:'scroll',nodeId:drawer.id,direction:k<3?'backward':'forward'});timeline.push({step:'scroll_menu_'+(k+1),status:r&&r.status,reason:clean(r&&r.reason||r&&r.payload&&r.payload.reason)});await wait(400);cur=await fresh();ns=cur.root?scan(cur.root):[];report=named(ns,'Reportes');}
             }
             if(!report){console.log(JSON.stringify({marker,ok:false,stage:'reportes_nav_not_found',timeline,screen:reportSnapshot(cur)}));process.exitCode=1;return;}
-            cur=await clickWait(report,'open_reportes',timeline);
+            timeline.push({step:'reportes_target',id:report.id,path:report.path,role:report.role,className:report.className,bounds:report.bounds,text:report.text});
+            cur=await clickWait(report,'open_reportes',timeline);await wait(900);cur=await fresh();
             let snap=reportSnapshot(cur);
             const enough=s=>Object.values(s.controls).every(Boolean);
+            if(!enough(snap)){
+              ns=cur.root?scan(cur.root):[];
+              const shortcut=exact(ns,'Abrir reporte Ventas',{visible:true,clickable:true,enabled:true});
+              if(shortcut){timeline.push({step:'report_shortcut_target',id:shortcut.id,path:shortcut.path,role:shortcut.role,bounds:shortcut.bounds,text:shortcut.text});cur=await clickWait(shortcut,'open_report_shortcut_ventas',timeline);await wait(900);cur=await fresh();snap=reportSnapshot(cur);}
+            }
             for(let k=0;k<2&&!enough(snap);k++){
               r=await action({action:'swipe',x1:540,y1:1850,x2:540,y2:850,durationMs:380});timeline.push({step:'one_swipe_report_filters_'+(k+1),status:r&&r.status});
               await wait(300);cur=await fresh();snap=reportSnapshot(cur);
