@@ -37,7 +37,7 @@ jobs:
           marker='BC_STEP4_ANDROID_IPC_TREE_PREFLIGHT_V1'
           host='battlecruiser.robvg9.workers.dev'
           command=r"""node <<'NODE'
-          const {probeLocalIpcHealth,executeAndroidAccessibilityJob}=require('./computer-use/android-accessibility-v1.js');
+          const {probeLocalIpcHealth,probeAndroidCommandReceiver,executeAndroidAccessibilityJob}=require('./computer-use/android-accessibility-v1.js');
           const marker='BC_STEP4_ANDROID_IPC_TREE_PREFLIGHT_V1';
           const host='battlecruiser.robvg9.workers.dev';
           const base={target_package:'com.android.chrome',allow_any_app:false,allowed_hosts:[host]};
@@ -46,10 +46,11 @@ jobs:
           function scan(root){const nodes=[],seen=new Set();let count=0;const walk=(n,path,d)=>{if(!n||typeof n!=='object'||Array.isArray(n)||seen.has(n)||d>28||count>=1200)return;seen.add(n);count++;const names=['name','label','contentDescription','text','hint'].map(k=>clean(n[k])).filter(Boolean);nodes.push({id:typeof n.id==='string'&&n.id?n.id:path,path,role:clean(n.role),className:clean(n.className||n.class),names,text:names.join(' | '),visible:n.visible!==false,clickable:!!n.clickable,enabled:n.enabled!==false,scrollable:!!n.scrollable,bounds:n.bounds||null});if(Array.isArray(n.children))n.children.forEach((c,i)=>walk(c,path+'.'+i,d+1));};walk(root,'0',0);return nodes;}
           (async()=>{
             const h=await probeLocalIpcHealth({timeoutMs:3000}),hp=h&&h.payload||{};
+            const receiver=await probeAndroidCommandReceiver({timeoutMs:3000});
             const req=await executeAndroidAccessibilityJob({command:JSON.stringify({...base,operation:'observe'}),timeoutMs:9000});
             const p=req&&req.payload||{},root=p.root||(p.ui&&p.ui.root)||null,ns=root?scan(root):[];
             const labels=ns.filter(n=>n.visible&&n.text).slice(0,80).map(n=>({text:clean(n.text),role:n.role,className:n.className,clickable:n.clickable,scrollable:n.scrollable,bounds:n.bounds}));
-            const summary={marker,ok:!!(h&&h.ok===true&&req&&req.status==='succeeded'&&root&&ns.length>0),health:{ok:!!h?.ok,status:h?.status||null,version_name:hp.version_name||null,version_code:hp.version_code||null,build_id:hp.build_id||null,reason:h?.reason||null},observe:{status:req?.status||null,reason:req?.reason||null,ok:p.ok??null,nodeCount:ns.length,evidence_hash:p.evidence_hash||null,reportQuickActions:labels.filter(n=>/abrir reporte (ventas|compras|rentabilidad|transferencias|stock|movimiento)/i.test(n.text)),chromeBar:labels.filter(n=>/buscar en google o escribir una url|pestanas|personalizar y controlar google chrome/i.test(n.text)),labels},safety:{navigationPerformed:false,buttonActionsPerformed:false,formsSubmitted:false,businessWrites:false,stockMutated:false}};
+            const summary={marker,ok:!!(h&&h.ok===true&&req&&req.status==='succeeded'&&root&&ns.length>0),health:{ok:!!h?.ok,status:h?.status||null,version_name:hp.version_name||null,version_code:hp.version_code||null,build_id:hp.build_id||null,reason:h?.reason||null},receiver:{ok:!!receiver?.ok,reason:receiver?.reason||null,transport:receiver?.metadata?.transport||null},observe:{status:req?.status||null,reason:req?.reason||null,ok:p.ok??null,nodeCount:ns.length,evidence_hash:p.evidence_hash||null,reportQuickActions:labels.filter(n=>/abrir reporte (ventas|compras|rentabilidad|transferencias|stock|movimiento)/i.test(n.text)),chromeBar:labels.filter(n=>/buscar en google o escribir una url|pestanas|personalizar y controlar google chrome/i.test(n.text)),labels},safety:{navigationPerformed:false,buttonActionsPerformed:false,formsSubmitted:false,businessWrites:false,stockMutated:false}};
             console.log(JSON.stringify(summary));if(!summary.ok)process.exitCode=3;
           })().catch(e=>{console.log(JSON.stringify({marker,ok:false,error:clean(String(e&&e.message||e))}));process.exitCode=1});
           NODE"""
