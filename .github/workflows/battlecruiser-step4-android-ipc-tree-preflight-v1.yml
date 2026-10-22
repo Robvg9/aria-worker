@@ -38,7 +38,11 @@ jobs:
           host='battlecruiser.robvg9.workers.dev'
           command=r"""node <<'NODE'
           const fs=require('node:fs'), path=require('node:path'), crypto=require('node:crypto');
+          const {spawnSync}=require('node:child_process');
           const repoRoot=process.env.HOME+'/aria-agent';
+          const sourcePull=spawnSync('git',['-C',repoRoot,'pull','--ff-only','origin','main'],{encoding:'utf8',timeout:25000,env:process.env});
+          console.log('ANDROID_SOURCE_REFRESH='+JSON.stringify({status:sourcePull.status,error:sourcePull.error?.message||null,stdout:String(sourcePull.stdout||'').trim().slice(0,800),stderr:String(sourcePull.stderr||'').trim().slice(0,500)}));
+          if(sourcePull.status!==0)throw new Error('android_agent_repo_refresh_failed');
           const transportPath=path.join(repoRoot,'computer-use/android-accessibility-v1.js');
           const transportBefore=fs.readFileSync(transportPath,'utf8');
           const oldHardcoded="'broadcast', '--user', '0',";
@@ -64,15 +68,17 @@ jobs:
           const marker='BC_STEP4_ANDROID_AGENT_RECOVERY_V3';
           const host='battlecruiser.robvg9.workers.dev';
 
-          const {spawnSync}=require('node:child_process');
           const sourceForToken=fs.readFileSync(transportPath,'utf8');
           const tokenMatch=sourceForToken.match(/const IPC_TOKEN = '([a-f0-9]{64})'/);
-          const probe=(bin,args,timeout=4000)=>{try{const r=spawnSync(bin,args,{encoding:'utf8',timeout});return {status:r.status,error:r.error?.message||null,stdout:String(r.stdout||'').trim().slice(0,900),stderr:String(r.stderr||'').trim().slice(0,500)}}catch(e){return {status:null,error:String(e?.message||e).slice(0,180),stdout:'',stderr:''}}};
+          const probe=(bin,args,timeout=4000,envOverrides=null)=>{try{const r=spawnSync(bin,args,{encoding:'utf8',timeout,env:envOverrides?{...process.env,...envOverrides}:process.env});return {status:r.status,error:r.error?.message||null,stdout:String(r.stdout||'').trim().slice(0,900),stderr:String(r.stderr||'').trim().slice(0,500)}}catch(e){return {status:null,error:String(e?.message||e).slice(0,180),stdout:'',stderr:''}}};
           const safe=s=>String(s||'').replace(/data="[A-Za-z0-9+/=]+"/g,'data="[redacted]"').replace(tokenMatch?new RegExp(tokenMatch[1],'g'):/a^/,'[token]').slice(0,1400);
           const testPayload=Buffer.from(JSON.stringify({operation:'action',action:{action:'wait',ms:0}}),'utf8').toString('base64');
+          const termuxAmPath=path.join(process.env.PREFIX||process.env.TERMUX__PREFIX||'/data/data/com.termux/files/usr','bin','am');
           const receiverProbes={};
           for(const packageName of ['com.robvg9.ariauiagent.debug','com.robvg9.ariauiagent']){
-            const raw=probe('am',['broadcast','--user',String(Math.floor(process.getuid()/100000)),'-a','com.robvg9.ariauiagent.ACTION_EXECUTE','-n',packageName+'/.CommandReceiver','--es','payload_b64',testPayload,'--es','ipc_token',tokenMatch?.[1]||''],5000);
+            const raw=fs.existsSync(termuxAmPath)
+              ? probe(termuxAmPath,['broadcast','--user',String(Math.floor(process.getuid()/100000)),'-a','com.robvg9.ariauiagent.ACTION_EXECUTE','-n',packageName+'/.CommandReceiver','--es','payload_b64',testPayload,'--es','ipc_token',tokenMatch?.[1]||''],5000)
+              : {status:null,error:'termux_am_wrapper_missing',stdout:'',stderr:''};
             receiverProbes[packageName]={...raw,stdout:safe(raw.stdout),stderr:safe(raw.stderr),responseDataPresent:/Broadcast completed: result=\d+, data="/.test(raw.stdout||'')};
           }
           const toolsCommand="for x in termux-am am termux-open-url termux-open pm pkg; do printf '%s=' \"$x\"; command -v \"$x\" 2>/dev/null || true; printf '\\n'; done; printf 'PREFIX=%s\\n' \"$PREFIX\"; id";
@@ -92,8 +98,9 @@ jobs:
           }
           const packageFiles=probe('sh',['-c',"ls -l \"$PREFIX/bin/am\" \"$PREFIX/libexec/termux-am/am.apk\" 2>&1; dpkg -L termux-am 2>&1 | head -20"],6000);
           const appAmExists=fs.existsSync(appAmPath);
-          let packageDebug=probe('pm',['path','com.robvg9.ariauiagent.debug']);
-          let packageRelease=probe('pm',['path','com.robvg9.ariauiagent']);
+          const systemPmEnv={PATH:'/system/bin',LD_PRELOAD:'',LD_LIBRARY_PATH:''};
+          let packageDebug=probe('/system/bin/pm',['path','com.robvg9.ariauiagent.debug'],6000,systemPmEnv);
+          let packageRelease=probe('/system/bin/pm',['path','com.robvg9.ariauiagent'],6000,systemPmEnv);
           const apkUrl='https://raw.githubusercontent.com/Robvg9/aria-worker/rwht-apk-public/rwht-public/aria-android-ui-agent-v1.apk';
           const apkExpectedSha256='9d28643413117df34025849bacbf0cf28e3ac8d7b506490df6efae9686155f96';
           const apkPath=path.join(process.env.HOME,'.cache','aria-android-ui-agent-v1.apk');
@@ -138,8 +145,8 @@ jobs:
               // Wait for the owner to accept Android's native installer; never install silently.
               for(let i=0;i<12;i++){
                 await new Promise(r=>setTimeout(r,5000));
-                packageDebug=probe('pm',['path','com.robvg9.ariauiagent.debug']);
-                packageRelease=probe('pm',['path','com.robvg9.ariauiagent']);
+                packageDebug=probe('/system/bin/pm',['path','com.robvg9.ariauiagent.debug'],6000,systemPmEnv);
+                packageRelease=probe('/system/bin/pm',['path','com.robvg9.ariauiagent'],6000,systemPmEnv);
                 if(packageDebug.status===0||packageRelease.status===0)break;
               }
               if(appAmExists && (packageDebug.status===0||packageRelease.status===0)){
@@ -151,7 +158,7 @@ jobs:
             let h=await probeLocalIpcHealth({timeoutMs:3000}),hp=h&&h.payload||{};
             let activityStart=null;
             if(!h?.ok){
-              const launch=spawnSync('am',['start','-n','com.robvg9.ariauiagent.debug/.MainActivity'],{encoding:'utf8',timeout:5000});
+              const launch=spawnSync(appAmExists?appAmPath:'am',['start','-n','com.robvg9.ariauiagent.debug/.MainActivity'],{encoding:'utf8',timeout:5000,env:process.env});
               const safeLaunch=s=>String(s||'').replace(/data="[A-Za-z0-9+/=]+"/g,'data="[redacted]"').slice(0,800);
               activityStart={status:launch.status,error:launch.error?.message||null,stdout:safeLaunch(launch.stdout),stderr:safeLaunch(launch.stderr)};
               console.log('ANDROID_ACTIVITY_START_DIAG='+JSON.stringify(activityStart));
