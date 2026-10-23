@@ -61,16 +61,22 @@ function createPersistentWorkerBridge({ directory, leaseMs = 60000 } = {}) {
     return serialize('claim-queue', async () => {
       const jobs = await list();
       const now = Date.now();
-      const job = jobs.find(item => item.status === 'queued' || (item.status === 'leased' && item.lease_until && Date.parse(item.lease_until) <= now));
-      if (!job) return null;
-      job.status = 'leased';
-      job.worker_id = worker_id;
-      job.lease_token = crypto.randomUUID();
-      job.lease_until = new Date(now + Math.max(5000, leaseMs)).toISOString();
-      job.updated_at = nowIso();
-      job.attempts += 1;
-      job.claimed_capabilities = Array.isArray(capabilities) ? capabilities.map(String) : [];
-      return write(job);
+      const candidate = jobs.find(item => item.status === 'queued' || (item.status === 'leased' && item.lease_until && Date.parse(item.lease_until) <= now));
+      if (!candidate) return null;
+      return serialize('job:' + candidate.job_id, async () => {
+        const job = await get(candidate.job_id);
+        const claimTime = Date.now();
+        const eligible = job && (job.status === 'queued' || (job.status === 'leased' && job.lease_until && Date.parse(job.lease_until) <= claimTime));
+        if (!eligible) return null;
+        job.status = 'leased';
+        job.worker_id = worker_id;
+        job.lease_token = crypto.randomUUID();
+        job.lease_until = new Date(claimTime + Math.max(5000, leaseMs)).toISOString();
+        job.updated_at = nowIso();
+        job.attempts += 1;
+        job.claimed_capabilities = Array.isArray(capabilities) ? capabilities.map(String) : [];
+        return write(job);
+      });
     });
   }
   async function heartbeat(jobId, { worker_id, lease_token } = {}) {
