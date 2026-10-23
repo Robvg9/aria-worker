@@ -10,7 +10,8 @@ on:
       - 'supabase/functions/_tests/private-vault-v1.test.ts'
       - 'supabase/migrations/20261016150000_aria_private_vault_v1.sql'
       - 'supabase/migrations/20261023033629_aria_encrypt_atomic_record_revisions.sql'
-      - 'supabase/migrations/20261023034000_aria_encrypt_revoke_direct_record_insert.sql'
+      - 'supabase/migrations/20261023034057_aria_encrypt_revoke_direct_record_insert.sql'
+      - 'supabase/migrations/20261023040000_aria_encrypt_atomic_record_revisions.sql'
       - 'security/aria-private-vault-v1.md'
       - '.github/workflows/aria-private-vault-contract.yml'
   push:
@@ -23,7 +24,8 @@ on:
       - 'supabase/functions/_tests/private-vault-v1.test.ts'
       - 'supabase/migrations/20261016150000_aria_private_vault_v1.sql'
       - 'supabase/migrations/20261023033629_aria_encrypt_atomic_record_revisions.sql'
-      - 'supabase/migrations/20261023034000_aria_encrypt_revoke_direct_record_insert.sql'
+      - 'supabase/migrations/20261023034057_aria_encrypt_revoke_direct_record_insert.sql'
+      - 'supabase/migrations/20261023040000_aria_encrypt_atomic_record_revisions.sql'
       - 'security/aria-private-vault-v1.md'
       - '.github/workflows/aria-private-vault-contract.yml'
 
