@@ -70,7 +70,7 @@
    const data=await api('/api/missions');
    const missions=data.missions||[];
    $('connection').textContent='Conectado';$('connection').className='status success';$('error').textContent='';
-   const running=missions.filter(m=>['queued','running'].includes(m.status)).length;
+   const running=missions.filter(m=>['planning','queued','running'].includes(m.status)).length;
    const waiting=missions.filter(m=>m.status==='waiting_human'||m.status==='failed').length;
    const done=missions.filter(m=>m.status==='succeeded').length;
    $('metrics').innerHTML=[['Misiones',missions.length],['En ejecución',running],['Requieren atención',waiting],['Completadas verificadas',done]].map(x=>'<div class="metric"><span class="muted">'+esc(x[0])+'</span><strong>'+esc(x[1])+'</strong></div>').join('');
