@@ -27,7 +27,7 @@ for (const token of [
   assert.ok(report.includes(token), 'diagnostic query must include ' + token);
 }
 
-assert.equal((report.match(/^SELECT\b/gmi) || []).length, 4,
+assert.equal((report.match(/^SELECT\b/gmi) || []).length, 5,
   'the report must keep its four standalone SELECT statements');
 assert.match(report, /^WITH jobs_by_mission AS \(/mi,
   'job reconciliation must use a read-only CTE');
