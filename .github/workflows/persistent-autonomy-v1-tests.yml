@@ -8,7 +8,7 @@ on:
       - 'Dockerfile.aria-coordinator'
       - 'autonomy/persistent-control-plane-v1.js'
       - 'autonomy/ollama-persistent-adapter-v1.js'
-      - 'cloudflare-autonomy/worker.js'
+      - 'cloudflare-autonomy/worker.mjs'
       - 'cloudflare-autonomy/assets/index.html'
       - 'wrangler.aria-autonomy.toml'
       - 'tests/cloudflare-autonomy-worker.test.js'
@@ -51,7 +51,7 @@ jobs:
       - run: node --check scripts/aria-persistent-coordinator-v1.js
       - run: node --check scripts/aria-persistent-windows-worker-v1.js
       - run: node --check autonomy/ollama-persistent-adapter-v1.js
-      - run: node --check cloudflare-autonomy/worker.js
+      - run: node --check cloudflare-autonomy/worker.mjs
       - run: node tests/cloudflare-autonomy-worker.test.js
       - run: node tests/persistent-control-plane-v1.test.js
       - run: node tests/persistent-http-server-v1.test.js
