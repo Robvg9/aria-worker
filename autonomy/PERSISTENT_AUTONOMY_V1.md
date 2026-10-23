@@ -41,6 +41,7 @@ The runtime accepts a \`notify\` adapter. The outbox supports a user-configured 
 - No task should be described as complete without evidence.
 - Failed final verification leaves the mission in \`waiting_human\`, never \`succeeded\`.
 - Execution ticks are bounded by step count and runtime budget.
+- Automatic retries require a task declared idempotent or an error explicitly marked retryable; interrupted non-idempotent work pauses for human review to avoid duplicating side effects.
 
 ## Test
 
