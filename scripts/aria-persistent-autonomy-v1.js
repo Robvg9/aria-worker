@@ -7,6 +7,7 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const { createJsonMissionStore, createPersistentAutonomy } = require('../autonomy/persistent-control-plane-v1');
 const { createPersistentHttpServer } = require('../autonomy/persistent-http-server-v1');
+const { createPersistentWorkerBridge, createWorkerBackedExecutor } = require('../autonomy/persistent-worker-bridge-v1');
 
 async function main() {
   const adapterPath = process.env.ARIA_AUTONOMY_ADAPTER;
@@ -22,10 +23,14 @@ async function main() {
   const directory = path.resolve(process.env.ARIA_MISSION_DATA_DIR || path.join(process.cwd(), '.aria-missions'));
   await fs.mkdir(directory, { recursive: true });
   const store = createJsonMissionStore({ directory });
+  const windowsExecution = process.env.ARIA_EXECUTION_MODE === 'windows';
+  const workerBridge = windowsExecution ? createPersistentWorkerBridge({ directory, leaseMs: Number(process.env.ARIA_WORKER_LEASE_MS || 60000) }) : null;
+  if (windowsExecution && (typeof process.env.ARIA_WORKER_TOKEN !== 'string' || process.env.ARIA_WORKER_TOKEN.length < 32)) throw new Error('Set ARIA_WORKER_TOKEN to a separate random secret of at least 32 characters.');
+  const executeTask = windowsExecution ? createWorkerBackedExecutor({ bridge: workerBridge, timeoutMs: Number(process.env.ARIA_WORKER_TASK_TIMEOUT_MS || 1800000) }) : adapter.executeTask;
   const autonomy = createPersistentAutonomy({
     store,
     plan: adapter.plan,
-    executeTask: adapter.executeTask,
+    executeTask,
     verifyCompletion: adapter.verifyCompletion,
     replan: typeof adapter.replan === 'function' ? adapter.replan : null,
     notify: typeof adapter.notify === 'function' ? adapter.notify : async () => {}
@@ -35,6 +40,8 @@ async function main() {
     host: process.env.ARIA_CONTROL_HOST || '127.0.0.1',
     port: Number(process.env.ARIA_CONTROL_PORT || 8787),
     runSupervisor: true,
+    workerBridge,
+    workerToken: process.env.ARIA_WORKER_TOKEN,
     notify: typeof adapter.notify === 'function' ? adapter.notify : async () => {}
   });
   const address = await app.listen();
