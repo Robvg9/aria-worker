@@ -90,13 +90,34 @@ const path = require('node:path');
   assert.match(gatewaySource, /mission_twin:missionTwin/,
     'the existing autonomy cycle must preserve the Mission Twin outcome in its evidence');
 
-  const { missionTwinSlot, missionTwinCycleId, buildMissionTwinReport } = twin;
+  const { missionTwinSlot, missionTwinCycleId, missionTwinLeaseDecision, buildMissionTwinReport, MAX_CANDIDATES } = twin;
   assert.equal(missionTwinSlot('2026-10-23T00:09:59.000Z'), '2026-10-23T00:00:00.000Z');
   assert.equal(missionTwinSlot('2026-10-23T00:10:00.000Z'), '2026-10-23T00:10:00.000Z');
   assert.equal(missionTwinCycleId('2026-10-23T00:19:59.000Z'), missionTwinCycleId('2026-10-23T00:10:01.000Z'),
     'same ten-minute slot must have a stable durable id');
   assert.throws(() => missionTwinSlot('2026-10-23T00:00:00.000Z', 2), /interval_out_of_bounds/);
   assert.throws(() => missionTwinSlot('not-a-date'), /invalid_clock/);
+
+  assert.deepEqual(missionTwinLeaseDecision({ status: undefined, now: '2026-10-23T00:00:00.000Z' }),
+    { action: 'claim', reason: 'slot_unclaimed' });
+  assert.equal(missionTwinLeaseDecision({
+    status: 'started',
+    evidence: { lease_owner: 'owner-a', lease_until: '2026-10-23T00:02:00.000Z' },
+    now: '2026-10-23T00:01:59.999Z'
+  }).action, 'busy', 'a live lease must block concurrent claims');
+  const expiredLease = missionTwinLeaseDecision({
+    status: 'started',
+    evidence: { lease_owner: 'owner-a', lease_until: '2026-10-23T00:02:00.000Z' },
+    now: '2026-10-23T00:02:00.000Z'
+  });
+  assert.equal(expiredLease.action, 'reclaim', 'an expired lease with an owner may be conditionally reclaimed');
+  assert.equal(expiredLease.expected_owner, 'owner-a');
+  assert.equal(missionTwinLeaseDecision({
+    status: 'started', evidence: { lease_until: '2026-10-23T00:00:00.000Z' },
+    now: '2026-10-23T00:02:00.000Z'
+  }).action, 'skip', 'a stale claim without an owner must fail closed');
+  assert.equal(missionTwinLeaseDecision({ status: 'completed' }).action, 'skip');
+
 
   const twinBase = {
     snapshot: {
@@ -140,6 +161,18 @@ const path = require('node:path');
   assert.equal(emptyTwin.recommendation, 'NO_ACTION');
   assert.equal(emptyTwin.candidate, null);
   assert.equal(emptyTwin.status, 'SIMULATED');
+
+  const manyCandidates = Array.from({ length: 40 }, (_, i) => ({
+    goal_id: 'bounded-' + i, goal: 'Review candidate ' + i, dynamic_score: 100 - i
+  }));
+  const boundedTwin = buildMissionTwinReport({
+    snapshot: {}, candidates: manyCandidates, now: '2026-10-23T00:00:00.000Z'
+  });
+  assert.equal(MAX_CANDIDATES, 25);
+  assert.equal(boundedTwin.resource_budget.max_candidates_considered, 25);
+  assert.equal(boundedTwin.alternatives.length, 3);
+  assert.equal(boundedTwin.candidate.goal_id, 'bounded-0');
+
 
   console.log('dynamic goal engine tests: PASS');
 })();
