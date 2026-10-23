@@ -7,7 +7,7 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const { createJsonMissionStore, createPersistentAutonomy } = require('../autonomy/persistent-control-plane-v1');
 const { createPersistentHttpServer } = require('../autonomy/persistent-http-server-v1');
-const { createPersistentWorkerBridge, createWorkerBackedExecutor } = require('../autonomy/persistent-worker-bridge-v1');
+const { createPersistentWorkerBridge, createWorkerBackedExecutor, createWorkerBackedPlanner, createWorkerBackedReplanner, createWorkerBackedVerifier } = require('../autonomy/persistent-worker-bridge-v1');
 const { createPersistentNotifier } = require('../autonomy/persistent-notifications-v1');
 
 async function main() {
