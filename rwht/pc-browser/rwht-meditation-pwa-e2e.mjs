@@ -516,7 +516,9 @@ async function run() {
             body.notifications = body.notifications.filter(item =>
               String(item?.notification_id || '') !== pushProbeNotificationId
             );
-            notificationOmittedFromRecentLedger = true;
+            notificationOmittedFromRecentLedger = !body.notifications.some(item =>
+              String(item?.notification_id || '') === pushProbeNotificationId
+            );
             await route.fulfill({ response, body: JSON.stringify(body) });
             return;
           }
