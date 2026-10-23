@@ -36,8 +36,14 @@ function missionTwinLeaseDecision({ status, evidence = {}, now = new Date() } = 
   if (currentStatus !== 'started') return Object.freeze({ action: 'skip', reason: 'slot_already_recorded' });
   const record = evidence && typeof evidence === 'object' ? evidence : {};
   const owner = text(record.lease_owner);
-  const expiry = Date.parse(text(record.lease_until));
-  if (Number.isFinite(expiry) && expiry > time) {
+  const leaseUntil = text(record.lease_until);
+  const expiry = leaseUntil ? Date.parse(leaseUntil) : NaN;
+  // Fail closed: only a well-formed, explicitly expired lease can be reclaimed.
+  // Missing/invalid expiry is not proof that the previous owner has relinquished the slot.
+  if (!leaseUntil || !Number.isFinite(expiry)) {
+    return Object.freeze({ action: 'skip', reason: 'invalid_lease_expiry_not_reclaimed' });
+  }
+  if (expiry > time) {
     return Object.freeze({ action: 'busy', reason: 'active_lease', lease_until: new Date(expiry).toISOString() });
   }
   if (!owner) return Object.freeze({ action: 'skip', reason: 'stale_claim_without_owner_not_reclaimed' });
