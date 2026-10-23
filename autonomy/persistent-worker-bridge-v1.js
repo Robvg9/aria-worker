@@ -137,7 +137,7 @@ async function getOrEnqueueWorkerJob(bridge, mission_id, task, context) {
   if (typeof bridge.list === 'function') {
     const jobs = await bridge.list();
     const pending = jobs
-      .filter(job => job.mission_id === mission_id && job.task && job.task.operation === task.operation && ['queued', 'leased', 'succeeded'].includes(job.status))
+      .filter(job => job.mission_id === mission_id && job.task && job.task.operation === task.operation && (task.payload.request_key == null || (job.task.payload && job.task.payload.request_key === task.payload.request_key)) && ['queued', 'leased', 'succeeded'].includes(job.status))
       .sort((a, b) => b.created_at.localeCompare(a.created_at))[0];
     if (pending) return pending;
   }
