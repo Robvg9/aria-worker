@@ -32,6 +32,11 @@
 <section class="grid" id="metrics">
  <div class="metric"><span class="muted">Misiones</span><strong>—</strong></div><div class="metric"><span class="muted">En ejecución</span><strong>—</strong></div><div class="metric"><span class="muted">Requieren atención</span><strong>—</strong></div><div class="metric"><span class="muted">Completadas verificadas</span><strong>—</strong></div>
 </section>
+<section class="panel">
+ <div class="row"><h2>Notificaciones</h2><span id="notificationStatus" class="muted">Sin datos</span></div>
+ <p>Los avisos pendientes se guardan en el outbox aunque todavía no se haya configurado un canal externo.</p>
+ <div id="notifications" style="margin-top:10px"><p>Conecta el panel para consultar los avisos.</p></div>
+</section>
 <section><div class="row" style="margin:20px 0 12px"><h2>Misiones</h2><span id="updated" class="muted">Aún sin datos</span></div><div id="missions"><div class="empty">Conecta el panel para consultar el estado real.</div></div></section>
 </main>
 <script>
@@ -70,6 +75,11 @@
    const done=missions.filter(m=>m.status==='succeeded').length;
    $('metrics').innerHTML=[['Misiones',missions.length],['En ejecución',running],['Requieren atención',waiting],['Completadas verificadas',done]].map(x=>'<div class="metric"><span class="muted">'+esc(x[0])+'</span><strong>'+esc(x[1])+'</strong></div>').join('');
    $('missions').innerHTML=missions.length?missions.map(missionHtml).join(''):'<div class="empty">Todavía no hay misiones.</div>';
+   const notificationData=await api('/api/notifications');
+   const notifications=notificationData.notifications||[];
+   const waitingNotifications=notifications.filter(n=>n.status!=='delivered').length;
+   $('notificationStatus').textContent=waitingNotifications+' pendientes · '+notifications.length+' totales';
+   $('notifications').innerHTML=notifications.length?notifications.slice(0,12).map(n=>'<div class="task"><div class="row"><strong>'+esc(n.event&&n.event.type||'ARIA event')+'</strong><span class="status '+(n.status==='delivered'?'success':'warning')+'">'+esc(n.status)+'</span></div><div class="muted">'+esc(n.created_at)+' · '+esc(n.event&&n.event.mission_id||'sin misión')+'</div>'+(n.last_error?'<div class="warning">'+esc(n.last_error)+'</div>':'')+'</div>').join(''):'<p>No hay notificaciones todavía.</p>';
    $('updated').textContent='Actualizado '+new Date().toLocaleTimeString();
   }catch(e){$('connection').textContent='Sin conexión';$('connection').className='status danger';$('error').textContent=e.message;}
   finally{busy=false;}
