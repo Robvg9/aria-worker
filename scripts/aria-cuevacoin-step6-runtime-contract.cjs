@@ -12,6 +12,12 @@ const migration = read('supabase/migrations/20261013190000_mission-diagnostics-a
 const learningMigration = read('supabase/migrations/20261013200000_mission-learning-intent-scope-fix-v1.sql');
 const workflow = read('.github/workflows/supabase-canonical-deploy.yml');
 
+// Guard the migration against the historical `CREATE ... AS $function$ ... CREATE` parser failure.
+const migrationFunctionDefinitions = (migration.match(/AS \\$function\\$/g) || []).length;
+const migrationFunctionTerminators = (migration.match(/\\$function\\$;/g) || []).length;
+assert.equal(migrationFunctionDefinitions, 3, 'migration must preserve all three recreated function definitions');
+assert.equal(migrationFunctionTerminators, migrationFunctionDefinitions, 'every recreated function definition must end with `$function$;`');
+
 assert.ok(planner.includes('cuevacoinStep6Plan'), 'planner must route the explicit CuevaCoin step-6 mission');
 assert.ok(planner.includes('aria-planner-v11-cuevacoin-step6-cloud-probe-v1'));
 assert.ok(planner.includes('executor_type: "connector"'));
