@@ -93,6 +93,10 @@ assert(app.includes("window.addEventListener('hashchange', openNotificationFromH
 assert(app.includes("window.removeEventListener('hashchange', openNotificationFromHash)"), 'notification hash listener must be cleaned up');
 assert(app.includes("return { page: 'meditation', screen: 0, newMission: false };"), 'notification hash must mount the notification-owning page');
 assert(meditationE2E.includes('dispatchNotificationClickViaServiceWorker'), 'authenticated E2E must exercise Service Worker notificationclick');
+assert(meditationE2E.includes("probePage.route('**/api/meditation/notifications**'"), 'authenticated E2E must omit the selected notification from the recent ledger to exercise exact-ID fallback');
+assert(meditationE2E.includes("url.pathname === '/api/meditation/notifications/' + pushProbeNotificationId"), 'authenticated E2E must observe the exact-ID notification lookup request');
+assert(meditationE2E.includes("notification_exact_id_lookup_http_"), 'authenticated E2E must require a successful exact-ID notification response');
+assert(meditationE2E.includes('WEBPUSH_E2E_EXACT_ID_FALLBACK_OK'), 'authenticated E2E must record the exact-ID fallback proof');
 assert(meditationE2E.includes("await controllerPage.goto(base + '#meditation'"), 'push probe must attach CDP to the real PWA origin');
 assert(meditationE2E.includes("waitUntil:'load'"), 'push probe must wait for the production window.load service-worker registration handler');
 assert(meditationE2E.includes("fetch('/pwa/version.json', { cache:'no-store' })"), 'push probe must recover the exact versioned worker script from the canonical live build endpoint');
