@@ -43,6 +43,7 @@ function createPersistentHttpServer({
   notify = async () => {},
   workerBridge = null,
   workerToken = process.env.ARIA_WORKER_TOKEN,
+  notifier = null,
   dashboardPath = path.join(__dirname, 'persistent-dashboard-v1.html'),
   supervisorIntervalMs = 3000
 } = {}) {
@@ -116,6 +117,9 @@ function createPersistentHttpServer({
 
       if (!sameSecret(bearer, token)) return json(res, 401, { error: 'unauthorized' });
 
+      if (req.method === 'GET' && url.pathname === '/api/notifications') {
+        return json(res, 200, { notifications: notifier && typeof notifier.list === 'function' ? await notifier.list() : [] });
+      }
       if (req.method === 'GET' && url.pathname === '/api/missions') {
         const missions = await store.list();
         return json(res, 200, { missions });
