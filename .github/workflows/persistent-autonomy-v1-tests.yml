@@ -25,7 +25,7 @@ on:
       - '.github/workflows/persistent-autonomy-v1-tests.yml'
 
 concurrency:
-  group: persistent-autonomy-v1-pr-\${{ github.event.pull_request.number }}
+  group: persistent-autonomy-v1-pr-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 permissions:
