@@ -25,10 +25,16 @@ function normalizeTask(task, index) {
   assertObject(task, 'task');
   const risk = String(task.risk || 'medium').toLowerCase();
   if (!RISKS.includes(risk)) throw new Error('invalid_task_risk');
+  const operation = typeof task.operation === 'string' ? task.operation.trim().toLowerCase() : '';
+  const payload = task.payload == null ? {} : task.payload;
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw new Error('task_payload_must_be_object');
+  if (Buffer.byteLength(JSON.stringify(payload), 'utf8') > 524288) throw new Error('task_payload_too_large');
   return {
     task_id: String(task.task_id || id('task')),
     title: String(task.title || ('Task ' + (index + 1))),
     description: String(task.description || ''),
+    operation,
+    payload: clone(payload),
     status: 'pending',
     risk,
     irreversible: task.irreversible === true,
