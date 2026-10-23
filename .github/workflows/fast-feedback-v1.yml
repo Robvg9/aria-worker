@@ -1,0 +1,32 @@
+name: ARIA Fast Feedback v1
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "package.json"
+      - "scripts/test-inventory-report.cjs"
+      - "scripts/phase0-canonical-runtime-inventory.js"
+      - "scripts/aria-cuevacoin-step6-runtime-contract.cjs"
+      - "tests/normalize.test.js"
+      - "tests/mission-state.test.js"
+      - "tests/agent-runtime-catalog-contract.test.js"
+      - "tests/governance.test.js"
+      - ".github/workflows/fast-feedback-v1.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fast-feedback:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Run bounded local-only fast test lane
+        run: npm run test:fast
+      - name: Report canonical test inventory
+        run: npm run test:inventory
