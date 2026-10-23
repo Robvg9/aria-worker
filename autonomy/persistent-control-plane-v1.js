@@ -26,6 +26,8 @@ function normalizeTask(task, index) {
   const risk = String(task.risk || 'medium').toLowerCase();
   if (!RISKS.includes(risk)) throw new Error('invalid_task_risk');
   const operation = typeof task.operation === 'string' ? task.operation.trim().toLowerCase() : '';
+  const riskFloor = ({ 'workspace.write': 'medium', 'workspace.edit': 'medium', 'git.push': 'critical', 'deploy': 'critical', 'workspace.delete': 'critical', 'shell.run': 'critical' })[operation];
+  const effectiveRisk = riskFloor && RISKS.indexOf(riskFloor) > RISKS.indexOf(risk) ? riskFloor : risk;
   const payload = task.payload == null ? {} : task.payload;
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw new Error('task_payload_must_be_object');
   if (Buffer.byteLength(JSON.stringify(payload), 'utf8') > 524288) throw new Error('task_payload_too_large');
@@ -36,8 +38,8 @@ function normalizeTask(task, index) {
     operation,
     payload: clone(payload),
     status: 'pending',
-    risk,
-    irreversible: task.irreversible === true,
+    risk: effectiveRisk,
+    irreversible: task.irreversible === true || ['git.push', 'deploy', 'workspace.delete', 'shell.run'].includes(operation),
     idempotent: task.idempotent === true,
     depends_on: Array.isArray(task.depends_on) ? task.depends_on.map(String) : [],
     attempts: 0,
