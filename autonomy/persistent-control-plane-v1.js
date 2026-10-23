@@ -43,6 +43,35 @@ function normalizeTask(task, index) {
   };
 }
 
+function validateTaskGraph(tasks) {
+  if (!Array.isArray(tasks)) throw new TypeError('tasks_must_be_array');
+  const byId = new Map();
+  for (const task of tasks) {
+    if (!task || typeof task.task_id !== 'string' || !task.task_id) throw new Error('task_id_required');
+    if (byId.has(task.task_id)) throw new Error('duplicate_task_id:' + task.task_id);
+    byId.set(task.task_id, task);
+  }
+  for (const task of tasks) {
+    for (const dependency of task.depends_on || []) {
+      if (dependency === task.task_id || !byId.has(dependency)) throw new Error('dependency_missing_or_self:' + task.task_id + ':' + dependency);
+    }
+  }
+  const state = new Map();
+  function visit(taskId) {
+    const current = state.get(taskId) || 0;
+    if (current === 1) return false;
+    if (current === 2) return true;
+    state.set(taskId, 1);
+    const task = byId.get(taskId);
+    for (const dependency of task.depends_on || []) if (!visit(dependency)) return false;
+    state.set(taskId, 2);
+    return true;
+  }
+  for (const task of tasks) if (!visit(task.task_id)) throw new Error('dependency_cycle:' + task.task_id);
+  return { valid: true, task_count: tasks.length };
+}
+
+
 function createJsonMissionStore({ directory } = {}) {
   if (typeof directory !== 'string' || !directory.trim()) throw new TypeError('directory_required');
   const root = path.resolve(directory);
@@ -91,12 +120,14 @@ function createJsonMissionStore({ directory } = {}) {
   async function create({ goal, tasks = [], metadata = {}, policy = {} } = {}) {
     if (typeof goal !== 'string' || !goal.trim()) throw new TypeError('goal_required');
     if (!Array.isArray(tasks)) throw new TypeError('tasks_must_be_array');
+    const normalizedTasks = tasks.map(normalizeTask);
+    validateTaskGraph(normalizedTasks);
     const missionId = id('mission');
     const now = isoNow();
     const mission = {
       mission_id: missionId, goal: goal.trim(), status: 'queued', created_at: now, updated_at: now,
       started_at: null, completed_at: null, current_task_id: null,
-      tasks: tasks.map(normalizeTask), metadata: clone(metadata),
+      tasks: normalizedTasks, metadata: clone(metadata),
       policy: { max_auto_risk: policy.max_auto_risk || 'medium', max_steps_per_tick: policy.max_steps_per_tick || 10,
         max_runtime_ms: policy.max_runtime_ms || 60000, approval_required_for_irreversible: true, ...clone(policy) },
       approval: null, attempts: 0, last_error: null, verification: null, progress_percent: 0
@@ -346,4 +377,4 @@ function createPollingSupervisor({ listMissions, tickMission, intervalMs = 5000,
   return Object.freeze({ run, stop: () => { stopped = true; }, activeCount: () => active.size });
 }
 
-module.exports = Object.freeze({ TERMINAL, MISSION_STATES, TASK_STATES, RISKS, createJsonMissionStore, createPersistentAutonomy, createPollingSupervisor, progressOf });
+module.exports = Object.freeze({ TERMINAL, MISSION_STATES, TASK_STATES, RISKS, createJsonMissionStore, createPersistentAutonomy, createPollingSupervisor, progressOf, validateTaskGraph });
