@@ -4,6 +4,14 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 
 const source = fs.readFileSync(require('node:path').join(__dirname, '..', 'supabase/functions/aria-device-gateway/index.ts'), 'utf8');
+const canonical = fs.readFileSync(require('node:path').join(__dirname, '..', 'supabase/functions/aria-canonical-runtime-v1/index.ts'), 'utf8');
+
+assert.ok(source.includes('function internalFunctionFetch('), 'gateway-to-function calls must use the apikey-aware transport');
+assert.ok(source.includes("headers.set('apikey',SUPABASE_API_KEY)"), 'gateway transport must identify the Supabase project separately from its shared Bearer secret');
+assert.ok(!source.includes('await fetch(CANONICAL_RUNTIME,'), 'canonical runtime requests must not bypass the apikey-aware transport');
+assert.ok(canonical.includes('SUPABASE_PUBLISHABLE_KEY'), 'canonical runtime should prefer the current publishable project key');
+assert.ok(canonical.includes('"apikey":API_KEY'), 'canonical runner calls must send apikey separately from the service-role Authorization header');
+assert.ok(!canonical.includes('fetch(RUNNER,'), 'canonical runner calls must not bypass the project API key');
 
 for (const marker of [
   "/v1/android/autonomous/decide",
