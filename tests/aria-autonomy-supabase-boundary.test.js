@@ -7,6 +7,8 @@ const path = require('node:path');
 const root = path.resolve(__dirname, '..');
 const legacyWorkflow = fs.readFileSync(path.join(root, '.github/workflows/aria-cloudflare-deploy.yml'), 'utf8');
 const isolatedDeploy = fs.readFileSync(path.join(root, '.github/workflows/aria-autonomy-coordinator-deploy.yml'), 'utf8');
+const pwaDeploy = fs.readFileSync(path.join(root, '.github/workflows/aria-pwa-fast-deploy.yml'), 'utf8');
+const supabaseDeploy = fs.readFileSync(path.join(root, '.github/workflows/supabase-canonical-deploy.yml'), 'utf8');
 const cloudWorker = fs.readFileSync(path.join(root, 'cloudflare-autonomy/worker.mjs'), 'utf8');
 const wrangler = fs.readFileSync(path.join(root, 'wrangler.aria-autonomy.toml'), 'utf8');
 
@@ -15,6 +17,8 @@ assert.match(legacyWorkflow, /workflow_dispatch:/);
 const autonomyOnlyPaths = [
   '.github/workflows/aria-cloudflare-deploy.yml',
   '.github/workflows/aria-autonomy-coordinator-deploy.yml',
+  '.github/workflows/aria-pwa-fast-deploy.yml',
+  '.github/workflows/supabase-canonical-deploy.yml',
   '.github/workflows/persistent-autonomy-v1-tests.yml',
   '.github/workflows/aria-npm-test.yml',
   'Dockerfile.aria-coordinator',
@@ -50,6 +54,14 @@ for (const file of autonomyOnlyPaths) {
   assert.ok(legacyWorkflow.includes("- '" + file + "'") || (file.startsWith('cloudflare-autonomy/') && legacyWorkflow.includes("'cloudflare-autonomy/**'")), 'legacy production deploy must ignore ' + file);
 }
 assert.ok(legacyWorkflow.includes('SUPABASE_ACCESS_TOKEN'), 'legacy workflow remains explicitly identifiable as Supabase-coupled');
+assert.match(pwaDeploy, /paths-ignore:/, 'production PWA deploy must have a safety path filter');
+for (const file of autonomyOnlyPaths) {
+  assert.ok(pwaDeploy.includes("- '" + file + "'") || (file.startsWith('cloudflare-autonomy/') && pwaDeploy.includes("'cloudflare-autonomy/**'")), 'production PWA deploy must ignore ' + file);
+}
+for (const file of autonomyOnlyPaths.filter(file => file.startsWith('autonomy/'))) {
+  assert.ok(supabaseDeploy.includes("- '!" + file + "'"), 'Supabase runtime deploy must explicitly exclude ' + file);
+}
+assert.ok(supabaseDeploy.includes("- '!.github/workflows/supabase-canonical-deploy.yml'"), 'editing this safety workflow must not trigger a Supabase deployment');
 assert.doesNotMatch(isolatedDeploy, /SUPABASE_ACCESS_TOKEN|SUPABASE_PROJECT_REF|supabase secrets set|supabase\.co/i);
 assert.doesNotMatch(cloudWorker, /SUPABASE_ACCESS_TOKEN|SUPABASE_PROJECT_REF|createSupabaseMissionRepository|supabase\.co/i);
 assert.match(wrangler, /class_name = "AriaMissionStore"/);
