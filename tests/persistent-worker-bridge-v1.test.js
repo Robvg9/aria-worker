@@ -5,10 +5,19 @@ const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
 const { createPersistentWorkerBridge, createWorkerBackedPlanner, createWorkerBackedVerifier } = require('../autonomy/persistent-worker-bridge-v1');
+const supervisorScriptPath = path.join(__dirname, '..', 'scripts', 'Start-ARIA-Persistent-Worker.ps1');
 
 (async () => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'aria-worker-bridge-v1-'));
   try {
+    const supervisorScript = await fs.readFile(supervisorScriptPath, 'utf8');
+    assert.match(supervisorScript, /\[switch\]\$InstallScheduledTask/, 'Windows worker must support one-time scheduled-task installation');
+    assert.match(supervisorScript, /New-ScheduledTaskTrigger -AtLogOn -User \$currentUser/, 'worker must restart after interactive user logon');
+    assert.match(supervisorScript, /New-ScheduledTaskPrincipal -UserId \$currentUser -LogonType Interactive -RunLevel Limited/, 'scheduled worker must run with limited privileges');
+    assert.match(supervisorScript, /Register-ScheduledTask/);
+    assert.match(supervisorScript, /Start-ScheduledTask/);
+    assert.match(supervisorScript, /configuration outside the source checkout/i, 'secrets must remain outside the source checkout');
+    assert.doesNotMatch(supervisorScript, /ARIA_WORKER_TOKEN\s*=\s*['"][^'"]{32,}['"]/, 'worker token must never be hard-coded into the supervisor');
     const bridge = createPersistentWorkerBridge({ directory, leaseMs: 10000 });
     const created = await bridge.enqueue({ mission_id: 'mission_test', task: { task_id: 'task_test', title: 'Run test' }, context: { goal: 'bridge test' } });
     assert.equal(created.status, 'queued');
