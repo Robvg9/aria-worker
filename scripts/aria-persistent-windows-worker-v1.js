@@ -73,7 +73,11 @@ async function main() {
 
     try {
       const mission = { mission_id: job.mission_id, goal: job.context && job.context.goal, metadata: job.context && job.context.metadata };
-      const result = await adapter.executeTask(job.task, mission, { worker_id: workerId, job_id: job.job_id });
+      const rawResult = await adapter.executeTask(job.task, mission, { worker_id: workerId, job_id: job.job_id });
+      const result = rawResult && rawResult.passed === true ? rawResult
+        : rawResult && (rawResult.status === 'succeeded' || rawResult.ok === true)
+          ? { ...rawResult, passed: true, evidence: rawResult.evidence == null ? { worker_status: rawResult.status || 'ok', exit_code: rawResult.exit_code == null ? null : rawResult.exit_code } : rawResult.evidence }
+          : rawResult;
       await request('/api/worker/jobs/' + encodeURIComponent(job.job_id) + '/complete', {
         worker_id: workerId, lease_token: job.lease_token, result
       });
