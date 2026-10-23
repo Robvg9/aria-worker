@@ -19,6 +19,7 @@ Provide durable, resumable mission execution without calling Supabase. The first
 
 - `autonomy/persistent-http-server-v1.js` and `autonomy/persistent-dashboard-v1.html`: authenticated JSON API, polling supervisor, live mission panel, progress, task evidence, event history, and approval/rejection controls.
 - `scripts/aria-persistent-autonomy-v1.js`: standalone launcher that requires an explicitly declared Supabase-independent adapter and a 32+ character control token.
+- `autonomy/persistent-notifications-v1.js`: durable notification outbox with webhook delivery, retryable pending notifications, and a waiting-configuration state when no channel is authorized yet.
 
 - `autonomy/persistent-worker-bridge-v1.js`: durable queued jobs, lease tokens, heartbeat renewal, and result reporting for a Windows worker that connects outward to the cloud coordinator.
 - `scripts/aria-persistent-windows-worker-v1.js`: Windows-side poll/execute/report loop; requires a separately configured, Supabase-independent local adapter.
@@ -31,7 +32,7 @@ For a real hybrid deployment, use one authoritative cloud coordinator on a host 
 
 ## Human intervention and notifications
 
-The runtime accepts a \`notify\` adapter. A production notification provider is intentionally not hard-coded until the user selects and authorizes one. Human approvals are persisted and require an explicit actor and decision; approval is not implied by a timeout.
+The runtime accepts a \`notify\` adapter. The outbox supports a user-configured HTTPS webhook (which can be backed by a notification service such as ntfy or a private Telegram relay). No external channel is contacted until its URL and any required secret are configured. Human approvals are persisted and require an explicit actor and decision; approval is not implied by a timeout.
 
 ## Safety policy
 
@@ -49,7 +50,7 @@ Run with Node.js 20+:
 node tests/persistent-control-plane-v1.test.js
 \`\`\`
 
-The isolated GitHub Actions workflow runs both the mission-control-plane and HTTP/dashboard contract tests on relevant changes. A green contract test is necessary but does not prove the Windows worker, cloud host, notifications or end-to-end hybrid path are deployed.
+The isolated GitHub Actions workflow runs mission, HTTP/dashboard, worker-bridge and notification contract tests on relevant changes. A green contract test is necessary but does not prove the Windows worker, cloud host, notifications or end-to-end hybrid path are deployed.
 
 ## Not yet certified
 
