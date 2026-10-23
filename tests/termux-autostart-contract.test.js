@@ -75,6 +75,11 @@ assert.ok(androidWorkflow.includes('android-ui-agent/app/build/outputs/apk/debug
 assert.ok(androidWorkflow.includes('BUILD-MANIFEST.txt'), 'APK artifact must include a build manifest');
 assert.ok(androidWorkflow.includes('SHA256SUMS.txt'), 'APK artifact must include a SHA-256 checksum file');
 assert.ok(agent.includes("timeoutMs:8_000"));
+assert.ok(agent.includes("process.env.ARIA_SUPABASE_API_KEY"), "Termux agent must read the project API key separately from the device token");
+assert.ok(agent.includes("value.apikey = SUPABASE_API_KEY"), "Termux requests must send the project key in the apikey header");
+assert.ok(agent.includes("authorization:`Bearer ${DEVICE_TOKEN}`"), "device token remains the app-level Bearer credential");
+assert.ok(docs.includes("ARIA_SUPABASE_API_KEY"), "Termux setup must document the public project API key");
+assert.ok(docs.includes("Never put a service-role key"), "Termux docs must prohibit service-role keys on the device");
 assert.ok(!agent.includes('job_claim_watchdog_timeout'), 'Android agent must not leave timed-out jobs executing in the background');
 assert.ok(!agent.includes('Promise.race([\n        claimAndExecute()'), 'Android agent must not overlap a previous job with a new claim');
 assert.ok(supervisor.includes('trap stop INT TERM'));
