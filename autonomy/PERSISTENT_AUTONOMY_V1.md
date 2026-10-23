@@ -46,24 +46,45 @@ The runtime accepts a \`notify\` adapter. The outbox supports a user-configured 
 - Execution ticks are bounded by step count and runtime budget.
 - Automatic retries require a task declared idempotent or an error explicitly marked retryable; interrupted non-idempotent work pauses for human review to avoid duplicating side effects.
 
-## Run locally (after an approved adapter exists)
+## Hybrid deployment (cloud coordinator + Windows PC)
 
-Requirements: Node.js 20+, an adapter that explicitly exports \`supabaseIndependent: true\` plus \`plan\`, \`executeTask\` and \`verifyCompletion\`, and a random control token of at least 32 characters.
+Use one cloud coordinator with a persistent disk and one or more Windows workers. The cloud ledger is single-writer: do not run multiple coordinator replicas against the same JSON directory. Put the coordinator behind HTTPS termination; the Windows worker makes outbound HTTPS requests only.
 
-PowerShell example:
+Cloud coordinator environment (keep both tokens secret and different):
 
 \`\`\`powershell
-$env:ARIA_AUTONOMY_ADAPTER = "C:\path\to\approved-adapter.js"
-$env:ARIA_CONTROL_TOKEN = "replace-with-a-random-secret-at-least-32-characters"
-$env:ARIA_MISSION_DATA_DIR = "$PWD\.aria-missions"
-node scripts/aria-persistent-autonomy-v1.js
+$env:ARIA_MISSION_DATA_DIR = "D:\aria-data"
+$env:ARIA_CONTROL_HOST = "0.0.0.0"
+$env:ARIA_CONTROL_PORT = "8787"
+$env:ARIA_CONTROL_TOKEN = "<random-secret-at-least-32-characters>"
+$env:ARIA_WORKER_TOKEN = "<different-random-secret-at-least-32-characters>"
+$env:ARIA_ALLOW_REMOTE_BIND = "true"
+$env:ARIA_CONTROL_HTTPS_TERMINATED = "true"
+node scripts/aria-persistent-coordinator-v1.js
 \`\`\`
 
-Open \`http://127.0.0.1:8787\` and enter the control token. The launcher deliberately refuses to start without an approved adapter and valid secret; no fake/demo adapter is silently substituted.
+Configure the host's persistent volume at \`D:\aria-data\` (or change the path) and HTTPS reverse proxy before exposing the service. The coordinator refuses a remote bind unless both remote-bind flags are enabled. Open the dashboard through the HTTPS URL and enter \`ARIA_CONTROL_TOKEN\`.
 
-For hybrid mode, run the coordinator on a cloud Node.js host with persistent disk, set \`ARIA_EXECUTION_MODE=windows\`, configure a separate \`ARIA_WORKER_TOKEN\`, and expose the service only behind HTTPS termination. On Windows, set \`ARIA_CONTROL_URL\`, \`ARIA_WORKER_TOKEN\`, and \`ARIA_AUTONOMY_ADAPTER\`, then run \`node scripts/aria-persistent-windows-worker-v1.js\`. The Windows worker makes outbound HTTPS requests only.
+Windows PC environment:
 
-The notification outbox is always persisted. For push delivery, configure \`ARIA_NOTIFICATION_WEBHOOK_URL\` and optionally \`ARIA_NOTIFICATION_TOKEN\`; without them, alerts remain visible in the dashboard as \`waiting_config\`.
+\`\`\`powershell
+$env:ARIA_CONTROL_URL = "https://your-private-coordinator.example"
+$env:ARIA_WORKER_TOKEN = "<same-worker-token-as-coordinator>"
+$env:ARIA_WORKER_ID = "robvg-windows-worker"
+$env:ARIA_AUTONOMY_ADAPTER = "D:\path\to\aria-worker\autonomy\ollama-persistent-adapter-v1.js"
+$env:ARIA_WORKSPACE_ROOT = "D:\path\to\approved\workspace"
+$env:ARIA_OLLAMA_URL = "http://127.0.0.1:11434"
+$env:ARIA_OLLAMA_MODEL = "qwen3:4b"
+node scripts/aria-persistent-windows-worker-v1.js
+\`\`\`
+
+The worker requires the configured Ollama model to be available locally. \`ARIA_WORKSPACE_ROOT\` is mandatory and is the only project tree it can read or modify. Writes and edits create backups under \`.aria-autonomy-backups\`. Credentials, \`.env\` files, \`.git\`, \`node_modules\`, and Supabase paths are excluded. Arbitrary shell commands, commits, pushes and deployments are not exposed by this adapter.
+
+If the worker is offline when a mission is submitted, the mission is saved in \`planning\` state first. It remains visible and the durable planning job is reused when the worker reconnects; no chat message such as “continue” is needed. The current webhook notification outbox is durable; push delivery still requires a configured HTTPS webhook.
+
+## Local-only test mode
+
+For isolated testing, run \`scripts/aria-persistent-autonomy-v1.js\` with a local adapter that exports \`supabaseIndependent: true\`, \`plan\`, \`executeTask\` and \`verifyCompletion\`, and a control token of at least 32 characters. Do not point it at the live project workspace until you have reviewed the current working tree and selected the exact workspace.
 
 ## Tests
 
@@ -74,6 +95,7 @@ node tests/persistent-control-plane-v1.test.js
 node tests/persistent-http-server-v1.test.js
 node tests/persistent-worker-bridge-v1.test.js
 node tests/persistent-notifications-v1.test.js
+node tests/ollama-persistent-adapter-v1.test.js
 \`\`\`
 
-The isolated GitHub Actions workflow runs all four contract test files on relevant changes. A green contract test is necessary but does not prove the Windows worker, cloud host, notifications or end-to-end hybrid path are deployed.
+The isolated GitHub Actions workflow runs the mission, HTTP/dashboard, worker-bridge, notification and Ollama-adapter contract tests on relevant changes. A green contract test is necessary but does not prove the Windows worker, cloud host, notifications or end-to-end hybrid path are deployed.
