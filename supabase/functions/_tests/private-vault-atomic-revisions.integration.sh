@@ -51,21 +51,21 @@ psql "$DATABASE_URL" -X -v ON_ERROR_STOP=1 -f "$root/supabase/migrations/2026102
 psql "$DATABASE_URL" -X -v ON_ERROR_STOP=1 -f "$root/supabase/migrations/20261023040000_aria_encrypt_atomic_record_revisions.sql"
 
 # The deployed server role must use the RPC; direct table INSERT must be denied.
-if psql "$DATABASE_URL" -X -v ON_ERROR_STOP=1 -c "SET ROLE service_role; INSERT INTO public.aria_vault_records(owner_id,vault_id,record_id,revision,format_version,payload_nonce,ciphertext) VALUES ('11111111-1111-4111-8111-111111111111','22222222-2222-4222-8222-222222222222','33333333-3333-4333-8333-333333333333',2,1,'BBBBBBBBBBBBBBBB','BBBBBBBBBBBBBBBBBBBBBB');" >"$tmpdir/direct-insert.log" 2>&1; then
+if psql "$DATABASE_URL" -X -v ON_ERROR_STOP=1 -c "SET ROLE service_role; INSERT INTO public.aria_vault_records(owner_id,vault_id,record_id,revision,format_version,payload_nonce,ciphertext) VALUES ('11111111-1111-4111-8111-111111111111'::uuid,'22222222-2222-4222-8222-222222222222'::uuid,'33333333-3333-4333-8333-333333333333'::uuid,2::bigint,1::smallint,'BBBBBBBBBBBBBBBB'::text,'BBBBBBBBBBBBBBBBBBBBBB'::text);" >"$tmpdir/direct-insert.log" 2>&1; then
   echo "FAIL: service_role unexpectedly has direct INSERT"
   exit 1
 fi
 grep -qi "permission denied" "$tmpdir/direct-insert.log"
 
 # A sequential next revision succeeds through the RPC.
-psql "$DATABASE_URL" -X -v ON_ERROR_STOP=1 -c "SET ROLE service_role; SELECT public.aria_vault_append_record_revision_v1('11111111-1111-4111-8111-111111111111','22222222-2222-4222-8222-222222222222','33333333-3333-4333-8333-333333333333',2,1,'BBBBBBBBBBBBBBBB','BBBBBBBBBBBBBBBBBBBBBB');"
+psql "$DATABASE_URL" -X -v ON_ERROR_STOP=1 -c "SET ROLE service_role; SELECT public.aria_vault_append_record_revision_v1('11111111-1111-4111-8111-111111111111'::uuid,'22222222-2222-4222-8222-222222222222'::uuid,'33333333-3333-4333-8333-333333333333'::uuid,2::bigint,1::smallint,'BBBBBBBBBBBBBBBB'::text,'BBBBBBBBBBBBBBBBBBBBBB'::text);"
 
 # Two concurrent attempts for the same next revision must produce exactly one success
 # and one deterministic revision_conflict, never two accepted writes or a unique-key race.
 set +e
-psql "$DATABASE_URL" -X -v ON_ERROR_STOP=1 -c "SET ROLE service_role; SELECT public.aria_vault_append_record_revision_v1('11111111-1111-4111-8111-111111111111','22222222-2222-4222-8222-222222222222','33333333-3333-4333-8333-333333333333',3,1,'CCCCCCCCCCCCCCCC','CCCCCCCCCCCCCCCCCCCCCC');" >"$tmpdir/concurrent-a.log" 2>&1 &
+psql "$DATABASE_URL" -X -v ON_ERROR_STOP=1 -c "SET ROLE service_role; SELECT public.aria_vault_append_record_revision_v1('11111111-1111-4111-8111-111111111111'::uuid,'22222222-2222-4222-8222-222222222222'::uuid,'33333333-3333-4333-8333-333333333333'::uuid,3::bigint,1::smallint,'CCCCCCCCCCCCCCCC'::text,'CCCCCCCCCCCCCCCCCCCCCC'::text);" >"$tmpdir/concurrent-a.log" 2>&1 &
 pid_a=$!
-psql "$DATABASE_URL" -X -v ON_ERROR_STOP=1 -c "SET ROLE service_role; SELECT public.aria_vault_append_record_revision_v1('11111111-1111-4111-8111-111111111111','22222222-2222-4222-8222-222222222222','33333333-3333-4333-8333-333333333333',3,1,'DDDDDDDDDDDDDDDD','DDDDDDDDDDDDDDDDDDDDDD');" >"$tmpdir/concurrent-b.log" 2>&1 &
+psql "$DATABASE_URL" -X -v ON_ERROR_STOP=1 -c "SET ROLE service_role; SELECT public.aria_vault_append_record_revision_v1('11111111-1111-4111-8111-111111111111'::uuid,'22222222-2222-4222-8222-222222222222'::uuid,'33333333-3333-4333-8333-333333333333'::uuid,3::bigint,1::smallint,'DDDDDDDDDDDDDDDD'::text,'DDDDDDDDDDDDDDDDDDDDDD'::text);" >"$tmpdir/concurrent-b.log" 2>&1 &
 pid_b=$!
 wait "$pid_a"; status_a=$?
 wait "$pid_b"; status_b=$?
@@ -81,7 +81,7 @@ else
 fi
 
 # Out-of-order revision 5 is rejected; the persisted revision sequence remains 1,2,3.
-if psql "$DATABASE_URL" -X -v ON_ERROR_STOP=1 -c "SET ROLE service_role; SELECT public.aria_vault_append_record_revision_v1('11111111-1111-4111-8111-111111111111','22222222-2222-4222-8222-222222222222','33333333-3333-4333-8333-333333333333',5,1,'EEEEEEEEEEEEEEEE','EEEEEEEEEEEEEEEEEEEEEE');" >"$tmpdir/out-of-order.log" 2>&1; then
+if psql "$DATABASE_URL" -X -v ON_ERROR_STOP=1 -c "SET ROLE service_role; SELECT public.aria_vault_append_record_revision_v1('11111111-1111-4111-8111-111111111111'::uuid,'22222222-2222-4222-8222-222222222222'::uuid,'33333333-3333-4333-8333-333333333333'::uuid,5::bigint,1::smallint,'EEEEEEEEEEEEEEEE'::text,'EEEEEEEEEEEEEEEEEEEEEE'::text);" >"$tmpdir/out-of-order.log" 2>&1; then
   echo "FAIL: out-of-order revision was accepted"
   exit 1
 fi
