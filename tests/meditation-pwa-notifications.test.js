@@ -13,6 +13,7 @@ function assert(condition, message) {
 const migration = read('supabase/migrations/20260919210000_meditation_pwa_notifications_cutover_v1.sql');
 const migrationV2 = read('supabase/migrations/20260920002111_meditation_pwa_notifications_cutover_v2.sql');
 const serverSideMigration = read('supabase/migrations/20261012110400_meditation_notifications_server_side_rpc_v1.sql');
+const exactNotificationMigration = read('supabase/migrations/20261023020000_meditation_notification_by_id_v1.sql');
 const agent = read('agents/termux/aria-agent.js');
 const api = read('supabase/functions/aria-app-api-v3/index.ts');
 const app = read('pwa/src/App.tsx');
@@ -38,6 +39,11 @@ assert(api.includes('meditationNotificationsForUser'), 'user-scoped notification
 assert(api.includes('markMeditationNotificationsReadForUser'), 'user-scoped notification ack missing');
 assert(api.includes('aria_meditation_notifications_for_user_v1'), 'notification GET must use the server-side SQL RPC');
 assert(api.includes('aria_mark_meditation_notifications_read_for_user_v1'), 'notification read ack must use the server-side SQL RPC');
+assert(exactNotificationMigration.includes('CREATE OR REPLACE FUNCTION aria_internal.aria_meditation_notification_by_id_for_user_v1'), 'exact notification lookup RPC migration missing');
+assert(exactNotificationMigration.includes('GRANT EXECUTE ON FUNCTION aria_internal.aria_meditation_notification_by_id_for_user_v1(uuid, uuid) TO service_role'), 'exact notification lookup must be service-role only');
+assert(api.includes('aria_meditation_notification_by_id_for_user_v1'), 'exact notification lookup must use the scoped SQL RPC');
+assert(api.includes('async function meditationNotificationByIdForUser'), 'exact notification lookup handler missing');
+assert(api.includes('invalid_notification_id'), 'exact notification route must validate UUID input');
 assert(!api.includes('async function meditationOwnedMissionIds'), 'notification API must not materialize large mission ID arrays in Edge Function memory');
 assert(serverSideMigration.includes('CREATE OR REPLACE FUNCTION aria_internal.aria_meditation_notifications_for_user_v1'), 'server-side notification reader RPC migration missing');
 assert(serverSideMigration.includes('CREATE OR REPLACE FUNCTION aria_internal.aria_mark_meditation_notifications_read_for_user_v1'), 'server-side notification read RPC migration missing');
@@ -59,7 +65,10 @@ assert(app.includes("from './notifications'"), 'PWA notification helper import m
 assert(app.includes('PwaNotificationCenter'), 'PWA notification center missing');
 assert(app.includes('const [missionDetailOpen, setMissionDetailOpen] = useState(false);'), 'mission modal visibility must be separate from cached mission detail data');
 assert(app.includes('async function openNotification(item: PwaNotificationItem, openMissionAfterSelection = false)'), 'native click path must be distinguishable from notification-list selection');
-assert(app.includes('void openNotification(item, true);'), 'native notification deep links must open mission detail directly');
+assert(app.includes('await openNotification(item, true);'), 'native notification deep links must open mission detail directly');
+assert(app.includes("api('/meditation/notifications/' + encodeURIComponent(id), session.accessToken)"), 'notification deep links must fetch an exact notification when it is outside the recent ledger page');
+assert(app.includes('processingNotificationHash.current === id'), 'notification hash processing must be idempotent while exact lookup is in flight');
+assert(!app.includes('if (!id || !items.length) return;'), 'deep-link resolution must not depend on the notification ledger being populated first');
 assert(app.includes('{missionDetail && missionDetailOpen && ('), 'mission detail must render only when explicitly opened, avoiding stacked modal backdrops');
 assert(app.includes('const selectedLive = selected'), 'selected notification must derive from current ledger state');
 assert(app.includes('setSelected(current => current?.notification_id === item.notification_id'), 'selected notification read state must update immediately');
