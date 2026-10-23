@@ -4162,7 +4162,6 @@ if (!physicalPlanValidation.ok) {
           },
         });
 
-        if (!reconciledPendingResult) {
         try {
           const executionGate = currentHumanGate(mission, step);
           const executionAuthorization = requiresHumanGate(step)
