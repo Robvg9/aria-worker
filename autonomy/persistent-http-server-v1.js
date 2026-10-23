@@ -47,8 +47,10 @@ function createPersistentHttpServer({
   if (!store || typeof store.get !== 'function' || typeof store.list !== 'function') throw new TypeError('store_required');
   if (!autonomy || typeof autonomy.start !== 'function' || typeof autonomy.tick !== 'function' || typeof autonomy.resume !== 'function') throw new TypeError('autonomy_runtime_required');
   if (typeof token !== 'string' || token.length < 32) throw new Error('ARIA_CONTROL_TOKEN must contain at least 32 characters');
-  if (host !== '127.0.0.1' && host !== '::1' && host !== 'localhost' && process.env.ARIA_ALLOW_REMOTE_BIND !== 'true') {
-    throw new Error('remote_bind_requires_ARIA_ALLOW_REMOTE_BIND=true_and_https_reverse_proxy');
+  if (host !== '127.0.0.1' && host !== '::1' && host !== 'localhost') {
+    if (process.env.ARIA_ALLOW_REMOTE_BIND !== 'true' || process.env.ARIA_CONTROL_HTTPS_TERMINATED !== 'true') {
+      throw new Error('remote_bind_requires_ARIA_ALLOW_REMOTE_BIND=true_and_ARIA_CONTROL_HTTPS_TERMINATED=true');
+    }
   }
 
   const supervisor = createPollingSupervisor({
