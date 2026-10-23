@@ -6,6 +6,7 @@ const app=fs.readFileSync(path.join(root,'pwa/src/App.tsx'),'utf8');
 const css=fs.readFileSync(path.join(root,'pwa/src/index.css'),'utf8');
 const certStreak=fs.readFileSync(path.join(root,'.github/workflows/aria-pwa-certification-streak.yml'),'utf8');
 const settingsRwht=fs.readFileSync(path.join(root,'rwht/pc-browser/rwht-settings-e2e.mjs'),'utf8');
+const settingsWorkflow=fs.readFileSync(path.join(root,'.github/workflows/settings-rwht-authenticated.yml'),'utf8');
 
 assert.match(app,/AppPage = 'aria'.*'settings'/);
 assert.match(app,/case '#settings'/);
@@ -35,6 +36,14 @@ assert.match(settingsRwht,/await waitForPwaBoot\(page, 'direct_settings_navigati
 assert.match(settingsRwht,/page\.waitForNavigation\(\{ waitUntil: 'domcontentloaded', timeout: 30000 \}\)/);
 assert.match(settingsRwht,/authRequestDiagnostics\.push\(/);
 assert.match(settingsRwht,/has_password: typeof body\.password === 'string'/);
+assert.match(settingsRwht,/settings_rwht_requires_email_password_for_logout_relogin_gate/,
+  'Settings E2E must explain that the logout/re-login contract requires credentials even when storage state is available.');
+assert.match(settingsWorkflow,/if \[\[ -n "\$\{RWHT_EMAIL\}" && -n "\$\{RWHT_PASSWORD\}" \]\]; then exit 0; fi/,
+  'Settings workflow must require credentials for its logout/re-login gate.');
+assert.match(settingsWorkflow,/storage state alone cannot satisfy that gate/,
+  'Settings workflow must explain why storage-state-only auth is insufficient for this E2E.');
+assert.doesNotMatch(settingsWorkflow,/RWHT_STORAGE_STATE_B64/,
+  'Settings workflow must not accept a storage-state-only configuration that the logout/re-login test cannot complete.');
 
 console.log('CONFIG SETTINGS CONTRACT: PASS');
 assert.match(app,/Actualizar app/);
