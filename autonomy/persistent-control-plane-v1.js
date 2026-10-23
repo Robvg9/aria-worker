@@ -9,7 +9,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 
 const TERMINAL = new Set(['succeeded', 'failed', 'cancelled']);
-const MISSION_STATES = new Set(['queued', 'running', 'waiting_human', ...TERMINAL]);
+const MISSION_STATES = new Set(['planning', 'queued', 'running', 'waiting_human', ...TERMINAL]);
 const TASK_STATES = new Set(['pending', 'running', 'waiting_human', 'succeeded', 'failed', 'skipped']);
 const RISKS = ['low', 'medium', 'high', 'critical'];
 
@@ -123,15 +123,16 @@ function createJsonMissionStore({ directory } = {}) {
     try { return JSON.parse(await fs.readFile(fileFor(missionsDir, missionId), 'utf8')); }
     catch (error) { if (error.code === 'ENOENT') return null; throw error; }
   }
-  async function create({ goal, tasks = [], metadata = {}, policy = {} } = {}) {
+  async function create({ goal, tasks = [], metadata = {}, policy = {}, status = 'queued' } = {}) {
     if (typeof goal !== 'string' || !goal.trim()) throw new TypeError('goal_required');
     if (!Array.isArray(tasks)) throw new TypeError('tasks_must_be_array');
+    if (!MISSION_STATES.has(status)) throw new Error('invalid_mission_status');
     const normalizedTasks = tasks.map(normalizeTask);
     validateTaskGraph(normalizedTasks);
     const missionId = id('mission');
     const now = isoNow();
     const mission = {
-      mission_id: missionId, goal: goal.trim(), status: 'queued', created_at: now, updated_at: now,
+      mission_id: missionId, goal: goal.trim(), status, created_at: now, updated_at: now,
       started_at: null, completed_at: null, current_task_id: null,
       tasks: normalizedTasks, metadata: clone(metadata),
       policy: { max_auto_risk: policy.max_auto_risk || 'medium', max_steps_per_tick: policy.max_steps_per_tick || 10,
