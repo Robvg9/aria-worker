@@ -96,6 +96,7 @@ node tests/persistent-http-server-v1.test.js
 node tests/persistent-worker-bridge-v1.test.js
 node tests/persistent-notifications-v1.test.js
 node tests/ollama-persistent-adapter-v1.test.js
+node tests/persistent-hybrid-e2e-v1.test.js
 \`\`\`
 
 The isolated GitHub Actions workflow runs the mission, HTTP/dashboard, worker-bridge, notification and Ollama-adapter contract tests on relevant changes. A green contract test is necessary but does not prove the Windows worker, cloud host, notifications or end-to-end hybrid path are deployed.
