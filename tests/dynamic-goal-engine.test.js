@@ -1,6 +1,8 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 
 (async () => {
   const engine = await import('../autonomy/dynamic-goal-engine.mjs');
@@ -73,6 +75,20 @@ const assert = require('node:assert/strict');
     updated_at: now
   }] }, { now });
   assert.equal(recursiveFailure.length, 0, 'nested failure-of-failure chains must not generate more recursive goals');
+
+  const gatewaySource = fs.readFileSync(
+    path.join(__dirname, '..', 'supabase', 'functions', 'aria-device-gateway', 'index.ts'),
+    'utf8'
+  );
+  assert.match(gatewaySource, /missionTwinCycleId\(now,10\)/,
+    'the existing autonomy cycle must use the ten-minute durable slot id');
+  assert.match(gatewaySource, /lease_until/);
+  assert.match(gatewaySource, /evidence->>lease_owner/,
+    'lease takeover and completion must be conditional on the lease owner');
+  assert.match(gatewaySource, /lease_recovered_at/,
+    'expired Mission Twin leases must leave recovery evidence');
+  assert.match(gatewaySource, /mission_twin:missionTwin/,
+    'the existing autonomy cycle must preserve the Mission Twin outcome in its evidence');
 
   const { missionTwinSlot, missionTwinCycleId, buildMissionTwinReport } = twin;
   assert.equal(missionTwinSlot('2026-10-23T00:09:59.000Z'), '2026-10-23T00:00:00.000Z');
