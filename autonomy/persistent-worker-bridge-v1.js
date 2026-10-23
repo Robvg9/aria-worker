@@ -24,7 +24,24 @@ function createPersistentWorkerBridge({ directory, leaseMs = 60000 } = {}) {
     const file = jobPath(job.job_id);
     const temp = file + '.' + crypto.randomUUID() + '.tmp';
     await fs.writeFile(temp, JSON.stringify(job, null, 2), { encoding: 'utf8', flag: 'wx' });
-    await fs.rename(temp, file);
+    try {
+      // Windows AV/indexing can briefly hold an existing destination open,
+      // causing rename-over-existing to return EPERM. Retry only transient
+      // filesystem errors; never delete the last durable copy as a fallback.
+      const transient = new Set(['EPERM', 'EACCES', 'EBUSY']);
+      for (let attempt = 0; ; attempt += 1) {
+        try {
+          await fs.rename(temp, file);
+          break;
+        } catch (error) {
+          if (!transient.has(error && error.code) || attempt >= 7) throw error;
+          await new Promise(resolve => setTimeout(resolve, Math.min(250, 20 * (attempt + 1))));
+        }
+      }
+    } catch (error) {
+      await fs.rm(temp, { force: true }).catch(() => {});
+      throw error;
+    }
     return clone(job);
   }
   async function get(jobId) {
