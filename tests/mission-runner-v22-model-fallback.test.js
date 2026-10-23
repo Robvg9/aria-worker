@@ -49,6 +49,27 @@ for (const fragment of required) {
   }
 }
 
+// Regression contract for durable async Windows/Ollama model jobs.
+const asyncReconciliationRequired = [
+  'if (localResult?.status === "waiting" && typeof localResult?.job_id === "string"',
+  'pending_source: "windows_ollama"',
+  'const pendingJobId = typeof pending?.job_id === "string" ? String(pending.job_id).trim() : ""',
+  'let reconciledPendingResult: any = null',
+  'const polled = await getExecutionJob(pendingJobId)',
+  'if (!pendingJob || !["succeeded", "failed", "timeout", "cancelled", "blocked"].includes(pendingStatus))',
+  'attempt: pendingAttempt || Number(attempts[id] || 1)',
+  'response: { content: String(pendingJob.stdout ?? "").trim() }',
+  'pending_reconciled: true',
+  'const nextAttempt = pendingAttempt > 0 ? pendingAttempt : Number(attempts[id] || 0) + 1',
+  'if (!reconciledPendingResult)',
+  'String(result?.status) === "waiting" && typeof result?.job_id === "string" && result.job_id.trim()',
+  'status: "waiting_for_async_executor"',
+];
+for (const fragment of asyncReconciliationRequired) {
+  if (!source.includes(fragment)) throw new Error("missing async local-model reconciliation contract: " + fragment);
+}
+console.log("mission-runner-v22 async local-model reconciliation contract: PASS");
+
 console.log("mission-runner-v22 model fallback multi-provider contract: PASS");
 
 if (!source.includes('executorType(step) === "connector"') || !source.includes('result?.data !== null')) {
