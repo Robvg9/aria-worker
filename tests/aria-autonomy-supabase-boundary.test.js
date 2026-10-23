@@ -61,6 +61,14 @@ for (const file of autonomyOnlyPaths) {
 for (const file of autonomyOnlyPaths.filter(file => file.startsWith('autonomy/'))) {
   assert.ok(supabaseDeploy.includes("- '!" + file + "'"), 'Supabase runtime deploy must explicitly exclude ' + file);
 }
+assert.ok(
+  supabaseDeploy.indexOf("      - 'autonomy/**'") < supabaseDeploy.indexOf("      - '!autonomy/PERSISTENT_AUTONOMY_V1.md'"),
+  'Supabase path exclusions must follow the broad autonomy include'
+);
+assert.ok(
+  supabaseDeploy.indexOf("      - '.github/workflows/supabase-canonical-deploy.yml'") < supabaseDeploy.indexOf("      - '!.github/workflows/supabase-canonical-deploy.yml'"),
+  'Supabase workflow self-change must be excluded after its positive path'
+);
 assert.ok(supabaseDeploy.includes("- '!.github/workflows/supabase-canonical-deploy.yml'"), 'editing this safety workflow must not trigger a Supabase deployment');
 assert.doesNotMatch(isolatedDeploy, /SUPABASE_ACCESS_TOKEN|SUPABASE_PROJECT_REF|supabase secrets set|supabase\.co/i);
 assert.doesNotMatch(cloudWorker, /SUPABASE_ACCESS_TOKEN|SUPABASE_PROJECT_REF|createSupabaseMissionRepository|supabase\.co/i);
