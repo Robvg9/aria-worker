@@ -32,8 +32,11 @@ export function analyzeMissionConsistency({ mission, steps = [], jobs = [], even
   const completed = Number.isFinite(Number(mission.completed_steps)) && mission.completed_steps != null ? Number(mission.completed_steps) : null;
   const current = Number.isFinite(Number(mission.current_step)) && mission.current_step != null ? Number(mission.current_step) : null;
   const scopedEvents = events.filter(event => !clean(event?.mission_id) || clean(event.mission_id) === missionId);
-  const activeJobs = jobs.filter(job => ACTIVE_JOBS.has(clean(job?.status) || ""));
-  const terminalJobs = jobs.filter(job => TERMINAL_JOBS.has(clean(job?.status) || "") && timestamp(job?.completed_at) != null)
+  // A caller may pass a mixed job collection. Never let another mission's job
+  // make this mission look inconsistent (or hide a missing-job condition).
+  const scopedJobs = jobs.filter(job => clean(job?.mission_id) === missionId);
+  const activeJobs = scopedJobs.filter(job => ACTIVE_JOBS.has(clean(job?.status) || ""));
+  const terminalJobs = scopedJobs.filter(job => TERMINAL_JOBS.has(clean(job?.status) || "") && timestamp(job?.completed_at) != null)
     .sort((a, b) => timestamp(b.completed_at) - timestamp(a.completed_at));
   const pendingJobs = mission?.checkpoint?.pending_jobs && typeof mission.checkpoint.pending_jobs === "object"
     ? mission.checkpoint.pending_jobs : {};
