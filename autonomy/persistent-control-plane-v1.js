@@ -295,9 +295,23 @@ function createPersistentAutonomy({ store, plan, executeTask, verifyCompletion, 
     const mission = await store.get(missionId);
     if (!mission) throw new Error('mission_not_found');
     if (mission.status === 'waiting_human') {
-      if (!mission.approval || mission.approval.status === 'pending') return mission;
-      if (mission.approval.status === 'rejected') return mission;
-      await store.update(missionId, current => { current.status = 'queued'; }, 'mission_resumed_after_approval');
+      if (mission.approval && mission.approval.status === 'pending') return mission;
+      if (mission.approval && mission.approval.status === 'rejected') return mission;
+      await store.update(missionId, current => {
+        for (const task of current.tasks) {
+          if (task.status === 'waiting_human' || task.status === 'failed') {
+            task.status = 'pending';
+            task.attempts = 0;
+            task.last_error = null;
+          }
+        }
+        current.status = 'queued';
+        current.last_error = null;
+        current.current_task_id = null;
+        current.approval = current.approval && current.approval.status === 'approved' ? current.approval : null;
+        current.manual_resume_at = isoNow();
+        current.manual_resume_by = String(options.actor || 'human');
+      }, mission.approval && mission.approval.status === 'approved' ? 'mission_resumed_after_approval' : 'mission_resumed_after_human_review', { actor: String(options.actor || 'human') });
     }
     return tick(missionId, options);
   }
