@@ -20,11 +20,14 @@ Provide durable, resumable mission execution without calling Supabase. The first
 - `autonomy/persistent-http-server-v1.js` and `autonomy/persistent-dashboard-v1.html`: authenticated JSON API, polling supervisor, live mission panel, progress, task evidence, event history, and approval/rejection controls.
 - `scripts/aria-persistent-autonomy-v1.js`: standalone launcher that requires an explicitly declared Supabase-independent adapter and a 32+ character control token.
 
+- `autonomy/persistent-worker-bridge-v1.js`: durable queued jobs, lease tokens, heartbeat renewal, and result reporting for a Windows worker that connects outward to the cloud coordinator.
+- `scripts/aria-persistent-windows-worker-v1.js`: Windows-side poll/execute/report loop; requires a separately configured, Supabase-independent local adapter.
+
 ## Storage and deployment boundary
 
 The JSON store is suitable as a local durable ledger and as a single-process ledger on a cloud host with a persistent disk. It is **not** a multi-writer distributed database and must not be shared concurrently by cloud and Windows processes over a network filesystem.
 
-For a real hybrid deployment, use one authoritative cloud coordinator on a host with persistent storage, and let the Windows agent make outbound authenticated HTTPS requests to it. The Windows worker should never require an inbound public port. Add a cloud storage adapter and a worker-claim/lease API before enabling concurrent cloud + PC writes. No Supabase endpoint, client, secret or migration is part of this design.
+For a real hybrid deployment, use one authoritative cloud coordinator on a host with persistent storage, and let the Windows agent make outbound authenticated HTTPS requests to it. The Windows worker should never require an inbound public port. The first worker-claim/lease API is now implemented, including per-claim lease tokens and heartbeat renewal. The current JSON ledger is still single-process; the coordinator remains the only state writer, and the Windows agent only claims jobs and reports results through the authenticated API. No Supabase endpoint, client, secret or migration is part of this design.
 
 ## Human intervention and notifications
 
@@ -51,7 +54,8 @@ The isolated GitHub Actions workflow runs both the mission-control-plane and HTT
 ## Not yet certified
 
 - Actual cloud service deployment and persistent-volume configuration.
-- Authenticated cloud API and worker claim/lease protocol.
+- Cloud service deployment with persistent-volume configuration and HTTPS termination.
+- Provisioned, authorized planner/executor adapter with live AI-provider access.
 - Windows service/autostart and live heartbeat/recovery test.
 - User-selected notification integration.
 - Live end-to-end mission from dashboard to PC execution and verified completion.
