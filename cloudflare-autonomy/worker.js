@@ -19,6 +19,7 @@ const RISK_BY_OPERATION = Object.freeze({
 const ACTIVE_JOB_STATES = new Set(['queued', 'leased']);
 const ACTIVE_MISSION_STATES = new Set(['planning', 'queued', 'running']);
 const clone = value => value == null ? value : JSON.parse(JSON.stringify(value));
+const bodyRetryable = reason => /timeout|temporar|network|\b429\b|\b502\b|\b503\b|\b504\b/i.test(String(reason || ''));
 const nowIso = () => new Date().toISOString();
 const uuid = prefix => prefix + '_' + crypto.randomUUID();
 const json = (value, status = 200, headers = {}) => new Response(JSON.stringify(value), {
@@ -35,6 +36,7 @@ function parseRisk(value) {
   return ['low', 'medium', 'high', 'critical'].includes(value) ? value : 'low';
 }
 function progressOf(mission) {
+  if (mission.status === 'succeeded') return 100;
   const tasks = Array.isArray(mission.tasks) ? mission.tasks : [];
   if (!tasks.length) return 0;
   return Math.min(99, Math.round(tasks.filter(task => task.status === 'succeeded').length / tasks.length * 100));
@@ -42,6 +44,7 @@ function progressOf(mission) {
 function normalizeTasks(rawTasks, priorIds = new Set()) {
   if (!Array.isArray(rawTasks) || rawTasks.length < 1 || rawTasks.length > 6) throw new Error('plan_task_count_invalid');
   const ids = new Set(priorIds);
+  const availableIds = new Set();
   const tasks = [];
   for (const raw of rawTasks) {
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('plan_task_invalid');
@@ -50,11 +53,12 @@ function normalizeTasks(rawTasks, priorIds = new Set()) {
     const operation = String(raw.operation || '');
     if (!ALLOWED_OPERATIONS.has(operation)) throw new Error('plan_operation_rejected');
     const depends = Array.isArray(raw.depends_on) ? raw.depends_on.map(String) : [];
-    if (depends.some(dep => !ids.has(dep))) throw new Error('plan_dependency_invalid');
+    if (depends.some(dep => !availableIds.has(dep))) throw new Error('plan_dependency_invalid');
     const payload = raw.payload && typeof raw.payload === 'object' && !Array.isArray(raw.payload) ? raw.payload : {};
     if (JSON.stringify(payload).length > 512 * 1024) throw new Error('plan_payload_too_large');
     const policyRisk = RISK_BY_OPERATION[operation];
     ids.add(taskId);
+    availableIds.add(taskId);
     tasks.push({
       task_id: taskId,
       title: String(raw.title || operation).slice(0, 200),
@@ -258,6 +262,7 @@ export class AriaMissionStore {
       created_at: nowIso(),
       updated_at: nowIso(),
       event_sequence: 0,
+      plan_kind: 'plan',
       replans: 0,
       metadata: body.metadata && typeof body.metadata === 'object' ? clone(body.metadata) : {},
       policy: {
@@ -346,6 +351,7 @@ export class AriaMissionStore {
         mission.tasks = tasks;
       }
       mission.status = 'running';
+      mission.plan_kind = null;
       mission.current_task_id = null;
       mission.last_error = null;
       await this.saveMission(mission, job.operation === 'mission.plan' ? 'mission_planned' : 'mission_replanned', { task_count: tasks.length, job_id: job.job_id });
@@ -424,6 +430,7 @@ export class AriaMissionStore {
       task.status = 'skipped';
       task.last_error = 'Superseded by bounded replan after: ' + reason.slice(0, 500);
       mission.status = 'planning';
+      mission.plan_kind = 'replan';
       mission.last_error = reason;
       await this.saveMission(mission, 'mission_replan_started', { task_id: task.task_id, reason });
       await this.createJob(mission, 'mission.replan', null, { reason });
@@ -586,7 +593,7 @@ export class AriaMissionStore {
     const missions = await this.ctx.storage.list({ prefix: 'mission:' });
     for (const mission of missions.values()) {
       if (mission.status === 'planning') {
-        await this.createJob(mission, mission.replans ? 'mission.replan' : 'mission.plan', null, { reason: mission.last_error || 'recovery' });
+        await this.createJob(mission, mission.plan_kind === 'replan' ? 'mission.replan' : 'mission.plan', null, { reason: mission.last_error || 'recovery' });
       } else if (mission.status === 'running') {
         await this.scheduleNext(mission);
       }
