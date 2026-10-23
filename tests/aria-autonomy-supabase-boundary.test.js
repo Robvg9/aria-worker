@@ -26,6 +26,8 @@ const autonomyOnlyPaths = [
   'autonomy/persistent-notifications-v1.js',
   'autonomy/persistent-worker-bridge-v1.js',
   'autonomy/persistent-worker-coordinator-adapter-v1.js',
+  'cloudflare-autonomy/assets/index.html',
+  'cloudflare-autonomy/worker.mjs',
   'scripts/Start-ARIA-Persistent-Worker.ps1',
   'scripts/aria-persistent-autonomy-v1.js',
   'scripts/aria-persistent-coordinator-v1.js',
