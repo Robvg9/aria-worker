@@ -41,8 +41,11 @@ assert(api.includes('aria_meditation_notifications_for_user_v1'), 'notification 
 assert(api.includes('aria_mark_meditation_notifications_read_for_user_v1'), 'notification read ack must use the server-side SQL RPC');
 assert(exactNotificationMigration.includes('CREATE OR REPLACE FUNCTION aria_internal.aria_meditation_notification_by_id_for_user_v1'), 'exact notification lookup RPC migration missing');
 assert(exactNotificationMigration.includes('GRANT EXECUTE ON FUNCTION aria_internal.aria_meditation_notification_by_id_for_user_v1(uuid, uuid) TO service_role'), 'exact notification lookup must be service-role only');
+assert(exactNotificationMigration.includes('JOIN aria_internal.mission_state AS ms ON ms.mission_id = n.mission_id'), 'exact notification lookup must prove ownership through the canonical mission');
+assert(exactNotificationMigration.includes("ms.metadata->>'user_id' = p_user_id::text"), 'exact notification lookup must scope rows to the authenticated user');
 assert(api.includes('aria_meditation_notification_by_id_for_user_v1'), 'exact notification lookup must use the scoped SQL RPC');
 assert(api.includes('async function meditationNotificationByIdForUser'), 'exact notification lookup handler missing');
+assert(api.includes('filterCurrentVerifiedCompletionNotifications([notification])'), 'exact notification lookup must suppress stale/unverified success rows too');
 assert(api.includes('invalid_notification_id'), 'exact notification route must validate UUID input');
 assert(!api.includes('async function meditationOwnedMissionIds'), 'notification API must not materialize large mission ID arrays in Edge Function memory');
 assert(serverSideMigration.includes('CREATE OR REPLACE FUNCTION aria_internal.aria_meditation_notifications_for_user_v1'), 'server-side notification reader RPC migration missing');
