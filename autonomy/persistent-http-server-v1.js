@@ -49,7 +49,7 @@ function createPersistentHttpServer({
   if (!store || typeof store.get !== 'function' || typeof store.list !== 'function') throw new TypeError('store_required');
   if (!autonomy || typeof autonomy.start !== 'function' || typeof autonomy.tick !== 'function' || typeof autonomy.resume !== 'function') throw new TypeError('autonomy_runtime_required');
   if (typeof token !== 'string' || token.length < 32) throw new Error('ARIA_CONTROL_TOKEN must contain at least 32 characters');
-  if (workerBridge && (typeof workerBridge.claimNext !== 'function' || typeof workerBridge.complete !== 'function')) throw new TypeError('worker_bridge_invalid');
+  if (workerBridge && (typeof workerBridge.claimNext !== 'function' || typeof workerBridge.heartbeat !== 'function' || typeof workerBridge.complete !== 'function')) throw new TypeError('worker_bridge_invalid');
   if (workerBridge && (typeof workerToken !== 'string' || workerToken.length < 32)) throw new Error('ARIA_WORKER_TOKEN must contain at least 32 characters when the Windows worker bridge is enabled');
   if (host !== '127.0.0.1' && host !== '::1' && host !== 'localhost') {
     if (process.env.ARIA_ALLOW_REMOTE_BIND !== 'true' || process.env.ARIA_CONTROL_HTTPS_TERMINATED !== 'true') {
@@ -92,6 +92,12 @@ function createPersistentHttpServer({
         if (req.method === 'POST' && url.pathname === '/api/worker/claim') {
           const body = await readJson(req);
           const job = await workerBridge.claimNext({ worker_id: body.worker_id, capabilities: body.capabilities || [] });
+          return json(res, 200, { job });
+        }
+        const heartbeatMatch = url.pathname.match(/^\/api\/worker\/jobs\/(job_[a-zA-Z0-9_-]+)\/heartbeat$/);
+        if (req.method === 'POST' && heartbeatMatch) {
+          const body = await readJson(req);
+          const job = await workerBridge.heartbeat(heartbeatMatch[1], { worker_id: body.worker_id, lease_token: body.lease_token });
           return json(res, 200, { job });
         }
         const workerMatch = url.pathname.match(/^\/api\/worker\/jobs\/(job_[a-zA-Z0-9_-]+)\/complete$/);
