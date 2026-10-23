@@ -27,6 +27,7 @@ on:
       - 'scripts/aria-persistent-coordinator-v1.js'
       - 'scripts/aria-persistent-windows-worker-v1.js'
       - 'tests/cloudflare-autonomy-worker.test.js'
+      - 'tests/aria-autonomy-supabase-boundary.test.js'
       - 'tests/ollama-persistent-adapter-v1.test.js'
       - 'tests/persistent-control-plane-v1.test.js'
       - 'tests/persistent-http-server-v1.test.js'
