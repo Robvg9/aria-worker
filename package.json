@@ -11,6 +11,7 @@
     "ecc:registry": "node scripts/ecc-capability-registry.js",
     "ecc:mcp": "node scripts/ecc-mcp-bridge.js",
     "test:fast": "node scripts/aria-cuevacoin-step6-runtime-contract.cjs && node scripts/verify-agent-runtime-live-workflow-contract.cjs && node tests/normalize.test.js && node tests/mission-state.test.js && node tests/agent-runtime-catalog-contract.test.js && node scripts/aria-queue-health-diagnostics-contract.cjs && node scripts/phase0-canonical-runtime-inventory.js && node tests/governance.test.js",
-    "test:inventory": "node scripts/test-inventory-report.cjs"
+    "test:inventory": "node scripts/test-inventory-report.cjs",
+    "test:profile": "node scripts/test-suite-profile.cjs"
   }
 }
