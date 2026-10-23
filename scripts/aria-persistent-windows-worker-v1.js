@@ -36,9 +36,21 @@ async function request(route, body) {
 
 async function main() {
   validateConfig();
-  const adapter = require(path.resolve(adapterPath));
+  let adapter = require(path.resolve(adapterPath));
+  if (typeof adapter.createAdapter === 'function' && adapter.supabaseIndependent !== true) {
+    adapter = adapter.createAdapter({
+      workspaceRoot: process.env.ARIA_WORKSPACE_ROOT,
+      ollamaUrl: process.env.ARIA_OLLAMA_URL,
+      model: process.env.ARIA_OLLAMA_MODEL
+    });
+  }
   if (adapter.supabaseIndependent !== true || typeof adapter.executeTask !== 'function') {
     throw new Error('Worker adapter must export supabaseIndependent: true and executeTask(task, mission, context).');
+  }
+  if (typeof adapter.health === 'function') {
+    const health = await adapter.health();
+    if (!health || health.ok !== true) throw new Error('Worker adapter health check failed: local model unavailable.');
+    process.stdout.write('Local model ready: ' + (health.model || 'configured') + '\\n');
   }
   process.stdout.write('ARIA Windows worker started: ' + workerId + '\n');
   process.stdout.write('Coordinator: ' + baseUrl + '\n');
@@ -72,8 +84,24 @@ async function main() {
     }, heartbeatMs);
 
     try {
-      const mission = { mission_id: job.mission_id, goal: job.context && job.context.goal, metadata: job.context && job.context.metadata };
-      const rawResult = await adapter.executeTask(job.task, mission, { worker_id: workerId, job_id: job.job_id });
+      const context = job.context || {};
+      const mission = context.mission || { mission_id: job.mission_id, goal: context.goal, metadata: context.metadata, policy: context.policy };
+      let rawResult;
+      if (job.task && job.task.operation === 'mission.plan') {
+        if (typeof adapter.plan !== 'function') throw new Error('worker_planner_unavailable');
+        const tasks = await adapter.plan(job.task.payload && job.task.payload.goal || context.goal, { metadata: context.metadata || {}, policy: context.policy || {} });
+        rawResult = { passed: true, evidence: { tasks } };
+      } else if (job.task && job.task.operation === 'mission.replan') {
+        if (typeof adapter.replan !== 'function') throw new Error('worker_replanner_unavailable');
+        const tasks = await adapter.replan(mission, { reason: context.reason || job.task.payload && job.task.payload.reason || 'replan' });
+        rawResult = { passed: true, evidence: { tasks } };
+      } else if (job.task && job.task.operation === 'mission.verify') {
+        if (typeof adapter.verifyCompletion !== 'function') throw new Error('worker_verifier_unavailable');
+        const verification = await adapter.verifyCompletion(mission);
+        rawResult = { passed: true, evidence: { verification } };
+      } else {
+        rawResult = await adapter.executeTask(job.task, mission, { worker_id: workerId, job_id: job.job_id });
+      }
       const result = rawResult && rawResult.passed === true ? rawResult
         : rawResult && (rawResult.status === 'succeeded' || rawResult.ok === true)
           ? { ...rawResult, passed: true, evidence: rawResult.evidence == null ? { worker_status: rawResult.status || 'ok', exit_code: rawResult.exit_code == null ? null : rawResult.exit_code } : rawResult.evidence }
