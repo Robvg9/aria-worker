@@ -13,16 +13,19 @@ Provide durable, resumable mission execution without calling Supabase. The first
   - bounded execution ticks, retries and optional replanning;
   - explicit human approval records for irreversible/high-risk actions;
   - completion is only marked \`succeeded\` after a verifier returns \`passed: true\`;
-  - a polling supervisor can resume queued/running missions without chat messages.
+  - a polling supervisor resumes planning, queued, and running missions without chat messages; a mission is persisted before waiting for a worker, so the dashboard can show it while the PC is offline.
 - \`tests/persistent-control-plane-v1.test.js\`: focused contract tests for persistence, evidence, approval gates, progress and failed final verification.
 - \`.github/workflows/persistent-autonomy-v1-tests.yml\`: isolated CI test job, independent of the repository's Supabase-dependent suite.
 
 - `autonomy/persistent-http-server-v1.js` and `autonomy/persistent-dashboard-v1.html`: authenticated JSON API, polling supervisor, live mission panel, progress, task evidence, event history, and approval/rejection controls.
-- `scripts/aria-persistent-autonomy-v1.js`: standalone launcher that requires an explicitly declared Supabase-independent adapter and a 32+ character control token.
+- `scripts/aria-persistent-autonomy-v1.js`: standalone local coordinator launcher for an explicitly declared Supabase-independent adapter.
+- `scripts/aria-persistent-coordinator-v1.js`: hybrid cloud coordinator; persists missions first and delegates planning, execution, replanning and verification to the authenticated Windows worker.
+- `autonomy/persistent-worker-coordinator-adapter-v1.js`: marker-only coordinator adapter; the cloud process does not need local model credentials.
 - `autonomy/persistent-notifications-v1.js`: durable notification outbox with webhook delivery, retryable pending notifications, and a waiting-configuration state when no channel is authorized yet.
 
 - `autonomy/persistent-worker-bridge-v1.js`: durable queued jobs, lease tokens, heartbeat renewal, and result reporting for a Windows worker that connects outward to the cloud coordinator.
-- `scripts/aria-persistent-windows-worker-v1.js`: Windows-side poll/execute/report loop; requires a separately configured, Supabase-independent local adapter.
+- `scripts/aria-persistent-windows-worker-v1.js`: Windows-side poll/execute/report loop; performs model calls locally and makes outbound HTTPS requests only.
+- `autonomy/ollama-persistent-adapter-v1.js`: local Ollama planner/verifier plus a bounded workspace adapter. It supports file listing/reading/search, backed-up file writes/edits, Git status/diff and allowlisted Node.js tests; it does not execute arbitrary shell commands.
 
 ## Storage and deployment boundary
 
