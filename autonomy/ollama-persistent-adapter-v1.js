@@ -255,12 +255,23 @@ function createOllamaPersistentAdapter({
       'Do not run arbitrary shell commands, deploy, publish, commit, push, delete, alter credentials, or modify external systems.',
       'Keep plans to 1-4 concrete tasks. Use unique task ids. Dependencies must refer only to earlier tasks in this plan.',
       'Use workspace.read/search/status/diff for inspection. Use workspace.edit for surgical edits and workspace.write for new or fully replaced text files. Run relevant tests after changes.',
+      'Never use workspace.read on a directory. For reads, use an exact file path from workspace_files. If the needed path is unknown, use workspace.list or workspace.search first. Never invent existing file paths.',
+      'Only workspace.write may target a new file path. Keep the plan aligned with the supplied workspace inventory and the user goal.',
       'The worker will enforce operation risk independently of your requested risk labels.'
     ].join('\n');
+    const workspaceFiles = (await walk(root, 3))
+      .filter(item => item.type === 'file')
+      .map(item => item.path.replace(/\\/g, '/'))
+      .sort((a, b) => {
+        const score = value => /(^|\/)(README[^/]*|package\.json|.*(autonomy|mission|worker|approval|recovery|persistent|ollama).*\.(js|cjs|mjs|ts|md|json|yml|yaml))$/i.test(value) ? 1 : 0;
+        return score(b) - score(a) || a.localeCompare(b);
+      })
+      .slice(0, 100);
     const prompt = JSON.stringify({
       mode, goal: goal.trim(), context: { metadata: context.metadata || {}, policy: context.policy || {}, reason: context.reason || null },
       prior_tasks: priorTasks.map(item => ({ task_id: item.task_id, title: item.title, status: item.status, last_error: item.last_error, evidence: item.evidence })).slice(-30),
       workspace_root: path.basename(root),
+      workspace_files: workspaceFiles,
       output_schema: { tasks: [{ task_id: 'inspect-1', title: 'Inspect repository', description: '...', operation: 'git.status', payload: {}, depends_on: [], idempotent: true }] }
     });
     const data = await modelJson(system, prompt, 1200);
