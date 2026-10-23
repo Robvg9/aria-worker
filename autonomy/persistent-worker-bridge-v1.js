@@ -133,14 +133,24 @@ function createWorkerBackedExecutor({ bridge, timeoutMs, pollMs } = {}) {
   };
 }
 
+async function getOrEnqueueWorkerJob(bridge, mission_id, task, context) {
+  if (typeof bridge.list === 'function') {
+    const jobs = await bridge.list();
+    const pending = jobs
+      .filter(job => job.mission_id === mission_id && job.task && job.task.operation === task.operation && ['queued', 'leased'].includes(job.status))
+      .sort((a, b) => b.created_at.localeCompare(a.created_at))[0];
+    if (pending) return pending;
+  }
+  return bridge.enqueue({ mission_id, task, context });
+}
+
 function createWorkerBackedPlanner({ bridge, timeoutMs, pollMs } = {}) {
   if (!bridge || typeof bridge.enqueue !== 'function' || typeof bridge.waitForResult !== 'function') throw new TypeError('worker_bridge_required');
   return async function planOnWindows(goal, context = {}) {
-    const job = await bridge.enqueue({
-      mission_id: 'planning_' + crypto.randomUUID(),
-      task: { operation: 'mission.plan', payload: { goal, metadata: context.metadata || {}, policy: context.policy || {} } },
-      context: { goal, metadata: context.metadata || {}, policy: context.policy || {}, mode: 'plan' }
-    });
+    const missionId = context.mission_id || ('planning_' + crypto.randomUUID());
+    const job = await getOrEnqueueWorkerJob(bridge, missionId,
+      { operation: 'mission.plan', payload: { goal, metadata: context.metadata || {}, policy: context.policy || {} } },
+      { goal, metadata: context.metadata || {}, policy: context.policy || {}, mode: 'plan' });
     const result = await bridge.waitForResult(job.job_id, { timeoutMs, pollMs, signal: context.signal });
     const tasks = result && result.evidence && result.evidence.tasks;
     if (!Array.isArray(tasks) || !tasks.length) throw new Error('worker_planner_returned_no_tasks');
@@ -151,11 +161,9 @@ function createWorkerBackedPlanner({ bridge, timeoutMs, pollMs } = {}) {
 function createWorkerBackedReplanner({ bridge, timeoutMs, pollMs } = {}) {
   if (!bridge || typeof bridge.enqueue !== 'function' || typeof bridge.waitForResult !== 'function') throw new TypeError('worker_bridge_required');
   return async function replanOnWindows(mission, context = {}) {
-    const job = await bridge.enqueue({
-      mission_id: mission.mission_id,
-      task: { operation: 'mission.replan', payload: { reason: context.reason || 'replan' } },
-      context: { goal: mission.goal, metadata: mission.metadata || {}, policy: mission.policy || {}, mission: clone(mission), reason: context.reason || 'replan', mode: 'replan' }
-    });
+    const job = await getOrEnqueueWorkerJob(bridge, mission.mission_id,
+      { operation: 'mission.replan', payload: { reason: context.reason || 'replan' } },
+      { goal: mission.goal, metadata: mission.metadata || {}, policy: mission.policy || {}, mission: clone(mission), reason: context.reason || 'replan', mode: 'replan' });
     const result = await bridge.waitForResult(job.job_id, { timeoutMs, pollMs, signal: context.signal });
     const tasks = result && result.evidence && result.evidence.tasks;
     if (!Array.isArray(tasks) || !tasks.length) throw new Error('worker_replanner_returned_no_tasks');
@@ -166,11 +174,9 @@ function createWorkerBackedReplanner({ bridge, timeoutMs, pollMs } = {}) {
 function createWorkerBackedVerifier({ bridge, timeoutMs, pollMs } = {}) {
   if (!bridge || typeof bridge.enqueue !== 'function' || typeof bridge.waitForResult !== 'function') throw new TypeError('worker_bridge_required');
   return async function verifyOnWindows(mission, context = {}) {
-    const job = await bridge.enqueue({
-      mission_id: mission.mission_id,
-      task: { operation: 'mission.verify', payload: {} },
-      context: { goal: mission.goal, metadata: mission.metadata || {}, mission: clone(mission), mode: 'verify' }
-    });
+    const job = await getOrEnqueueWorkerJob(bridge, mission.mission_id,
+      { operation: 'mission.verify', payload: {} },
+      { goal: mission.goal, metadata: mission.metadata || {}, policy: mission.policy || {}, mission: clone(mission), mode: 'verify' });
     const result = await bridge.waitForResult(job.job_id, { timeoutMs, pollMs, signal: context.signal });
     const verification = result && result.evidence && result.evidence.verification;
     if (!verification || typeof verification.passed !== 'boolean') throw new Error('worker_verifier_returned_invalid_result');
