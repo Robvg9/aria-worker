@@ -41,12 +41,16 @@ function createPersistentHttpServer({
   port = Number(process.env.ARIA_CONTROL_PORT || 8787),
   runSupervisor = true,
   notify = async () => {},
+  workerBridge = null,
+  workerToken = process.env.ARIA_WORKER_TOKEN,
   dashboardPath = path.join(__dirname, 'persistent-dashboard-v1.html'),
   supervisorIntervalMs = 3000
 } = {}) {
   if (!store || typeof store.get !== 'function' || typeof store.list !== 'function') throw new TypeError('store_required');
   if (!autonomy || typeof autonomy.start !== 'function' || typeof autonomy.tick !== 'function' || typeof autonomy.resume !== 'function') throw new TypeError('autonomy_runtime_required');
   if (typeof token !== 'string' || token.length < 32) throw new Error('ARIA_CONTROL_TOKEN must contain at least 32 characters');
+  if (workerBridge && (typeof workerBridge.claimNext !== 'function' || typeof workerBridge.complete !== 'function')) throw new TypeError('worker_bridge_invalid');
+  if (workerBridge && (typeof workerToken !== 'string' || workerToken.length < 32)) throw new Error('ARIA_WORKER_TOKEN must contain at least 32 characters when the Windows worker bridge is enabled');
   if (host !== '127.0.0.1' && host !== '::1' && host !== 'localhost') {
     if (process.env.ARIA_ALLOW_REMOTE_BIND !== 'true' || process.env.ARIA_CONTROL_HTTPS_TERMINATED !== 'true') {
       throw new Error('remote_bind_requires_ARIA_ALLOW_REMOTE_BIND=true_and_ARIA_CONTROL_HTTPS_TERMINATED=true');
@@ -81,6 +85,29 @@ function createPersistentHttpServer({
 
       const authorization = String(req.headers.authorization || '');
       const bearer = authorization.startsWith('Bearer ') ? authorization.slice(7) : '';
+
+      if (url.pathname.startsWith('/api/worker/')) {
+        if (!workerBridge) return json(res, 404, { error: 'worker_bridge_disabled' });
+        if (!sameSecret(bearer, workerToken)) return json(res, 401, { error: 'worker_unauthorized' });
+        if (req.method === 'POST' && url.pathname === '/api/worker/claim') {
+          const body = await readJson(req);
+          const job = await workerBridge.claimNext({ worker_id: body.worker_id, capabilities: body.capabilities || [] });
+          return json(res, 200, { job });
+        }
+        const workerMatch = url.pathname.match(/^\/api\/worker\/jobs\/(job_[a-zA-Z0-9_-]+)\/complete$/);
+        if (req.method === 'POST' && workerMatch) {
+          const body = await readJson(req);
+          const job = await workerBridge.complete(workerMatch[1], {
+            worker_id: body.worker_id,
+            lease_token: body.lease_token,
+            result: body.result,
+            error: body.error
+          });
+          return json(res, 200, { job });
+        }
+        return json(res, 404, { error: 'worker_route_not_found' });
+      }
+
       if (!sameSecret(bearer, token)) return json(res, 401, { error: 'unauthorized' });
 
       if (req.method === 'GET' && url.pathname === '/api/missions') {
