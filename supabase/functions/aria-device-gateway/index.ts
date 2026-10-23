@@ -1275,30 +1275,51 @@ async function autonomyEnsureCandidates(candidates:any[],cycleId:string){
 async function runMissionTwinDue(snapshot:any,candidates:any[],now=new Date()){
   const cycle_id=missionTwinCycleId(now,10);
   const slot=missionTwinSlot(now,10);
+  const nowIso=now.toISOString();
+  const leaseOwner=crypto.randomUUID();
+  const leaseUntil=new Date(now.getTime()+120_000).toISOString();
   const cycles=supabase.schema('aria_internal').from('autonomy_cycles');
-  const {data:existing,error:lookupError}=await cycles.select('cycle_id,status').eq('cycle_id',cycle_id).maybeSingle();
+  const {data:existing,error:lookupError}=await cycles.select('cycle_id,status,evidence,updated_at').eq('cycle_id',cycle_id).maybeSingle();
   if(lookupError)return{status:'blocked',reason:'mission_twin_lookup_failed',cycle_id,slot};
-  if(existing)return{status:'not_due',reason:'slot_already_recorded',cycle_id,slot};
-  const report=buildMissionTwinReport({snapshot,candidates,now,intervalMinutes:10});
-  const {error:insertError}=await cycles.insert({
-    cycle_id,cycle_slot:slot,trigger:'mission-twin-v1',status:'started',policy_version:'mission-twin-v1',
-    active_missions_count:Array.isArray(snapshot.active)?snapshot.active.length:0,
-    goals_scanned:Array.isArray(snapshot.goals)?snapshot.goals.length:0,
-    failures_scanned:Array.isArray(snapshot.failures)?snapshot.failures.length:0,
-    capability_gaps_scanned:Array.isArray(snapshot.capabilityGaps)?snapshot.capabilityGaps.length:0,
-    learnings_scanned:Array.isArray(snapshot.learnings)?snapshot.learnings.length:0,
-    candidates_generated:Array.isArray(candidates)?candidates.length:0,
-    candidates_inserted:0,evidence:{mission_twin:report}
-  });
-  if(insertError){
-    if(String(insertError.code||'')==='23505')return{status:'not_due',reason:'slot_claim_race',cycle_id,slot};
-    return{status:'blocked',reason:'mission_twin_claim_failed',cycle_id,slot};
+  if(existing?.status==='completed')return{status:'not_due',reason:'slot_already_completed',cycle_id,slot};
+  if(existing?.status==='started'){
+    const oldEvidence=existing.evidence&&typeof existing.evidence==='object'?existing.evidence:{};
+    const oldLeaseUntil=Date.parse(String(oldEvidence.lease_until||''));
+    if(Number.isFinite(oldLeaseUntil)&&oldLeaseUntil>Date.parse(nowIso)){
+      return{status:'busy',reason:'active_lease',cycle_id,slot,lease_until:new Date(oldLeaseUntil).toISOString()};
+    }
+    const oldOwner=String(oldEvidence.lease_owner||'');
+    if(!oldOwner)return{status:'not_due',reason:'stale_claim_without_owner_not_reclaimed',cycle_id,slot};
+    const {data:reclaimed,error:reclaimError}=await cycles.update({
+      evidence:{...oldEvidence,lease_owner:leaseOwner,lease_until:leaseUntil,lease_recovered_at:nowIso}
+    }).eq('cycle_id',cycle_id).eq('status','started').eq('evidence->>lease_owner',oldOwner).select('cycle_id').maybeSingle();
+    if(reclaimError)return{status:'blocked',reason:'mission_twin_lease_reclaim_failed',cycle_id,slot};
+    if(!reclaimed)return{status:'busy',reason:'lease_reclaim_race_lost',cycle_id,slot};
+  }else if(!existing){
+    const {error:insertError}=await cycles.insert({
+      cycle_id,cycle_slot:slot,trigger:'mission-twin-v1',status:'started',policy_version:'mission-twin-v1',
+      active_missions_count:Array.isArray(snapshot.active)?snapshot.active.length:0,
+      goals_scanned:Array.isArray(snapshot.goals)?snapshot.goals.length:0,
+      failures_scanned:Array.isArray(snapshot.failures)?snapshot.failures.length:0,
+      capability_gaps_scanned:Array.isArray(snapshot.capabilityGaps)?snapshot.capabilityGaps.length:0,
+      learnings_scanned:Array.isArray(snapshot.learnings)?snapshot.learnings.length:0,
+      candidates_generated:Array.isArray(candidates)?candidates.length:0,candidates_inserted:0,
+      evidence:{lease_owner:leaseOwner,lease_until:leaseUntil,lease_started_at:nowIso}
+    });
+    if(insertError){
+      if(String(insertError.code||'')==='23505')return{status:'busy',reason:'slot_claim_race',cycle_id,slot};
+      return{status:'blocked',reason:'mission_twin_claim_failed',cycle_id,slot};
+    }
+  }else{
+    return{status:'not_due',reason:'slot_already_recorded',cycle_id,slot};
   }
-  const {error:finishError}=await supabase.schema('aria_internal').from('autonomy_cycles')
-    .update({status:'completed',evidence:{mission_twin:report},updated_at:new Date().toISOString()})
-    .eq('cycle_id',cycle_id).eq('status','started');
-  if(finishError)return{status:'blocked',reason:'mission_twin_record_incomplete',cycle_id,slot};
-  return{status:'completed',cycle_id,slot,report};
+  const report=buildMissionTwinReport({snapshot,candidates,now,intervalMinutes:10});
+  const {data:finished,error:finishError}=await supabase.schema('aria_internal').from('autonomy_cycles')
+    .update({status:'completed',evidence:{mission_twin:report,lease_owner:leaseOwner,lease_until:null,lease_recovered_at:existing?.evidence?.lease_recovered_at||null},updated_at:new Date().toISOString()})
+    .eq('cycle_id',cycle_id).eq('status','started').eq('evidence->>lease_owner',leaseOwner).select('cycle_id').maybeSingle();
+  if(finishError)return{status:'blocked',reason:'mission_twin_record_failed',cycle_id,slot};
+  if(!finished)return{status:'blocked',reason:'mission_twin_lease_lost_before_commit',cycle_id,slot};
+  return{status:'completed',cycle_id,slot,report,lease_recovered:Boolean(existing?.status==='started')};
 }
 
 async function autonomyCycle(b:any){
