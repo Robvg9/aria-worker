@@ -1,5 +1,6 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.57.4';
 import { generateCandidates, selectDynamicGoal } from './_shared/dynamic-goal-engine.mjs';
+import { buildMissionTwinReport, missionTwinCycleId, missionTwinSlot } from '../_shared/mission-twin-v1.mjs';
 import { buildIdeaMissionProposal, validateProposal } from '../_shared/idea-to-mission.mjs';
 const SUPABASE_URL=Deno.env.get('SUPABASE_URL')!;
 const SUPABASE_API_KEY=Deno.env.get('SUPABASE_PUBLISHABLE_KEY')||Deno.env.get('SUPABASE_ANON_KEY')||'';
@@ -1271,6 +1272,35 @@ async function autonomyEnsureCandidates(candidates:any[],cycleId:string){
   }
   return inserted;
 }
+async function runMissionTwinDue(snapshot:any,candidates:any[],now=new Date()){
+  const cycle_id=missionTwinCycleId(now,10);
+  const slot=missionTwinSlot(now,10);
+  const cycles=supabase.schema('aria_internal').from('autonomy_cycles');
+  const {data:existing,error:lookupError}=await cycles.select('cycle_id,status').eq('cycle_id',cycle_id).maybeSingle();
+  if(lookupError)return{status:'blocked',reason:'mission_twin_lookup_failed',cycle_id,slot};
+  if(existing)return{status:'not_due',reason:'slot_already_recorded',cycle_id,slot};
+  const report=buildMissionTwinReport({snapshot,candidates,now,intervalMinutes:10});
+  const {error:insertError}=await cycles.insert({
+    cycle_id,cycle_slot:slot,trigger:'mission-twin-v1',status:'started',policy_version:'mission-twin-v1',
+    active_missions_count:Array.isArray(snapshot.active)?snapshot.active.length:0,
+    goals_scanned:Array.isArray(snapshot.goals)?snapshot.goals.length:0,
+    failures_scanned:Array.isArray(snapshot.failures)?snapshot.failures.length:0,
+    capability_gaps_scanned:Array.isArray(snapshot.capabilityGaps)?snapshot.capabilityGaps.length:0,
+    learnings_scanned:Array.isArray(snapshot.learnings)?snapshot.learnings.length:0,
+    candidates_generated:Array.isArray(candidates)?candidates.length:0,
+    candidates_inserted:0,evidence:{mission_twin:report}
+  });
+  if(insertError){
+    if(String(insertError.code||'')==='23505')return{status:'not_due',reason:'slot_claim_race',cycle_id,slot};
+    return{status:'blocked',reason:'mission_twin_claim_failed',cycle_id,slot};
+  }
+  const {error:finishError}=await supabase.schema('aria_internal').from('autonomy_cycles')
+    .update({status:'completed',evidence:{mission_twin:report},updated_at:new Date().toISOString()})
+    .eq('cycle_id',cycle_id).eq('status','started');
+  if(finishError)return{status:'blocked',reason:'mission_twin_record_incomplete',cycle_id,slot};
+  return{status:'completed',cycle_id,slot,report};
+}
+
 async function autonomyCycle(b:any){
   const cycle_id=autonomyCycleId();
   const {data:existing}=await supabase.schema('aria_internal').from('autonomy_cycles').select('*').eq('cycle_id',cycle_id).maybeSingle();
@@ -1282,6 +1312,9 @@ async function autonomyCycle(b:any){
   const snap=await autonomySnapshot();
   const now=new Date().toISOString();
   const candidates=generateCandidates(snap,{now});
+  // Mission Twin is a durable, read-only evaluation once per 10-minute slot.
+  // Its report is advisory only and never grants execution authority.
+  const missionTwin=await runMissionTwinDue(snap,candidates,new Date(now));
   const inserted=await autonomyEnsureCandidates(candidates,cycle_id);
   const refreshed=await autonomySnapshot();
   const blockedIds=new Set(refreshed.goals.filter((g:any)=>['blocked','completed'].includes(g.status)).map((g:any)=>g.goal_id));
@@ -1297,7 +1330,7 @@ async function autonomyCycle(b:any){
     learnings_scanned:refreshed.learnings.length,candidates_generated:candidates.length,candidates_inserted:inserted
   });
   if(!selected){
-    const evidence={recovery:recover.data??0,queue_governance:governance.data??null,reason:'no_eligible_goal'};
+    const evidence={recovery:recover.data??0,queue_governance:governance.data??null,mission_twin:missionTwin,reason:'no_eligible_goal'};
     await supabase.schema('aria_internal').from('autonomy_cycles').update({status:'idle',evidence,updated_at:new Date().toISOString()}).eq('cycle_id',cycle_id);
     return{ok:true,deduplicated:false,cycle_id,status:'idle',policy_version:'autonomy-post-plan-v1',generated_candidates:candidates.length,inserted_candidates:inserted};
   }
@@ -1339,7 +1372,7 @@ async function autonomyCycle(b:any){
   const goalStatus=finished?.status==='succeeded'?'completed':(finished?.status==='failed'?'queued':'running');
   await supabase.schema('aria_internal').from('autonomy_goals').update({status:goalStatus,last_mission_id:missionId,updated_at:new Date().toISOString()}).eq('goal_id',selected.goal_id).eq('status','running');
   const status=finished?.status==='succeeded'?'completed':finished?.status==='failed'?'failed':finished?.status==='blocked'?'blocked':finished?.status==='paused'||finished?.status==='waiting'?'waiting':runtime.status||'processed';
-  const evidence={recovery:recover.data??0,queue_governance:governance.data??null,selected,reused_mission:reused,runtime,finished,learning:learningResult};
+  const evidence={recovery:recover.data??0,queue_governance:governance.data??null,mission_twin:missionTwin,selected,reused_mission:reused,runtime,finished,learning:learningResult};
   await supabase.schema('aria_internal').from('autonomy_cycles').update({
     status,selected_goal_id:selected.goal_id,created_mission_id:missionId,mission_status:finished?.status??null,
     learning_result:learningResult??{},evidence,updated_at:new Date().toISOString()
