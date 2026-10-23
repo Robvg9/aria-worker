@@ -9,6 +9,10 @@ on:
     # Keep manual workflow_dispatch available for explicitly authorized releases.
     paths-ignore:
       - '.github/workflows/aria-cloudflare-deploy.yml'
+      - '.github/workflows/aria-npm-test.yml'
+      - 'pwa/src/testCatalog.ts'
+      - 'tests/pc-rwht-browser.test.js'
+      - 'tests/pwa-capabilities-test-center-v1.test.js'
       - '.github/workflows/aria-autonomy-coordinator-deploy.yml'
       - '.github/workflows/persistent-autonomy-v1-tests.yml'
       - 'Dockerfile.aria-coordinator'
