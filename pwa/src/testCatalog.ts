@@ -2954,7 +2954,7 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "file": "tests/aria-autonomy-supabase-boundary.test.js",
     "title": "ARIA Autonomy Supabase Boundary",
     "category": "Autonomía / seguridad de despliegue",
-    "includedInNpmTest": true,
+    "includedInNpmTest": false,
     "how": "Comprueba que los cambios exclusivos de autonomía no disparen el flujo de producción que modifica Supabase y que el coordinador aislado no tenga dependencias de Supabase.",
     "capabilities": "Protege el límite de despliegue independiente y verifica el almacenamiento duradero de Cloudflare."
   },
@@ -2963,7 +2963,7 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "file": "tests/cloudflare-autonomy-worker.test.js",
     "title": "Cloudflare Autonomy Coordinator",
     "category": "Autonomía / persistencia cloud",
-    "includedInNpmTest": true,
+    "includedInNpmTest": false,
     "how": "Ejecuta el ciclo de misión, planificación, worker, lease, aprobación irreversible, replanificación y verificación final del Durable Object.",
     "capabilities": "Detecta regresiones en persistencia cloud, autenticación separada, recuperación y cierre verificado."
   },
@@ -2972,7 +2972,7 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "file": "tests/ollama-persistent-adapter-v1.test.js",
     "title": "Ollama Persistent Adapter v1",
     "category": "Autonomía / IA local",
-    "includedInNpmTest": true,
+    "includedInNpmTest": false,
     "how": "Verifica la integración con Ollama, el contrato del adaptador, el inventario real del workspace y el filtrado de archivos sensibles.",
     "capabilities": "Reduce rutas inventadas y evita exponer credenciales en el contexto del modelo."
   },
@@ -2981,7 +2981,7 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "file": "tests/persistent-control-plane-v1.test.js",
     "title": "Persistent Mission Control Plane",
     "category": "Autonomía / recuperación",
-    "includedInNpmTest": true,
+    "includedInNpmTest": false,
     "how": "Comprueba estados duraderos, checkpoints, progreso, retries seguros, recuperación de interrupciones y aprobación humana.",
     "capabilities": "Permite que una misión continúe sin pedir al usuario que escriba continuar."
   },
@@ -2990,7 +2990,7 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "file": "tests/persistent-http-server-v1.test.js",
     "title": "Persistent Mission API and Dashboard",
     "category": "Autonomía / Mission Control",
-    "includedInNpmTest": true,
+    "includedInNpmTest": false,
     "how": "Verifica autenticación, rutas de misión, aprobación, progreso y contenido del panel.",
     "capabilities": "Evita exponer el control de misiones a clientes no autenticados."
   },
@@ -2999,7 +2999,7 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "file": "tests/persistent-hybrid-e2e-v1.test.js",
     "title": "Hybrid Cloud + Windows Worker",
     "category": "Autonomía / integración híbrida",
-    "includedInNpmTest": true,
+    "includedInNpmTest": false,
     "how": "Simula una misión desde el coordinador cloud hasta el worker Windows y la verificación final con evidencias.",
     "capabilities": "Detecta fallos en leases, reanudación y comunicación de resultados."
   },
@@ -3008,7 +3008,7 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "file": "tests/persistent-notifications-v1.test.js",
     "title": "Persistent Notifications Outbox",
     "category": "Autonomía / notificaciones",
-    "includedInNpmTest": true,
+    "includedInNpmTest": false,
     "how": "Comprueba que las notificaciones sobrevivan sin un canal configurado y se entreguen cuando el webhook esté disponible.",
     "capabilities": "Evita perder avisos de intervención humana o finalización de misión."
   },
@@ -3017,7 +3017,7 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "file": "tests/persistent-worker-bridge-v1.test.js",
     "title": "Persistent Windows Worker Bridge",
     "category": "Autonomía / ejecución Windows",
-    "includedInNpmTest": true,
+    "includedInNpmTest": false,
     "how": "Verifica la reclamación de trabajos, leases, heartbeats y rechazo de resultados con tokens de lease obsoletos.",
     "capabilities": "Impide la ejecución duplicada por varios workers y facilita la recuperación."
   },
