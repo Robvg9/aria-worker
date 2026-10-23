@@ -13,6 +13,8 @@ on:
       - 'wrangler.aria-autonomy.toml'
       - 'tests/cloudflare-autonomy-worker.test.js'
       - '.github/workflows/aria-autonomy-coordinator-deploy.yml'
+      - '.github/workflows/aria-cloudflare-deploy.yml'
+      - 'tests/aria-autonomy-supabase-boundary.test.js'
       - 'autonomy/persistent-worker-coordinator-adapter-v1.js'
       - 'autonomy/persistent-http-server-v1.js'
       - 'autonomy/persistent-worker-bridge-v1.js'
@@ -53,6 +55,7 @@ jobs:
       - run: node --check autonomy/ollama-persistent-adapter-v1.js
       - run: node --check cloudflare-autonomy/worker.mjs
       - run: node tests/cloudflare-autonomy-worker.test.js
+      - run: node tests/aria-autonomy-supabase-boundary.test.js
       - name: Validate Cloudflare build without publishing
         run: npx --yes wrangler@latest deploy --dry-run --config wrangler.aria-autonomy.toml
       - run: node tests/persistent-control-plane-v1.test.js
