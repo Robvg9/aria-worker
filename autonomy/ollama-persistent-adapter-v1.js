@@ -60,8 +60,8 @@ function createOllamaPersistentAdapter({
         model,
         stream: false,
         format: 'json',
-        messages: [{ role: 'system', content: system }, { role: 'user', content: prompt }],
-        options: { temperature: 0.1, num_predict: numPredict }
+        messages: [{ role: 'system', content: '/no_think\n' + system }, { role: 'user', content: prompt }],
+        options: { temperature: 0, num_predict: numPredict, num_ctx: 4096 }
       }),
       signal: AbortSignal.timeout(timeoutMs)
     });
