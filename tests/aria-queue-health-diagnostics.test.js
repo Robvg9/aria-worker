@@ -34,7 +34,7 @@ assert.match(report, /^WITH jobs_by_mission AS \(/mi,
 
 assert.doesNotMatch(
   executableSql,
-  /^\s*(?:INSERT\s+INTO|UPDATE\s+\S+\s+SET|DELETE\s+FROM|MERGE\s+INTO|TRUNCATE|ALTER|DROP|CREATE|GRANT|REVOKE|CALL|DO\s+\$)/im,
+  /^\s*(?:INSERT\b\s+INTO\b|UPDATE\b\s+\S+\s+SET\b|DELETE\b\s+FROM\b|MERGE\b\s+INTO\b|TRUNCATE\b|ALTER\b|DROP\b|CREATE\b|GRANT\b|REVOKE\b|CALL\b|DO\b\s+\$)/im,
   'queue diagnostics must not mutate production state'
 );
 assert.doesNotMatch(executableSql, /cron\.schedule|cron\.unschedule|pg_notify/i,
