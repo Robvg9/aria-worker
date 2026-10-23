@@ -556,7 +556,7 @@ function isProviderQuotaBlocked(httpStatus: unknown, providerStatus: unknown, co
   const status = Number(providerStatus ?? httpStatus);
   const detail = `${String(code ?? "")} ${String(message ?? "")}`;
   return status === 402
-    || /\\b(?:quota|payment[\\s_-]+required|insufficient[\\s_-]+(?:credits?|funds)|out[\\s_-]+of[\\s_-]+credits?|credit[\\s_-]+(?:exhausted|depleted)|billing[\\s_-]+limit)\\b/i.test(detail);
+    || /\b(?:quota|payment[\s_-]+required|insufficient[\s_-]+(?:credits?|funds)|out[\s_-]+of[\s_-]+credits?|credit[\s_-]+(?:exhausted|depleted)|billing[\s_-]+limit)\b/i.test(detail);
 }
 
 const AGENT_RECOVERY_FALLBACKS: Record<string, string> = {
