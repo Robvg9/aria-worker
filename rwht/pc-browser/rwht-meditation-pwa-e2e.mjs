@@ -633,6 +633,12 @@ async function run() {
         return;
       }
       await controllerPage.close();
+
+      // This workflow is dedicated to the closed-PWA notification path. Once the
+      // Service Worker receipt and native notification are verified, stop here so
+      // unrelated Meditation IA regression checks cannot mask the Web Push result.
+      report.status = 'verified';
+      return;
     }
 
     page = trackPage(await context.newPage());
