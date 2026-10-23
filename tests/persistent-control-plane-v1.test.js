@@ -7,7 +7,8 @@ const path = require('node:path');
 const {
   createJsonMissionStore,
   createPersistentAutonomy,
-  progressOf
+  progressOf,
+  createPollingSupervisor
 } = require('../autonomy/persistent-control-plane-v1');
 
 async function withStore(fn) {
@@ -80,6 +81,70 @@ async function testVerificationFailureNeverClaimsSuccess() {
   });
 }
 
+async function testCrashRecoveryRespectsIdempotency() {
+  await withStore(async directory => {
+    const store = createJsonMissionStore({ directory });
+    let executions = 0;
+    const autonomy = createPersistentAutonomy({
+      store,
+      plan: async () => [{ task_id: 'safe-retry', title: 'Safe retry', risk: 'low', idempotent: true }],
+      executeTask: async () => { executions++; return { passed: true, evidence: 'recovered' }; },
+      verifyCompletion: async () => ({ passed: true })
+    });
+    const created = await autonomy.start({ goal: 'recover safe task' });
+    await store.update(created.mission_id, mission => {
+      mission.status = 'running';
+      mission.tasks[0].status = 'running';
+      mission.tasks[0].attempts = 1;
+      mission.current_task_id = mission.tasks[0].task_id;
+    }, 'simulated_crash_state');
+    const done = await autonomy.tick(created.mission_id);
+    assert.equal(done.status, 'succeeded');
+    assert.equal(executions, 1);
+    assert.ok((await store.events(created.mission_id)).some(event => event.type === 'idempotent_task_recovered'));
+  });
+  await withStore(async directory => {
+    const store = createJsonMissionStore({ directory });
+    let executions = 0;
+    const notices = [];
+    const autonomy = createPersistentAutonomy({
+      store,
+      plan: async () => [{ task_id: 'unsafe-retry', title: 'Unsafe retry', risk: 'medium', idempotent: false }],
+      executeTask: async () => { executions++; return { passed: true }; },
+      verifyCompletion: async () => ({ passed: true }),
+      notify: async event => notices.push(event)
+    });
+    const created = await autonomy.start({ goal: 'review unsafe recovery' });
+    await store.update(created.mission_id, mission => {
+      mission.status = 'running';
+      mission.tasks[0].status = 'running';
+    }, 'simulated_crash_state');
+    const blocked = await autonomy.tick(created.mission_id);
+    assert.equal(blocked.status, 'waiting_human');
+    assert.equal(executions, 0);
+    assert.equal(notices.some(event => event.reason === 'interrupted_non_idempotent_task'), true);
+  });
+}
+
+async function testSupervisorSchedulesMissionsIndependently() {
+  let active = 0;
+  let maxActive = 0;
+  const supervisor = createPollingSupervisor({
+    listMissions: async () => [{ mission_id: 'm1', status: 'running' }, { mission_id: 'm2', status: 'running' }],
+    tickMission: async () => {
+      active++; maxActive = Math.max(maxActive, active);
+      await new Promise(resolve => setTimeout(resolve, 80));
+      active--;
+    },
+    intervalMs: 500
+  });
+  const running = supervisor.run();
+  await new Promise(resolve => setTimeout(resolve, 50));
+  assert.equal(maxActive, 2);
+  supervisor.stop();
+  await running;
+}
+
 async function testProgressAndInputValidation() {
   assert.equal(progressOf({ status: 'running', tasks: [{ status: 'succeeded' }, { status: 'pending' }] }), 50);
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'aria-autonomy-invalid-'));
@@ -94,6 +159,8 @@ async function testProgressAndInputValidation() {
   await testPersistentCompletionAndEvidence();
   await testHumanGateForIrreversibleAction();
   await testVerificationFailureNeverClaimsSuccess();
+  await testCrashRecoveryRespectsIdempotency();
+  await testSupervisorSchedulesMissionsIndependently();
   await testProgressAndInputValidation();
   process.stdout.write('persistent-control-plane-v1: all tests passed\n');
 })().catch(error => {
