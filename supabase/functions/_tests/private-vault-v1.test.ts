@@ -187,7 +187,7 @@ Deno.test("API reports unknown operation outcome if audit finalization fails", a
 
 
 Deno.test("post-rollout privilege migration revokes direct service_role INSERT only after RPC rollout", async () => {
-  const sql = await Deno.readTextFile(new URL("../../migrations/20261023034000_aria_encrypt_revoke_direct_record_insert.sql", import.meta.url));
+  const sql = await Deno.readTextFile(new URL("../../migrations/20261023034057_aria_encrypt_revoke_direct_record_insert.sql", import.meta.url));
   assertStringIncludes(sql, "REVOKE INSERT ON TABLE public.aria_vault_records FROM service_role");
   assertStringIncludes(sql, "aria_vault_append_record_revision_v1");
 });
