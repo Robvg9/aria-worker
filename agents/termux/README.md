@@ -22,6 +22,9 @@ The device token is never stored in this repository. The supervisor reads these 
 - `ARIA_DEVICE_GATEWAY_URL`
 - `ARIA_DEVICE_TOKEN`
 - `ARIA_DEVICE_ID`
+- `ARIA_SUPABASE_API_KEY` — the current project's public Supabase publishable key (or legacy anon key), used only in the `apikey` header.
+
+`ARIA_SUPABASE_API_KEY` is transport metadata and is separate from `ARIA_DEVICE_TOKEN`, which remains the application-level `Authorization: Bearer …` credential. Use a publishable/anon key for the same project referenced by `ARIA_DEVICE_GATEWAY_URL`. **Never put a service-role key in the Termux environment file.** The key is not logged by the agent.
 
 The local environment file should be readable only by the Termux user.
 

@@ -2,7 +2,15 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.57.4';
 import { generateCandidates, selectDynamicGoal } from './_shared/dynamic-goal-engine.mjs';
 import { buildIdeaMissionProposal, validateProposal } from '../_shared/idea-to-mission.mjs';
 const SUPABASE_URL=Deno.env.get('SUPABASE_URL')!;
-const supabase=createClient(SUPABASE_URL,Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
+const SUPABASE_API_KEY=Deno.env.get('SUPABASE_PUBLISHABLE_KEY')||Deno.env.get('SUPABASE_ANON_KEY')||'';
+const SUPABASE_SERVICE_ROLE_KEY=Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+const supabase=createClient(SUPABASE_URL,SUPABASE_SERVICE_ROLE_KEY);
+function internalFunctionFetch(input:RequestInfo|URL,init:RequestInit={}){
+  if(!SUPABASE_API_KEY)throw new Error('supabase_project_apikey_missing');
+  const headers=new Headers(init.headers);
+  headers.set('apikey',SUPABASE_API_KEY);
+  return fetch(input,{...init,headers});
+}
 const CANONICAL_RUNTIME=`${Deno.env.get('SUPABASE_URL')}/functions/v1/aria-canonical-runtime-v1`;
 const RUNTIME_SECRET=Deno.env.get('ARIA_RUNTIME_SHARED_SECRET')||'';
 const LEARNING=`${Deno.env.get("SUPABASE_URL")}/functions/v1/aria-learning-v3`;
@@ -45,12 +53,12 @@ function keyOf(v:unknown){return typeof v==='string'?v.trim().toLowerCase().repl
 async function recoverStale(){const {data,error}=await supabase.rpc('aria_autonomy_recover_stale_missions',{p_stale_after:'00:02:00'});if(error)throw new Error(error.message);return Number(data||0)}
 async function learnRecent(){const cut=new Date(Date.now()-6*60*60*1000).toISOString();const {data,error}=await supabase.schema('aria_internal').from('mission_state').select('mission_id,goal,status,metadata,last_stderr,last_stdout,updated_at,created_at').in('status',['succeeded','blocked','failed','timeout','cancelled']).gt('updated_at',cut);if(error)throw new Error(error.message);let created=0;for(const m of data||[]){const {data:e}=await supabase.schema('aria_internal').from('autonomy_learnings').select('lesson_id').eq('mission_id',m.mission_id).limit(1);if(!e?.length){const {error:ie}=await supabase.schema('aria_internal').from('autonomy_learnings').insert({mission_id:m.mission_id,goal_id:m.metadata?.goal_id??null,category:m.status==='succeeded'?'verified_success':'operational_failure',summary:`Observed ${m.status}: ${(m.goal||'').slice(0,220)}`,evidence:{status:m.status,stderr:m.last_stderr||null,stdout_sample:(m.last_stdout||'').slice(0,800)},confidence:m.status==='succeeded'?0.9:0.75,reusable:true});if(!ie)created++}}return{scanned:data?.length||0,created}}
 async function learnMissionViaV3(missionId:string){
-  const response=await fetch(LEARNING,{method:'POST',headers:{'authorization':`Bearer ${RUNTIME_SECRET}`,'content-type':'application/json'},body:JSON.stringify({mission_id:missionId})});
+  const response=await internalFunctionFetch(LEARNING,{method:'POST',headers:{'authorization':`Bearer ${RUNTIME_SECRET}`,'content-type':'application/json'},body:JSON.stringify({mission_id:missionId})});
   const payload=await response.json().catch(()=>null);
   return{http_status:response.status,ok:response.ok,payload};
 }
 async function syncGoalTerminalStates(){const {data,error}=await supabase.schema('aria_internal').from('mission_state').select('mission_id,status,metadata').not('metadata->>goal_id','is',null).in('status',['succeeded','failed','blocked','timeout','cancelled']).order('updated_at',{ascending:false}).limit(50);if(error)throw new Error(error.message);let completed=0,blocked=0;for(const m of data||[]){const goalId=m.metadata?.goal_id;if(!goalId)continue;const next=m.status==='succeeded'?'completed':'blocked';const {data:updated,error:ue}=await supabase.schema('aria_internal').from('autonomy_goals').update({status:next,updated_at:new Date().toISOString(),last_mission_id:m.mission_id}).eq('goal_id',goalId).in('status',['queued','running','paused']).select('goal_id').maybeSingle();if(ue)throw new Error(ue.message);if(updated){if(next==='completed')completed++;else blocked++}}return{completed,blocked}}
-async function runCanonicalMission(missionId:string,trigger='meditation-ia'){if(!RUNTIME_SECRET)return{status:'blocked',error:'meditation_runtime_secret_missing'};const response=await fetch(CANONICAL_RUNTIME,{method:'POST',headers:{'content-type':'application/json',authorization:`Bearer ${RUNTIME_SECRET}`,'x-aria-trigger':trigger},body:JSON.stringify({mission_id:missionId})});const text=await response.text();let payload:any;try{payload=text?JSON.parse(text):{}}catch{payload={status:'failed',error:'canonical_runtime_invalid_json'}};if(!response.ok)return{status:'failed',error:payload?.error||`canonical_runtime_${response.status}`,runtime_http_status:response.status};return{...payload,runtime_http_status:response.status}}
+async function runCanonicalMission(missionId:string,trigger='meditation-ia'){if(!RUNTIME_SECRET)return{status:'blocked',error:'meditation_runtime_secret_missing'};const response=await internalFunctionFetch(CANONICAL_RUNTIME,{method:'POST',headers:{'content-type':'application/json',authorization:`Bearer ${RUNTIME_SECRET}`,'x-aria-trigger':trigger},body:JSON.stringify({mission_id:missionId})});const text=await response.text();let payload:any;try{payload=text?JSON.parse(text):{}}catch{payload={status:'failed',error:'canonical_runtime_invalid_json'}};if(!response.ok)return{status:'failed',error:payload?.error||`canonical_runtime_${response.status}`,runtime_http_status:response.status};return{...payload,runtime_http_status:response.status}}
 async function closeGoalOnMissionSuccess(m:any){const goalId=m?.metadata?.goal_id;if(!goalId)return;await supabase.schema('aria_internal').from('autonomy_goals').update({status:'completed',updated_at:new Date().toISOString(),last_mission_id:m.mission_id}).eq('goal_id',goalId).eq('status','running')}
 
 async function resolveRwhtSecret(jobId:string,d:any,secretRef:string){
@@ -617,7 +625,7 @@ async function mission5ModelProbe(b:any,d:any){
   const controller=new AbortController();
   const timer=setTimeout(()=>controller.abort(),30000);
   try{
-    const response=await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/aria-execution-runtime-v1`,{
+    const response=await internalFunctionFetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/aria-execution-runtime-v1`,{
       method:'POST',
       headers:{'content-type':'application/json',authorization:`Bearer ${RUNTIME_SECRET}`,'x-aria-trigger':'mission5-model-probe'},
       body:JSON.stringify({
@@ -657,7 +665,7 @@ async function mission5AgentProbe(b:any,d:any){
   const controller=new AbortController();
   const timer=setTimeout(()=>controller.abort(),30000);
   try{
-    const response=await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/aria-agent-runtime-v1`,{
+    const response=await internalFunctionFetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/aria-agent-runtime-v1`,{
       method:'POST',
       headers:{'content-type':'application/json',authorization:`Bearer ${RUNTIME_SECRET}`,'x-aria-trigger':'mission5-agent-probe'},
       body:JSON.stringify({operation:'delegate',agent_id:agentId,mission_id:missionId,step_id:stepId,risk:'READ',input:{prompt},policy:{risk:'READ',mission5:true,probe:true}})
@@ -767,7 +775,7 @@ async function intelligentRouterExecute(b:any,d:any){
   while(routes.length&&attempts<4){
     const selected=routes.shift();attempts++;
     if(!RUNTIME_SECRET)throw new Error('meditation_runtime_secret_missing');
-    const response=await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/aria-execution-runtime-v1`,{
+    const response=await internalFunctionFetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/aria-execution-runtime-v1`,{
       method:'POST',
       headers:{'content-type':'application/json',authorization:`Bearer ${RUNTIME_SECRET}`,'x-aria-trigger':'mission6-router-execution'},
       body:JSON.stringify({
@@ -804,7 +812,7 @@ async function intelligentRouterParallelExecute(b:any,d:any){
      const attempts:any[]=[];let primary=routes[0];let attemptCount=0;
      while(routes.length&&attemptCount<4){
        const selected=routes.shift();attemptCount++;
-       const response=await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/aria-execution-runtime-v1`,{
+       const response=await internalFunctionFetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/aria-execution-runtime-v1`,{
          method:'POST',
          headers:{'content-type':'application/json',authorization:`Bearer ${RUNTIME_SECRET}`,'x-aria-trigger':'mission6-parallel-router'},
          body:JSON.stringify({
@@ -1340,7 +1348,7 @@ async function autonomyCycle(b:any){
 }
 
 async function githubAuditRead(operation:string,args:Record<string,unknown>){
-  const r=await fetch(`${SUPABASE_URL}/functions/v1/aria-github-app-runtime-v1`,{
+  const r=await internalFunctionFetch(`${SUPABASE_URL}/functions/v1/aria-github-app-runtime-v1`,{
     method:'POST',
     headers:{'content-type':'application/json','x-aria-autonomy-token':RUNTIME_SECRET},
     body:JSON.stringify({operation,...args})
@@ -1404,7 +1412,7 @@ function auditPrompt(scope:any,role:string,label:string){
 }
 async function runAgentAuditor(runId:string,a:any,snapshot:any){
   const body={agent_id:a.agent_id,operation:'delegate',mission_id:'all-for-one-'+runId,step_id:'audit-agent-'+a.agent_id,risk:'READ',input:{message:auditPrompt(snapshot,String(a.role||'general'),String(a.agent_id))},policy:{tool_use:false,read_only:true,audit_protocol:'all-for-one-v1'}};
-  const r=await fetch(`${SUPABASE_URL}/functions/v1/aria-agent-runtime-v1`,{method:'POST',headers:{'content-type':'application/json',authorization:`Bearer ${RUNTIME_SECRET}`},body:JSON.stringify(body)});
+  const r=await internalFunctionFetch(`${SUPABASE_URL}/functions/v1/aria-agent-runtime-v1`,{method:'POST',headers:{'content-type':'application/json',authorization:`Bearer ${RUNTIME_SECRET}`},body:JSON.stringify(body)});
   const b:any=await r.json().catch(()=>null);
   if(!r.ok||b?.status!=='succeeded')throw new Error(String(b?.error?.message||b?.error||`agent_runtime_${r.status}`));
   return {status:'succeeded',report:String(b?.response?.content??''),model_id:b?.model_id??a.model_id,metadata:b};
@@ -1425,7 +1433,7 @@ function classifyAllForOneProviderBlock(payload:any,httpStatus:number){
 async function runModelAuditor(runId:string,m:any,account:any,snapshot:any){
   if(!account)throw new Error('model_account_unavailable');
   const selected={status:'selected',provider_id:account.provider_id,account_id:account.account_id,model_id:m.model_id,capability:'text_generation'};
-  const r=await fetch(`${SUPABASE_URL}/functions/v1/aria-execution-runtime-v1`,{
+  const r=await internalFunctionFetch(`${SUPABASE_URL}/functions/v1/aria-execution-runtime-v1`,{
     method:'POST',
     headers:{'content-type':'application/json',authorization:`Bearer ${RUNTIME_SECRET}`},
     body:JSON.stringify({
@@ -1545,7 +1553,7 @@ async function allForOneTick(){
         const reviewerPrompt='SECOND-PASS ADVERSARIAL REVIEW. Challenge these first-pass findings. Confirm, reject, or mark unresolved. Identify duplicated claims and missing evidence. Do not make changes. Return CONFIRMED, REJECTED, UNRESOLVED and the strongest evidence.\\n\\nFIRST PASS REPORTS:\\n'+evidenceText;
         try{
           const body={agent_id:r.reviewer_key,operation:'delegate',mission_id:'all-for-one-review-'+run.run_id,step_id:'review-'+r.reviewer_key,risk:'READ',input:{message:reviewerPrompt},policy:{tool_use:false,read_only:true,audit_protocol:'all-for-one-v1-second-pass'}};
-          const rr=await fetch(`${SUPABASE_URL}/functions/v1/aria-agent-runtime-v1`,{method:'POST',headers:{'content-type':'application/json',authorization:`Bearer ${RUNTIME_SECRET}`},body:JSON.stringify(body)});
+          const rr=await internalFunctionFetch(`${SUPABASE_URL}/functions/v1/aria-agent-runtime-v1`,{method:'POST',headers:{'content-type':'application/json',authorization:`Bearer ${RUNTIME_SECRET}`},body:JSON.stringify(body)});
           const b:any=await rr.json().catch(()=>null);
           if(!rr.ok||b?.status!=='succeeded')throw new Error(String(b?.error?.message||b?.error||'review_failed'));
           await supabase.schema('aria_internal').from('all_for_one_reviews').update({status:'completed',review:String(b?.response?.content??''),verdict:'reviewed',updated_at:new Date().toISOString()}).eq('review_id',r.review_id);
@@ -1577,7 +1585,7 @@ Deno.serve(async(req)=>{const u=new URL(req.url);const p=u.pathname.replace(/^\/
     await sql`select pg_notify('pgrst','reload config')`;
     await new Promise(r=>setTimeout(r,1200));
     if(!RUNTIME_SECRET)return json({error:'runtime_secret_unavailable'},503);
-    const response=await fetch(CANONICAL_RUNTIME,{method:'POST',headers:{'content-type':'application/json',authorization:`Bearer ${RUNTIME_SECRET}`,'x-aria-trigger':'meditation-ia'},body:JSON.stringify({mission_id:'mission_rwht_final_20260920_02'})});
+    const response=await internalFunctionFetch(CANONICAL_RUNTIME,{method:'POST',headers:{'content-type':'application/json',authorization:`Bearer ${RUNTIME_SECRET}`,'x-aria-trigger':'meditation-ia'},body:JSON.stringify({mission_id:'mission_rwht_final_20260920_02'})});
     const text=await response.text();
     return new Response(text,{status:response.status,headers:{'content-type':response.headers.get('content-type')||'application/json','cache-control':'no-store'}});
   }catch(e){return json({ok:false,status:'repair_probe_failed',error:e instanceof Error?e.message:String(e)},502);}
@@ -1610,14 +1618,14 @@ if((req.method==='GET'||req.method==='POST')&&p==='/v1/rwht-final-probe'){
   }catch(e){dbReload={attempted:true,ok:false,reason:e instanceof Error?e.message:String(e)}}
   if(!RUNTIME_SECRET)return json({error:'runtime_secret_unavailable',dbReload},503);
   try{
-    const response=await fetch(CANONICAL_RUNTIME,{method:'POST',headers:{'content-type':'application/json',authorization:`Bearer ${RUNTIME_SECRET}`,'x-aria-trigger':'meditation-ia'},body:JSON.stringify({mission_id:'mission_rwht_final_20260920_02'})});
+    const response=await internalFunctionFetch(CANONICAL_RUNTIME,{method:'POST',headers:{'content-type':'application/json',authorization:`Bearer ${RUNTIME_SECRET}`,'x-aria-trigger':'meditation-ia'},body:JSON.stringify({mission_id:'mission_rwht_final_20260920_02'})});
     const text=await response.text();
     return new Response(text,{status:response.status,headers:{'content-type':response.headers.get('content-type')||'application/json','cache-control':'no-store','x-aria-db-reload':JSON.stringify(dbReload)}});
   }catch(e){return json({ok:false,status:'probe_failed',error:e instanceof Error?e.message:String(e),dbReload},502);}
 }if(req.method==='POST'&&p==='/v1/rwht-model-probe'){
   try{
     if(!RUNTIME_SECRET)return json({ok:false,error:'runtime_secret_unavailable'},503);
-    const response=await fetch(`${SUPABASE_URL}/functions/v1/aria-execution-runtime-v1`,{
+    const response=await internalFunctionFetch(`${SUPABASE_URL}/functions/v1/aria-execution-runtime-v1`,{
       method:'POST',
       headers:{'content-type':'application/json',authorization:`Bearer ${RUNTIME_SECRET}`,'x-aria-trigger':'rwht-direct-model-probe'},
       body:JSON.stringify({

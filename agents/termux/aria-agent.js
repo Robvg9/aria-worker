@@ -11,6 +11,11 @@ const { resolveAndroidUiHealth, markAndroidUiExecutionSuccess } = require('./and
 const GATEWAY_URL = process.env.ARIA_DEVICE_GATEWAY_URL;
 const DEVICE_TOKEN = process.env.ARIA_DEVICE_TOKEN;
 const DEVICE_ID = process.env.ARIA_DEVICE_ID;
+// Supabase project API key is transport metadata, distinct from the device Bearer token.
+const SUPABASE_API_KEY = process.env.ARIA_SUPABASE_API_KEY
+  || process.env.SUPABASE_PUBLISHABLE_KEY
+  || process.env.SUPABASE_ANON_KEY
+  || '';
 const HEARTBEAT_MS = Math.max(30_000, Number(process.env.ARIA_HEARTBEAT_MS || 60_000));
 const POLL_MS = Math.max(5_000, Number(process.env.ARIA_POLL_MS || 12_000));
 const MAX_OUTPUT = 256 * 1024;
@@ -97,7 +102,15 @@ if (!GATEWAY_URL || !DEVICE_TOKEN || !DEVICE_ID) {
   process.exit(2);
 }
 function endpoint(path) { return `${GATEWAY_URL.replace(/\/$/, '')}${path}`; }
-function headers() { return { 'content-type':'application/json', authorization:`Bearer ${DEVICE_TOKEN}`, 'x-aria-device-id':DEVICE_ID }; }
+function headers() {
+  const value = { 'content-type':'application/json', authorization:`Bearer ${DEVICE_TOKEN}`, 'x-aria-device-id':DEVICE_ID };
+  // Supabase Gateway needs a project API key in apikey; DEVICE_TOKEN remains the app-level Bearer.
+  if (SUPABASE_API_KEY) value.apikey = SUPABASE_API_KEY;
+  return value;
+}
+if (!SUPABASE_API_KEY) {
+  console.error('[ARIA] Missing ARIA_SUPABASE_API_KEY (or SUPABASE_PUBLISHABLE_KEY/SUPABASE_ANON_KEY); gateway requests may be rejected before device-token auth.');
+}
 async function api(path, options = {}) {
   const controller = new AbortController();
   const timeoutMs = Math.max(1_000, Number(options.timeoutMs || process.env.ARIA_GATEWAY_TIMEOUT_MS || 15_000));
