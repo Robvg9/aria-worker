@@ -100,6 +100,8 @@ $env:ARIA_OLLAMA_MODEL = "qwen3:4b"
 node scripts/aria-persistent-windows-worker-v1.js
 \`\`\`
 
+The PowerShell supervisor script `scripts/Start-ARIA-Persistent-Worker.ps1` loads an external private config and restarts the Node worker with bounded backoff. To start it automatically after sign-in/reboot, register that script with your approved Windows startup mechanism after the cloud URL and worker token are configured; this change does not register a persistent OS task by itself.
+
 The worker requires the configured Ollama model to be available locally. \`ARIA_WORKSPACE_ROOT\` is mandatory and is the only project tree it can read or modify. Writes and edits create backups under \`.aria-autonomy-backups\`. Credentials, \`.env\` files, \`.git\`, \`node_modules\`, and Supabase paths are excluded. Arbitrary shell commands, commits, pushes and deployments are not exposed by this adapter.
 
 If the worker is offline when a mission is submitted, the mission is saved in \`planning\` state first. It remains visible and the durable planning job is reused when the worker reconnects; no chat message such as “continue” is needed. The current webhook notification outbox is durable; push delivery still requires a configured HTTPS webhook.
