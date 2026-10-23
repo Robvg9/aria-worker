@@ -17,6 +17,9 @@ Provide durable, resumable mission execution without calling Supabase. The first
 - \`tests/persistent-control-plane-v1.test.js\`: focused contract tests for persistence, evidence, approval gates, progress and failed final verification.
 - \`.github/workflows/persistent-autonomy-v1-tests.yml\`: isolated CI test job, independent of the repository's Supabase-dependent suite.
 
+- `autonomy/persistent-http-server-v1.js` and `autonomy/persistent-dashboard-v1.html`: authenticated JSON API, polling supervisor, live mission panel, progress, task evidence, event history, and approval/rejection controls.
+- `scripts/aria-persistent-autonomy-v1.js`: standalone launcher that requires an explicitly declared Supabase-independent adapter and a 32+ character control token.
+
 ## Storage and deployment boundary
 
 The JSON store is suitable as a local durable ledger and as a single-process ledger on a cloud host with a persistent disk. It is **not** a multi-writer distributed database and must not be shared concurrently by cloud and Windows processes over a network filesystem.
@@ -43,7 +46,7 @@ Run with Node.js 20+:
 node tests/persistent-control-plane-v1.test.js
 \`\`\`
 
-The isolated GitHub Actions workflow runs the same test file on relevant changes. A green contract test is necessary but does not prove the Windows worker, cloud host, notifications or end-to-end hybrid path are deployed.
+The isolated GitHub Actions workflow runs both the mission-control-plane and HTTP/dashboard contract tests on relevant changes. A green contract test is necessary but does not prove the Windows worker, cloud host, notifications or end-to-end hybrid path are deployed.
 
 ## Not yet certified
 
