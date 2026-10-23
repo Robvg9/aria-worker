@@ -11,7 +11,7 @@ Inspected repository files on 2026-10-23:
 - `wrangler.toml` declares `[triggers].crons = ["* * * * *"]`.
 - `worker.js` exports a Cloudflare `scheduled` handler that calls `runScheduledMission(env)`. The function POSTs an empty JSON body to `aria-canonical-runtime-v1` with `x-aria-trigger: scheduler`.
 - `supabase/functions/aria-canonical-runtime-v1/index.ts` treats `scheduler` and `mission-tick` as asynchronous dispatches to `aria-mission-runner-v22` and returns HTTP 202 when accepted.
-- `supabase/functions/aria-mission-runner-v22/index.ts` has mission lease/recovery and execution logic. The ordinary scheduled request carries no `mission_id`; its exact downstream behavior and live tick outcomes must be traced and verified before reusing it for self-improvement.
+- `supabase/functions/aria-mission-runner-v22/index.ts` has mission lease/recovery and execution logic. With no `mission_id`, it calls `aria_mission_claim_next_lease` and returns `idle` when no mission is available; otherwise it claims and executes the next mission. Thus the existing cron is a regular queue-worker trigger, not evidence that a self-improvement cycle is being launched. Do not insert self-improvement directly into this hot path without a separate due-time/lease gate and explicit isolation from normal mission processing.
 - `autonomy/continuous-self-improvement-v1.js` defines 13 injected stages. `maxCycles` defaults to 1 and is bounded to 1–10.
 - `autonomy/continuous-self-improvement-contract-v1.md` explicitly says that loop has no timer, network, credential, or persistence authority.
 - `autonomy/canonical-runtime.js` composes the governed mission runtime and cognitive memory/loop, but the inspected version does not compose the continuous self-improvement pipeline.
