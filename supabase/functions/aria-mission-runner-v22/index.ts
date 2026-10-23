@@ -552,6 +552,13 @@ function normalizeExecutionStep(step: any, mission: any) {
   return normalized;
 }
 
+function isProviderQuotaBlocked(httpStatus: unknown, providerStatus: unknown, code: unknown, message: unknown): boolean {
+  const status = Number(providerStatus ?? httpStatus);
+  const detail = `${String(code ?? "")} ${String(message ?? "")}`;
+  return status === 402
+    || /\\b(?:quota|payment[\\s_-]+required|insufficient[\\s_-]+(?:credits?|funds)|out[\\s_-]+of[\\s_-]+credits?|credit[\\s_-]+(?:exhausted|depleted)|billing[\\s_-]+limit)\\b/i.test(detail);
+}
+
 const AGENT_RECOVERY_FALLBACKS: Record<string, string> = {
   "aria-agent-reviewer-v1": "aria-agent-verifier-openrouter-v1",
   "aria-agent-verifier-openrouter-v1": "aria-agent-coding-openrouter-v1",
@@ -2187,7 +2194,13 @@ async function modelExecute(missionId: string, step: any, auth: AuthContext) {
 
   const injectFault = typeof step?.input?.fault_injection === "string" ? String(step.input.fault_injection) : "";
   const injectAll = step?.input?.fault_all_routes === true;
+  const blockedProviderAccounts = new Set<string>();
   for (const route of routes) {
+    const routeAccountKey = `${route.provider_id}:${route.account_id}`;
+    // Once a provider/account signals exhausted quota or payment-required, do
+    // not retry another model on that same service. Continue only to a
+    // separately verified account/provider route.
+    if (blockedProviderAccounts.has(routeAccountKey)) continue;
     if (route.provider_id === "local_windows") {
       const source = step.input && typeof step.input === "object" ? step.input : {};
       const localPrompt = typeof source.prompt === "string"
@@ -2315,6 +2328,9 @@ async function modelExecute(missionId: string, step: any, auth: AuthContext) {
       message: String(err.message || "model execution failed"),
       provider_status: err.provider_status ?? null,
     });
+    if (isProviderQuotaBlocked(response.status, err.provider_status, err.code, err.message)) {
+      blockedProviderAccounts.add(routeAccountKey);
+    }
   }
 
   const last = failures[failures.length - 1] || { code: "execution_failed", message: "model execution failed" };
@@ -2372,6 +2388,10 @@ async function agentExecute(missionId: string, step: any, auth: AuthContext) {
 
     const providerStatus = Number(body?.error?.provider_status ?? body?.provider_status ?? response.status);
     const message = String(body?.error?.message || body?.error || `agent_execution_${response.status}`);
+    if (isProviderQuotaBlocked(response.status, providerStatus, body?.error?.code, message)) {
+      throw new Error(`provider_quota_blocked:${providerStatus}:${message}`);
+    }
+
     const retryableProviderFailure =
       providerStatus === 401
       || providerStatus === 403
