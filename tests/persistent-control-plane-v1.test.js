@@ -159,6 +159,10 @@ async function testCrashRecoveryRespectsIdempotency() {
     assert.equal(blocked.status, 'waiting_human');
     assert.equal(executions, 0);
     assert.equal(notices.some(event => event.reason === 'interrupted_non_idempotent_task'), true);
+    const resumed = await autonomy.resume(created.mission_id, { actor: 'test-reviewer' });
+    assert.equal(resumed.status, 'succeeded');
+    assert.equal(resumed.manual_resume_by, 'test-reviewer');
+    assert.equal(executions, 1);
   });
 }
 
