@@ -45,7 +45,7 @@ function createPersistentWorkerBridge({ directory, leaseMs = 60000 } = {}) {
     const job = {
       job_id: makeId(), mission_id, task: clone(task), context: clone(context),
       status: 'queued', created_at: nowIso(), updated_at: nowIso(),
-      worker_id: null, lease_until: null, attempts: 0, result: null, error: null
+      worker_id: null, lease_token: null, lease_until: null, attempts: 0, result: null, error: null
     };
     await write(job);
     return clone(job);
@@ -65,6 +65,7 @@ function createPersistentWorkerBridge({ directory, leaseMs = 60000 } = {}) {
       if (!job) return null;
       job.status = 'leased';
       job.worker_id = worker_id;
+      job.lease_token = crypto.randomUUID();
       job.lease_until = new Date(now + Math.max(5000, leaseMs)).toISOString();
       job.updated_at = nowIso();
       job.attempts += 1;
@@ -72,11 +73,11 @@ function createPersistentWorkerBridge({ directory, leaseMs = 60000 } = {}) {
       return write(job);
     });
   }
-  async function complete(jobId, { worker_id, result, error } = {}) {
+  async function complete(jobId, { worker_id, lease_token, result, error } = {}) {
     return serialize('job:' + jobId, async () => {
       const job = await get(jobId);
       if (!job) throw new Error('job_not_found');
-      if (job.status !== 'leased' || job.worker_id !== worker_id) throw new Error('worker_lease_mismatch');
+      if (job.status !== 'leased' || job.worker_id !== worker_id || !lease_token || job.lease_token !== lease_token) throw new Error('worker_lease_mismatch');
       job.updated_at = nowIso();
       job.lease_until = null;
       if (error) {
