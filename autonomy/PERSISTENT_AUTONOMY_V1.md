@@ -50,6 +50,28 @@ The runtime accepts a \`notify\` adapter. The outbox supports a user-configured 
 
 Use one cloud coordinator with a persistent disk and one or more Windows workers. The cloud ledger is single-writer: do not run multiple coordinator replicas against the same JSON directory. Put the coordinator behind HTTPS termination; the Windows worker makes outbound HTTPS requests only.
 
+The coordinator image is packaged in \`Dockerfile.aria-coordinator\`. Build it from the repository root:
+
+\`\`\`bash
+docker build -f Dockerfile.aria-coordinator -t aria-persistent-coordinator .
+\`\`\`
+
+For a single-host setup behind a local HTTPS reverse proxy, publish the service only on loopback and mount a named persistent volume. Supply both tokens from the host's secret manager; do not commit them or paste them into chat.
+
+\`\`\`bash
+docker run -d --name aria-persistent-coordinator --restart unless-stopped \
+  --publish 127.0.0.1:8787:8787 \
+  --mount source=aria-missions,target=/var/lib/aria-missions \
+  --env ARIA_CONTROL_HOST=0.0.0.0 \
+  --env ARIA_ALLOW_REMOTE_BIND=true \
+  --env ARIA_CONTROL_HTTPS_TERMINATED=true \
+  --env ARIA_CONTROL_TOKEN \
+  --env ARIA_WORKER_TOKEN \
+  aria-persistent-coordinator
+\`\`\`
+
+This local port binding is not a public HTTPS deployment by itself. For a cloud host, attach its persistent disk at \`/var/lib/aria-missions\` and confirm HTTPS termination before enabling remote bind.
+
 Cloud coordinator environment (keep both tokens secret and different):
 
 \`\`\`bash
