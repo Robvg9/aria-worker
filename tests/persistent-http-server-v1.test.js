@@ -6,10 +6,12 @@ const os = require('node:os');
 const path = require('node:path');
 const { createJsonMissionStore, createPersistentAutonomy } = require('../autonomy/persistent-control-plane-v1');
 const { createPersistentHttpServer } = require('../autonomy/persistent-http-server-v1');
+const { createPersistentWorkerBridge } = require('../autonomy/persistent-worker-bridge-v1');
 
 (async () => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'aria-http-v1-'));
   const token = 'test-token-with-at-least-32-characters-long';
+  const workerToken = 'test-worker-token-with-at-least-32-characters';
   const store = createJsonMissionStore({ directory });
   const autonomy = createPersistentAutonomy({
     store,
@@ -17,7 +19,8 @@ const { createPersistentHttpServer } = require('../autonomy/persistent-http-serv
     executeTask: async task => ({ passed: true, evidence: { test: task.title } }),
     verifyCompletion: async mission => ({ passed: mission.tasks.every(task => task.status === 'succeeded') })
   });
-  const app = createPersistentHttpServer({ store, autonomy, token, host: '127.0.0.1', port: 0, runSupervisor: false });
+  const workerBridge = createPersistentWorkerBridge({ directory, leaseMs: 10000 });
+  const app = createPersistentHttpServer({ store, autonomy, token, workerBridge, workerToken, host: '127.0.0.1', port: 0, runSupervisor: false });
   try {
     const address = await app.listen();
     const base = 'http://127.0.0.1:' + address.port;
@@ -46,7 +49,23 @@ const { createPersistentHttpServer } = require('../autonomy/persistent-http-serv
       body: '{'
     });
     assert.equal(malformed.status, 400);
-    process.stdout.write('persistent-http-server-v1: all tests passed\n');
+    await workerBridge.enqueue({ mission_id: created.mission.mission_id, task: { task_id: 'bridge-task', title: 'Bridge task' } });
+    const claimResponse = await fetch(base + '/api/worker/claim', {
+      method: 'POST',
+      headers: { authorization: 'Bearer ' + workerToken, 'content-type': 'application/json' },
+      body: JSON.stringify({ worker_id: 'http-test-worker', capabilities: ['test'] })
+    });
+    assert.equal(claimResponse.status, 200);
+    const claim = await claimResponse.json();
+    assert.equal(claim.job.status, 'leased');
+    const completeResponse = await fetch(base + '/api/worker/jobs/' + encodeURIComponent(claim.job.job_id) + '/complete', {
+      method: 'POST',
+      headers: { authorization: 'Bearer ' + workerToken, 'content-type': 'application/json' },
+      body: JSON.stringify({ worker_id: 'http-test-worker', lease_token: claim.job.lease_token, result: { passed: true, evidence: 'http-worker-test' } })
+    });
+    assert.equal(completeResponse.status, 200);
+    assert.equal((await completeResponse.json()).job.status, 'succeeded');
+    process.stdout.write('persistent-http-server-v1: all tests passed\\n');
   } finally {
     await app.close();
     await fs.rm(directory, { recursive: true, force: true });
