@@ -106,6 +106,28 @@ The worker requires the configured Ollama model to be available locally. \`ARIA_
 
 If the worker is offline when a mission is submitted, the mission is saved in \`planning\` state first. It remains visible and the durable planning job is reused when the worker reconnects; no chat message such as “continue” is needed. The current webhook notification outbox is durable; push delivery still requires a configured HTTPS webhook.
 
+## Cloudflare coordinator option (no Supabase)
+
+This branch also contains a separate Cloudflare Worker + SQLite-backed Durable Object coordinator:
+
+- Entry point: \`cloudflare-autonomy/worker.mjs\`
+- Dashboard asset: \`cloudflare-autonomy/assets/index.html\`
+- Wrangler config: \`wrangler.aria-autonomy.toml\`
+- Isolated deploy workflow: \`.github/workflows/aria-autonomy-coordinator-deploy.yml\`
+
+It stores missions, task state, event history, worker leases, approval decisions and notification records in Durable Object storage. The Windows worker connects outbound over HTTPS. This service is separate from the existing \`aria\` Worker and does not call Supabase or invoke the existing Supabase-coupled deployment workflow.
+
+After reviewing and merging this PR, configure these repository Actions secrets without posting their values in chat:
+
+- \`ARIA_AUTONOMY_CONTROL_TOKEN\`: random token, at least 32 characters
+- \`ARIA_AUTONOMY_WORKER_TOKEN\`: a different random token, at least 32 characters
+- \`CLOUDFLARE_API_TOKEN\` and \`CLOUDFLARE_ACCOUNT_ID\`: existing Cloudflare deployment credentials
+- Optional: \`ARIA_AUTONOMY_NOTIFICATION_WEBHOOK_URL\` and \`ARIA_AUTONOMY_NOTIFICATION_TOKEN\`
+
+Then run the isolated deployment workflow with \`confirm_public_deploy=true\`. It validates the coordinator and its auth boundary after deployment. The expected workers.dev URL is \`https://aria-autonomy-coordinator.robvg9.workers.dev\`, based on the account's existing \`robvg9.workers.dev\` endpoint. Do not run the existing production workflow for this purpose because that workflow also updates Supabase.
+
+On Windows, set \`ARIA_CONTROL_URL\` to that URL, \`ARIA_WORKER_TOKEN\` to the matching worker token, \`ARIA_AUTONOMY_ADAPTER\` to the bundled Ollama adapter, and \`ARIA_WORKSPACE_ROOT\` to the reviewed isolated workspace. Do not point the worker at the broken/stale worktree path or the live project checkout until its Git state has been repaired and reviewed.
+
 ## Local-only test mode
 
 The standalone launcher can instantiate the bundled Ollama adapter directly. Use a dedicated checkout/worktree first; do not point it at the live project workspace until you have reviewed the current working tree and selected the exact workspace.
