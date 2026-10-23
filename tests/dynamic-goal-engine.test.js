@@ -116,6 +116,16 @@ const path = require('node:path');
     status: 'started', evidence: { lease_until: '2026-10-23T00:00:00.000Z' },
     now: '2026-10-23T00:02:00.000Z'
   }).action, 'skip', 'a stale claim without an owner must fail closed');
+  assert.deepEqual(missionTwinLeaseDecision({
+    status: 'started', evidence: { lease_owner: 'owner-a' },
+    now: '2026-10-23T00:02:00.000Z'
+  }), { action: 'skip', reason: 'invalid_lease_expiry_not_reclaimed' },
+  'a started row with a missing expiry must never be reclaimed');
+  assert.deepEqual(missionTwinLeaseDecision({
+    status: 'started', evidence: { lease_owner: 'owner-a', lease_until: 'not-a-date' },
+    now: '2026-10-23T00:02:00.000Z'
+  }), { action: 'skip', reason: 'invalid_lease_expiry_not_reclaimed' },
+  'a started row with an invalid expiry must never be reclaimed');
   assert.equal(missionTwinLeaseDecision({ status: 'completed' }).action, 'skip');
 
 
