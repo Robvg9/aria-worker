@@ -68,6 +68,7 @@ function normalizeTasks(rawTasks, priorIds = new Set()) {
       depends_on: depends,
       risk: policyRisk,
       irreversible: raw.irreversible === true,
+      approved: false,
       idempotent: raw.idempotent !== false,
       max_attempts: Math.max(1, Math.min(3, Number(raw.max_attempts) || 2)),
       attempts: 0,
@@ -486,7 +487,7 @@ export class AriaMissionStore {
       const risk = parseRisk(pending.risk);
       const maxRisk = parseRisk(mission.policy && mission.policy.max_risk || 'medium');
       const riskRank = { low: 0, medium: 1, high: 2, critical: 3 };
-      if (pending.irreversible || riskRank[risk] >= riskRank.high || (mission.policy && mission.policy.require_human_approval !== false && riskRank[risk] > riskRank[maxRisk])) {
+      if (pending.approved !== true && (pending.irreversible || riskRank[risk] >= riskRank.high || (mission.policy && mission.policy.require_human_approval !== false && riskRank[risk] > riskRank[maxRisk]))) {
         pending.status = 'waiting_human';
         mission.status = 'waiting_human';
         mission.approval = {
@@ -543,7 +544,7 @@ export class AriaMissionStore {
       await this.notify({ type: 'mission_rejected', mission_id: mission.mission_id, approval_id: approvalId, reason: mission.last_error });
       return json({ ok: true, mission });
     }
-    if (task) { task.status = 'pending'; task.last_error = null; }
+    if (task) { task.status = 'pending'; task.last_error = null; task.approved = true; }
     mission.status = 'running';
     mission.last_error = null;
     await this.saveMission(mission, 'human_approval_granted', { approval: mission.approval });
