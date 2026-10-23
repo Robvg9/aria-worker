@@ -103,7 +103,7 @@ function createPersistentHttpServer({
         }
         const workerMatch = url.pathname.match(/^\/api\/worker\/jobs\/(job_[a-zA-Z0-9_-]+)\/complete$/);
         if (req.method === 'POST' && workerMatch) {
-          const body = await readJson(req);
+          const body = await readJson(req, 1024 * 1024);
           const job = await workerBridge.complete(workerMatch[1], {
             worker_id: body.worker_id,
             lease_token: body.lease_token,
