@@ -36,6 +36,10 @@ on:
       - 'tests/persistent-http-server-v1.test.js'
       - '.github/workflows/persistent-autonomy-v1-tests.yml'
 
+concurrency:
+  group: persistent-autonomy-v1-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
