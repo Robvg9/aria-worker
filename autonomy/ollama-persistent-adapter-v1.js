@@ -4,6 +4,7 @@
 // It deliberately exposes a bounded workspace API instead of arbitrary shell execution.
 const fs = require('node:fs/promises');
 const path = require('node:path');
+const crypto = require('node:crypto');
 const { promisify } = require('node:util');
 const { execFile } = require('node:child_process');
 const execFileAsync = promisify(execFile);
@@ -85,6 +86,8 @@ function createOllamaPersistentAdapter({
   }
 
   async function ensureNoSymlink(target) {
+    const rootStat = await fs.lstat(root);
+    if (rootStat.isSymbolicLink() || !rootStat.isDirectory()) throw new Error('workspace_root_invalid');
     const relative = path.relative(root, target);
     let current = root;
     const parts = relative.split(path.sep).filter(Boolean);
@@ -109,7 +112,7 @@ function createOllamaPersistentAdapter({
     if (stat.size > MAX_FILE_BYTES) throw new Error('workspace_file_too_large');
     const relative = path.relative(root, target);
     const backupRoot = path.join(root, '.aria-autonomy-backups');
-    const backup = path.join(backupRoot, new Date().toISOString().replace(/[:.]/g, '-') + '-' + cryptoSafeName(relative) + '.bak');
+    const backup = path.join(backupRoot, new Date().toISOString().replace(/[:.]/g, '-') + '-' + crypto.randomUUID() + '-' + cryptoSafeName(relative) + '.bak');
     await fs.mkdir(backupRoot, { recursive: true });
     await fs.copyFile(target, backup);
     return path.relative(root, backup);
@@ -120,6 +123,7 @@ function createOllamaPersistentAdapter({
   }
 
   async function atomicWrite(target, content) {
+    await ensureNoSymlink(target);
     if (typeof content !== 'string') throw new Error('workspace_content_must_be_text');
     if (Buffer.byteLength(content, 'utf8') > MAX_FILE_BYTES) throw new Error('workspace_content_too_large');
     await fs.mkdir(path.dirname(target), { recursive: true });
