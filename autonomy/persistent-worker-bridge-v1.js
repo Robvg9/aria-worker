@@ -73,6 +73,16 @@ function createPersistentWorkerBridge({ directory, leaseMs = 60000 } = {}) {
       return write(job);
     });
   }
+  async function heartbeat(jobId, { worker_id, lease_token } = {}) {
+    return serialize('job:' + jobId, async () => {
+      const job = await get(jobId);
+      if (!job) throw new Error('job_not_found');
+      if (job.status !== 'leased' || job.worker_id !== worker_id || !lease_token || job.lease_token !== lease_token) throw new Error('worker_lease_mismatch');
+      job.lease_until = new Date(Date.now() + Math.max(5000, leaseMs)).toISOString();
+      job.updated_at = nowIso();
+      return write(job);
+    });
+  }
   async function complete(jobId, { worker_id, lease_token, result, error } = {}) {
     return serialize('job:' + jobId, async () => {
       const job = await get(jobId);
@@ -106,7 +116,7 @@ function createPersistentWorkerBridge({ directory, leaseMs = 60000 } = {}) {
     }
     throw new Error('worker_job_timeout:' + jobId);
   }
-  return Object.freeze({ root, enqueue, get, list, claimNext, complete, waitForResult });
+  return Object.freeze({ root, enqueue, get, list, claimNext, heartbeat, complete, waitForResult });
 }
 
 function createWorkerBackedExecutor({ bridge, timeoutMs, pollMs } = {}) {
