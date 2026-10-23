@@ -52,14 +52,14 @@ Use one cloud coordinator with a persistent disk and one or more Windows workers
 
 Cloud coordinator environment (keep both tokens secret and different):
 
-\`\`\`powershell
-$env:ARIA_MISSION_DATA_DIR = "D:\aria-data"
-$env:ARIA_CONTROL_HOST = "0.0.0.0"
-$env:ARIA_CONTROL_PORT = "8787"
-$env:ARIA_CONTROL_TOKEN = "<random-secret-at-least-32-characters>"
-$env:ARIA_WORKER_TOKEN = "<different-random-secret-at-least-32-characters>"
-$env:ARIA_ALLOW_REMOTE_BIND = "true"
-$env:ARIA_CONTROL_HTTPS_TERMINATED = "true"
+\`\`\`bash
+export ARIA_MISSION_DATA_DIR=/var/lib/aria-missions
+export ARIA_CONTROL_HOST=0.0.0.0
+export ARIA_CONTROL_PORT=8787
+export ARIA_CONTROL_TOKEN="<random-secret-at-least-32-characters>"
+export ARIA_WORKER_TOKEN="<different-random-secret-at-least-32-characters>"
+export ARIA_ALLOW_REMOTE_BIND=true
+export ARIA_CONTROL_HTTPS_TERMINATED=true
 node scripts/aria-persistent-coordinator-v1.js
 \`\`\`
 
