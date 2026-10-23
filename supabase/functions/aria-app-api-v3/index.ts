@@ -2281,7 +2281,7 @@ Deno.serve(async (req) => {
         return json({error:String((e as any)?.message||e),trace_id:trace},status);
       }
     }
-    const notificationByIdPath=path.match(/\\/meditation\\/notifications\\/([^/]+)$/);
+    const notificationByIdPath=path.match(new RegExp("/meditation/notifications/([^/]+)$"));
     if(req.method==="GET"&&notificationByIdPath){
       const notificationId=decodeURIComponent(notificationByIdPath[1]);
       if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(notificationId)){
