@@ -6,7 +6,11 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$InstallDir,
 
-    [string]$NodePath = 'node'
+    [string]$NodePath = 'node',
+
+    [string]$TaskName = 'ARIA Persistent Windows Worker',
+
+    [switch]$InstallScheduledTask
 )
 
 $ErrorActionPreference = 'Stop'
@@ -33,8 +37,26 @@ if (-not (Test-Path -LiteralPath $workerScript -PathType Leaf)) {
 if (-not (Test-Path -LiteralPath $config -PathType Leaf)) {
     throw "Worker configuration file not found: $config"
 }
-if ($config.StartsWith((Resolve-Path -LiteralPath $InstallDir).Path, [System.StringComparison]::OrdinalIgnoreCase)) {
+$installRoot = (Resolve-Path -LiteralPath $InstallDir).Path
+if ($config.StartsWith($installRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
     throw 'Keep the worker configuration outside the source checkout so secrets are not committed with code.'
+}
+
+if ($InstallScheduledTask) {
+    $currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+    $hostExecutable = (Get-Process -Id $PID).Path
+    $arguments = '-NoProfile -ExecutionPolicy Bypass -File "' + $workerScript + '" -ConfigPath "' + $config + '" -InstallDir "' + $installRoot + '" -NodePath "' + $NodePath + '"'
+    $action = New-ScheduledTaskAction -Execute $hostExecutable -Argument $arguments
+    $trigger = New-ScheduledTaskTrigger -AtLogOn -User $currentUser
+    $principal = New-ScheduledTaskPrincipal -UserId $currentUser -LogonType Interactive -RunLevel Limited
+    $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -RestartCount 5 -RestartInterval (New-TimeSpan -Minutes 1) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
+    Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Description 'Runs the ARIA outbound-only Windows worker after user logon.' -Force | Out-Null
+    Start-ScheduledTask -TaskName $TaskName
+    Write-Output ('ARIA_WORKER_TASK_REGISTERED=' + $TaskName)
+    Write-Output 'ARIA_WORKER_TASK_TRIGGER=AtLogOn'
+    Write-Output 'ARIA_WORKER_TASK_PRIVILEGE=Limited'
+    Write-Output 'ARIA_WORKER_TASK_SECRET_STORAGE=External config file; no tokens are stored in task arguments.'
+    exit 0
 }
 
 New-Item -ItemType Directory -Path $logDir -Force | Out-Null
