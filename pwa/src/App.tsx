@@ -1994,14 +1994,14 @@ function PwaNotificationCenter({ session }: { session: Session }) {
           : null;
       }
       if (!item || getNotificationIdFromHash() !== id) {
-        processingNotificationHash.current = null;
+        if (processingNotificationHash.current === id) processingNotificationHash.current = null;
         return;
       }
       window.history.replaceState(null, '', '/pwa/');
       try {
         await openNotification(item, true);
       } finally {
-        processingNotificationHash.current = null;
+        if (processingNotificationHash.current === id) processingNotificationHash.current = null;
       }
     };
     void openNotificationFromHash();
