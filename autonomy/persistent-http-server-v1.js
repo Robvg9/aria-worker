@@ -147,7 +147,7 @@ function createPersistentHttpServer({
       }
       match = url.pathname.match(/^\/api\/missions\/([a-zA-Z0-9_-]+)\/resume$/);
       if (req.method === 'POST' && match) {
-        const mission = await autonomy.resume(match[1]);
+        const mission = await autonomy.resume(match[1], { actor: 'dashboard-operator' });
         return json(res, 200, { mission });
       }
       match = url.pathname.match(/^\/api\/approvals\/([a-zA-Z0-9_-]+)$/);
