@@ -43,7 +43,7 @@ function createOllamaPersistentAdapter({
   ollamaUrl = process.env.ARIA_OLLAMA_URL || DEFAULT_OLLAMA_URL,
   model = process.env.ARIA_OLLAMA_MODEL || DEFAULT_MODEL,
   fetchImpl = fetch,
-  timeoutMs = 120000
+  timeoutMs = Math.max(10000, Number(process.env.ARIA_OLLAMA_TIMEOUT_MS || 300000))
 } = {}) {
   if (typeof workspaceRoot !== 'string' || !workspaceRoot.trim()) throw new TypeError('ARIA_WORKSPACE_ROOT_required');
   const root = path.resolve(workspaceRoot);
@@ -251,7 +251,7 @@ function createOllamaPersistentAdapter({
       'payload is an object. workspace.list: {path?,depth?}; workspace.read: {path}; workspace.search: {query}; workspace.write: {path,content}; workspace.edit: {path,old_text,new_text}; tests.run: {test_file,timeout_ms?}; git.status: {}; git.diff: {path?}.',
       'Never read, search, write or edit credentials, .env files, secrets, .git, node_modules, Supabase files, or files outside the workspace.',
       'Do not run arbitrary shell commands, deploy, publish, commit, push, delete, alter credentials, or modify external systems.',
-      'Keep plans to 1-6 concrete tasks. Use unique task ids. Dependencies must refer only to earlier tasks in this plan.',
+      'Keep plans to 1-4 concrete tasks. Use unique task ids. Dependencies must refer only to earlier tasks in this plan.',
       'Use workspace.read/search/status/diff for inspection. Use workspace.edit for surgical edits and workspace.write for new or fully replaced text files. Run relevant tests after changes.',
       'The worker will enforce operation risk independently of your requested risk labels.'
     ].join('\n');
@@ -261,7 +261,7 @@ function createOllamaPersistentAdapter({
       workspace_root: path.basename(root),
       output_schema: { tasks: [{ task_id: 'inspect-1', title: 'Inspect repository', description: '...', operation: 'git.status', payload: {}, depends_on: [], idempotent: true }] }
     });
-    const data = await modelJson(system, prompt, 3500);
+    const data = await modelJson(system, prompt, 1200);
     if (!Array.isArray(data.tasks) || data.tasks.length < 1 || data.tasks.length > 6) throw new Error('ollama_plan_task_count_invalid');
     const ids = new Set();
     return data.tasks.map((task, index) => {
@@ -310,7 +310,7 @@ function createOllamaPersistentAdapter({
     const data = await modelJson(
       'You are ARIA verification. Return JSON only: {"passed":boolean,"reason":string}. Be conservative. The goal is complete only if the supplied execution evidence directly supports it. If evidence is weak or unrelated, passed must be false.',
       JSON.stringify({ goal: mission.goal, tasks: (mission.tasks || []).map(task => ({ task_id: task.task_id, title: task.title, status: task.status, evidence: task.evidence })) }),
-      500
+      300
     );
     return { passed: data.passed === true, reason: String(data.reason || 'verification_reason_missing'), verifier: 'ollama:' + model, verified_at: new Date().toISOString() };
   }
