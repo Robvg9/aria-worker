@@ -81,6 +81,42 @@ async function testVerificationFailureNeverClaimsSuccess() {
   });
 }
 
+async function testRetriesRequireSafetyEvidence() {
+  await withStore(async directory => {
+    const store = createJsonMissionStore({ directory });
+    let attempts = 0;
+    const autonomy = createPersistentAutonomy({
+      store,
+      plan: async () => [{ task_id: 'retry-safe', title: 'Retry safe task', risk: 'low', idempotent: true, max_attempts: 3 }],
+      executeTask: async () => {
+        attempts++;
+        if (attempts === 1) throw new Error('transient test failure');
+        return { passed: true, evidence: 'second-attempt-passed' };
+      },
+      verifyCompletion: async () => ({ passed: true })
+    });
+    const created = await autonomy.start({ goal: 'safe retry' });
+    const done = await autonomy.tick(created.mission_id);
+    assert.equal(done.status, 'succeeded');
+    assert.equal(attempts, 2);
+  });
+  await withStore(async directory => {
+    const store = createJsonMissionStore({ directory });
+    let attempts = 0;
+    const autonomy = createPersistentAutonomy({
+      store,
+      plan: async () => [{ task_id: 'no-retry', title: 'Non-idempotent task', risk: 'low', idempotent: false, max_attempts: 3 }],
+      executeTask: async () => { attempts++; throw new Error('outcome may be partial'); },
+      verifyCompletion: async () => ({ passed: true })
+    });
+    const created = await autonomy.start({ goal: 'unsafe retry' });
+    const blocked = await autonomy.tick(created.mission_id);
+    assert.equal(blocked.status, 'waiting_human');
+    assert.equal(attempts, 1);
+    assert.equal(blocked.tasks[0].status, 'failed');
+  });
+}
+
 async function testCrashRecoveryRespectsIdempotency() {
   await withStore(async directory => {
     const store = createJsonMissionStore({ directory });
@@ -159,6 +195,7 @@ async function testProgressAndInputValidation() {
   await testPersistentCompletionAndEvidence();
   await testHumanGateForIrreversibleAction();
   await testVerificationFailureNeverClaimsSuccess();
+  await testRetriesRequireSafetyEvidence();
   await testCrashRecoveryRespectsIdempotency();
   await testSupervisorSchedulesMissionsIndependently();
   await testProgressAndInputValidation();
