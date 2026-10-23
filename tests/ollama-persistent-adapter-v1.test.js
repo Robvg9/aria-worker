@@ -5,15 +5,20 @@ const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
 const { createOllamaPersistentAdapter } = require('../autonomy/ollama-persistent-adapter-v1');
+const { loadAdapter } = require('../scripts/aria-persistent-autonomy-v1');
 
 (async () => {
   const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'aria-ollama-adapter-v1-'));
   try {
+    await fs.writeFile(path.join(workspaceRoot, 'README.md'), '# ARIA workspace\n', 'utf8');
+    await fs.writeFile(path.join(workspaceRoot, '.env'), 'SECRET=must-not-enter-model-context\n', 'utf8');
+    let planningPrompt = null;
     const fetchImpl = async (url, options = {}) => {
       if (String(url).includes('/api/tags')) {
         return { ok: true, json: async () => ({ models: [{ name: 'qwen3:4b' }] }) };
       }
       const request = JSON.parse(options.body);
+      planningPrompt = request.messages[1].content;
       const system = request.messages[0].content;
       const content = /verification/i.test(system)
         ? JSON.stringify({ passed: true, reason: 'All requested file evidence is present.' })
@@ -34,7 +39,16 @@ const { createOllamaPersistentAdapter } = require('../autonomy/ollama-persistent
     const adapter = createOllamaPersistentAdapter({ workspaceRoot, fetchImpl });
     assert.equal((await adapter.health()).ok, true);
 
+    const factoryAdapter = loadAdapter(path.join(__dirname, '..', 'autonomy', 'ollama-persistent-adapter-v1.js'), { ARIA_WORKSPACE_ROOT: workspaceRoot });
+    assert.equal(factoryAdapter.supabaseIndependent, true);
+    assert.equal(typeof factoryAdapter.plan, 'function');
+    assert.equal(typeof factoryAdapter.executeTask, 'function');
+    assert.equal(typeof factoryAdapter.verifyCompletion, 'function');
+
     const tasks = await adapter.plan('Create a small note for the test');
+    const parsedPrompt = JSON.parse(planningPrompt);
+    assert.ok(parsedPrompt.workspace_files.includes('README.md'));
+    assert.equal(parsedPrompt.workspace_files.some(file => file.toLowerCase().includes('.env')), false);
     assert.equal(tasks.length, 1);
     assert.equal(tasks[0].operation, 'workspace.write');
     assert.equal(tasks[0].risk, 'medium');
