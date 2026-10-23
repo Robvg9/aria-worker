@@ -7,11 +7,17 @@ on:
     paths:
       - 'autonomy/persistent-control-plane-v1.js'
       - 'tests/persistent-control-plane-v1.test.js'
+      - 'autonomy/persistent-http-server-v1.js'
+      - 'autonomy/persistent-dashboard-v1.html'
+      - 'tests/persistent-http-server-v1.test.js'
       - '.github/workflows/persistent-autonomy-v1-tests.yml'
   pull_request:
     paths:
       - 'autonomy/persistent-control-plane-v1.js'
       - 'tests/persistent-control-plane-v1.test.js'
+      - 'autonomy/persistent-http-server-v1.js'
+      - 'autonomy/persistent-dashboard-v1.html'
+      - 'tests/persistent-http-server-v1.test.js'
       - '.github/workflows/persistent-autonomy-v1-tests.yml'
 
 permissions:
@@ -27,3 +33,4 @@ jobs:
         with:
           node-version: 22
       - run: node tests/persistent-control-plane-v1.test.js
+      - run: node tests/persistent-http-server-v1.test.js
