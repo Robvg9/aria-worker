@@ -42,6 +42,54 @@ async function testPersistentCompletionAndEvidence() {
   });
 }
 
+async function testDeferredPlanningPersistsBeforeWorkerIsAvailable() {
+  await withStore(async directory => {
+    const store = createJsonMissionStore({ directory });
+    let planned = 0;
+    let executed = 0;
+    const autonomy = createPersistentAutonomy({
+      store,
+      deferPlanning: true,
+      plan: async (goal, context) => {
+        planned++;
+        assert.equal(goal, 'wait for the Windows worker');
+        assert.ok(context.mission_id);
+        return [{ task_id: 'worker-task', title: 'Worker task', operation: 'workspace.read', payload: { path: 'README.md' }, risk: 'low', idempotent: true }];
+      },
+      executeTask: async task => { executed++; assert.deepEqual(task.payload, { path: 'README.md' }); return { passed: true, evidence: { read: true } }; },
+      verifyCompletion: async mission => ({ passed: mission.tasks.every(task => task.status === 'succeeded') })
+    });
+    const created = await autonomy.start({ goal: 'wait for the Windows worker' });
+    assert.equal(created.status, 'planning');
+    assert.equal(created.tasks.length, 0);
+    const done = await autonomy.tick(created.mission_id);
+    assert.equal(planned, 1);
+    assert.equal(executed, 1);
+    assert.equal(done.status, 'succeeded');
+    assert.equal(done.tasks[0].operation, 'workspace.read');
+    assert.deepEqual(done.tasks[0].payload, { path: 'README.md' });
+    assert.ok((await store.events(created.mission_id)).some(event => event.type === 'mission_plan_created'));
+  });
+}
+
+async function testFailedTasksDoNotCauseInfiniteReplanning() {
+  await withStore(async directory => {
+    const store = createJsonMissionStore({ directory });
+    let replanCalls = 0;
+    const autonomy = createPersistentAutonomy({
+      store,
+      plan: async () => [{ task_id: 'failed-task', title: 'Fail once', risk: 'low', idempotent: false }],
+      executeTask: async () => { throw new Error('permanent test failure'); },
+      replan: async () => { replanCalls++; return [{ task_id: 'replacement', title: 'Replacement', risk: 'low' }]; },
+      verifyCompletion: async () => ({ passed: true })
+    });
+    const created = await autonomy.start({ goal: 'avoid replan loop' });
+    const blocked = await autonomy.tick(created.mission_id);
+    assert.equal(blocked.status, 'waiting_human');
+    assert.equal(replanCalls, 0);
+  });
+}
+
 async function testHumanGateForIrreversibleAction() {
   await withStore(async directory => {
     const notifications = [];
@@ -201,6 +249,8 @@ async function testProgressAndInputValidation() {
 
 (async () => {
   await testPersistentCompletionAndEvidence();
+  await testDeferredPlanningPersistsBeforeWorkerIsAvailable();
+  await testFailedTasksDoNotCauseInfiniteReplanning();
   await testHumanGateForIrreversibleAction();
   await testVerificationFailureNeverClaimsSuccess();
   await testRetriesRequireSafetyEvidence();
