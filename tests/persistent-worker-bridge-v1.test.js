@@ -16,7 +16,7 @@ const supervisorScriptPath = path.join(__dirname, '..', 'scripts', 'Start-ARIA-P
     assert.match(supervisorScript, /New-ScheduledTaskPrincipal -UserId \$currentUser -LogonType Interactive -RunLevel Limited/, 'scheduled worker must run with limited privileges');
     assert.match(supervisorScript, /Register-ScheduledTask/);
     assert.match(supervisorScript, /Start-ScheduledTask/);
-    assert.match(supervisorScript, /configuration file outside the source checkout/i, 'secrets must remain outside the source checkout');
+    assert.match(supervisorScript, /configuration outside the source checkout/i, 'secrets must remain outside the source checkout');
     assert.doesNotMatch(supervisorScript, /ARIA_WORKER_TOKEN\s*=\s*['"][^'"]{32,}['"]/, 'worker token must never be hard-coded into the supervisor');
     const bridge = createPersistentWorkerBridge({ directory, leaseMs: 10000 });
     const created = await bridge.enqueue({ mission_id: 'mission_test', task: { task_id: 'task_test', title: 'Run test' }, context: { goal: 'bridge test' } });
