@@ -2,6 +2,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const { spawnSync } = require('node:child_process');
 
 function read(rel) {
   return fs.readFileSync(path.join(__dirname, '..', rel), 'utf8');
@@ -20,6 +21,8 @@ const app = read('pwa/src/App.tsx');
 const helper = read('pwa/src/notifications.ts');
 const sw = read('pwa/public/sw.js');
 const meditationE2E = read('rwht/pc-browser/rwht-meditation-pwa-e2e.mjs');
+const meditationE2ESyntax = spawnSync(process.execPath, ['--check', path.join(__dirname, '..', 'rwht/pc-browser/rwht-meditation-pwa-e2e.mjs')], { encoding: 'utf8' });
+assert.equal(meditationE2ESyntax.status, 0, 'authenticated notification E2E must parse: ' + String(meditationE2ESyntax.stderr || meditationE2ESyntax.stdout || '').slice(0,1000));
 
 assert(migration.includes('drop trigger if exists trg_meditation_android_notification_delivery'), 'legacy Android notification trigger not retired in V1 contract');
 assert(migration.includes('drop function if exists aria_internal.enqueue_android_notification_jobs'), 'legacy Android notification enqueue function not retired in V1 contract');
