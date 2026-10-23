@@ -13,6 +13,7 @@ on:
       - "tests/agent-runtime-catalog-contract.test.js"
       - "tests/governance.test.js"
       - ".github/workflows/fast-feedback-v1.yml"
+      - "scripts/test-suite-profile.cjs"
   workflow_dispatch:
 
 permissions:
@@ -30,3 +31,5 @@ jobs:
         run: npm run test:fast
       - name: Report canonical test inventory
         run: npm run test:inventory
+      - name: Validate optional timing profiler plan without executing tests
+        run: npm run test:profile -- --list
