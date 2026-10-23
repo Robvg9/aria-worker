@@ -1,7 +1,7 @@
 'use strict';
 
 const assert = require('node:assert/strict');
-const { AriaMissionStore } = require('../cloudflare-autonomy/worker');
+let AriaMissionStore;
 
 const clone = value => value == null ? value : JSON.parse(JSON.stringify(value));
 class MemoryStorage {
@@ -141,6 +141,7 @@ async function testRetryReplanAndLeaseProtection() {
 }
 
 (async () => {
+  ({ AriaMissionStore } = await import('../cloudflare-autonomy/worker.mjs'));
   await testAuthAndVerifiedMissionLifecycle();
   await testIrreversibleTaskNeedsExplicitApproval();
   await testRetryReplanAndLeaseProtection();
