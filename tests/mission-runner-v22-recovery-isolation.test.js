@@ -78,6 +78,7 @@ if (quotaGuardStart < 0 || quotaGuardEnd < 0) {
 const quotaGuard = s.slice(quotaGuardStart, quotaGuardEnd);
 for (const marker of [
   "status === 402",
+  "http === 402",
   "quota",
   "payment",
   "insufficient",
