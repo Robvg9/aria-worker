@@ -39,6 +39,7 @@ CREATE TABLE public.aria_vault_records (
 INSERT INTO auth.users(id) VALUES ('11111111-1111-4111-8111-111111111111');
 INSERT INTO public.aria_vault_vaults(owner_id, vault_id)
 VALUES ('11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222');
+GRANT INSERT, SELECT ON TABLE public.aria_vault_records TO service_role;
 INSERT INTO public.aria_vault_records(owner_id, vault_id, record_id, revision, format_version, payload_nonce, ciphertext)
 VALUES ('11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222',
         '33333333-3333-4333-8333-333333333333', 1, 1, 'AAAAAAAAAAAAAAAA', 'AAAAAAAAAAAAAAAAAAAAAA');
