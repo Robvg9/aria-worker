@@ -42,7 +42,37 @@ if ($config.StartsWith($installRoot, [System.StringComparison]::OrdinalIgnoreCas
     throw 'Keep the worker configuration outside the source checkout so secrets are not committed with code.'
 }
 
+foreach ($line in Get-Content -LiteralPath $config) {
+    $trimmed = $line.Trim()
+    if (-not $trimmed -or $trimmed.StartsWith('#')) { continue }
+    $separator = $trimmed.IndexOf('=')
+    if ($separator -lt 1) { continue }
+    $key = $trimmed.Substring(0, $separator).Trim()
+    if ($key -notin $allowedKeys) { continue }
+    $value = $trimmed.Substring($separator + 1).Trim()
+    if (($value.StartsWith('"') -and $value.EndsWith('"')) -or ($value.StartsWith("'") -and $value.EndsWith("'"))) {
+        $value = $value.Substring(1, $value.Length - 2)
+    }
+    [Environment]::SetEnvironmentVariable($key, $value, 'Process')
+}
+
 if ($InstallScheduledTask) {
+    $controlUrl = [string]$env:ARIA_CONTROL_URL
+    $workerToken = [string]$env:ARIA_WORKER_TOKEN
+    $adapterPath = [string]$env:ARIA_AUTONOMY_ADAPTER
+    $workspaceRoot = [string]$env:ARIA_WORKSPACE_ROOT
+    if ($controlUrl -notmatch '^https://') {
+        throw 'ARIA_CONTROL_URL must use HTTPS before installing the persistent task.'
+    }
+    if ($workerToken.Length -lt 32) {
+        throw 'ARIA_WORKER_TOKEN must contain at least 32 characters before installing the persistent task.'
+    }
+    if (-not $adapterPath -or -not (Test-Path -LiteralPath $adapterPath -PathType Leaf)) {
+        throw 'ARIA_AUTONOMY_ADAPTER must point to an existing approved adapter file.'
+    }
+    if (-not $workspaceRoot -or -not (Test-Path -LiteralPath $workspaceRoot -PathType Container)) {
+        throw 'ARIA_WORKSPACE_ROOT must point to an existing approved workspace directory.'
+    }
     $currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
     $hostExecutable = (Get-Process -Id $PID).Path
     $arguments = '-NoProfile -ExecutionPolicy Bypass -File "' + $workerScript + '" -ConfigPath "' + $config + '" -InstallDir "' + $installRoot + '" -NodePath "' + $NodePath + '"'
@@ -60,20 +90,6 @@ if ($InstallScheduledTask) {
 }
 
 New-Item -ItemType Directory -Path $logDir -Force | Out-Null
-foreach ($line in Get-Content -LiteralPath $config) {
-    $trimmed = $line.Trim()
-    if (-not $trimmed -or $trimmed.StartsWith('#')) { continue }
-    $separator = $trimmed.IndexOf('=')
-    if ($separator -lt 1) { continue }
-    $key = $trimmed.Substring(0, $separator).Trim()
-    if ($key -notin $allowedKeys) { continue }
-    $value = $trimmed.Substring($separator + 1).Trim()
-    if (($value.StartsWith('"') -and $value.EndsWith('"')) -or ($value.StartsWith("'") -and $value.EndsWith("'"))) {
-        $value = $value.Substring(1, $value.Length - 2)
-    }
-    [Environment]::SetEnvironmentVariable($key, $value, 'Process')
-}
-
 $delaySeconds = 5
 while ($true) {
     $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
