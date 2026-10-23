@@ -268,13 +268,15 @@ function createPersistentAutonomy({ store, plan, executeTask, verifyCompletion, 
       } catch (error) {
         const latest = await store.get(missionId);
         const active = latest.tasks.find(item => item.task_id === task.task_id);
+        const canRetry = active.idempotent === true || Boolean(error && error.retryable === true);
+        const willRetry = canRetry && active.attempts < active.max_attempts;
         await store.update(missionId, current => {
           const target = current.tasks.find(item => item.task_id === task.task_id);
           target.last_error = String(error && error.message || error);
-          target.status = target.attempts < target.max_attempts ? 'pending' : 'failed';
+          target.status = willRetry ? 'pending' : 'failed';
           current.current_task_id = null; current.last_error = target.last_error; current.progress_percent = progressOf(current);
-        }, 'task_attempt_failed', { task_id: task.task_id, attempt: active.attempts, error: String(error && error.message || error) });
-        if (active.attempts < active.max_attempts) await notify({ type: 'task_retrying', mission_id: missionId, task_id: task.task_id, attempt: active.attempts, error: String(error && error.message || error) });
+        }, 'task_attempt_failed', { task_id: task.task_id, attempt: active.attempts, retryable: willRetry, error: String(error && error.message || error) });
+        if (willRetry) await notify({ type: 'task_retrying', mission_id: missionId, task_id: task.task_id, attempt: active.attempts, error: String(error && error.message || error) });
       }
     }
     const mission = await store.get(missionId);
