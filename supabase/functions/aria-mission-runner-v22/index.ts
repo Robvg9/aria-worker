@@ -553,9 +553,13 @@ function normalizeExecutionStep(step: any, mission: any) {
 }
 
 function isProviderQuotaBlocked(httpStatus: unknown, providerStatus: unknown, code: unknown, message: unknown): boolean {
-  const status = Number(providerStatus ?? httpStatus);
-  const detail = `${String(code ?? "")} ${String(message ?? "")}`;
+  // Both layers may report different statuses; an HTTP 402 must not be hidden
+  // by a nested provider_status (for example, 429) from the response body.
+  const status = Number(providerStatus);
+  const http = Number(httpStatus);
+  const detail = String(code ?? "") + " " + String(message ?? "");
   return status === 402
+    || http === 402
     || /\b(?:quota|payment[\s_-]+required|insufficient[\s_-]+(?:credits?|funds)|out[\s_-]+of[\s_-]+credits?|credit[\s_-]+(?:exhausted|depleted)|billing[\s_-]+limit)\b/i.test(detail);
 }
 
