@@ -5,6 +5,7 @@
  * missions, authorizes mutations, or upgrades unknown evidence to PASS.
  */
 const INTERVAL_MINUTES = Object.freeze({ min: 5, default: 10, max: 60 });
+const MAX_CANDIDATES = 25;
 const SENSITIVE = /\b(production|prod|deploy|deployment|merge|main|master|secret|credential|token|api[_ -]?key|password|payment|billing|purchase|delete|destroy|destructive|permission|access control|migration|drop table|erase|eliminar|borrar|credencial|secreto|pagar|producci[oó]n)\b/i;
 const ACTION = /\b(implement|modify|update|add|remove|delete|deploy|merge|migrate|repair|change|write|create|fix|refactor|build|implementar|modificar|actualizar|añadir|anadir|eliminar|desplegar|migrar|reparar|corregir|crear)\b/i;
 const text = (v) => typeof v === 'string' ? v.trim() : '';
@@ -26,6 +27,23 @@ function missionTwinCycleId(now = new Date(), intervalMinutes = INTERVAL_MINUTES
   return 'mission-twin-' + missionTwinSlot(now, intervalMinutes).replace(/[:.]/g, '-');
 }
 
+function missionTwinLeaseDecision({ status, evidence = {}, now = new Date() } = {}) {
+  const currentStatus = text(status);
+  const time = now instanceof Date ? now.getTime() : Date.parse(now);
+  if (!Number.isFinite(time)) throw new TypeError('mission_twin_invalid_clock');
+  if (!currentStatus) return Object.freeze({ action: 'claim', reason: 'slot_unclaimed' });
+  if (currentStatus === 'completed') return Object.freeze({ action: 'skip', reason: 'slot_already_completed' });
+  if (currentStatus !== 'started') return Object.freeze({ action: 'skip', reason: 'slot_already_recorded' });
+  const record = evidence && typeof evidence === 'object' ? evidence : {};
+  const owner = text(record.lease_owner);
+  const expiry = Date.parse(text(record.lease_until));
+  if (Number.isFinite(expiry) && expiry > time) {
+    return Object.freeze({ action: 'busy', reason: 'active_lease', lease_until: new Date(expiry).toISOString() });
+  }
+  if (!owner) return Object.freeze({ action: 'skip', reason: 'stale_claim_without_owner_not_reclaimed' });
+  return Object.freeze({ action: 'reclaim', reason: 'lease_expired', expected_owner: owner });
+}
+
 function buildMissionTwinReport({ snapshot = {}, candidates = [], now = new Date(), intervalMinutes = INTERVAL_MINUTES.default } = {}) {
   const generatedAt = new Date(now instanceof Date ? now.getTime() : now).toISOString();
   const slot = missionTwinSlot(generatedAt, intervalMinutes);
@@ -37,7 +55,7 @@ function buildMissionTwinReport({ snapshot = {}, candidates = [], now = new Date
   const candidateList = Array.isArray(candidates) ? candidates.filter((c) => c && text(c.goal_id) && text(c.goal)) : [];
   const sorted = [...candidateList].sort((a, b) =>
     Number(b.dynamic_score || 0) - Number(a.dynamic_score || 0) || text(a.goal_id).localeCompare(text(b.goal_id))
-  );
+  ).slice(0, MAX_CANDIDATES);
   const selected = sorted[0] || null;
   const declared = selected ? goals.find((g) => text(g.goal_id) === text(selected.goal_id)) : null;
   const metadata = declared && declared.metadata && typeof declared.metadata === 'object' ? declared.metadata : {};
@@ -109,10 +127,10 @@ function buildMissionTwinReport({ snapshot = {}, candidates = [], now = new Date
       recent_failures: failures.length,
       unresolved_capability_gaps: gaps.length
     }),
-    resource_budget: Object.freeze({ max_candidates_considered: candidateList.length, max_selected_candidates: 1, execution_budget: 0 }),
+    resource_budget: Object.freeze({ max_candidates_considered: sorted.length, max_candidate_limit: MAX_CANDIDATES, max_selected_candidates: 1, execution_budget: 0 }),
     rollback: Object.freeze({ required_before_any_mutation: true, plan: 'No mutation performed by Mission Twin v1.' }),
     evidence: Object.freeze(sourceEvidence)
   });
 }
 
-export { INTERVAL_MINUTES, missionTwinSlot, missionTwinCycleId, buildMissionTwinReport };
+export { INTERVAL_MINUTES, MAX_CANDIDATES, missionTwinSlot, missionTwinCycleId, missionTwinLeaseDecision, buildMissionTwinReport };
