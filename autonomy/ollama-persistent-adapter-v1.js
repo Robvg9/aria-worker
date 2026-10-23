@@ -263,14 +263,18 @@ function createOllamaPersistentAdapter({
     });
     const data = await modelJson(system, prompt, 1200);
     if (!Array.isArray(data.tasks) || data.tasks.length < 1 || data.tasks.length > 6) throw new Error('ollama_plan_task_count_invalid');
+    const rawIds = data.tasks.map((task, index) => String(task && task.task_id || ('task-' + (index + 1))));
+    if (new Set(rawIds).size !== rawIds.length || rawIds.some(taskId => !/^[a-zA-Z0-9_-]{1,80}$/.test(taskId))) throw new Error('ollama_task_id_invalid');
+    const idMap = new Map(rawIds.map((rawId, index) => [rawId, mode === 'replan' ? ('replan_' + crypto.randomUUID().slice(0, 8) + '_' + (index + 1)) : rawId]));
     const ids = new Set();
     return data.tasks.map((task, index) => {
       if (!task || typeof task !== 'object' || Array.isArray(task)) throw new Error('ollama_task_invalid');
       const operation = String(task.operation || '');
       if (!OPERATIONS.has(operation)) throw new Error('ollama_operation_rejected:' + operation);
-      const taskId = String(task.task_id || ('task-' + (index + 1)));
-      if (!/^[a-zA-Z0-9_-]{1,80}$/.test(taskId) || ids.has(taskId)) throw new Error('ollama_task_id_invalid');
-      const depends = Array.isArray(task.depends_on) ? task.depends_on.map(String) : [];
+      const taskId = idMap.get(rawIds[index]);
+      if (ids.has(taskId)) throw new Error('ollama_task_id_invalid');
+      const rawDepends = Array.isArray(task.depends_on) ? task.depends_on.map(String) : [];
+      const depends = rawDepends.map(dep => idMap.get(dep) || dep);
       if (depends.some(dep => !ids.has(dep))) throw new Error('ollama_task_dependency_invalid');
       ids.add(taskId);
       const payload = task.payload && typeof task.payload === 'object' && !Array.isArray(task.payload) ? task.payload : {};
