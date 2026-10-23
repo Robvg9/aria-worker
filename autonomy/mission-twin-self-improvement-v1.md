@@ -11,7 +11,8 @@ Inspected repository files on 2026-10-23:
 - `wrangler.toml` declares `[triggers].crons = ["* * * * *"]`.
 - `worker.js` exports a Cloudflare `scheduled` handler that calls `runScheduledMission(env)`. The function POSTs an empty JSON body to `aria-canonical-runtime-v1` with `x-aria-trigger: scheduler`.
 - `supabase/functions/aria-canonical-runtime-v1/index.ts` treats `scheduler` and `mission-tick` as asynchronous dispatches to `aria-mission-runner-v22` and returns HTTP 202 when accepted.
-- `supabase/functions/aria-mission-runner-v22/index.ts` has mission lease/recovery and execution logic. With no `mission_id`, it calls `aria_mission_claim_next_lease` and returns `idle` when no mission is available; otherwise it claims and executes the next mission. Thus the existing cron is a regular queue-worker trigger, not evidence that a self-improvement cycle is being launched. Do not insert self-improvement directly into this hot path without a separate due-time/lease gate and explicit isolation from normal mission processing.
+- `supabase/functions/aria-mission-runner-v22/index.ts` has mission lease/recovery and execution logic. With no `mission_id`, it calls `aria_mission_claim_next_lease` and returns `idle` when no mission is available; otherwise it claims and executes the next mission. Thus the Cloudflare cron is a regular queue-worker trigger, not the self-improvement scheduler.
+- The repository also contains `supabase/functions/aria-autonomy-supervisor-v5/index.ts`, which calls the device gateway's `/v1/autonomy/cycle`, plus migration `20260929193000_cron_backpressure_hardening_v3.sql`, which declares the autonomy supervisor on a 5-minute cron schedule (offset at minute 2). The gateway's autonomy cycle scans active goals, recent failures, capability gaps and learnings; generates candidates; records `autonomy_cycles`; selects a queued goal; creates/reuses a mission; runs it; and learns after verified success. This is an existing autonomous goal loop and must be extended rather than duplicated. The source migration is not proof the live database schedule is currently installed.
 - `autonomy/continuous-self-improvement-v1.js` defines 13 injected stages. `maxCycles` defaults to 1 and is bounded to 1–10.
 - `autonomy/continuous-self-improvement-contract-v1.md` explicitly says that loop has no timer, network, credential, or persistence authority.
 - `autonomy/canonical-runtime.js` composes the governed mission runtime and cognitive memory/loop, but the inspected version does not compose the continuous self-improvement pipeline.
@@ -21,7 +22,9 @@ These facts establish configured source behavior only. They do **not** prove tha
 
 ## 2. Objective
 
-Reuse existing ARIA authorities to implement a safe feedback loop:
+Reuse the existing autonomy supervisor and autonomy cycle rather than building a parallel scheduler. Add Mission Twin as a governed preflight/evaluation layer over the current autonomous-goal pipeline. The requested 10-minute Mission Twin evaluation cadence should be a durable due-time gate within the existing supervisor flow, while the current 5-minute supervisor wake-up continues to serve its existing duties. Do not change the existing scheduler cadence until measured evidence shows that is necessary.
+
+Implement a safe feedback loop:
 
 **Observe → Recall → Propose → Simulate → Score → Authorize → Execute (if allowed) → Verify → Learn → Record**
 
@@ -34,9 +37,10 @@ The system may legitimately conclude **NO_ACTION**. It must never invent changes
 ## 3. Component boundaries
 
 ### Scheduler adapter
-- Reuse the existing Cloudflare Cron Trigger as the wake-up source; do not add a second independent scheduler without evidence it is needed.
-- The Worker cron currently fires every minute. The self-improvement cadence should be governed by durable due-time state (default 10 minutes), not by running the full improvement pipeline on every minute tick.
-- Each wake-up should perform only a bounded, cheap due/lease check before dispatching work.
+- Reuse the existing autonomy supervisor v5 + durable autonomy-cycle records. Do not add a second independent scheduler.
+- Repository migration history declares the supervisor every 5 minutes (offset at minute 2); Cloudflare's Worker cron separately fires every minute to service ordinary queued missions.
+- Run the new Mission Twin preflight at most once per durable 10-minute slot, guarded by an atomic due-time/lease claim. The current supervisor's existing five-minute duties must remain intact.
+- Each wake-up should perform only a bounded, cheap due/lease check before dispatching Mission Twin work.
 - A scheduler event is a trigger, not proof that the job ran or succeeded.
 
 ### Durable cycle coordinator
@@ -122,11 +126,11 @@ Rules:
 
 ## 6. Implementation sequence
 
-1. Complete read-only inventory and trace the existing scheduled empty-body request through the canonical runtime and mission runner.
-2. Confirm the current live Worker SHA and obtain scheduler-run evidence without changing production.
+1. Complete read-only inventory and trace both scheduled paths: Cloudflare queue-worker cron and the autonomy supervisor v5 cycle.
+2. Confirm the current live Worker SHA and obtain autonomy-cycle evidence without changing production.
 3. Define and test the pure Mission Twin contract with synthetic fixtures and explicit unknowns.
-4. Define the durable cycle record and lease/idempotency contract using existing supported persistence/queue authorities.
-5. Integrate the due-time check with the existing cron wake-up only after confirming the canonical route does not conflict with ordinary mission recovery.
+4. Define the durable 10-minute due-time/lease/idempotency gate using existing supported persistence/queue authorities and existing cycle evidence.
+5. Integrate Mission Twin as a preflight to candidate selection/mission execution in the existing autonomy cycle; do not duplicate goal generation, mission execution, or learning.
 6. Add the bounded coordinator in recommendation-only mode.
 7. Add tests for clock boundaries, overlapping ticks, lease expiry, duplicate prevention, restart recovery, stale evidence, cancellation, budgets, kill switch and fail-closed verification.
 8. Add isolated low-risk execution behind explicit policy; retain human approval for sensitive changes.
