@@ -258,7 +258,8 @@ function createPersistentAutonomy({ store, plan, executeTask, verifyCompletion, 
       if (!task) {
         const unresolved = mission.tasks.some(item => !['succeeded', 'skipped'].includes(item.status));
         if (unresolved) {
-          if (replan) {
+          const failedOrPaused = mission.tasks.some(item => item.status === 'failed' || item.status === 'waiting_human');
+          if (replan && !failedOrPaused) {
             const newTasks = await replan(clone(mission), { reason: 'no_runnable_tasks' });
             if (Array.isArray(newTasks) && newTasks.length) {
               await store.update(missionId, current => { current.tasks.push(...newTasks.map(normalizeTask)); current.status = 'queued'; }, 'mission_replanned', { added_tasks: newTasks.length });
