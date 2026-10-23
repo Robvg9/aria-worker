@@ -273,21 +273,28 @@ function createPersistentAutonomy({ store, plan, executeTask, verifyCompletion, 
 function createPollingSupervisor({ listMissions, tickMission, intervalMs = 5000, onError = async () => {}, shouldStop = () => false } = {}) {
   if (typeof listMissions !== 'function' || typeof tickMission !== 'function') throw new TypeError('supervisor_dependencies_required');
   let stopped = false;
+  const active = new Map();
   async function run() {
     while (!stopped && !shouldStop()) {
       try {
         const missions = await listMissions();
         for (const mission of missions) {
           if (stopped || shouldStop()) break;
-          if (['queued', 'running'].includes(mission.status)) {
-            try { await tickMission(mission.mission_id); } catch (error) { await onError({ mission_id: mission.mission_id, error: String(error && error.message || error) }); }
-          }
+          if (!['queued', 'running'].includes(mission.status) || active.has(mission.mission_id)) continue;
+          const task = Promise.resolve()
+            .then(() => tickMission(mission.mission_id))
+            .catch(error => onError({ mission_id: mission.mission_id, error: String(error && error.message || error) }))
+            .finally(() => active.delete(mission.mission_id));
+          active.set(mission.mission_id, task);
         }
-      } catch (error) { await onError({ scope: 'supervisor', error: String(error && error.message || error) }); }
+      } catch (error) {
+        await onError({ scope: 'supervisor', error: String(error && error.message || error) });
+      }
       await new Promise(resolve => setTimeout(resolve, Math.max(500, intervalMs)));
     }
+    await Promise.allSettled([...active.values()]);
   }
-  return Object.freeze({ run, stop: () => { stopped = true; } });
+  return Object.freeze({ run, stop: () => { stopped = true; }, activeCount: () => active.size });
 }
 
 module.exports = Object.freeze({ TERMINAL, MISSION_STATES, TASK_STATES, RISKS, createJsonMissionStore, createPersistentAutonomy, createPollingSupervisor, progressOf });
