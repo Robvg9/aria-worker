@@ -9,6 +9,8 @@ on:
     # Keep manual workflow_dispatch available for explicitly authorized releases.
     paths-ignore:
       - '.github/workflows/aria-cloudflare-deploy.yml'
+      - '.github/workflows/aria-pwa-fast-deploy.yml'
+      - '.github/workflows/supabase-canonical-deploy.yml'
       - '.github/workflows/aria-npm-test.yml'
       - 'pwa/src/testCatalog.ts'
       - 'tests/pc-rwht-browser.test.js'
