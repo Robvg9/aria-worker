@@ -8,6 +8,7 @@ const path = require('node:path');
 const { createJsonMissionStore, createPersistentAutonomy } = require('../autonomy/persistent-control-plane-v1');
 const { createPersistentHttpServer } = require('../autonomy/persistent-http-server-v1');
 const { createPersistentWorkerBridge, createWorkerBackedExecutor } = require('../autonomy/persistent-worker-bridge-v1');
+const { createPersistentNotifier } = require('../autonomy/persistent-notifications-v1');
 
 async function main() {
   const adapterPath = process.env.ARIA_AUTONOMY_ADAPTER;
@@ -23,6 +24,7 @@ async function main() {
   const directory = path.resolve(process.env.ARIA_MISSION_DATA_DIR || path.join(process.cwd(), '.aria-missions'));
   await fs.mkdir(directory, { recursive: true });
   const store = createJsonMissionStore({ directory });
+  const notifier = createPersistentNotifier({ directory });
   const windowsExecution = process.env.ARIA_EXECUTION_MODE === 'windows';
   const workerBridge = windowsExecution ? createPersistentWorkerBridge({ directory, leaseMs: Number(process.env.ARIA_WORKER_LEASE_MS || 60000) }) : null;
   if (windowsExecution && (typeof process.env.ARIA_WORKER_TOKEN !== 'string' || process.env.ARIA_WORKER_TOKEN.length < 32)) throw new Error('Set ARIA_WORKER_TOKEN to a separate random secret of at least 32 characters.');
@@ -33,7 +35,7 @@ async function main() {
     executeTask,
     verifyCompletion: adapter.verifyCompletion,
     replan: typeof adapter.replan === 'function' ? adapter.replan : null,
-    notify: typeof adapter.notify === 'function' ? adapter.notify : async () => {}
+    notify: notifier.notify
   });
   const app = createPersistentHttpServer({
     store, autonomy, token,
@@ -42,9 +44,11 @@ async function main() {
     runSupervisor: true,
     workerBridge,
     workerToken: process.env.ARIA_WORKER_TOKEN,
-    notify: typeof adapter.notify === 'function' ? adapter.notify : async () => {}
+    notifier,
+    notify: notifier.notify
   });
   const address = await app.listen();
+  void notifier.run();
   process.stdout.write('ARIA persistent autonomy listening at http://' + address.host + ':' + address.port + '\n');
   process.stdout.write('Mission ledger: ' + directory + '\n');
   process.stdout.write('Supabase-independent mode: enabled\n');
@@ -53,6 +57,7 @@ async function main() {
     if (closing) return;
     closing = true;
     await app.close();
+    await notifier.stop();
     process.exit(0);
   }
   process.once('SIGINT', stop);
