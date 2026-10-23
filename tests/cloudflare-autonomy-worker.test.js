@@ -90,7 +90,8 @@ async function testIrreversibleTaskNeedsExplicitApproval() {
     passed: true,
     evidence: { tasks: [{ task_id: 'irreversible', title: 'Irreversible change', operation: 'workspace.write', payload: { path: 'notes/approved.txt', content: 'approved' }, irreversible: true, idempotent: true, depends_on: [] }] }
   });
-  let current = (await body(await store.fetch(request('/api/missions/' + encodeURIComponent(mission.mission_id)))).mission;
+  const missionAfterGateResponse = await store.fetch(request('/api/missions/' + encodeURIComponent(mission.mission_id)));
+  let current = (await body(missionAfterGateResponse)).mission;
   assert.equal(current.status, 'waiting_human');
   assert.equal(current.approval.status, 'pending');
   const claimEmpty = await store.fetch(request('/api/worker/claim', { method: 'POST', token: workerToken, body: { worker_id: 'test-worker' } }));
@@ -105,7 +106,8 @@ async function testIrreversibleTaskNeedsExplicitApproval() {
   await complete(store, taskJob, { passed: true, evidence: { approved: true, backup: 'notes/approved.txt.bak' } });
   const verifyJob = await claim(store, 'mission.verify');
   await complete(store, verifyJob, { passed: true, evidence: { verification: { passed: true, reason: 'Approved operation verified.' } } });
-  current = (await body(await store.fetch(request('/api/missions/' + encodeURIComponent(mission.mission_id)))).mission;
+  const missionAfterApprovalResponse = await store.fetch(request('/api/missions/' + encodeURIComponent(mission.mission_id)));
+  current = (await body(missionAfterApprovalResponse)).mission;
   assert.equal(current.status, 'succeeded');
 }
 
