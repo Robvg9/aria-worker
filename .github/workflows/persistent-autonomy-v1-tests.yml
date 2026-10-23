@@ -1,0 +1,66 @@
+name: Persistent Autonomy v1 Contract Tests
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'Dockerfile.aria-coordinator'
+      - 'autonomy/persistent-control-plane-v1.js'
+      - 'autonomy/ollama-persistent-adapter-v1.js'
+      - 'cloudflare-autonomy/worker.mjs'
+      - 'cloudflare-autonomy/assets/index.html'
+      - 'wrangler.aria-autonomy.toml'
+      - 'tests/cloudflare-autonomy-worker.test.js'
+      - '.github/workflows/aria-autonomy-coordinator-deploy.yml'
+      - '.github/workflows/aria-cloudflare-deploy.yml'
+      - 'tests/aria-autonomy-supabase-boundary.test.js'
+      - 'autonomy/persistent-worker-coordinator-adapter-v1.js'
+      - 'autonomy/persistent-http-server-v1.js'
+      - 'autonomy/persistent-worker-bridge-v1.js'
+      - 'autonomy/persistent-notifications-v1.js'
+      - 'autonomy/persistent-dashboard-v1.html'
+      - 'autonomy/persistent-autonomy-v1.env.example'
+      - 'autonomy/PERSISTENT_AUTONOMY_V1.md'
+      - 'scripts/aria-persistent-autonomy-v1.js'
+      - 'scripts/aria-persistent-coordinator-v1.js'
+      - 'scripts/aria-persistent-windows-worker-v1.js'
+      - 'scripts/Start-ARIA-Persistent-Worker.ps1'
+      - 'tests/persistent-control-plane-v1.test.js'
+      - 'tests/persistent-http-server-v1.test.js'
+      - 'tests/persistent-worker-bridge-v1.test.js'
+      - 'tests/persistent-notifications-v1.test.js'
+      - 'tests/persistent-hybrid-e2e-v1.test.js'
+      - 'tests/ollama-persistent-adapter-v1.test.js'
+      - '.github/workflows/persistent-autonomy-v1-tests.yml'
+
+concurrency:
+  group: persistent-autonomy-v1-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  contract-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node --check scripts/aria-persistent-coordinator-v1.js
+      - run: node --check scripts/aria-persistent-windows-worker-v1.js
+      - run: node --check autonomy/ollama-persistent-adapter-v1.js
+      - run: node --check cloudflare-autonomy/worker.mjs
+      - run: node tests/cloudflare-autonomy-worker.test.js
+      - run: node tests/aria-autonomy-supabase-boundary.test.js
+      - name: Validate Cloudflare build without publishing
+        run: npx --yes wrangler@latest deploy --dry-run --config wrangler.aria-autonomy.toml
+      - run: node tests/persistent-control-plane-v1.test.js
+      - run: node tests/persistent-http-server-v1.test.js
+      - run: node tests/persistent-worker-bridge-v1.test.js
+      - run: node tests/persistent-notifications-v1.test.js
+      - run: node tests/persistent-hybrid-e2e-v1.test.js
+      - run: node tests/ollama-persistent-adapter-v1.test.js

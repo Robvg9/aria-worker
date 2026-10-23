@@ -4,6 +4,43 @@ name: Deploy ARIA Cloudflare Worker
 on:
   push:
     branches: [main]
+    # Autonomy-only PRs must never trigger the legacy production pipeline:
+    # that pipeline deploys the existing ARIA Worker and also mutates Supabase.
+    # Keep manual workflow_dispatch available for explicitly authorized releases.
+    paths-ignore:
+      - '.github/workflows/aria-cloudflare-deploy.yml'
+      - '.github/workflows/aria-pwa-fast-deploy.yml'
+      - '.github/workflows/supabase-canonical-deploy.yml'
+      - '.github/workflows/aria-npm-test.yml'
+      - 'pwa/src/testCatalog.ts'
+      - 'tests/pc-rwht-browser.test.js'
+      - 'tests/pwa-capabilities-test-center-v1.test.js'
+      - '.github/workflows/aria-autonomy-coordinator-deploy.yml'
+      - '.github/workflows/persistent-autonomy-v1-tests.yml'
+      - 'Dockerfile.aria-coordinator'
+      - 'autonomy/PERSISTENT_AUTONOMY_V1.md'
+      - 'autonomy/ollama-persistent-adapter-v1.js'
+      - 'autonomy/persistent-autonomy-v1.env.example'
+      - 'autonomy/persistent-control-plane-v1.js'
+      - 'autonomy/persistent-dashboard-v1.html'
+      - 'autonomy/persistent-http-server-v1.js'
+      - 'autonomy/persistent-notifications-v1.js'
+      - 'autonomy/persistent-worker-bridge-v1.js'
+      - 'autonomy/persistent-worker-coordinator-adapter-v1.js'
+      - 'cloudflare-autonomy/**'
+      - 'scripts/Start-ARIA-Persistent-Worker.ps1'
+      - 'scripts/aria-persistent-autonomy-v1.js'
+      - 'scripts/aria-persistent-coordinator-v1.js'
+      - 'scripts/aria-persistent-windows-worker-v1.js'
+      - 'tests/cloudflare-autonomy-worker.test.js'
+      - 'tests/aria-autonomy-supabase-boundary.test.js'
+      - 'tests/ollama-persistent-adapter-v1.test.js'
+      - 'tests/persistent-control-plane-v1.test.js'
+      - 'tests/persistent-http-server-v1.test.js'
+      - 'tests/persistent-hybrid-e2e-v1.test.js'
+      - 'tests/persistent-notifications-v1.test.js'
+      - 'tests/persistent-worker-bridge-v1.test.js'
+      - 'wrangler.aria-autonomy.toml'
   workflow_dispatch:
 concurrency:
   # Never interrupt a production deploy after it starts. The PWA fast lane

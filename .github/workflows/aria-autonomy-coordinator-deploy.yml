@@ -1,0 +1,94 @@
+name: Deploy ARIA autonomy coordinator (independent)
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_public_deploy:
+        description: "Deploy a new, separate ARIA autonomy Worker with Durable Object storage"
+        type: boolean
+        required: true
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    if: inputs.confirm_public_deploy == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Validate isolated coordinator
+        run: |
+          set -euo pipefail
+          node --check cloudflare-autonomy/worker.mjs
+          node tests/cloudflare-autonomy-worker.test.js
+      - name: Validate deployment secrets without printing them
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          ARIA_CONTROL_TOKEN: ${{ secrets.ARIA_AUTONOMY_CONTROL_TOKEN }}
+          ARIA_WORKER_TOKEN: ${{ secrets.ARIA_AUTONOMY_WORKER_TOKEN }}
+          ARIA_NOTIFICATION_WEBHOOK_URL: ${{ secrets.ARIA_AUTONOMY_NOTIFICATION_WEBHOOK_URL }}
+          ARIA_NOTIFICATION_TOKEN: ${{ secrets.ARIA_AUTONOMY_NOTIFICATION_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$CLOUDFLARE_API_TOKEN"
+          test -n "$CLOUDFLARE_ACCOUNT_ID"
+          test "${#ARIA_CONTROL_TOKEN}" -ge 32
+          test "${#ARIA_WORKER_TOKEN}" -ge 32
+          test "$ARIA_CONTROL_TOKEN" != "$ARIA_WORKER_TOKEN"
+          if test -n "$ARIA_NOTIFICATION_WEBHOOK_URL"; then
+            case "$ARIA_NOTIFICATION_WEBHOOK_URL" in https://*) ;; *) echo "Notification webhook must use HTTPS"; exit 1 ;; esac
+          fi
+          echo "ARIA_AUTONOMY_DEPLOY_SECRETS_VALID=true"
+      - name: Install Wrangler
+        run: npm install --global wrangler@latest
+      - name: Deploy isolated Worker and Durable Object
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          ARIA_CONTROL_TOKEN: ${{ secrets.ARIA_AUTONOMY_CONTROL_TOKEN }}
+          ARIA_WORKER_TOKEN: ${{ secrets.ARIA_AUTONOMY_WORKER_TOKEN }}
+          ARIA_NOTIFICATION_WEBHOOK_URL: ${{ secrets.ARIA_AUTONOMY_NOTIFICATION_WEBHOOK_URL }}
+          ARIA_NOTIFICATION_TOKEN: ${{ secrets.ARIA_AUTONOMY_NOTIFICATION_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os
+          payload = {
+              "ARIA_CONTROL_TOKEN": os.environ["ARIA_CONTROL_TOKEN"],
+              "ARIA_WORKER_TOKEN": os.environ["ARIA_WORKER_TOKEN"],
+          }
+          for key in ("ARIA_NOTIFICATION_WEBHOOK_URL", "ARIA_NOTIFICATION_TOKEN"):
+              if os.environ.get(key):
+                  payload[key] = os.environ[key]
+          with open(".aria-autonomy-secrets.json", "w", encoding="utf-8") as handle:
+              json.dump(payload, handle)
+          PY
+          trap 'rm -f .aria-autonomy-secrets.json' EXIT
+          wrangler deploy --config wrangler.aria-autonomy.toml --secrets-file .aria-autonomy-secrets.json
+          echo "ARIA_AUTONOMY_CLOUDFLARE_DEPLOY_COMMAND_COMPLETED=true"
+      - name: Verify live health and auth boundary
+        env:
+          ARIA_CONTROL_TOKEN: ${{ secrets.ARIA_AUTONOMY_CONTROL_TOKEN }}
+        run: |
+          set -euo pipefail
+          base="https://aria-autonomy-coordinator.robvg9.workers.dev"
+          health="$(curl --fail --silent --show-error --max-time 15 "$base/health")"
+          HEALTH="$health" python - <<'PY'
+          import json, os
+          x=json.loads(os.environ["HEALTH"])
+          assert x.get("ok") is True
+          assert x.get("supabase_independent") is True
+          PY
+          code="$(curl --silent --show-error --max-time 15 -o /tmp/aria-autonomy-unauth.json -w '%{http_code}' "$base/api/missions")"
+          test "$code" = "401"
+          code="$(curl --silent --show-error --max-time 15 -o /tmp/aria-autonomy-auth.json -w '%{http_code}' "$base/api/missions" -H "Authorization: Bearer $ARIA_CONTROL_TOKEN")"
+          test "$code" = "200"
+          echo "ARIA_AUTONOMY_LIVE_HEALTH_AND_AUTH_PASS=true"

@@ -21,6 +21,16 @@ on:
       - 'tests/supabase-canonical-deploy-contract.test.js'
       - 'runtime/**'
       - 'health/effective-status.js'
+      - '!autonomy/PERSISTENT_AUTONOMY_V1.md'
+      - '!autonomy/ollama-persistent-adapter-v1.js'
+      - '!autonomy/persistent-autonomy-v1.env.example'
+      - '!autonomy/persistent-control-plane-v1.js'
+      - '!autonomy/persistent-dashboard-v1.html'
+      - '!autonomy/persistent-http-server-v1.js'
+      - '!autonomy/persistent-notifications-v1.js'
+      - '!autonomy/persistent-worker-bridge-v1.js'
+      - '!autonomy/persistent-worker-coordinator-adapter-v1.js'
+      - '!.github/workflows/supabase-canonical-deploy.yml'
   workflow_dispatch:
 
 permissions:

@@ -1,0 +1,18 @@
+name = "aria-autonomy-coordinator"
+main = "cloudflare-autonomy/worker.mjs"
+compatibility_date = "2026-10-01"
+compatibility_flags = ["nodejs_compat"]
+workers_dev = true
+
+[assets]
+directory = "./cloudflare-autonomy/assets"
+binding = "ASSETS"
+run_worker_first = true
+
+[[durable_objects.bindings]]
+name = "ARIA_MISSIONS"
+class_name = "AriaMissionStore"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["AriaMissionStore"]
