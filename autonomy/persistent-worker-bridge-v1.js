@@ -149,7 +149,7 @@ function createWorkerBackedPlanner({ bridge, timeoutMs, pollMs } = {}) {
   return async function planOnWindows(goal, context = {}) {
     const missionId = context.mission_id || ('planning_' + crypto.randomUUID());
     const job = await getOrEnqueueWorkerJob(bridge, missionId,
-      { operation: 'mission.plan', payload: { goal, metadata: context.metadata || {}, policy: context.policy || {} } },
+      { operation: 'mission.plan', payload: { goal, metadata: context.metadata || {}, policy: context.policy || {}, request_key: 'initial-plan' } },
       { goal, metadata: context.metadata || {}, policy: context.policy || {}, mode: 'plan' });
     const result = await bridge.waitForResult(job.job_id, { timeoutMs, pollMs, signal: context.signal });
     const tasks = result && result.evidence && result.evidence.tasks;
