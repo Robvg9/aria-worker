@@ -33,12 +33,13 @@ async function main() {
   });
   const notifier = createPersistentNotifier({ directory });
   const taskTimeout = Math.max(30000, Number(process.env.ARIA_WORKER_TASK_TIMEOUT_MS || 1800000));
-  const plan = createWorkerBackedPlanner({ bridge, timeoutMs: taskTimeout });
-  const replan = createWorkerBackedReplanner({ bridge, timeoutMs: taskTimeout });
-  const executeTask = createWorkerBackedExecutor({ bridge, timeoutMs: taskTimeout });
-  const verifyCompletion = createWorkerBackedVerifier({ bridge, timeoutMs: taskTimeout });
+  const controlPollTimeout = Math.max(1000, Math.min(10000, Number(process.env.ARIA_WORKER_CONTROL_POLL_TIMEOUT_MS || 2000)));
+  const plan = createWorkerBackedPlanner({ bridge, timeoutMs: controlPollTimeout, pollMs: 250 });
+  const replan = createWorkerBackedReplanner({ bridge, timeoutMs: controlPollTimeout, pollMs: 250 });
+  const executeTask = createWorkerBackedExecutor({ bridge, timeoutMs: taskTimeout, pollMs: 1000 });
+  const verifyCompletion = createWorkerBackedVerifier({ bridge, timeoutMs: controlPollTimeout, pollMs: 250 });
   const autonomy = createPersistentAutonomy({
-    store, plan, replan, executeTask, verifyCompletion, notify: notifier.notify
+    store, plan, replan, executeTask, verifyCompletion, notify: notifier.notify, deferPlanning: true
   });
   const app = createPersistentHttpServer({
     store, autonomy, token,
