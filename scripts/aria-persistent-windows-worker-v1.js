@@ -50,7 +50,7 @@ async function main() {
   if (typeof adapter.health === 'function') {
     const health = await adapter.health();
     if (!health || health.ok !== true) throw new Error('Worker adapter health check failed: local model unavailable.');
-    process.stdout.write('Local model ready: ' + (health.model || 'configured') + '\\n');
+    process.stdout.write('Local model ready: ' + (health.model || 'configured') + '\n');
   }
   process.stdout.write('ARIA Windows worker started: ' + workerId + '\n');
   process.stdout.write('Coordinator: ' + baseUrl + '\n');
