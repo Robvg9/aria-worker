@@ -486,7 +486,7 @@ export class AriaMissionStore {
       const risk = parseRisk(pending.risk);
       const maxRisk = parseRisk(mission.policy && mission.policy.max_risk || 'medium');
       const riskRank = { low: 0, medium: 1, high: 2, critical: 3 };
-      if (pending.irreversible || (mission.policy && mission.policy.require_human_approval !== false && riskRank[risk] > riskRank[maxRisk])) {
+      if (pending.irreversible || riskRank[risk] >= riskRank.high || (mission.policy && mission.policy.require_human_approval !== false && riskRank[risk] > riskRank[maxRisk])) {
         pending.status = 'waiting_human';
         mission.status = 'waiting_human';
         mission.approval = {
