@@ -337,7 +337,7 @@ async function run() {
   const context = await browser.newContext({ viewport: { width: Number(process.env.RWHT_VIEWPORT_WIDTH || 1440), height: Number(process.env.RWHT_VIEWPORT_HEIGHT || 900) }, ...(STORAGE_STATE ? { storageState: STORAGE_STATE } : {}) });
   let page = await context.newPage();
   const consoleErrors = []; const pageErrors = []; const failedResponses = [];
-  const report = { status:'partial_or_failed', auth_verified:false, reload_auth_verified:false, meditation_surface_verified:false, background_push_verified:false, notification_click_through_verified:false, notification_detail_verified:false, notification_detail_mission_id:null, notification_detail_title:null, api_health_verified:false, idea_analyzer_verified:false, governed_proposal_verified:false, mission_conversion_verified:false, mission_persistence_verified:false, notifications_route_verified:false, web_push_config_verified:false, web_push_config_elapsed_ms:null, web_push_config_timeout_ms:null, cleaned_up:false, mission_id:null, proposal_id:null, page_errors:0, console_errors:0, total_console_errors:0, external_console_errors:0, browser_environment_warnings:0, failed_responses:0, page_error_details:[], console_error_details:[], external_console_error_details:[], browser_environment_warning_details:[], failed_response_details:[], failure:null };
+  const report = { status:'partial_or_failed', auth_verified:false, reload_auth_verified:false, meditation_surface_verified:false, background_push_verified:false, notification_click_through_verified:false, notification_exact_id_fallback_verified:false, notification_omitted_from_recent_ledger:false, notification_detail_verified:false, notification_detail_mission_id:null, notification_detail_title:null, api_health_verified:false, idea_analyzer_verified:false, governed_proposal_verified:false, mission_conversion_verified:false, mission_persistence_verified:false, notifications_route_verified:false, web_push_config_verified:false, web_push_config_elapsed_ms:null, web_push_config_timeout_ms:null, cleaned_up:false, mission_id:null, proposal_id:null, page_errors:0, console_errors:0, total_console_errors:0, external_console_errors:0, browser_environment_warnings:0, failed_responses:0, page_error_details:[], console_error_details:[], external_console_error_details:[], browser_environment_warning_details:[], failed_response_details:[], failure:null };
   function trackPage(targetPage) {
     targetPage.on('console', message => {
       if (message.type() === 'error') {
@@ -502,6 +502,33 @@ async function run() {
       console.log('WEBPUSH_E2E_CONTROL_PAGE_CLOSED_BEFORE_RECEIPT');
 
       const probePage = trackPage(await context.newPage());
+      // Reproduce the real edge case deterministically: this known, persisted
+      // notification is deliberately omitted from the recent ledger response
+      // for the click-target page. The PWA must resolve its exact ID endpoint
+      // and still open the correct mission instead of silently dropping the click.
+      let notificationOmittedFromRecentLedger = false;
+      await probePage.route('**/api/meditation/notifications**', async route => {
+        const url = new URL(route.request().url());
+        if (url.pathname.endsWith('/api/meditation/notifications') && url.searchParams.has('limit')) {
+          const response = await route.fetch();
+          const body = await response.json().catch(() => null);
+          if (body && Array.isArray(body.notifications)) {
+            body.notifications = body.notifications.filter(item =>
+              String(item?.notification_id || '') !== pushProbeNotificationId
+            );
+            notificationOmittedFromRecentLedger = !body.notifications.some(item =>
+              String(item?.notification_id || '') === pushProbeNotificationId
+            );
+            await route.fulfill({ response, body: JSON.stringify(body) });
+            return;
+          }
+        }
+        await route.continue();
+      });
+      const exactLookupResponsePromise = probePage.waitForResponse(response => {
+        const url = new URL(response.url());
+        return url.pathname === '/api/meditation/notifications/' + pushProbeNotificationId;
+      }, { timeout:15000 });
       await probePage.goto(base + '#meditation', { waitUntil:'domcontentloaded', timeout:30000 });
 
       let pushReceipt = null;
@@ -532,6 +559,12 @@ async function run() {
       console.log('WEBPUSH_E2E_CLICK_DISPATCH_BEGIN id=' + pushProbeNotificationId);
       const clickResult = await dispatchNotificationClickViaServiceWorker(context, probePage, pushProbeNotificationId);
       console.log('WEBPUSH_E2E_CLICK_DISPATCH_RETURNED id=' + pushProbeNotificationId);
+      const exactLookupResponse = await exactLookupResponsePromise;
+      assert.equal(exactLookupResponse.status(), 200, 'notification_exact_id_lookup_http_' + exactLookupResponse.status());
+      assert.equal(notificationOmittedFromRecentLedger, true, 'notification_was_not_omitted_from_recent_ledger_test_fixture');
+      report.notification_omitted_from_recent_ledger = true;
+      report.notification_exact_id_fallback_verified = true;
+      console.log('WEBPUSH_E2E_EXACT_ID_FALLBACK_OK id=' + pushProbeNotificationId);
       assert.equal(clickResult.notification_id, pushProbeNotificationId, 'notification_click_id_mismatch');
       assert.equal(clickResult.click_handler_dispatched, true, 'notification_click_handler_not_dispatched');
       report.notification_click_target = clickResult.target;

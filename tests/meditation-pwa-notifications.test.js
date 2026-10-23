@@ -2,6 +2,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const { spawnSync } = require('node:child_process');
 
 function read(rel) {
   return fs.readFileSync(path.join(__dirname, '..', rel), 'utf8');
@@ -13,12 +14,15 @@ function assert(condition, message) {
 const migration = read('supabase/migrations/20260919210000_meditation_pwa_notifications_cutover_v1.sql');
 const migrationV2 = read('supabase/migrations/20260920002111_meditation_pwa_notifications_cutover_v2.sql');
 const serverSideMigration = read('supabase/migrations/20261012110400_meditation_notifications_server_side_rpc_v1.sql');
+const exactNotificationMigration = read('supabase/migrations/20261023020000_meditation_notification_by_id_v1.sql');
 const agent = read('agents/termux/aria-agent.js');
 const api = read('supabase/functions/aria-app-api-v3/index.ts');
 const app = read('pwa/src/App.tsx');
 const helper = read('pwa/src/notifications.ts');
 const sw = read('pwa/public/sw.js');
 const meditationE2E = read('rwht/pc-browser/rwht-meditation-pwa-e2e.mjs');
+const meditationE2ESyntax = spawnSync(process.execPath, ['--check', path.join(__dirname, '..', 'rwht/pc-browser/rwht-meditation-pwa-e2e.mjs')], { encoding: 'utf8' });
+assert(meditationE2ESyntax.status === 0, 'authenticated notification E2E must parse: ' + String(meditationE2ESyntax.stderr || meditationE2ESyntax.stdout || '').slice(0,1000));
 
 assert(migration.includes('drop trigger if exists trg_meditation_android_notification_delivery'), 'legacy Android notification trigger not retired in V1 contract');
 assert(migration.includes('drop function if exists aria_internal.enqueue_android_notification_jobs'), 'legacy Android notification enqueue function not retired in V1 contract');
@@ -38,6 +42,15 @@ assert(api.includes('meditationNotificationsForUser'), 'user-scoped notification
 assert(api.includes('markMeditationNotificationsReadForUser'), 'user-scoped notification ack missing');
 assert(api.includes('aria_meditation_notifications_for_user_v1'), 'notification GET must use the server-side SQL RPC');
 assert(api.includes('aria_mark_meditation_notifications_read_for_user_v1'), 'notification read ack must use the server-side SQL RPC');
+assert(exactNotificationMigration.includes('CREATE OR REPLACE FUNCTION aria_internal.aria_meditation_notification_by_id_for_user_v1'), 'exact notification lookup RPC migration missing');
+assert(exactNotificationMigration.includes('GRANT EXECUTE ON FUNCTION aria_internal.aria_meditation_notification_by_id_for_user_v1(uuid, uuid) TO service_role'), 'exact notification lookup must be service-role only');
+assert(exactNotificationMigration.includes('JOIN aria_internal.mission_state AS ms ON ms.mission_id = n.mission_id'), 'exact notification lookup must prove ownership through the canonical mission');
+assert(exactNotificationMigration.includes("ms.metadata->>'user_id' = p_user_id::text"), 'exact notification lookup must scope rows to the authenticated user');
+assert(api.includes('aria_meditation_notification_by_id_for_user_v1'), 'exact notification lookup must use the scoped SQL RPC');
+assert(api.includes('async function meditationNotificationByIdForUser'), 'exact notification lookup handler missing');
+assert(api.includes('path.match(new RegExp("/meditation/notifications/([^/]+)$"))'), 'exact notification route matcher missing');
+assert(api.includes('filterCurrentVerifiedCompletionNotifications([notification])'), 'exact notification lookup must suppress stale/unverified success rows too');
+assert(api.includes('invalid_notification_id'), 'exact notification route must validate UUID input');
 assert(!api.includes('async function meditationOwnedMissionIds'), 'notification API must not materialize large mission ID arrays in Edge Function memory');
 assert(serverSideMigration.includes('CREATE OR REPLACE FUNCTION aria_internal.aria_meditation_notifications_for_user_v1'), 'server-side notification reader RPC migration missing');
 assert(serverSideMigration.includes('CREATE OR REPLACE FUNCTION aria_internal.aria_mark_meditation_notifications_read_for_user_v1'), 'server-side notification read RPC migration missing');
@@ -59,7 +72,10 @@ assert(app.includes("from './notifications'"), 'PWA notification helper import m
 assert(app.includes('PwaNotificationCenter'), 'PWA notification center missing');
 assert(app.includes('const [missionDetailOpen, setMissionDetailOpen] = useState(false);'), 'mission modal visibility must be separate from cached mission detail data');
 assert(app.includes('async function openNotification(item: PwaNotificationItem, openMissionAfterSelection = false)'), 'native click path must be distinguishable from notification-list selection');
-assert(app.includes('void openNotification(item, true);'), 'native notification deep links must open mission detail directly');
+assert(app.includes('await openNotification(item, true);'), 'native notification deep links must open mission detail directly');
+assert(app.includes("api('/meditation/notifications/' + encodeURIComponent(id), session.accessToken)"), 'notification deep links must fetch an exact notification when it is outside the recent ledger page');
+assert(app.includes('processingNotificationHash.current === id'), 'notification hash processing must be idempotent while exact lookup is in flight');
+assert(!app.includes('if (!id || !items.length) return;'), 'deep-link resolution must not depend on the notification ledger being populated first');
 assert(app.includes('{missionDetail && missionDetailOpen && ('), 'mission detail must render only when explicitly opened, avoiding stacked modal backdrops');
 assert(app.includes('const selectedLive = selected'), 'selected notification must derive from current ledger state');
 assert(app.includes('setSelected(current => current?.notification_id === item.notification_id'), 'selected notification read state must update immediately');
@@ -80,6 +96,10 @@ assert(app.includes("window.addEventListener('hashchange', openNotificationFromH
 assert(app.includes("window.removeEventListener('hashchange', openNotificationFromHash)"), 'notification hash listener must be cleaned up');
 assert(app.includes("return { page: 'meditation', screen: 0, newMission: false };"), 'notification hash must mount the notification-owning page');
 assert(meditationE2E.includes('dispatchNotificationClickViaServiceWorker'), 'authenticated E2E must exercise Service Worker notificationclick');
+assert(meditationE2E.includes("probePage.route('**/api/meditation/notifications**'"), 'authenticated E2E must omit the selected notification from the recent ledger to exercise exact-ID fallback');
+assert(meditationE2E.includes("url.pathname === '/api/meditation/notifications/' + pushProbeNotificationId"), 'authenticated E2E must observe the exact-ID notification lookup request');
+assert(meditationE2E.includes("notification_exact_id_lookup_http_"), 'authenticated E2E must require a successful exact-ID notification response');
+assert(meditationE2E.includes('WEBPUSH_E2E_EXACT_ID_FALLBACK_OK'), 'authenticated E2E must record the exact-ID fallback proof');
 assert(meditationE2E.includes("await controllerPage.goto(base + '#meditation'"), 'push probe must attach CDP to the real PWA origin');
 assert(meditationE2E.includes("waitUntil:'load'"), 'push probe must wait for the production window.load service-worker registration handler');
 assert(meditationE2E.includes("fetch('/pwa/version.json', { cache:'no-store' })"), 'push probe must recover the exact versioned worker script from the canonical live build endpoint');

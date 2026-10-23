@@ -1800,6 +1800,7 @@ function PwaNotificationCenter({ session }: { session: Session }) {
 
   const [permission, setPermission] = useState<NotificationPermission | 'unsupported'>('default');
   const firstSync = useRef(true);
+  const processingNotificationHash = useRef<string | null>(null);
   const seenKey = 'aria_notification_seen_v1:' + session.userId;
 
   useEffect(() => {
@@ -1977,18 +1978,36 @@ function PwaNotificationCenter({ session }: { session: Session }) {
   useLiveSync(loadNotifications, session.accessToken, 8000);
 
   useEffect(() => {
-    const openNotificationFromHash = () => {
+    const openNotificationFromHash = async () => {
       const id = getNotificationIdFromHash();
-      if (!id || !items.length) return;
-      const item = items.find(x => String(x.notification_id) === id);
-      if (!item) return;
+      if (!id || processingNotificationHash.current === id) return;
+      processingNotificationHash.current = id;
+      let item = items.find(x => String(x.notification_id) === id) ?? null;
+
+      // Native push links identify one durable notification ID. It may not be
+      // inside the recent ledger page, so resolve that exact row server-side
+      // instead of silently dropping the click or opening a different result.
+      if (!item) {
+        const exact = await api('/meditation/notifications/' + encodeURIComponent(id), session.accessToken).catch(() => null);
+        item = exact?.notification && typeof exact.notification === 'object'
+          ? exact.notification as PwaNotificationItem
+          : null;
+      }
+      if (!item || getNotificationIdFromHash() !== id) {
+        if (processingNotificationHash.current === id) processingNotificationHash.current = null;
+        return;
+      }
       window.history.replaceState(null, '', '/pwa/');
-      void openNotification(item, true);
+      try {
+        await openNotification(item, true);
+      } finally {
+        if (processingNotificationHash.current === id) processingNotificationHash.current = null;
+      }
     };
-    openNotificationFromHash();
+    void openNotificationFromHash();
     window.addEventListener('hashchange', openNotificationFromHash);
     return () => window.removeEventListener('hashchange', openNotificationFromHash);
-  }, [items]);
+  }, [items, session.accessToken]);
 
   async function enableNotifications() {
     const result = await requestPwaNotificationPermission();

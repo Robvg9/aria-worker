@@ -1298,6 +1298,68 @@ async function capabilityCatalog(userId:string){
 }
 // Release-coupled read-only notification validation; the persistence browser predecessor also triggers for API-only changes.
 // Exact-SHA release checkpoint 2026-10-14: publish the acyclic Persistence + Recovery → Web Push/PWA gate graph with this API release.
+async function filterCurrentVerifiedCompletionNotifications(rawNotifications:any[]){
+  const completedNotifications=rawNotifications.filter((n:any)=>
+    String(n?.kind||"")==="mission_completed_verified" && String(n?.mission_id||"").trim()
+  );
+  if(!completedNotifications.length)return {notifications:rawNotifications,staleUnreadCount:0};
+
+  // A previously verified mission can later be invalidated. Keep completion
+  // notifications only when the mission is currently succeeded and this row
+  // points at its newest mission_verified event. Apply the same guard to list
+  // reads and exact-ID deep links so an old push cannot reopen stale success.
+  const missionIds=[...new Set(completedNotifications.map((n:any)=>String(n.mission_id)))];
+  const {data:missions,error:missionError}=await serviceClient().schema("aria_internal")
+    .from("mission_state")
+    .select("mission_id,status")
+    .in("mission_id",missionIds);
+  if(missionError)throw new Error("notification_mission_state_lookup_failed:"+missionError.message);
+
+  const {data:verifiedEvents,error:eventError}=await serviceClient().schema("aria_internal")
+    .from("mission_events")
+    .select("event_id,mission_id,payload")
+    .eq("event_type","mission_verified")
+    .in("mission_id",missionIds)
+    .order("event_id",{ascending:false})
+    .limit(1000);
+  if(eventError)throw new Error("notification_verification_lookup_failed:"+eventError.message);
+
+  const statusByMission=new Map((missions??[]).map((m:any)=>[String(m.mission_id),String(m.status||"")]));
+  const latestVerificationByMission=new Map<string,{eventId:string;verified:boolean}>();
+  for(const event of (verifiedEvents??[])){
+    const row=event as any;
+    const missionId=String(row?.mission_id||"");
+    if(missionId&&!latestVerificationByMission.has(missionId)){
+      const payload=row?.payload&&typeof row.payload==="object"?row.payload:{};
+      const verified=payload.verified===true||String(payload.verified||"").toLowerCase()==="true";
+      latestVerificationByMission.set(missionId,{eventId:String(row?.event_id||""),verified});
+    }
+  }
+
+  const staleIds=new Set<string>();
+  for(const notification of completedNotifications){
+    const missionId=String(notification?.mission_id||"");
+    const sourceEventId=String(notification?.metadata?.source_event_id||"");
+    const latestVerification=latestVerificationByMission.get(missionId);
+    const isCurrentVerifiedSuccess=statusByMission.get(missionId)==="succeeded"
+      && Boolean(sourceEventId)
+      && latestVerification?.eventId===sourceEventId
+      && latestVerification?.verified===true;
+    if(!isCurrentVerifiedSuccess)staleIds.add(String(notification?.notification_id||""));
+  }
+
+  const notifications=rawNotifications.filter((notification:any)=>
+    String(notification?.kind||"")!=="mission_completed_verified"
+    || !staleIds.has(String(notification?.notification_id||""))
+  );
+  const staleUnreadCount=rawNotifications.filter((notification:any)=>
+    String(notification?.kind||"")==="mission_completed_verified"
+    && staleIds.has(String(notification?.notification_id||""))
+    && !notification?.read_at
+  ).length;
+  return {notifications,staleUnreadCount};
+}
+
 async function meditationNotificationsForUser(userId:string,unreadOnly=false,limit=50){
   const safeLimit=Math.max(1,Math.min(100,Number(limit)||50));
   const {data,error}=await serviceClient().schema("aria_internal").rpc("aria_meditation_notifications_for_user_v1",{
@@ -1308,76 +1370,28 @@ async function meditationNotificationsForUser(userId:string,unreadOnly=false,lim
   if(error)throw new Error(error.message);
   const result=data&&typeof data==="object"?data:{};
   const rawNotifications=Array.isArray(result.notifications)?result.notifications:[];
-  const completedNotifications=rawNotifications.filter((n:any)=>
-    String(n?.kind||"")==="mission_completed_verified" && String(n?.mission_id||"").trim()
-  );
-
-  // A previously verified mission can later be invalidated. Keep completion
-  // notifications only when the mission is currently succeeded and this row
-  // points at its newest mission_verified event. This prevents stale success
-  // pushes from resurfacing a blocked or corrected mission in the PWA.
-  let visibleNotifications=rawNotifications;
-  let staleUnreadCount=0;
-  if(completedNotifications.length){
-    const missionIds=[...new Set(completedNotifications.map((n:any)=>String(n.mission_id)))];
-    const {data:missions,error:missionError}=await serviceClient().schema("aria_internal")
-      .from("mission_state")
-      .select("mission_id,status")
-      .in("mission_id",missionIds);
-    if(missionError)throw new Error("notification_mission_state_lookup_failed:"+missionError.message);
-
-    const {data:verifiedEvents,error:eventError}=await serviceClient().schema("aria_internal")
-      .from("mission_events")
-      .select("event_id,mission_id,payload")
-      .eq("event_type","mission_verified")
-      .in("mission_id",missionIds)
-      .order("event_id",{ascending:false})
-      .limit(1000);
-    if(eventError)throw new Error("notification_verification_lookup_failed:"+eventError.message);
-
-    const statusByMission=new Map((missions??[]).map((m:any)=>[String(m.mission_id),String(m.status||"")]));
-    const latestVerificationByMission=new Map<string,{eventId:string;verified:boolean}>();
-    for(const event of (verifiedEvents??[])){
-      const row=event as any;
-      const missionId=String(row?.mission_id||"");
-      if(missionId&&!latestVerificationByMission.has(missionId)){
-        const payload=row?.payload&&typeof row.payload==="object"?row.payload:{};
-        const verified=payload.verified===true||String(payload.verified||"").toLowerCase()==="true";
-        latestVerificationByMission.set(missionId,{eventId:String(row?.event_id||""),verified});
-      }
-    }
-
-    const staleIds=new Set<string>();
-    for(const notification of completedNotifications){
-      const missionId=String(notification?.mission_id||"");
-      const sourceEventId=String(notification?.metadata?.source_event_id||"");
-      const latestVerification=latestVerificationByMission.get(missionId);
-      const isCurrentVerifiedSuccess=statusByMission.get(missionId)==="succeeded"
-        && Boolean(sourceEventId)
-        && latestVerification?.eventId===sourceEventId
-        && latestVerification?.verified===true;
-      if(!isCurrentVerifiedSuccess)staleIds.add(String(notification?.notification_id||""));
-    }
-
-    visibleNotifications=rawNotifications.filter((notification:any)=>
-      String(notification?.kind||"")!=="mission_completed_verified"
-      || !staleIds.has(String(notification?.notification_id||""))
-    );
-    staleUnreadCount=rawNotifications.filter((notification:any)=>
-      String(notification?.kind||"")==="mission_completed_verified"
-      && staleIds.has(String(notification?.notification_id||""))
-      && !notification?.read_at
-    ).length;
-  }
-
+  const filtered=await filterCurrentVerifiedCompletionNotifications(rawNotifications);
   return{
     version:"aria-meditation-notifications-v1",
-    notifications:visibleNotifications,
-    unread_count:Math.max(0,(Number(result.unread_count)||0)-staleUnreadCount),
+    notifications:filtered.notifications,
+    unread_count:Math.max(0,(Number(result.unread_count)||0)-filtered.staleUnreadCount),
     external_channels:result.external_channels&&typeof result.external_channels==="object"
       ? result.external_channels
       : {configured:true,channels:["web_push"]}
   };
+}
+
+async function meditationNotificationByIdForUser(userId:string,notificationId:string){
+  const {data,error}=await serviceClient().schema("aria_internal").rpc("aria_meditation_notification_by_id_for_user_v1",{
+    p_user_id:userId,
+    p_notification_id:notificationId
+  });
+  if(error)throw new Error(error.message);
+  const result=data&&typeof data==="object"?data:{};
+  const notification=result.notification&&typeof result.notification==="object"?result.notification:null;
+  if(!notification)return null;
+  const filtered=await filterCurrentVerifiedCompletionNotifications([notification]);
+  return filtered.notifications[0]??null;
 }
 async function dispatchMeditationWebPushNotification(notification:any, providedSecret:string){
   const sb=serviceClient();
@@ -2265,6 +2279,22 @@ Deno.serve(async (req) => {
       } catch (e) {
         const status=Number((e as any)?.status||500);
         return json({error:String((e as any)?.message||e),trace_id:trace},status);
+      }
+    }
+    const notificationByIdPath=path.match(new RegExp("/meditation/notifications/([^/]+)$"));
+    if(req.method==="GET"&&notificationByIdPath){
+      const notificationId=decodeURIComponent(notificationByIdPath[1]);
+      if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(notificationId)){
+        return json({error:"invalid_notification_id",trace_id:trace},400);
+      }
+      try{
+        const notification=await meditationNotificationByIdForUser(user.id,notificationId);
+        if(!notification)return json({error:"notification_not_found",trace_id:trace},404);
+        return json({ok:true,notification,trace_id:trace});
+      }catch(e){
+        const message=String((e as any)?.message||e).slice(0,300);
+        console.error("meditation_notification_by_id_failed",{trace_id:trace,error:message});
+        return json({error:"meditation_notification_unavailable",trace_id:trace},502);
       }
     }
     if (req.method === "GET" && path.endsWith("/meditation/notifications")) {
