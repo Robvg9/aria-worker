@@ -165,7 +165,8 @@ function progressOf(mission) {
   const tasks = mission.tasks || [];
   if (!tasks.length) return mission.status === 'succeeded' ? 100 : 0;
   const weight = task => task.status === 'succeeded' || task.status === 'skipped' ? 1 : task.status === 'failed' ? 0.25 : 0;
-  return Math.floor(tasks.reduce((sum, task) => sum + weight(task), 0) / tasks.length * 100);
+  const computed = Math.floor(tasks.reduce((sum, task) => sum + weight(task), 0) / tasks.length * 100);
+  return computed >= 100 && mission.status !== 'succeeded' ? 99 : computed;
 }
 
 function createPersistentAutonomy({ store, plan, executeTask, verifyCompletion, notify = async () => {}, replan = null, now = Date.now } = {}) {
@@ -218,7 +219,8 @@ function createPersistentAutonomy({ store, plan, executeTask, verifyCompletion, 
       }
       const maxRisk = RISKS.indexOf(mission.policy.max_auto_risk || 'medium');
       const taskRisk = RISKS.indexOf(task.risk || 'critical');
-      if (task.irreversible || taskRisk > maxRisk || taskRisk >= RISKS.indexOf('high')) {
+      const previouslyApproved = mission.approval && mission.approval.task_id === task.task_id && mission.approval.status === 'approved';
+      if (!previouslyApproved && (task.irreversible || taskRisk > maxRisk || taskRisk >= RISKS.indexOf('critical'))) {
         const approval = await store.requestApproval(missionId, { task_id: task.task_id, task_title: task.title, risk: task.risk, irreversible: task.irreversible, reason: task.irreversible ? 'Irreversible action requires explicit human approval.' : 'Task risk exceeds autonomous policy.' });
         await notify({ type: 'human_intervention_required', mission_id: missionId, approval_id: approval.approval_id, reason: approval.reason, task });
         return store.get(missionId);
