@@ -1,4 +1,5 @@
 name: ARIA Meditation IA — Production Web Push E2E
+# 2026-10-23: re-trigger exact-SHA production Web Push certification after a cancelled deploy attempt; no behavior change.
 
 on:
   push:
