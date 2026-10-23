@@ -65,3 +65,50 @@ for (const marker of [
   }
 }
 console.log("mission-runner-v22 Android-specific RWHT capability contract: PASS");
+
+
+// Quota/payment failures are terminal for the blocked provider/account:
+// model routing may continue only to a different verified provider/account,
+// and agent fallback must not repeatedly traverse the same blocked service.
+const quotaGuardStart = s.indexOf("function isProviderQuotaBlocked");
+const quotaGuardEnd = s.indexOf("const AGENT_RECOVERY_FALLBACKS", quotaGuardStart);
+if (quotaGuardStart < 0 || quotaGuardEnd < 0) {
+  throw new Error("missing provider quota circuit-breaker helper");
+}
+const quotaGuard = s.slice(quotaGuardStart, quotaGuardEnd);
+for (const marker of [
+  "status === 402",
+  "quota",
+  "payment",
+  "insufficient",
+]) {
+  if (!quotaGuard.includes(marker)) {
+    throw new Error("provider quota circuit breaker missing marker: " + marker);
+  }
+}
+
+const modelExecuteStart = s.indexOf("async function modelExecute(");
+const agentExecuteStart = s.indexOf("async function agentExecute(", modelExecuteStart);
+if (modelExecuteStart < 0 || agentExecuteStart < 0) {
+  throw new Error("missing canonical model/agent execution functions");
+}
+const modelExecute = s.slice(modelExecuteStart, agentExecuteStart);
+for (const marker of [
+  "const blockedProviderAccounts = new Set<string>()",
+  "blockedProviderAccounts.has(routeAccountKey)",
+  "isProviderQuotaBlocked(response.status, err.provider_status, err.code, err.message)",
+  "blockedProviderAccounts.add(routeAccountKey)",
+]) {
+  if (!modelExecute.includes(marker)) {
+    throw new Error("model quota circuit-breaker missing marker: " + marker);
+  }
+}
+
+const agentExecuteEnd = s.indexOf("async function easGraphQL(", agentExecuteStart);
+const agentExecute = s.slice(agentExecuteStart, agentExecuteEnd);
+const quotaHardStop = agentExecute.indexOf("provider_quota_blocked");
+const fallbackAttempt = agentExecute.indexOf("const fallback = AGENT_RECOVERY_FALLBACKS[agentId]");
+if (quotaHardStop < 0 || fallbackAttempt < 0 || quotaHardStop > fallbackAttempt) {
+  throw new Error("agent quota failures must stop before attempting another agent fallback");
+}
+console.log("provider quota/payment circuit-breaker contract: PASS");
