@@ -208,12 +208,17 @@ function progressOf(mission) {
   return computed >= 100 && mission.status !== 'succeeded' ? 99 : computed;
 }
 
-function createPersistentAutonomy({ store, plan, executeTask, verifyCompletion, notify = async () => {}, replan = null, now = Date.now } = {}) {
+function createPersistentAutonomy({ store, plan, executeTask, verifyCompletion, notify = async () => {}, replan = null, now = Date.now, deferPlanning = false } = {}) {
   if (!store || typeof store.create !== 'function' || typeof store.get !== 'function') throw new TypeError('store_required');
   if (typeof plan !== 'function' || typeof executeTask !== 'function' || typeof verifyCompletion !== 'function') throw new TypeError('plan_execute_verify_required');
   if (replan !== null && typeof replan !== 'function') throw new TypeError('replan_must_be_function');
 
   async function start({ goal, metadata = {}, policy = {} } = {}) {
+    if (deferPlanning) {
+      const mission = await store.create({ goal, tasks: [], metadata, policy, status: 'planning' });
+      await notify({ type: 'mission_started', mission_id: mission.mission_id, goal: mission.goal, planning: true });
+      return mission;
+    }
     const tasks = await plan(goal, { metadata, policy });
     if (!Array.isArray(tasks) || !tasks.length) throw new Error('planner_must_return_tasks');
     const mission = await store.create({ goal, tasks, metadata, policy });
@@ -221,9 +226,57 @@ function createPersistentAutonomy({ store, plan, executeTask, verifyCompletion, 
     return mission;
   }
 
+  async function planMission(missionId, options = {}) {
+    const mission = await store.get(missionId);
+    if (!mission) throw new Error('mission_not_found');
+    if (mission.status !== 'planning') return mission;
+    try {
+      const tasks = await plan(mission.goal, {
+        metadata: mission.metadata || {}, policy: mission.policy || {},
+        mission_id: mission.mission_id, prior_tasks: mission.tasks || [], signal: options.signal
+      });
+      if (!Array.isArray(tasks) || !tasks.length) throw new Error('planner_must_return_tasks');
+      const normalized = tasks.map(normalizeTask);
+      validateTaskGraph(normalized);
+      await store.update(missionId, current => {
+        if (current.status !== 'planning') return;
+        current.tasks = normalized;
+        current.status = 'queued';
+        current.last_error = null;
+        current.planning_completed_at = isoNow();
+        current.progress_percent = progressOf(current);
+      }, 'mission_plan_created', { task_count: normalized.length });
+      await notify({ type: 'mission_plan_created', mission_id: missionId, task_count: normalized.length });
+      return store.get(missionId);
+    } catch (error) {
+      const message = String(error && error.message || error).slice(0, 1000);
+      const transient = /worker_job_timeout|worker_wait_aborted|ECONNRESET|ECONNREFUSED|fetch failed|timed? ?out|timeout/i.test(message);
+      const attempts = (mission.planning_attempts || 0) + 1;
+      await store.update(missionId, current => {
+        current.planning_attempts = attempts;
+        current.last_error = message;
+        current.status = transient || attempts < 3 ? 'planning' : 'waiting_human';
+        current.progress_percent = progressOf(current);
+      }, transient || attempts < 3 ? 'mission_planning_deferred' : 'mission_planning_failed', { attempts, transient, error: message });
+      if (mission.last_error !== message) {
+        await notify({ type: transient ? 'worker_waiting_for_planner' : 'mission_planning_error', mission_id: missionId, reason: message, attempts });
+      }
+      if (!transient && attempts >= 3) {
+        await notify({ type: 'human_intervention_required', mission_id: missionId, reason: 'planner_failed_repeatedly', details: message });
+      }
+      return store.get(missionId);
+    }
+  }
+
   const activeTicks = new Set();
 
   async function runTick(missionId, options = {}) {
+    const initialMission = await store.get(missionId);
+    if (!initialMission) throw new Error('mission_not_found');
+    if (initialMission.status === 'planning') {
+      const planned = await planMission(missionId, options);
+      if (planned.status === 'planning' || planned.status === 'waiting_human') return planned;
+    }
     const maxSteps = Number.isInteger(options.max_steps) ? Math.max(1, Math.min(100, options.max_steps)) : 10;
     const maxRuntime = Number.isInteger(options.max_runtime_ms) ? Math.max(1000, options.max_runtime_ms) : 60000;
     const deadline = now() + maxRuntime;
@@ -355,7 +408,7 @@ function createPersistentAutonomy({ store, plan, executeTask, verifyCompletion, 
     return tick(missionId, options);
   }
 
-  return Object.freeze({ start, tick, resume });
+  return Object.freeze({ start, planMission, tick, resume });
 }
 
 function createPollingSupervisor({ listMissions, tickMission, intervalMs = 5000, onError = async () => {}, shouldStop = () => false } = {}) {
@@ -368,7 +421,7 @@ function createPollingSupervisor({ listMissions, tickMission, intervalMs = 5000,
         const missions = await listMissions();
         for (const mission of missions) {
           if (stopped || shouldStop()) break;
-          if (!['queued', 'running'].includes(mission.status) || active.has(mission.mission_id)) continue;
+          if (!['planning', 'queued', 'running'].includes(mission.status) || active.has(mission.mission_id)) continue;
           const task = Promise.resolve()
             .then(() => tickMission(mission.mission_id))
             .catch(error => onError({ mission_id: mission.mission_id, error: String(error && error.message || error) }))
