@@ -18,6 +18,7 @@ on:
       - 'scripts/aria-persistent-autonomy-v1.js'
       - 'scripts/aria-persistent-coordinator-v1.js'
       - 'scripts/aria-persistent-windows-worker-v1.js'
+      - 'scripts/Start-ARIA-Persistent-Worker.ps1'
       - 'tests/persistent-control-plane-v1.test.js'
       - 'tests/persistent-http-server-v1.test.js'
       - 'tests/persistent-worker-bridge-v1.test.js'
