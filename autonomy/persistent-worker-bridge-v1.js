@@ -175,7 +175,7 @@ function createWorkerBackedVerifier({ bridge, timeoutMs, pollMs } = {}) {
   if (!bridge || typeof bridge.enqueue !== 'function' || typeof bridge.waitForResult !== 'function') throw new TypeError('worker_bridge_required');
   return async function verifyOnWindows(mission, context = {}) {
     const job = await getOrEnqueueWorkerJob(bridge, mission.mission_id,
-      { operation: 'mission.verify', payload: {} },
+      { operation: 'mission.verify', payload: { request_key: mission.updated_at || 'verify-initial' } },
       { goal: mission.goal, metadata: mission.metadata || {}, policy: mission.policy || {}, mission: clone(mission), mode: 'verify' });
     const result = await bridge.waitForResult(job.job_id, { timeoutMs, pollMs, signal: context.signal });
     const verification = result && result.evidence && result.evidence.verification;
