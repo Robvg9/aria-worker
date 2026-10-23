@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ARIA · Mission Control</title>
+<style>
+:root{color-scheme:dark;--bg:#10131a;--panel:#191e29;--line:#30394a;--text:#edf2fb;--muted:#aab6c9;--accent:#8eb8ff;--ok:#7bd8aa;--warn:#ffd27c;--bad:#ff9696}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 system-ui,-apple-system,Segoe UI,sans-serif}main{max-width:1120px;margin:auto;padding:24px}header{display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:20px}.eyebrow{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.12em}h1{margin:2px 0;font-size:clamp(24px,4vw,34px)}h2{font-size:18px;margin:0 0 12px}p{margin:4px 0;color:var(--muted)}.panel,.mission{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:18px;margin-bottom:16px}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px}.metric{background:#121722;border-radius:12px;padding:14px}.metric strong{display:block;font-size:26px}.row{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}.status{border:1px solid var(--line);border-radius:999px;padding:3px 10px;font-size:12px}.success{color:var(--ok)}.warning{color:var(--warn)}.danger{color:var(--bad)}.muted{color:var(--muted)}.progress{height:8px;border-radius:99px;background:#30394a;overflow:hidden;margin:10px 0}.progress span{display:block;height:100%;background:var(--ok)}label{display:block;color:var(--muted);font-size:13px;margin-bottom:6px}input,textarea,button{font:inherit;border-radius:10px;border:1px solid var(--line);padding:10px 12px}input,textarea{width:100%;background:#10151f;color:var(--text)}textarea{min-height:76px;resize:vertical}button{background:#243651;color:var(--text);cursor:pointer}button:hover{filter:brightness(1.15)}button:disabled{opacity:.5;cursor:wait}.formgrid{display:grid;grid-template-columns:minmax(180px,1fr) auto;gap:12px;align-items:end}.task{padding:10px 0;border-top:1px solid var(--line)}.task:first-child{border-top:0}.pill{display:inline-block;background:#252d3b;border-radius:7px;padding:2px 7px;font-size:12px}.actions{display:flex;gap:8px;flex-wrap:wrap}.notice{padding:12px;border-radius:10px;background:#30291b;border:1px solid #5d4b27;margin-top:12px}.empty{padding:36px;text-align:center;color:var(--muted)}pre{white-space:pre-wrap;overflow-wrap:anywhere;color:var(--muted);font-size:12px}@media(max-width:600px){main{padding:14px}.formgrid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<main>
+<header>
+ <div><div class="eyebrow">Sistema de autonomía persistente · sin Supabase</div><h1>ARIA Mission Control</h1><p>Misiones, evidencias, bloqueos y progreso verificado.</p></div>
+ <div class="row"><span id="connection" class="status">Sin conectar</span><button id="refresh">Actualizar</button></div>
+</header>
+<section class="panel">
+ <h2>Conexión local</h2>
+ <p>El token se conserva solo en la sesión actual del navegador. No lo compartas ni lo incluyas en capturas.</p>
+ <div class="formgrid" style="margin-top:12px"><div><label for="token">Token de control</label><input id="token" type="password" autocomplete="current-password" placeholder="ARIA_CONTROL_TOKEN (mínimo 32 caracteres)"></div><button id="connect">Conectar</button></div>
+ <div id="error" class="danger" role="alert"></div>
+</section>
+<section class="panel">
+ <h2>Asignar una misión</h2>
+ <p>Describe el resultado deseado. El adaptador de IA configurado en el ejecutor determina cómo planificar y realizar el trabajo.</p>
+ <form id="missionForm" style="margin-top:12px">
+  <label for="goal">Objetivo</label><textarea id="goal" required placeholder="Ej.: Implementar y verificar..."></textarea>
+  <div class="row" style="margin-top:10px"><span class="muted">Las acciones irreversibles requieren aprobación humana.</span><button id="submitMission" type="submit">Crear misión</button></div>
+ </form>
+</section>
+<section class="grid" id="metrics">
+ <div class="metric"><span class="muted">Misiones</span><strong>—</strong></div><div class="metric"><span class="muted">En ejecución</span><strong>—</strong></div><div class="metric"><span class="muted">Requieren atención</span><strong>—</strong></div><div class="metric"><span class="muted">Completadas verificadas</span><strong>—</strong></div>
+</section>
+<section class="panel">
+ <div class="row"><h2>Notificaciones</h2><span id="notificationStatus" class="muted">Sin datos</span></div>
+ <p>Los avisos pendientes se guardan en el outbox aunque todavía no se haya configurado un canal externo.</p>
+ <div id="notifications" style="margin-top:10px"><p>Conecta el panel para consultar los avisos.</p></div>
+</section>
+<section><div class="row" style="margin:20px 0 12px"><h2>Misiones</h2><span id="updated" class="muted">Aún sin datos</span></div><div id="missions"><div class="empty">Conecta el panel para consultar el estado real.</div></div></section>
+</main>
+<script>
+(function(){
+ const $=id=>document.getElementById(id);
+ const tokenInput=$('token');
+ tokenInput.value=sessionStorage.getItem('aria-control-token')||'';
+ let busy=false;
+ function esc(v){return String(v==null?'':v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+ function token(){return tokenInput.value.trim();}
+ async function api(url,options){
+  const response=await fetch(url,Object.assign({headers:{'Authorization':'Bearer '+token(),'Content-Type':'application/json'}},options||{}));
+  const body=await response.json().catch(()=>({error:'invalid_response'}));
+  if(!response.ok)throw new Error(body.error||('HTTP '+response.status));
+  return body;
+ }
+ function statusClass(status){return status==='succeeded'?'success':(['waiting_human','failed'].includes(status)?'warning':'');}
+ function taskHtml(t){
+  return '<div class="task"><div class="row"><strong>'+esc(t.title)+'</strong><span class="pill">'+esc(t.status)+'</span></div><div class="muted">Riesgo: '+esc(t.risk)+' · Intentos: '+esc(t.attempts)+'/'+esc(t.max_attempts)+'</div>'+(t.last_error?'<div class="danger">'+esc(t.last_error)+'</div>':'')+((t.evidence||[]).length?'<pre>'+esc(JSON.stringify(t.evidence))+'</pre>':'')+'</div>';
+ }
+ function missionHtml(m){
+  const pending=m.approval&&m.approval.status==='pending';
+  const tasks=(m.tasks||[]).map(taskHtml).join('');
+  const approval=pending?'<div class="notice"><strong>Se necesita tu aprobación</strong><p>'+esc(m.approval.reason||m.approval.task_title||'Acción bloqueada')+'</p><div class="actions" style="margin-top:10px"><button data-approval="'+esc(m.approval.approval_id)+'" data-decision="approved">Aprobar y continuar</button><button data-approval="'+esc(m.approval.approval_id)+'" data-decision="rejected">Rechazar</button></div></div>':'';
+  return '<article class="mission"><div class="row"><div><div class="eyebrow">'+esc(m.mission_id)+'</div><h2>'+esc(m.goal)+'</h2></div><span class="status '+statusClass(m.status)+'">'+esc(m.status)+'</span></div><div class="row"><strong>'+esc(m.progress_percent||0)+'% completado</strong><span class="muted">'+(m.tasks||[]).filter(t=>t.status==='succeeded').length+' / '+(m.tasks||[]).length+' tareas verificadas</span></div><div class="progress"><span style="width:'+Math.max(0,Math.min(100,Number(m.progress_percent)||0))+'%"></span></div>'+approval+'<div style="margin-top:12px">'+(tasks||'<p>Esperando el plan de ejecución.</p>')+'</div><div class="actions" style="margin-top:12px"><button data-events="'+esc(m.mission_id)+'">Ver historial</button>'+(m.status==='waiting_human'&&!pending?'<button data-resume="'+esc(m.mission_id)+'">Reanudar</button>':'')+'</div><pre id="events-'+esc(m.mission_id)+'" hidden></pre></article>';
+ }
+ async function refresh(){
+  if(busy||!token())return;
+  busy=true;
+  try{
+   const data=await api('/api/missions');
+   const missions=data.missions||[];
+   $('connection').textContent='Conectado';$('connection').className='status success';$('error').textContent='';
+   const running=missions.filter(m=>['planning','queued','running'].includes(m.status)).length;
+   const waiting=missions.filter(m=>m.status==='waiting_human'||m.status==='failed').length;
+   const done=missions.filter(m=>m.status==='succeeded').length;
+   $('metrics').innerHTML=[['Misiones',missions.length],['En ejecución',running],['Requieren atención',waiting],['Completadas verificadas',done]].map(x=>'<div class="metric"><span class="muted">'+esc(x[0])+'</span><strong>'+esc(x[1])+'</strong></div>').join('');
+   $('missions').innerHTML=missions.length?missions.map(missionHtml).join(''):'<div class="empty">Todavía no hay misiones.</div>';
+   const notificationData=await api('/api/notifications');
+   const notifications=notificationData.notifications||[];
+   const waitingNotifications=notifications.filter(n=>n.status!=='delivered').length;
+   $('notificationStatus').textContent=waitingNotifications+' pendientes · '+notifications.length+' totales';
+   $('notifications').innerHTML=notifications.length?notifications.slice(0,12).map(n=>'<div class="task"><div class="row"><strong>'+esc(n.event&&n.event.type||'ARIA event')+'</strong><span class="status '+(n.status==='delivered'?'success':'warning')+'">'+esc(n.status)+'</span></div><div class="muted">'+esc(n.created_at)+' · '+esc(n.event&&n.event.mission_id||'sin misión')+'</div>'+(n.last_error?'<div class="warning">'+esc(n.last_error)+'</div>':'')+'</div>').join(''):'<p>No hay notificaciones todavía.</p>';
+   $('updated').textContent='Actualizado '+new Date().toLocaleTimeString();
+  }catch(e){$('connection').textContent='Sin conexión';$('connection').className='status danger';$('error').textContent=e.message;}
+  finally{busy=false;}
+ }
+ $('connect').addEventListener('click',()=>{sessionStorage.setItem('aria-control-token',token());refresh();});
+ $('refresh').addEventListener('click',refresh);
+ $('missionForm').addEventListener('submit',async e=>{e.preventDefault();if(!token())return $('error').textContent='Introduce el token primero.';const b=$('submitMission');b.disabled=true;try{await api('/api/missions',{method:'POST',body:JSON.stringify({goal:$('goal').value})});$('goal').value='';await refresh();}catch(err){$('error').textContent=err.message;}finally{b.disabled=false;}});
+ $('missions').addEventListener('click',async e=>{
+  const b=e.target.closest('button');if(!b)return;
+  try{
+   if(b.dataset.approval){b.disabled=true;await api('/api/approvals/'+encodeURIComponent(b.dataset.approval),{method:'POST',body:JSON.stringify({decision:b.dataset.decision})});await refresh();}
+   else if(b.dataset.resume){b.disabled=true;await api('/api/missions/'+encodeURIComponent(b.dataset.resume)+'/resume',{method:'POST',body:'{}'});await refresh();}
+   else if(b.dataset.events){const out=await api('/api/missions/'+encodeURIComponent(b.dataset.events)+'/events');const box=$('events-'+b.dataset.events);box.hidden=!box.hidden;box.textContent=box.hidden?'':JSON.stringify(out.events,null,2);}
+  }catch(err){$('error').textContent=err.message;await refresh();}
+ });
+ if(token())refresh();
+ setInterval(refresh,5000);
+})();
+</script>
+</body>
+</html>
