@@ -25,6 +25,8 @@ const { createPersistentNotifier } = require('../autonomy/persistent-notificatio
         return { ok: true, status: 200 };
       }
     });
+    const recovered = await notifier.flush();
+    assert.equal(recovered.some(item => item.notification_id === waiting.notification_id && item.status === 'delivered'), true);
     const delivered = await notifier.notify({ type: 'mission_completed', mission_id: 'mission_b', details: 'verified' });
     assert.equal(delivered.status, 'delivered');
     assert.equal(sentBody.type, 'mission_completed');
