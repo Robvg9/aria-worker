@@ -8,7 +8,7 @@ export type TestCatalogItem = {
   capabilities: string;
 };
 
-export const TEST_CATALOG_VERSION = '2026-10-17-mission-job-authorization-fence-v1';
+export const TEST_CATALOG_VERSION = '2026-10-23-persistent-autonomy-v1';
 export const TEST_CATALOG: TestCatalogItem[] = [
   {
     "id": "mission-job-authorization-fence",
@@ -2948,6 +2948,78 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "includedInNpmTest": true,
     "how": "Comprueba que las superficies de chat, crear misión, analizar ideas y Proyectos expongan dictado por micrófono con transcripción.",
     "capabilities": "Detecta regresiones de SpeechRecognition, idioma español, permisos del micrófono, inserción de transcripción y controles responsive."
+  },
+  {
+    "id": "aria-autonomy-supabase-boundary",
+    "file": "tests/aria-autonomy-supabase-boundary.test.js",
+    "title": "ARIA Autonomy Supabase Boundary",
+    "category": "Autonomía / seguridad de despliegue",
+    "includedInNpmTest": true,
+    "how": "Comprueba que los cambios exclusivos de autonomía no disparen el flujo de producción que modifica Supabase y que el coordinador aislado no tenga dependencias de Supabase.",
+    "capabilities": "Protege el límite de despliegue independiente y verifica el almacenamiento duradero de Cloudflare."
+  },
+  {
+    "id": "cloudflare-autonomy-worker",
+    "file": "tests/cloudflare-autonomy-worker.test.js",
+    "title": "Cloudflare Autonomy Coordinator",
+    "category": "Autonomía / persistencia cloud",
+    "includedInNpmTest": true,
+    "how": "Ejecuta el ciclo de misión, planificación, worker, lease, aprobación irreversible, replanificación y verificación final del Durable Object.",
+    "capabilities": "Detecta regresiones en persistencia cloud, autenticación separada, recuperación y cierre verificado."
+  },
+  {
+    "id": "ollama-persistent-adapter-v1",
+    "file": "tests/ollama-persistent-adapter-v1.test.js",
+    "title": "Ollama Persistent Adapter v1",
+    "category": "Autonomía / IA local",
+    "includedInNpmTest": true,
+    "how": "Verifica la integración con Ollama, el contrato del adaptador, el inventario real del workspace y el filtrado de archivos sensibles.",
+    "capabilities": "Reduce rutas inventadas y evita exponer credenciales en el contexto del modelo."
+  },
+  {
+    "id": "persistent-control-plane-v1",
+    "file": "tests/persistent-control-plane-v1.test.js",
+    "title": "Persistent Mission Control Plane",
+    "category": "Autonomía / recuperación",
+    "includedInNpmTest": true,
+    "how": "Comprueba estados duraderos, checkpoints, progreso, retries seguros, recuperación de interrupciones y aprobación humana.",
+    "capabilities": "Permite que una misión continúe sin pedir al usuario que escriba continuar."
+  },
+  {
+    "id": "persistent-http-server-v1",
+    "file": "tests/persistent-http-server-v1.test.js",
+    "title": "Persistent Mission API and Dashboard",
+    "category": "Autonomía / Mission Control",
+    "includedInNpmTest": true,
+    "how": "Verifica autenticación, rutas de misión, aprobación, progreso y contenido del panel.",
+    "capabilities": "Evita exponer el control de misiones a clientes no autenticados."
+  },
+  {
+    "id": "persistent-hybrid-e2e-v1",
+    "file": "tests/persistent-hybrid-e2e-v1.test.js",
+    "title": "Hybrid Cloud + Windows Worker",
+    "category": "Autonomía / integración híbrida",
+    "includedInNpmTest": true,
+    "how": "Simula una misión desde el coordinador cloud hasta el worker Windows y la verificación final con evidencias.",
+    "capabilities": "Detecta fallos en leases, reanudación y comunicación de resultados."
+  },
+  {
+    "id": "persistent-notifications-v1",
+    "file": "tests/persistent-notifications-v1.test.js",
+    "title": "Persistent Notifications Outbox",
+    "category": "Autonomía / notificaciones",
+    "includedInNpmTest": true,
+    "how": "Comprueba que las notificaciones sobrevivan sin un canal configurado y se entreguen cuando el webhook esté disponible.",
+    "capabilities": "Evita perder avisos de intervención humana o finalización de misión."
+  },
+  {
+    "id": "persistent-worker-bridge-v1",
+    "file": "tests/persistent-worker-bridge-v1.test.js",
+    "title": "Persistent Windows Worker Bridge",
+    "category": "Autonomía / ejecución Windows",
+    "includedInNpmTest": true,
+    "how": "Verifica la reclamación de trabajos, leases, heartbeats y rechazo de resultados con tokens de lease obsoletos.",
+    "capabilities": "Impide la ejecución duplicada por varios workers y facilita la recuperación."
   },
 ];
 
