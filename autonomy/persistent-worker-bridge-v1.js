@@ -133,4 +133,55 @@ function createWorkerBackedExecutor({ bridge, timeoutMs, pollMs } = {}) {
   };
 }
 
-module.exports = Object.freeze({ createPersistentWorkerBridge, createWorkerBackedExecutor });
+function createWorkerBackedPlanner({ bridge, timeoutMs, pollMs } = {}) {
+  if (!bridge || typeof bridge.enqueue !== 'function' || typeof bridge.waitForResult !== 'function') throw new TypeError('worker_bridge_required');
+  return async function planOnWindows(goal, context = {}) {
+    const job = await bridge.enqueue({
+      mission_id: 'planning_' + crypto.randomUUID(),
+      task: { operation: 'mission.plan', payload: { goal, metadata: context.metadata || {}, policy: context.policy || {} } },
+      context: { goal, metadata: context.metadata || {}, policy: context.policy || {}, mode: 'plan' }
+    });
+    const result = await bridge.waitForResult(job.job_id, { timeoutMs, pollMs, signal: context.signal });
+    const tasks = result && result.evidence && result.evidence.tasks;
+    if (!Array.isArray(tasks) || !tasks.length) throw new Error('worker_planner_returned_no_tasks');
+    return tasks;
+  };
+}
+
+function createWorkerBackedReplanner({ bridge, timeoutMs, pollMs } = {}) {
+  if (!bridge || typeof bridge.enqueue !== 'function' || typeof bridge.waitForResult !== 'function') throw new TypeError('worker_bridge_required');
+  return async function replanOnWindows(mission, context = {}) {
+    const job = await bridge.enqueue({
+      mission_id: mission.mission_id,
+      task: { operation: 'mission.replan', payload: { reason: context.reason || 'replan' } },
+      context: { goal: mission.goal, metadata: mission.metadata || {}, policy: mission.policy || {}, mission: clone(mission), reason: context.reason || 'replan', mode: 'replan' }
+    });
+    const result = await bridge.waitForResult(job.job_id, { timeoutMs, pollMs, signal: context.signal });
+    const tasks = result && result.evidence && result.evidence.tasks;
+    if (!Array.isArray(tasks) || !tasks.length) throw new Error('worker_replanner_returned_no_tasks');
+    return tasks;
+  };
+}
+
+function createWorkerBackedVerifier({ bridge, timeoutMs, pollMs } = {}) {
+  if (!bridge || typeof bridge.enqueue !== 'function' || typeof bridge.waitForResult !== 'function') throw new TypeError('worker_bridge_required');
+  return async function verifyOnWindows(mission, context = {}) {
+    const job = await bridge.enqueue({
+      mission_id: mission.mission_id,
+      task: { operation: 'mission.verify', payload: {} },
+      context: { goal: mission.goal, metadata: mission.metadata || {}, mission: clone(mission), mode: 'verify' }
+    });
+    const result = await bridge.waitForResult(job.job_id, { timeoutMs, pollMs, signal: context.signal });
+    const verification = result && result.evidence && result.evidence.verification;
+    if (!verification || typeof verification.passed !== 'boolean') throw new Error('worker_verifier_returned_invalid_result');
+    return verification;
+  };
+}
+
+module.exports = Object.freeze({
+  createPersistentWorkerBridge,
+  createWorkerBackedExecutor,
+  createWorkerBackedPlanner,
+  createWorkerBackedReplanner,
+  createWorkerBackedVerifier
+});
