@@ -79,11 +79,7 @@ jobs:
           ARIA_CONTROL_TOKEN: ${{ secrets.ARIA_AUTONOMY_CONTROL_TOKEN }}
         run: |
           set -euo pipefail
-          base="https://aria-autonomy-coordinator.${{ vars.CLOUDFLARE_WORKERS_DEV_DOMAIN }}"
-          if test -z "${{ vars.CLOUDFLARE_WORKERS_DEV_DOMAIN }}"; then
-            echo "Set repository variable CLOUDFLARE_WORKERS_DEV_DOMAIN to the account's workers.dev hostname before enabling live smoke checks."
-            exit 1
-          fi
+          base="https://aria-autonomy-coordinator.robvg9.workers.dev"
           health="$(curl --fail --silent --show-error --max-time 15 "$base/health")"
           HEALTH="$health" python - <<'PY'
           import json, os
