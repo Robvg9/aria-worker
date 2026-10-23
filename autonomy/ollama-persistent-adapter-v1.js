@@ -177,24 +177,26 @@ function createOllamaPersistentAdapter({
     if (operation === 'workspace.search') {
       const query = String(payload.query || '').trim();
       if (query.length < 2 || query.length > 300) throw new Error('workspace_search_query_invalid');
-      const files = await walk(root, 5);
+      const files = (await walk(root, 4))
+        .filter(item => item.type === 'file' && /\.(js|cjs|mjs|ts|tsx|json|md|yml|yaml|ps1|py|html)$/i.test(item.path))
+        .sort((a, b) => Number(b.path.toLowerCase().includes(query.toLowerCase())) - Number(a.path.toLowerCase().includes(query.toLowerCase())))
+        .slice(0, 250);
       const matches = [];
       for (const item of files) {
-        if (item.type !== 'file' || matches.length >= 100) continue;
-        if (!/\.(js|cjs|mjs|ts|tsx|json|md|yml|yaml|ps1|py|html)$/i.test(item.path)) continue;
+        if (matches.length >= 50) break;
         const { target } = safeRelativePath(item.path);
         let content;
         try {
           const stat = await fs.stat(target);
-          if (stat.size > 128 * 1024) continue;
+          if (stat.size > 64 * 1024) continue;
           content = await fs.readFile(target, 'utf8');
         } catch (_) { continue; }
         const lines = content.split(/\r?\n/);
-        for (let i = 0; i < lines.length && matches.length < 100; i++) {
+        for (let i = 0; i < lines.length && matches.length < 50; i++) {
           if (lines[i].toLowerCase().includes(query.toLowerCase())) matches.push({ path: item.path, line: i + 1, text: lines[i].slice(0, 400) });
         }
       }
-      return { passed: true, evidence: { operation, query, matches, count: matches.length, truncated: matches.length >= 100 } };
+      return { passed: true, evidence: { operation, query, matches, count: matches.length, scanned_files: files.length, truncated: matches.length >= 50 || files.length >= 250 } };
     }
     if (operation === 'workspace.write' || operation === 'workspace.edit') {
       const { target, relative } = safeRelativePath(payload.path);
