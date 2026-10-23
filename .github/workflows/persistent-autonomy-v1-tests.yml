@@ -8,6 +8,8 @@ on:
       - 'autonomy/persistent-control-plane-v1.js'
       - 'tests/persistent-control-plane-v1.test.js'
       - 'autonomy/persistent-http-server-v1.js'
+      - 'scripts/aria-persistent-autonomy-v1.js'
+      - 'autonomy/PERSISTENT_AUTONOMY_V1.md'
       - 'autonomy/persistent-dashboard-v1.html'
       - 'tests/persistent-http-server-v1.test.js'
       - '.github/workflows/persistent-autonomy-v1-tests.yml'
