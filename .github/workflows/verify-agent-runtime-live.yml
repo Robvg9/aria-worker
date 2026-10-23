@@ -19,10 +19,49 @@ jobs:
           set -euo pipefail
           test -n "$SUPABASE_PROJECT_REF"
           URL="https://${SUPABASE_PROJECT_REF}.supabase.co/functions/v1/aria-agent-runtime-v1"
+          response_file="$(mktemp)"
+          trap 'rm -f "$response_file"' EXIT
+          body=""
+
           for i in {1..12}; do
-            body="$(curl -fsS --max-time 15 "$URL")" && break || body=""
-            sleep 5
+            if status="$(curl -sS --max-time 15 --output "$response_file" --write-out '%{http_code}' "$URL")"; then
+              :
+            else
+              status="000"
+            fi
+
+            if [[ "$status" == "200" ]]; then
+              body="$(cat "$response_file")"
+              break
+            fi
+
+            if [[ "$status" == "402" ]]; then
+              echo "::error::HTTP 402 from aria-agent-runtime-v1; stopping retries. Check account, plan, quota and payment state; this workflow cannot determine the underlying cause."
+              {
+                echo "## ARIA Agent Runtime LIVE verification blocked"
+                echo
+                echo "- Result: **blocked by HTTP 402**."
+                echo "- Attempts: ${i}/12; retries stopped to avoid repeating the same blocked request."
+                echo "- Target: `aria-agent-runtime-v1`."
+                echo "- Cause: not inferred by this workflow. Verify Supabase account, plan, quota, payment state and service availability before retrying."
+              } >> "$GITHUB_STEP_SUMMARY"
+              exit 1
+            fi
+
+            if [[ "$status" =~ ^4[0-9]{2}$ && "$status" != "429" ]]; then
+              echo "::error::Non-retryable HTTP ${status} from aria-agent-runtime-v1; stopping LIVE verification."
+              {
+                echo "## ARIA Agent Runtime LIVE verification failed"
+                echo
+                echo "- HTTP status: ${status}."
+                echo "- Policy: non-retryable 4xx response; repeated calls were stopped."
+              } >> "$GITHUB_STEP_SUMMARY"
+              exit 1
+            fi
+
+            if [[ "$i" -lt 12 ]]; then sleep 5; fi
           done
+
           test -n "$body"
           export BODY="$body"
           python - <<'PY'
