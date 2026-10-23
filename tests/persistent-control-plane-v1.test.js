@@ -8,7 +8,8 @@ const {
   createJsonMissionStore,
   createPersistentAutonomy,
   progressOf,
-  createPollingSupervisor
+  createPollingSupervisor,
+  validateTaskGraph
 } = require('../autonomy/persistent-control-plane-v1');
 
 async function withStore(fn) {
@@ -192,6 +193,9 @@ async function testProgressAndInputValidation() {
     const store = createJsonMissionStore({ directory });
     await assert.rejects(() => store.create({ goal: '', tasks: [] }), /goal_required/);
     await assert.rejects(() => store.create({ goal: 'bad risk', tasks: [{ risk: 'impossible' }] }), /invalid_task_risk/);
+    assert.throws(() => validateTaskGraph([{ task_id: 'a', depends_on: ['missing'] }]), /dependency_missing_or_self/);
+    assert.throws(() => validateTaskGraph([{ task_id: 'a', depends_on: ['b'] }, { task_id: 'b', depends_on: ['a'] }]), /dependency_cycle/);
+    await assert.rejects(() => store.create({ goal: 'cyclic plan', tasks: [{ task_id: 'a', depends_on: ['b'] }, { task_id: 'b', depends_on: ['a'] }] }), /dependency_cycle/);
   } finally { await fs.rm(directory, { recursive: true, force: true }); }
 }
 
