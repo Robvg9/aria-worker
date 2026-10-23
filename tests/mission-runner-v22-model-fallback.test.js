@@ -62,7 +62,7 @@ const asyncReconciliationRequired = [
   'pending_reconciled: true',
   'const nextAttempt = pendingAttempt > 0 ? pendingAttempt : Number(attempts[id] || 0) + 1',
   'if (!reconciledPendingResult)',
-  'result?.status === "waiting" && typeof result?.job_id === "string" && result.job_id.trim()',
+  'String(result?.status) === "waiting" && typeof result?.job_id === "string" && result.job_id.trim()',
   'status: "waiting_for_async_executor"',
 ];
 for (const fragment of asyncReconciliationRequired) {
