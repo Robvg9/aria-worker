@@ -43,21 +43,34 @@ The runtime accepts a \`notify\` adapter. The outbox supports a user-configured 
 - Execution ticks are bounded by step count and runtime budget.
 - Automatic retries require a task declared idempotent or an error explicitly marked retryable; interrupted non-idempotent work pauses for human review to avoid duplicating side effects.
 
-## Test
+## Run locally (after an approved adapter exists)
+
+Requirements: Node.js 20+, an adapter that explicitly exports \`supabaseIndependent: true\` plus \`plan\`, \`executeTask\` and \`verifyCompletion\`, and a random control token of at least 32 characters.
+
+PowerShell example:
+
+\`\`\`powershell
+$env:ARIA_AUTONOMY_ADAPTER = "C:\path\to\approved-adapter.js"
+$env:ARIA_CONTROL_TOKEN = "replace-with-a-random-secret-at-least-32-characters"
+$env:ARIA_MISSION_DATA_DIR = "$PWD\.aria-missions"
+node scripts/aria-persistent-autonomy-v1.js
+\`\`\`
+
+Open \`http://127.0.0.1:8787\` and enter the control token. The launcher deliberately refuses to start without an approved adapter and valid secret; no fake/demo adapter is silently substituted.
+
+For hybrid mode, run the coordinator on a cloud Node.js host with persistent disk, set \`ARIA_EXECUTION_MODE=windows\`, configure a separate \`ARIA_WORKER_TOKEN\`, and expose the service only behind HTTPS termination. On Windows, set \`ARIA_CONTROL_URL\`, \`ARIA_WORKER_TOKEN\`, and \`ARIA_AUTONOMY_ADAPTER\`, then run \`node scripts/aria-persistent-windows-worker-v1.js\`. The Windows worker makes outbound HTTPS requests only.
+
+The notification outbox is always persisted. For push delivery, configure \`ARIA_NOTIFICATION_WEBHOOK_URL\` and optionally \`ARIA_NOTIFICATION_TOKEN\`; without them, alerts remain visible in the dashboard as \`waiting_config\`.
+
+## Tests
 
 Run with Node.js 20+:
 
 \`\`\`powershell
 node tests/persistent-control-plane-v1.test.js
+node tests/persistent-http-server-v1.test.js
+node tests/persistent-worker-bridge-v1.test.js
+node tests/persistent-notifications-v1.test.js
 \`\`\`
 
-The isolated GitHub Actions workflow runs mission, HTTP/dashboard, worker-bridge and notification contract tests on relevant changes. A green contract test is necessary but does not prove the Windows worker, cloud host, notifications or end-to-end hybrid path are deployed.
-
-## Not yet certified
-
-- Actual cloud service deployment and persistent-volume configuration.
-- Cloud service deployment with persistent-volume configuration and HTTPS termination.
-- Provisioned, authorized planner/executor adapter with live AI-provider access.
-- Windows service/autostart and live heartbeat/recovery test.
-- User-selected notification integration.
-- Live end-to-end mission from dashboard to PC execution and verified completion.
+The isolated GitHub Actions workflow runs all four contract test files on relevant changes. A green contract test is necessary but does not prove the Windows worker, cloud host, notifications or end-to-end hybrid path are deployed.
