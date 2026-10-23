@@ -1,0 +1,49 @@
+name: ARIA private vault PostgreSQL integration
+
+on:
+  pull_request:
+    paths:
+      - 'supabase/migrations/20261023033629_aria_encrypt_atomic_record_revisions.sql'
+      - 'supabase/migrations/20261023034057_aria_encrypt_revoke_direct_record_insert.sql'
+      - 'supabase/migrations/20261023040000_aria_encrypt_atomic_record_revisions.sql'
+      - 'supabase/functions/_tests/private-vault-atomic-revisions.integration.sh'
+      - '.github/workflows/aria-private-vault-postgres-integration.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'supabase/migrations/20261023033629_aria_encrypt_atomic_record_revisions.sql'
+      - 'supabase/migrations/20261023034057_aria_encrypt_revoke_direct_record_insert.sql'
+      - 'supabase/migrations/20261023040000_aria_encrypt_atomic_record_revisions.sql'
+      - 'supabase/functions/_tests/private-vault-atomic-revisions.integration.sh'
+      - '.github/workflows/aria-private-vault-postgres-integration.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  postgres-integration:
+    name: Atomic vault revision integration
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: aria_vault_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d aria_vault_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install PostgreSQL client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+      - name: Run migration and concurrency integration tests
+        env:
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/aria_vault_test
+        run: bash supabase/functions/_tests/private-vault-atomic-revisions.integration.sh
