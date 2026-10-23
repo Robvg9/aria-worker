@@ -45,6 +45,7 @@ assert(exactNotificationMigration.includes('JOIN aria_internal.mission_state AS 
 assert(exactNotificationMigration.includes("ms.metadata->>'user_id' = p_user_id::text"), 'exact notification lookup must scope rows to the authenticated user');
 assert(api.includes('aria_meditation_notification_by_id_for_user_v1'), 'exact notification lookup must use the scoped SQL RPC');
 assert(api.includes('async function meditationNotificationByIdForUser'), 'exact notification lookup handler missing');
+assert(api.includes('path.match(new RegExp("/meditation/notifications/([^/]+)$"))'), 'exact notification route matcher missing');
 assert(api.includes('filterCurrentVerifiedCompletionNotifications([notification])'), 'exact notification lookup must suppress stale/unverified success rows too');
 assert(api.includes('invalid_notification_id'), 'exact notification route must validate UUID input');
 assert(!api.includes('async function meditationOwnedMissionIds'), 'notification API must not materialize large mission ID arrays in Edge Function memory');
