@@ -53,7 +53,7 @@ jobs:
               {
                 echo "## ARIA Agent Runtime LIVE verification failed"
                 echo
-                echo "- HTTP status: ` ${status} `."
+                echo "- HTTP status: ${status}."
                 echo "- Policy: non-retryable 4xx response; repeated calls were stopped."
               } >> "$GITHUB_STEP_SUMMARY"
               exit 1
