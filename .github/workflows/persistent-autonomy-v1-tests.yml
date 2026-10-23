@@ -53,6 +53,8 @@ jobs:
       - run: node --check autonomy/ollama-persistent-adapter-v1.js
       - run: node --check cloudflare-autonomy/worker.mjs
       - run: node tests/cloudflare-autonomy-worker.test.js
+      - name: Validate Cloudflare build without publishing
+        run: npx --yes wrangler@latest deploy --dry-run --config wrangler.aria-autonomy.toml
       - run: node tests/persistent-control-plane-v1.test.js
       - run: node tests/persistent-http-server-v1.test.js
       - run: node tests/persistent-worker-bridge-v1.test.js
