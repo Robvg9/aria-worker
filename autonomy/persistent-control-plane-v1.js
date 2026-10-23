@@ -32,6 +32,7 @@ function normalizeTask(task, index) {
     status: 'pending',
     risk,
     irreversible: task.irreversible === true,
+    idempotent: task.idempotent === true,
     depends_on: Array.isArray(task.depends_on) ? task.depends_on.map(String) : [],
     attempts: 0,
     max_attempts: Number.isInteger(task.max_attempts) ? Math.max(1, Math.min(10, task.max_attempts)) : 3,
@@ -182,10 +183,35 @@ function createPersistentAutonomy({ store, plan, executeTask, verifyCompletion, 
     return mission;
   }
 
-  async function tick(missionId, options = {}) {
+  const activeTicks = new Set();
+
+  async function runTick(missionId, options = {}) {
     const maxSteps = Number.isInteger(options.max_steps) ? Math.max(1, Math.min(100, options.max_steps)) : 10;
     const maxRuntime = Number.isInteger(options.max_runtime_ms) ? Math.max(1000, options.max_runtime_ms) : 60000;
     const deadline = now() + maxRuntime;
+    const beforeRecovery = await store.get(missionId);
+    if (!beforeRecovery) throw new Error('mission_not_found');
+    if (beforeRecovery.status === 'running') {
+      const runningTasks = beforeRecovery.tasks.filter(item => item.status === 'running');
+      if (runningTasks.length) {
+        const unsafe = runningTasks.filter(item => item.idempotent !== true);
+        await store.update(missionId, current => {
+          for (const item of current.tasks) {
+            if (item.status !== 'running') continue;
+            item.last_error = 'Recovered after runtime interruption; previous execution outcome is unknown.';
+            item.status = item.idempotent === true ? 'pending' : 'waiting_human';
+          }
+          current.current_task_id = null;
+          current.status = unsafe.length ? 'waiting_human' : 'queued';
+          current.last_error = unsafe.length ? 'Interrupted non-idempotent task requires human review before retry.' : 'Recovered interrupted idempotent task.';
+          current.progress_percent = progressOf(current);
+        }, unsafe.length ? 'recovery_requires_human_review' : 'idempotent_task_recovered', { task_ids: runningTasks.map(item => item.task_id) });
+        if (unsafe.length) {
+          await notify({ type: 'human_intervention_required', mission_id: missionId, reason: 'interrupted_non_idempotent_task', details: 'The previous execution outcome is unknown. Review before retrying.' });
+          return store.get(missionId);
+        }
+      }
+    }
     let processed = 0;
     while (processed < maxSteps && now() < deadline) {
       let mission = await store.get(missionId);
@@ -254,6 +280,13 @@ function createPersistentAutonomy({ store, plan, executeTask, verifyCompletion, 
     const mission = await store.get(missionId);
     await store.appendEvent(missionId, { type: 'execution_yielded', processed_steps: processed, reason: now() >= deadline ? 'runtime_budget' : 'step_budget' });
     return mission;
+  }
+
+  async function tick(missionId, options = {}) {
+    if (activeTicks.has(missionId)) return store.get(missionId);
+    activeTicks.add(missionId);
+    try { return await runTick(missionId, options); }
+    finally { activeTicks.delete(missionId); }
   }
 
   async function resume(missionId, options = {}) {
