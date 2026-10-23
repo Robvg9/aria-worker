@@ -5,6 +5,7 @@ on:
     branches:
       - main
     paths:
+      - 'Dockerfile.aria-coordinator'
       - 'autonomy/persistent-control-plane-v1.js'
       - 'autonomy/ollama-persistent-adapter-v1.js'
       - 'autonomy/persistent-worker-coordinator-adapter-v1.js'
@@ -41,6 +42,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - run: node --check scripts/aria-persistent-coordinator-v1.js
+      - run: node --check scripts/aria-persistent-windows-worker-v1.js
+      - run: node --check autonomy/ollama-persistent-adapter-v1.js
       - run: node tests/persistent-control-plane-v1.test.js
       - run: node tests/persistent-http-server-v1.test.js
       - run: node tests/persistent-worker-bridge-v1.test.js
