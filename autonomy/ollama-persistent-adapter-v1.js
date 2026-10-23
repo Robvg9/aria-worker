@@ -208,7 +208,13 @@ function createOllamaPersistentAdapter({
         if (typeof payload.old_text !== 'string' || !payload.old_text.length || typeof payload.new_text !== 'string') throw new Error('workspace_edit_fields_required');
         if (existing === null) throw new Error('workspace_edit_target_missing');
         const first = existing.indexOf(payload.old_text);
-        if (first < 0 || existing.indexOf(payload.old_text, first + payload.old_text.length) >= 0) throw new Error('workspace_edit_match_must_be_unique');
+        if (first < 0) {
+          if (payload.new_text.length && existing.indexOf(payload.new_text) >= 0 && existing.indexOf(payload.new_text, existing.indexOf(payload.new_text) + payload.new_text.length) < 0) {
+            return { passed: true, evidence: { operation, path: relative, already_applied: true, sha256: crypto.createHash('sha256').update(existing).digest('hex') } };
+          }
+          throw new Error('workspace_edit_match_missing');
+        }
+        if (existing.indexOf(payload.old_text, first + payload.old_text.length) >= 0) throw new Error('workspace_edit_match_must_be_unique');
         next = existing.slice(0, first) + payload.new_text + existing.slice(first + payload.old_text.length);
       }
       const backup = await backupExisting(target);
