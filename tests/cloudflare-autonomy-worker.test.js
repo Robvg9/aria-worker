@@ -135,7 +135,8 @@ async function testRetryReplanAndLeaseProtection() {
   await complete(store, recoveryJob, { passed: true, evidence: { path: 'README.md', verified: true } });
   const verifyJob = await claim(store, 'mission.verify');
   await complete(store, verifyJob, { passed: true, evidence: { verification: { passed: true, reason: 'Replanned work verified.' } } });
-  const finalMission = (await body(await store.fetch(request('/api/missions/' + encodeURIComponent(mission.mission_id)))).mission;
+  const finalMissionResponse = await store.fetch(request('/api/missions/' + encodeURIComponent(mission.mission_id)));
+  const finalMission = (await body(finalMissionResponse)).mission;
   assert.equal(finalMission.status, 'succeeded');
   assert.equal(finalMission.progress_percent, 100);
 }
