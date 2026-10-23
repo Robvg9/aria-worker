@@ -5,12 +5,12 @@ const fs=require('node:fs');
 async function run(){
   const sql=fs.readFileSync('supabase/migrations/20260928230000_operational_diagnostics_v1.sql','utf8');
   for(const col of ['trace_id','span_id','request_id','execution_id','error_code','runtime_version','source_sha']) assert.match(sql,new RegExp('add column if not exists '+col));
-  assert.match(sql,/create table if not exists aria_internal\\.mission_diagnostics/);
+  assert.match(sql,/create table if not exists aria_internal\.mission_diagnostics/);
   for(const key of ['correlation','classification','diagnosis','versions','attempts','evidence_chain','health']) assert.match(sql,new RegExp(key));
   assert.match(sql,/create trigger mission_events_diagnostic_enrichment/);
   assert.match(sql,/jsonb_build_object\\(/);
-  assert.match(sql,/v_payload \\|\\| jsonb_strip_nulls/,'canonical diagnostics must override conflicting payload correlation fields');
-  assert.match(sql,/aria_internal\\.enrich_mission_event_diagnostics/);
+  assert.match(sql,/v_payload \|\| jsonb_strip_nulls/,'canonical diagnostics must override conflicting payload correlation fields');
+  assert.match(sql,/aria_internal\.enrich_mission_event_diagnostics/);
 
   const { analyzeMissionConsistency } = await import('../supabase/functions/_shared/mission-consistency.mjs');
   const consistent = analyzeMissionConsistency({
