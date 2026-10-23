@@ -10,15 +10,27 @@ const { createPersistentHttpServer } = require('../autonomy/persistent-http-serv
 const { createPersistentWorkerBridge, createWorkerBackedExecutor, createWorkerBackedPlanner, createWorkerBackedReplanner, createWorkerBackedVerifier } = require('../autonomy/persistent-worker-bridge-v1');
 const { createPersistentNotifier } = require('../autonomy/persistent-notifications-v1');
 
-async function main() {
-  const adapterPath = process.env.ARIA_AUTONOMY_ADAPTER;
-  if (!adapterPath) throw new Error('Set ARIA_AUTONOMY_ADAPTER to an approved Supabase-independent adapter module.');
-  const resolvedAdapterPath = path.resolve(adapterPath);
-  const adapter = require(resolvedAdapterPath);
-  if (adapter.supabaseIndependent !== true) throw new Error('Adapter must export supabaseIndependent: true.');
+function loadAdapter(adapterPath, env = process.env) {
+  if (typeof adapterPath !== 'string' || !adapterPath.trim()) throw new Error('Set ARIA_AUTONOMY_ADAPTER to an approved Supabase-independent adapter module.');
+  let adapter = require(path.resolve(adapterPath));
+  if (typeof adapter.createAdapter === 'function' && adapter.supabaseIndependent !== true) {
+    adapter = adapter.createAdapter({
+      workspaceRoot: env.ARIA_WORKSPACE_ROOT,
+      ollamaUrl: env.ARIA_OLLAMA_URL,
+      model: env.ARIA_OLLAMA_MODEL,
+      timeoutMs: env.ARIA_OLLAMA_TIMEOUT_MS ? Number(env.ARIA_OLLAMA_TIMEOUT_MS) : undefined
+    });
+  }
+  if (!adapter || adapter.supabaseIndependent !== true) throw new Error('Adapter must export supabaseIndependent: true or a createAdapter factory that returns it.');
   for (const name of ['plan', 'executeTask', 'verifyCompletion']) {
     if (typeof adapter[name] !== 'function') throw new Error('Adapter must export function ' + name + '.');
   }
+  return adapter;
+}
+
+async function main() {
+  const adapterPath = process.env.ARIA_AUTONOMY_ADAPTER;
+  const adapter = loadAdapter(adapterPath, process.env);
   const token = process.env.ARIA_CONTROL_TOKEN;
   if (typeof token !== 'string' || token.length < 32) throw new Error('Set ARIA_CONTROL_TOKEN to a random secret of at least 32 characters.');
   const directory = path.resolve(process.env.ARIA_MISSION_DATA_DIR || path.join(process.cwd(), '.aria-missions'));
@@ -64,7 +76,11 @@ async function main() {
   process.once('SIGTERM', stop);
 }
 
-main().catch(error => {
-  process.stderr.write('ARIA persistent autonomy failed to start: ' + String(error && error.stack || error) + '\n');
-  process.exitCode = 1;
-});
+module.exports = Object.freeze({ loadAdapter });
+
+if (require.main === module) {
+  main().catch(error => {
+    process.stderr.write('ARIA persistent autonomy failed to start: ' + String(error && error.stack || error) + '\n');
+    process.exitCode = 1;
+  });
+}
