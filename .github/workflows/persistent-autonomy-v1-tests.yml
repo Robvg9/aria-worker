@@ -1,31 +1,31 @@
 name: Persistent Autonomy v1 Contract Tests
 
 on:
-  push:
+  pull_request:
     branches:
-      - feat/persistent-autonomy-control-plane-v1
+      - main
     paths:
       - 'autonomy/persistent-control-plane-v1.js'
       - 'autonomy/ollama-persistent-adapter-v1.js'
       - 'autonomy/persistent-worker-coordinator-adapter-v1.js'
-      - 'scripts/aria-persistent-coordinator-v1.js'
-      - 'tests/ollama-persistent-adapter-v1.test.js'
-      - 'tests/persistent-control-plane-v1.test.js'
       - 'autonomy/persistent-http-server-v1.js'
       - 'autonomy/persistent-worker-bridge-v1.js'
       - 'autonomy/persistent-notifications-v1.js'
-      - 'scripts/aria-persistent-autonomy-v1.js'
-      - 'scripts/aria-persistent-windows-worker-v1.js'
-      - 'autonomy/PERSISTENT_AUTONOMY_V1.md'
-      - 'autonomy/persistent-autonomy-v1.env.example'
       - 'autonomy/persistent-dashboard-v1.html'
+      - 'autonomy/persistent-autonomy-v1.env.example'
+      - 'autonomy/PERSISTENT_AUTONOMY_V1.md'
+      - 'scripts/aria-persistent-autonomy-v1.js'
+      - 'scripts/aria-persistent-coordinator-v1.js'
+      - 'scripts/aria-persistent-windows-worker-v1.js'
+      - 'tests/persistent-control-plane-v1.test.js'
       - 'tests/persistent-http-server-v1.test.js'
       - 'tests/persistent-worker-bridge-v1.test.js'
       - 'tests/persistent-notifications-v1.test.js'
+      - 'tests/ollama-persistent-adapter-v1.test.js'
       - '.github/workflows/persistent-autonomy-v1-tests.yml'
 
 concurrency:
-  group: persistent-autonomy-v1-${{ github.event.pull_request.number || github.ref }}
+  group: persistent-autonomy-v1-pr-\${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 permissions:
@@ -41,7 +41,7 @@ jobs:
         with:
           node-version: 22
       - run: node tests/persistent-control-plane-v1.test.js
-      - run: node tests/ollama-persistent-adapter-v1.test.js
       - run: node tests/persistent-http-server-v1.test.js
       - run: node tests/persistent-worker-bridge-v1.test.js
       - run: node tests/persistent-notifications-v1.test.js
+      - run: node tests/ollama-persistent-adapter-v1.test.js
