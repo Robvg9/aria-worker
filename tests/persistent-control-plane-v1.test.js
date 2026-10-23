@@ -244,6 +244,17 @@ async function testProgressAndInputValidation() {
     assert.throws(() => validateTaskGraph([{ task_id: 'a', depends_on: ['missing'] }]), /dependency_missing_or_self/);
     assert.throws(() => validateTaskGraph([{ task_id: 'a', depends_on: ['b'] }, { task_id: 'b', depends_on: ['a'] }]), /dependency_cycle/);
     await assert.rejects(() => store.create({ goal: 'cyclic plan', tasks: [{ task_id: 'a', depends_on: ['b'] }, { task_id: 'b', depends_on: ['a'] }] }), /dependency_cycle/);
+    const riskFloors = await store.create({
+      goal: 'risk floor contract',
+      tasks: [
+        { task_id: 'write-file', operation: 'workspace.write', risk: 'low', payload: { path: 'note.txt', content: 'x' } },
+        { task_id: 'push-change', operation: 'git.push', risk: 'low', payload: { branch: 'feature' }, depends_on: ['write-file'] }
+      ]
+    });
+    assert.equal(riskFloors.tasks[0].risk, 'medium');
+    assert.equal(riskFloors.tasks[1].risk, 'critical');
+    assert.equal(riskFloors.tasks[1].irreversible, true);
+    assert.deepEqual(riskFloors.tasks[0].payload, { path: 'note.txt', content: 'x' });
   } finally { await fs.rm(directory, { recursive: true, force: true }); }
 }
 
