@@ -9,8 +9,8 @@ const pwaApp = fs.readFileSync("pwa/src/App.tsx", "utf8");
 test("async device jobs are polled instead of re-enqueued", () => {
   assert.match(
     runner,
-    /const pendingJobId = executorType\(step\) === "device"/,
-    "runner must recognize a persisted pending device job before incrementing attempts"
+    /const pendingJobId = typeof pending\?\.job_id === "string"/,
+    "runner must recognize persisted pending device and local-model jobs before incrementing attempts"
   );
   assert.match(
     runner,
@@ -24,7 +24,7 @@ test("async device jobs are polled instead of re-enqueued", () => {
   );
   assert.match(
     runner,
-    /paused -> retry -> re-enqueue loop/,
+    /paused -> retry -> re-enqueue loop|queue latency as model failure/,
     "the regression guard must document the failure mode it prevents"
   );
 });
