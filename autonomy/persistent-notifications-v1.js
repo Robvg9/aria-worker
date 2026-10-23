@@ -95,7 +95,7 @@ function createPersistentNotifier({ directory, webhookUrl = process.env.ARIA_NOT
   async function flush() {
     const operation = flushLock.catch(() => {}).then(async () => {
       const records = await list();
-      const pending = records.filter(record => record.status === 'pending');
+      const pending = records.filter(record => record.status === 'pending' || (endpoint && record.status === 'waiting_config'));
       const results = [];
       for (const record of pending) results.push(await deliver(record));
       return results;
