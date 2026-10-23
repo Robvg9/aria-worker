@@ -19,6 +19,11 @@ const { createPersistentHttpServer } = require('../autonomy/persistent-http-serv
 const { createPersistentNotifier } = require('../autonomy/persistent-notifications-v1');
 
 async function main() {
+  const adapterPath = path.resolve(process.env.ARIA_AUTONOMY_ADAPTER || path.join(__dirname, '..', 'autonomy', 'persistent-worker-coordinator-adapter-v1.js'));
+  const coordinatorAdapter = require(adapterPath);
+  if (!coordinatorAdapter || coordinatorAdapter.supabaseIndependent !== true) {
+    throw new Error('Coordinator adapter must explicitly declare supabaseIndependent: true.');
+  }
   const directory = path.resolve(process.env.ARIA_MISSION_DATA_DIR || path.join(process.cwd(), '.aria-missions'));
   const token = process.env.ARIA_CONTROL_TOKEN || '';
   const workerToken = process.env.ARIA_WORKER_TOKEN || '';
