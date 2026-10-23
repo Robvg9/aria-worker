@@ -1,6 +1,6 @@
 # ARIA Private Vault v1 — API and storage contract
 
-Status: implementation prepared on `aria/encrypt-step4-vault-api`. Not deployed. Do not migrate real personal content until Step 7's live acceptance gates have passed.
+Status (2026-10-20): Steps 1–5 have been merged and the private-vault route is live inside `aria-app-api-v3`. A read-only LIVE review found one vault, one ciphertext record, 313 terminal audit events and working server-side owner-scoped routes. Full acceptance remains OPEN pending integrity hardening and authenticated two-owner isolation. Do not migrate historical personal content until all acceptance gates pass.
 
 ## Security boundary
 
@@ -23,9 +23,7 @@ The rate-limit RPC is SECURITY DEFINER only for the atomic bucket transaction, h
 
 ## API routes
 
-Function: `aria-private-vault-v1`
-
-All non-preflight routes require `Authorization: Bearer <Supabase access token>`. The handler verifies that token using `auth.getUser(token)`. Responses set `Cache-Control: no-store, private`, `X-Content-Type-Options: nosniff` and a request ID. CORS is an exact allowlist for the canonical ARIA PWA and local dev origins; CORS is not treated as authentication.
+Route module: `supabase/functions/aria-app-api-v3/private-vault.ts`, mounted at `aria-app-api-v3/private-vault/*` because the Supabase project reached its Edge Function limit. The existing `aria-app-api-v3` `requireUser()` verifies `Authorization: Bearer <Supabase access token>`; the handler receives the verified user ID and never accepts ownership from the body/path. Responses set `Cache-Control: no-store, private`, `X-Content-Type-Options: nosniff` and a request ID. CORS is an exact allowlist for the canonical ARIA PWA and local dev origins; CORS is not treated as authentication.
 
 - `GET /vaults?limit=50&offset=0`: own vault configuration (includes encrypted key wrappers only), bounded pagination.
 - `GET /vaults/:vaultId`: own vault configuration.
@@ -42,15 +40,18 @@ No delete endpoint is provided in this step. Destructive deletion and removal of
 - Opaque UUIDv4-style IDs; KDF salt 16 bytes, AES-GCM nonce 12 bytes, wrapped 32-byte root key plus 16-byte GCM tag.
 - Ciphertext-only record payload is capped at 1 MiB plaintext plus the 16-byte GCM tag (base64url representation capped at 1,398,123 characters).
 - JSON body reads are streaming and bounded to 1,500,000 bytes. Schemas reject extra keys including `title`, `body`, `content`, `password`, `key`, `owner_id` and `user_id`.
-- Revisions are insert-only; a duplicate revision returns 409. Requests do not include client-selected ownership fields.
+- Revisions are insert-only. The first API implementation enforced uniqueness only; the proposed Step 7 hardening routes appends through a transaction-scoped lock that requires the next consecutive revision. For safe rollout, the initial RPC migration preserves the existing `service_role` INSERT grant temporarily; a separate privilege-tightening migration must revoke it only after the RPC-backed API is deployed and verified, never before. Requests do not include client-selected ownership fields.
 - Errors are generic to callers. Server log output is limited to request ID and stable error code, without user content/provider messages.
 
 ## Verification supplied by this branch
 
 - Deno contract tests cover valid/invalid payloads, unknown plaintext/ownership/key fields, KDF/nonce/ciphertext bounds, UUID, pagination, duplicate revision parameters, Auth verification, no server-side decryption, RLS and grants.
 - GitHub Actions runs those contracts plus `deno check` for the Edge Function.
-- The SQL migration itself has **not** been applied to any Supabase project in this step. No Supabase live data, production schema, existing memory tables or personal content were read or changed by this implementation branch.
-- Live auth/E2E, SQL execution against an isolated database, per-browser Argon2id integration, end-to-end CORS verification, service-role exposure review and deployment remain acceptance gates for Steps 5–7. The code is not live until the PR is reviewed/merged and the planned deployment/migration is explicitly performed.
+- Initial migration `20261016150000_aria_private_vault_v1` is applied to ARIA LIVE; the four vault tables exist with RLS enabled and no direct SELECT privileges for `anon` or `authenticated`. `aria-app-api-v3` LIVE version 330 was read back and its embedded vault module matches `main` byte-for-byte.
+- LIVE audit readback on 2026-10-20 found one owner, one vault, one ciphertext record (revision 1), 313 terminal audit events and no unresolved audit rows. An earlier read-only probe passed missing-auth rejection, registered-origin CORS and denial of CORS grants to an untrusted origin; the overall workflow run failed only because its old optional issue-comment step received 403. The reporting workflow was subsequently corrected to use summary/artifact evidence, but a post-fix run has not yet been confirmed.
+- The atomic revision migration in this PR is a proposal only. It has NOT been applied to LIVE. No plaintext or ciphertext content was fetched by these metadata checks and no production writes were performed during this audit.
+- The route now returns HTTP 503 with `operation_result=unknown` if the audit-finalization write errors or throws, and a focused test injects this failure. This avoids telling the client that an operation has a normal result when its audit row could remain started.
+- Remaining closure gates: CI on the current hardening PR; live schema/function/privilege readback after approved merge/deploy; authenticated browser unlock + decrypt-tamper/wrong-password behavior; a second authenticated user proving tenant isolation; live duplicate/concurrent revision tests in an isolated environment; and evidence persisted back to this document. No historical plaintext migration.
 
 ## References
 

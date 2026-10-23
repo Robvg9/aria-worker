@@ -179,15 +179,26 @@ async function finalizeAudit(
   auditId: string,
   status: number,
   requestId: string,
-): Promise<void> {
-  const { error } = await admin
-    .from("aria_vault_audit_events")
-    .update({ outcome: outcomeFor(status), status_code: status })
-    .eq("id", auditId)
-    .eq("owner_id", ownerId);
-  if (error) {
-    // Do not log provider messages, request bodies, ciphertext, keys or user content.
-    console.error("aria_private_vault_audit_finalize_failed", { requestId, code: error.code ?? "unknown" });
+): Promise<boolean> {
+  try {
+    const { error } = await admin
+      .from("aria_vault_audit_events")
+      .update({ outcome: outcomeFor(status), status_code: status })
+      .eq("id", auditId)
+      .eq("owner_id", ownerId);
+    if (error) {
+      // Do not log provider messages, request bodies, ciphertext, keys or user content.
+      console.error("aria_private_vault_audit_finalize_failed", { requestId, code: error.code ?? "unknown" });
+      return false;
+    }
+    return true;
+  } catch (error) {
+    const code = (error && typeof error === "object" && "code" in error &&
+      typeof (error as { code?: unknown }).code === "string")
+      ? (error as { code: string }).code
+      : "unknown";
+    console.error("aria_private_vault_audit_finalize_failed", { requestId, code });
+    return false;
   }
 }
 
@@ -347,16 +358,18 @@ async function dispatch(
     const body = await parseRouteBody(request);
     const payload = validateRecordPayload(body);
     if (!payload) return bad(400, "invalid_record_payload");
-    const { error } = await admin
-      .from("aria_vault_records")
-      .insert({
-        owner_id: ownerId,
-        vault_id: vaultId,
-        record_id: recordId,
-        ...payload,
-      });
-    if (error?.code === "23505") return bad(409, "revision_already_exists");
+    const { error } = await admin.rpc("aria_vault_append_record_revision_v1", {
+      p_owner_id: ownerId,
+      p_vault_id: vaultId,
+      p_record_id: recordId,
+      p_revision: payload.revision,
+      p_format_version: payload.format_version,
+      p_payload_nonce: payload.payload_nonce,
+      p_ciphertext: payload.ciphertext,
+    });
+    if (error?.code === "40001") return bad(409, "revision_conflict");
     if (error?.code === "23503") return bad(404, "vault_not_found");
+    if (error?.code === "22023") return bad(400, "invalid_record_payload");
     if (error) throw new ApiError(503, "storage_unavailable");
     return reply(201, { saved: true, record_id: recordId, revision: payload.revision }, origin, requestId);
   }
@@ -427,7 +440,12 @@ export async function handlePrivateVaultRequest(
         response = reply(503, { error: "storage_unavailable" }, origin, requestId);
       }
     }
-    await finalizeAudit(admin, ownerId, auditId, response.status, requestId);
+    const auditFinalized = await finalizeAudit(admin, ownerId, auditId, response.status, requestId);
+    if (!auditFinalized) {
+      // The dispatched operation may already have changed state. Never claim it failed
+      // or succeeded without a terminal audit row; callers must reconcile before retrying.
+      return reply(503, { error: "audit_finalize_failed", operation_result: "unknown" }, origin, requestId);
+    }
     return response;
   } catch (error) {
     const code = (error && typeof error === "object" && "code" in error &&

@@ -1,4 +1,5 @@
 import { assert, assertEquals, assertStringIncludes } from "https://deno.land/std@0.224.0/assert/mod.ts";
+import { handlePrivateVaultRequest } from "../aria-app-api-v3/private-vault.ts";
 import {
   MAX_CIPHERTEXT_B64URL_CHARS,
   parseOptionalRevision,
@@ -132,7 +133,54 @@ Deno.test("vault routes through the existing authenticated API without an extra 
   assertStringIncludes(embedded, "export function privateVaultAuthFailure");
   assertStringIncludes(embedded, '.eq("owner_id", ownerId)');
   assertStringIncludes(embedded, "aria_vault_consume_rate_limit_v1");
+  assertStringIncludes(embedded, 'admin.rpc("aria_vault_append_record_revision_v1", {');
+  assert(!embedded.includes('.from("aria_vault_records")\n      .insert('), "record inserts must go through the atomic revision RPC");
   assertStringIncludes(embedded, "aria_vault_audit_events");
   assert(!embedded.includes('access-control-allow-origin", "*"'), "private vault must not use wildcard CORS");
   assert(!embedded.includes("Deno.serve"), "embedded helper must not start a second server");
+});
+
+
+Deno.test("atomic revision migration serializes each record and preserves rollout compatibility", async () => {
+  const sql = await Deno.readTextFile(new URL("../../migrations/20261020160000_aria_encrypt_atomic_record_revisions.sql", import.meta.url));
+  assertStringIncludes(sql, "pg_catalog.pg_advisory_xact_lock");
+  assertStringIncludes(sql, "pg_catalog.max(r.revision)");
+  assertStringIncludes(sql, "p_revision <> v_expected_revision");
+  assertStringIncludes(sql, "ERRCODE = '40001'");
+  assert(!sql.includes("REVOKE INSERT ON TABLE public.aria_vault_records FROM service_role"), "do not break the old LIVE API before the RPC route is deployed");
+  assertStringIncludes(sql, "REVOKE ALL ON FUNCTION public.aria_vault_append_record_revision_v1");
+  assertStringIncludes(sql, "GRANT EXECUTE ON FUNCTION public.aria_vault_append_record_revision_v1");
+});
+
+
+Deno.test("API reports unknown operation outcome if audit finalization fails", async () => {
+  const admin = {
+    rpc: async () => ({ data: { allowed: true, retry_after_seconds: 60 }, error: null }),
+    from: (table: string) => {
+      assertEquals(table, "aria_vault_audit_events");
+      return {
+        insert: (_row: unknown) => ({
+          select: (_columns: string) => ({
+            single: async () => ({ data: { id: RECORD_ID }, error: null }),
+          }),
+        }),
+        update: (_row: unknown) => ({
+          eq: (_column: string, _value: string) => ({
+            eq: async (_ownerColumn: string, _ownerId: string) => ({
+              error: { code: "AUDIT_FINALIZE_TEST_FAILURE" },
+            }),
+          }),
+        }),
+      };
+    },
+  } as any;
+
+  const response = await handlePrivateVaultRequest(
+    new Request("https://example.test/functions/v1/aria-app-api-v3/private-vault/not-a-route"),
+    VAULT_ID,
+    RECORD_ID,
+    admin,
+  );
+  assertEquals(response.status, 503);
+  assertEquals(await response.json(), { error: "audit_finalize_failed", operation_result: "unknown" });
 });

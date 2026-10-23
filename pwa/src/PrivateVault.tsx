@@ -358,7 +358,7 @@ export function PrivateVault({ token, publishableKey }: { token: string; publish
       <div className="panelTitle">🔐 BÓVEDA PRIVADA · CIFRADO DEL CLIENTE</div>
       <p className="muted">Argon2id + AES-256-GCM. Las notas se cifran antes de salir del dispositivo; la clave no se guarda en localStorage ni se envía a ARIA.</p>
       <div className="privateVaultSecurityNote" role="note">
-        La API de bóveda todavía debe superar sus gates de integración y despliegue. Si no responde, esta pantalla no simula guardados ni conserva datos en local.
+        La API está desplegada; la certificación integral de seguridad y E2E sigue pendiente. Hasta cerrar esos gates, valida con datos sintéticos. Si no responde, esta pantalla no simula guardados ni conserva datos en local.
       </div>
       <div className="actions">
         <button type="button" className="ghost" disabled={busy} onClick={() => {
