@@ -17,7 +17,7 @@ const password = process.env.RWHT_PASSWORD || '';
 const storageState = process.env.RWHT_STORAGE_STATE || '';
 
 if (!email || !password) {
-  throw new Error('Authenticated settings RWHT requires RWHT_EMAIL + RWHT_PASSWORD for the logout/re-login gate.');
+  throw new Error('settings_rwht_requires_email_password_for_logout_relogin_gate');
 }
 
 
