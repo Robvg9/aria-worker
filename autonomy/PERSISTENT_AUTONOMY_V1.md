@@ -108,7 +108,19 @@ If the worker is offline when a mission is submitted, the mission is saved in \`
 
 ## Local-only test mode
 
-For isolated testing, run \`scripts/aria-persistent-autonomy-v1.js\` with a local adapter that exports \`supabaseIndependent: true\`, \`plan\`, \`executeTask\` and \`verifyCompletion\`, and a control token of at least 32 characters. Do not point it at the live project workspace until you have reviewed the current working tree and selected the exact workspace.
+The standalone launcher can instantiate the bundled Ollama adapter directly. Use a dedicated checkout/worktree first; do not point it at the live project workspace until you have reviewed the current working tree and selected the exact workspace.
+
+\`\`\`powershell
+$env:ARIA_AUTONOMY_ADAPTER = "$PWD\autonomy\ollama-persistent-adapter-v1.js"
+$env:ARIA_WORKSPACE_ROOT = "$PWD"
+$env:ARIA_OLLAMA_URL = "http://127.0.0.1:11434"
+$env:ARIA_OLLAMA_MODEL = "qwen3:4b"
+$env:ARIA_CONTROL_TOKEN = "replace-with-a-random-secret-at-least-32-characters"
+$env:ARIA_MISSION_DATA_DIR = "$PWD\.aria-missions"
+node scripts/aria-persistent-autonomy-v1.js
+\`\`\`
+
+Open \`http://127.0.0.1:8787\` and enter the control token. This local-only mode binds to loopback by default. The launcher supports either a direct adapter module or a module exposing a \`createAdapter\` factory, and it fails closed if the result does not explicitly declare \`supabaseIndependent: true\` and the required planner, executor and verifier functions.
 
 ## Tests
 
