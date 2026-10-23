@@ -5,6 +5,7 @@ const assert = require('node:assert/strict');
 (async () => {
   const engine = await import('../autonomy/dynamic-goal-engine.mjs');
   const { generateCandidates, selectDynamicGoal, scoreCandidate } = engine;
+  const twin = await import('../supabase/functions/_shared/mission-twin-v1.mjs');
   const now = '2026-09-06T02:00:00.000Z';
 
   const candidates = generateCandidates({
@@ -72,6 +73,57 @@ const assert = require('node:assert/strict');
     updated_at: now
   }] }, { now });
   assert.equal(recursiveFailure.length, 0, 'nested failure-of-failure chains must not generate more recursive goals');
+
+  const { missionTwinSlot, missionTwinCycleId, buildMissionTwinReport } = twin;
+  assert.equal(missionTwinSlot('2026-10-23T00:09:59.000Z'), '2026-10-23T00:00:00.000Z');
+  assert.equal(missionTwinSlot('2026-10-23T00:10:00.000Z'), '2026-10-23T00:10:00.000Z');
+  assert.equal(missionTwinCycleId('2026-10-23T00:19:59.000Z'), missionTwinCycleId('2026-10-23T00:10:01.000Z'),
+    'same ten-minute slot must have a stable durable id');
+  assert.throws(() => missionTwinSlot('2026-10-23T00:00:00.000Z', 2), /interval_out_of_bounds/);
+  assert.throws(() => missionTwinSlot('not-a-date'), /invalid_clock/);
+
+  const twinBase = {
+    snapshot: {
+      goals: [{ goal_id: 'goal-safe', goal: 'Review test coverage', status: 'queued', metadata: {} }],
+      active: [{ mission_id: 'active-1' }],
+      failures: [{ mission_id: 'failed-1' }],
+      capabilityGaps: [{ capability_id: 'cap-unknown' }],
+      learnings: []
+    },
+    candidates: [{ goal_id: 'goal-safe', goal: 'Review test coverage', source_type: 'priority', dynamic_score: 80 }],
+    now: '2026-10-23T00:00:00.000Z'
+  };
+  const safeTwin = buildMissionTwinReport(twinBase);
+  assert.equal(safeTwin.status, 'SIMULATED');
+  assert.equal(safeTwin.recommendation, 'RECOMMEND_ONLY');
+  assert.equal(safeTwin.execution_authorized, false);
+  assert.equal(safeTwin.live_verified, false);
+  assert.equal(safeTwin.shared_blockers.active_missions, 1);
+  assert.equal(safeTwin.shared_blockers.recent_failures, 1);
+  assert.equal(safeTwin.resource_budget.execution_budget, 0);
+  assert.ok(Object.isFrozen(safeTwin));
+  assert.ok(Object.isFrozen(safeTwin.predicted_blockers));
+
+  const sensitiveTwin = buildMissionTwinReport({
+    ...twinBase,
+    candidates: [{ goal_id: 'goal-deploy', goal: 'Deploy to production and update secrets', source_type: 'priority', dynamic_score: 99 }]
+  });
+  assert.equal(sensitiveTwin.recommendation, 'APPROVAL_REQUIRED');
+  assert.equal(sensitiveTwin.sensitive_scope_detected, true);
+  assert.equal(sensitiveTwin.execution_authorized, false);
+
+  const missingPrereqTwin = buildMissionTwinReport({
+    snapshot: { goals: [{ goal_id: 'goal-dep', goal: 'Fix issue', status: 'queued', metadata: { prerequisites: ['prereq-missing'] } }] },
+    candidates: [{ goal_id: 'goal-dep', goal: 'Fix issue', dynamic_score: 50 }],
+    now: '2026-10-23T00:00:00.000Z'
+  });
+  assert.equal(missingPrereqTwin.recommendation, 'DEFER');
+  assert.deepEqual(missingPrereqTwin.predicted_blockers.map(x => x.ref), ['prereq-missing']);
+
+  const emptyTwin = buildMissionTwinReport({ snapshot: {}, candidates: [], now: '2026-10-23T00:00:00.000Z' });
+  assert.equal(emptyTwin.recommendation, 'NO_ACTION');
+  assert.equal(emptyTwin.candidate, null);
+  assert.equal(emptyTwin.status, 'SIMULATED');
 
   console.log('dynamic goal engine tests: PASS');
 })();
