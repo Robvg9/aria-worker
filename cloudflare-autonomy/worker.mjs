@@ -190,7 +190,17 @@ export class AriaMissionStore {
       const response = await fetch(endpoint.toString(), {
         method: 'POST',
         headers: { 'content-type': 'application/json', ...(this.env.ARIA_NOTIFICATION_TOKEN ? { authorization: 'Bearer ' + this.env.ARIA_NOTIFICATION_TOKEN } : {}) },
-        body: JSON.stringify({ source: 'ARIA Mission Control', ...record.event, notification_id: record.notification_id, created_at: record.created_at }),
+        body: JSON.stringify({
+          source: 'ARIA Mission Control',
+          notification_id: record.notification_id,
+          type: String((record.event || {}).type || 'aria_event'),
+          mission_id: (record.event || {}).mission_id ? String(record.event.mission_id) : null,
+          task_id: (record.event || {}).task_id ? String(record.event.task_id) : null,
+          approval_id: (record.event || {}).approval_id ? String(record.event.approval_id) : null,
+          reason: (record.event || {}).reason ? String(record.event.reason).slice(0, 1000) : null,
+          details: (record.event || {}).details ? String(record.event.details).slice(0, 1000) : null,
+          created_at: record.created_at
+        }),
         signal: AbortSignal.timeout(10000)
       });
       if (!response.ok) throw new Error('webhook_http_' + response.status);
@@ -209,7 +219,9 @@ export class AriaMissionStore {
     const hasActive = Array.from(missions.values()).some(m => ACTIVE_MISSION_STATES.has(m.status));
     const jobs = await this.ctx.storage.list({ prefix: 'job:' });
     const hasJobs = Array.from(jobs.values()).some(job => ACTIVE_JOB_STATES.has(job.status));
-    if (hasActive || hasJobs) await this.ctx.storage.setAlarm(Date.now() + this.alarmMs);
+    const notices = await this.ctx.storage.list({ prefix: 'notification:' });
+    const hasPendingNotifications = Array.from(notices.values()).some(item => item.status === 'pending');
+    if (hasActive || hasJobs || hasPendingNotifications) await this.ctx.storage.setAlarm(Date.now() + this.alarmMs);
   }
   async createJob(mission, operation, task, context = {}) {
     const jobs = await this.ctx.storage.list({ prefix: 'job:' });

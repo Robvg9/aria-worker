@@ -19,9 +19,9 @@ class MemoryState {
 }
 const controlToken = 'control-token-for-tests'.padEnd(40, 'c');
 const workerToken = 'worker-token-for-tests'.padEnd(40, 'w');
-function createStore() {
+function createStore(extraEnv = {}) {
   const state = new MemoryState();
-  return { state, store: new AriaMissionStore(state, { ARIA_CONTROL_TOKEN: controlToken, ARIA_WORKER_TOKEN: workerToken, ARIA_WORKER_LEASE_MS: 60000 }) };
+  return { state, store: new AriaMissionStore(state, { ARIA_CONTROL_TOKEN: controlToken, ARIA_WORKER_TOKEN: workerToken, ARIA_WORKER_LEASE_MS: 60000, ...extraEnv }) };
 }
 function request(path, { method = 'GET', token = controlToken, body } = {}) {
   return new Request('https://aria-test.invalid' + path, {
@@ -111,6 +111,49 @@ async function testIrreversibleTaskNeedsExplicitApproval() {
   assert.equal(current.status, 'succeeded');
 }
 
+
+async function testNotificationPayloadAllowlistAndRetry() {
+  const originalFetch = global.fetch;
+  const payloads = [];
+  let shouldFail = true;
+  global.fetch = async (_url, options) => {
+    payloads.push(JSON.parse(options.body));
+    return shouldFail ? { ok: false, status: 503 } : { ok: true, status: 200 };
+  };
+  try {
+    const { state, store } = createStore({
+      ARIA_NOTIFICATION_WEBHOOK_URL: 'https://notify.example.test/aria',
+      ARIA_NOTIFICATION_TOKEN: 'notification-secret-for-test'
+    });
+    const notice = await store.notify({
+      type: 'human_intervention_required',
+      mission_id: 'mission_safe',
+      details: 'A human should review this.',
+      secret_field: 'must-not-leave-the-coordinator'
+    });
+    await Promise.all(state.pending);
+    let persisted = await state.storage.get('notification:' + notice.notification_id);
+    assert.equal(persisted.status, 'pending');
+    assert.equal(payloads.length, 1);
+    assert.equal(payloads[0].type, 'human_intervention_required');
+    assert.equal(payloads[0].mission_id, 'mission_safe');
+    assert.equal(payloads[0].secret_field, undefined);
+    assert.equal(JSON.stringify(payloads[0]).includes('notification-secret-for-test'), false);
+
+    await store.scheduleAlarm();
+    assert.ok(state.storage.alarmAt, 'pending notification must keep an alarm scheduled for retry');
+    shouldFail = false;
+    await store.alarm();
+    persisted = await state.storage.get('notification:' + notice.notification_id);
+    assert.equal(persisted.status, 'delivered');
+    assert.equal(persisted.attempts, 2);
+    assert.equal(payloads.length, 2);
+    assert.equal(payloads[1].secret_field, undefined);
+  } finally {
+    global.fetch = originalFetch;
+  }
+}
+
 async function testRetryReplanAndLeaseProtection() {
   const { store } = createStore();
   const mission = await createMission(store, 'Recover a failed task by replanning');
@@ -146,6 +189,7 @@ async function testRetryReplanAndLeaseProtection() {
   await testAuthAndVerifiedMissionLifecycle();
   await testIrreversibleTaskNeedsExplicitApproval();
   await testRetryReplanAndLeaseProtection();
+  await testNotificationPayloadAllowlistAndRetry();
   process.stdout.write('cloudflare-autonomy-worker: all tests passed\n');
 })().catch(err => {
   process.stderr.write((err && err.stack) || String(err));
