@@ -54,6 +54,12 @@ const supervisorScriptPath = path.join(__dirname, '..', 'scripts', 'Start-ARIA-P
       () => bridge.complete(expiredClaim.job_id, { worker_id: 'expired-lease-worker', lease_token: expiredClaim.lease_token, result: { passed: true } }),
       /worker_lease_expired/
     );
+    persistedJob.lease_until = 'not-a-date';
+    await fs.writeFile(persistedJobPath, JSON.stringify(persistedJob, null, 2), 'utf8');
+    await assert.rejects(
+      () => bridge.heartbeat(expiredClaim.job_id, { worker_id: 'expired-lease-worker', lease_token: expiredClaim.lease_token }),
+      /worker_lease_expired/
+    );
     const reopened = createPersistentWorkerBridge({ directory });
     assert.equal((await reopened.get(claimed.job_id)).status, 'succeeded');
     const planner = createWorkerBackedPlanner({ bridge, timeoutMs: 300, pollMs: 250 });
