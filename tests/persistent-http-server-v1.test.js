@@ -20,6 +20,10 @@ const { createPersistentWorkerBridge } = require('../autonomy/persistent-worker-
     verifyCompletion: async mission => ({ passed: mission.tasks.every(task => task.status === 'succeeded') })
   });
   const workerBridge = createPersistentWorkerBridge({ directory, leaseMs: 10000 });
+  assert.throws(
+    () => createPersistentHttpServer({ store, autonomy, token, workerBridge, workerToken: token, host: '127.0.0.1', port: 0, runSupervisor: false }),
+    /ARIA_CONTROL_TOKEN and ARIA_WORKER_TOKEN must be distinct/
+  );
   const app = createPersistentHttpServer({ store, autonomy, token, workerBridge, workerToken, host: '127.0.0.1', port: 0, runSupervisor: false });
   try {
     const address = await app.listen();
@@ -29,6 +33,16 @@ const { createPersistentWorkerBridge } = require('../autonomy/persistent-worker-
     assert.equal((await health.json()).supabase_independent, true);
     const unauthorized = await fetch(base + '/api/missions');
     assert.equal(unauthorized.status, 401);
+    const workerCannotReadControlPlane = await fetch(base + '/api/missions', {
+      headers: { authorization: 'Bearer ' + workerToken }
+    });
+    assert.equal(workerCannotReadControlPlane.status, 401, 'worker token must not authorize control-plane API access');
+    const controlCannotClaimWorkerJob = await fetch(base + '/api/worker/claim', {
+      method: 'POST',
+      headers: { authorization: 'Bearer ' + token, 'content-type': 'application/json' },
+      body: JSON.stringify({ worker_id: 'wrong-token-worker', capabilities: ['test'] })
+    });
+    assert.equal(controlCannotClaimWorkerJob.status, 401, 'control token must not authorize worker-bridge access');
     const dashboard = await fetch(base + '/');
     assert.equal(dashboard.status, 200);
     assert.match(await dashboard.text(), /ARIA Mission Control/);
