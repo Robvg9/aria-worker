@@ -11,6 +11,7 @@ const pwaDeploy = fs.readFileSync(path.join(root, '.github/workflows/aria-pwa-fa
 const supabaseDeploy = fs.readFileSync(path.join(root, '.github/workflows/supabase-canonical-deploy.yml'), 'utf8');
 const cloudWorker = fs.readFileSync(path.join(root, 'cloudflare-autonomy/worker.mjs'), 'utf8');
 const wrangler = fs.readFileSync(path.join(root, 'wrangler.aria-autonomy.toml'), 'utf8');
+const windowsLauncher = fs.readFileSync(path.join(root, 'scripts/Start-ARIA-Persistent-Worker.ps1'), 'utf8');
 
 assert.match(legacyWorkflow, /paths-ignore:/);
 assert.match(legacyWorkflow, /workflow_dispatch:/);
@@ -74,4 +75,7 @@ assert.doesNotMatch(isolatedDeploy, /SUPABASE_ACCESS_TOKEN|SUPABASE_PROJECT_REF|
 assert.doesNotMatch(cloudWorker, /SUPABASE_ACCESS_TOKEN|SUPABASE_PROJECT_REF|createSupabaseMissionRepository|supabase\.co/i);
 assert.match(wrangler, /class_name = "AriaMissionStore"/);
 assert.match(wrangler, /new_sqlite_classes = \["AriaMissionStore"\]/);
+assert.ok(windowsLauncher.includes("$launcherScript = Join-Path $installRoot 'scripts\\Start-ARIA-Persistent-Worker.ps1'"), 'scheduled task must point to the PowerShell supervisor');
+assert.ok(windowsLauncher.includes('-File "\' + $launcherScript + \'"'), 'scheduled task must launch the supervisor script');
+assert.ok(!windowsLauncher.includes('-File "\' + $workerScript + \'"'), 'scheduled task must not pass the JavaScript worker to PowerShell -File');
 process.stdout.write('aria-autonomy-supabase-boundary: all tests passed\n');
