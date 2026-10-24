@@ -20,6 +20,10 @@ const { createPersistentWorkerBridge } = require('../autonomy/persistent-worker-
     verifyCompletion: async mission => ({ passed: mission.tasks.every(task => task.status === 'succeeded') })
   });
   const workerBridge = createPersistentWorkerBridge({ directory, leaseMs: 10000 });
+  assert.throws(
+    () => createPersistentHttpServer({ store, autonomy, token, workerBridge, workerToken: token, host: '127.0.0.1', port: 0, runSupervisor: false }),
+    /ARIA_CONTROL_TOKEN and ARIA_WORKER_TOKEN must be distinct/
+  );
   const app = createPersistentHttpServer({ store, autonomy, token, workerBridge, workerToken, host: '127.0.0.1', port: 0, runSupervisor: false });
   try {
     const address = await app.listen();
