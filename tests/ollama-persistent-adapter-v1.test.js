@@ -108,11 +108,11 @@ async function tryCreateSymlink(target, linkPath) {
 
     const outsideRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'aria-ollama-outside-v1-'));
     try {
-      await fs.writeFile(path.join(outsideRoot, 'secret.txt'), 'outside-workspace-secret', 'utf8');
+      await fs.writeFile(path.join(outsideRoot, 'outside-data.txt'), 'outside-workspace-data', 'utf8');
       const symlinkAvailable = await tryCreateSymlink(outsideRoot, path.join(workspaceRoot, 'linked-outside'));
       if (symlinkAvailable) {
         await assert.rejects(
-          () => adapter.executeTask({ operation: 'workspace.read', payload: { path: 'linked-outside/secret.txt' } }),
+          () => adapter.executeTask({ operation: 'workspace.read', payload: { path: 'linked-outside/outside-data.txt' } }),
           /workspace_symlink_blocked/
         );
         const listed = await adapter.executeTask({ operation: 'workspace.list', payload: { depth: 3 } });
