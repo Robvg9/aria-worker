@@ -7,6 +7,17 @@ const path = require('node:path');
 const { createOllamaPersistentAdapter } = require('../autonomy/ollama-persistent-adapter-v1');
 const { loadAdapter } = require('../scripts/aria-persistent-autonomy-v1');
 
+async function tryCreateSymlink(target, linkPath) {
+  try {
+    await fs.symlink(target, linkPath, 'dir');
+    return true;
+  } catch (error) {
+    // Windows may disallow symlink creation when Developer Mode or privileges are unavailable.
+    if (['EPERM', 'EACCES', 'UNKNOWN'].includes(error && error.code)) return false;
+    throw error;
+  }
+}
+
 (async () => {
   const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'aria-ollama-adapter-v1-'));
   try {
@@ -98,27 +109,31 @@ const { loadAdapter } = require('../scripts/aria-persistent-autonomy-v1');
     const outsideRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'aria-ollama-outside-v1-'));
     try {
       await fs.writeFile(path.join(outsideRoot, 'secret.txt'), 'outside-workspace-secret', 'utf8');
-      await fs.symlink(outsideRoot, path.join(workspaceRoot, 'linked-outside'), 'dir');
-      await assert.rejects(
-        () => adapter.executeTask({ operation: 'workspace.read', payload: { path: 'linked-outside/secret.txt' } }),
-        /workspace_symlink_blocked/
-      );
-      const listed = await adapter.executeTask({ operation: 'workspace.list', payload: { depth: 3 } });
-      assert.equal(listed.evidence.entries.some(entry => entry.path.startsWith('linked-outside')), false, 'workspace listing must not follow symlinks');
+      const symlinkAvailable = await tryCreateSymlink(outsideRoot, path.join(workspaceRoot, 'linked-outside'));
+      if (symlinkAvailable) {
+        await assert.rejects(
+          () => adapter.executeTask({ operation: 'workspace.read', payload: { path: 'linked-outside/secret.txt' } }),
+          /workspace_symlink_blocked/
+        );
+        const listed = await adapter.executeTask({ operation: 'workspace.list', payload: { depth: 3 } });
+        assert.equal(listed.evidence.entries.some(entry => entry.path.startsWith('linked-outside')), false, 'workspace listing must not follow symlinks');
+      }
     } finally {
       await fs.rm(outsideRoot, { recursive: true, force: true });
     }
 
     const symlinkRoot = path.join(os.tmpdir(), 'aria-ollama-root-link-' + Date.now() + '-' + Math.random().toString(16).slice(2));
-    await fs.symlink(workspaceRoot, symlinkRoot, 'dir');
-    try {
-      const linkedRootAdapter = createOllamaPersistentAdapter({ workspaceRoot: symlinkRoot, fetchImpl });
-      await assert.rejects(
-        () => linkedRootAdapter.executeTask({ operation: 'workspace.read', payload: { path: 'README.md' } }),
-        /workspace_root_invalid/
-      );
-    } finally {
-      await fs.rm(symlinkRoot, { force: true });
+    const rootSymlinkAvailable = await tryCreateSymlink(workspaceRoot, symlinkRoot);
+    if (rootSymlinkAvailable) {
+      try {
+        const linkedRootAdapter = createOllamaPersistentAdapter({ workspaceRoot: symlinkRoot, fetchImpl });
+        await assert.rejects(
+          () => linkedRootAdapter.executeTask({ operation: 'workspace.read', payload: { path: 'README.md' } }),
+          /workspace_root_invalid/
+        );
+      } finally {
+        await fs.rm(symlinkRoot, { force: true });
+      }
     }
 
     assert.throws(
