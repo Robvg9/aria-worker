@@ -100,6 +100,11 @@ export class AriaMissionStore {
   async fetch(request) {
     const url = new URL(request.url);
     const method = request.method.toUpperCase();
+    const controlToken = this.env.ARIA_CONTROL_TOKEN;
+    const workerToken = this.env.ARIA_WORKER_TOKEN;
+    if (typeof controlToken === 'string' && controlToken.length > 0 && controlToken === workerToken) {
+      return error('auth_configuration_invalid', 503);
+    }
     if (method === 'GET' && url.pathname === '/health') {
       return json({ ok: true, service: 'aria-autonomy-coordinator', storage: 'durable-object', supabase_independent: true, time: nowIso() });
     }
