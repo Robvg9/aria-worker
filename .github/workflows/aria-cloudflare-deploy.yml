@@ -21,6 +21,10 @@ on:
       - 'tests/pwa-capabilities-test-center-v1.test.js'
       - 'pwa/src/testCatalog.ts'
       - 'package.json'
+      # Scheduler transport changes deploy only through the dedicated, exact-SHA workflow.
+      - 'worker.js'
+      - 'wrangler.toml'
+      - 'tests/mission-runtime-integrity-v1.test.js'
       - 'tests/pc-rwht-browser.test.js'
       - 'tests/pwa-capabilities-test-center-v1.test.js'
       - '.github/workflows/aria-autonomy-coordinator-deploy.yml'
