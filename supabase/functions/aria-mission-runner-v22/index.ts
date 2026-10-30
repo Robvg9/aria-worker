@@ -48,6 +48,9 @@ const out = (body: unknown, status = 200) => new Response(JSON.stringify(body), 
   headers: { "content-type": "application/json", "cache-control": "no-store" },
 });
 
+// Fail closed until an explicit, reviewed reactivation change is made.
+const MISSION_EXECUTION_PAUSED = true;
+
 const constantTimeEqual = (a: string, b: string) => {
   const x = new TextEncoder().encode(a);
   const y = new TextEncoder().encode(b);
@@ -3068,6 +3071,7 @@ async function chainNextMeditationMission(depth: number) {
 Deno.serve(async (request) => {
   if (request.method !== "POST") return out({ error: "method_not_allowed" }, 405);
   if (!(await authorized(request))) return out({ error: "unauthorized" }, 401);
+  if (MISSION_EXECUTION_PAUSED) return out({ ok: false, status: "paused", error: "mission_execution_paused", runtime: V_LOGICAL, execution_enabled: false }, 423);
 
   const body = await request.json().catch(() => ({}));
   const requestedMissionId = typeof body?.mission_id === "string" ? body.mission_id : null;
