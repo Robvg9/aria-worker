@@ -87,6 +87,8 @@ test('the live operational diagnostics path consumes and persists the consistenc
   assert.match(operational, /consistency=analyzeMissionConsistency\(\{mission,steps,jobs,events,jobEvents\}\)/);
   assert.match(api, /\.from\('execution_jobs'\)[\s\S]{0,260}\.eq\('mission_id',missionId\)/);
   assert.match(api, /const consistency=diagnostic\.consistency/);
+  assert.match(api, /diagnosis:persistedDiagnosis/);
+  assert.match(api, /evidence_chain:diagnostic\.evidence_chain/);
   assert.match(api, /mission_consistency:consistency/);
 });
 
