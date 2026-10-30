@@ -1585,6 +1585,9 @@ const PAUSED_MISSION_ENDPOINTS = new Set([
   "/v1/meditation/queue/add",
   "/v1/meditation/queue/run-next",
   "/v1/meditation/human-gate/complete",
+  "/v1/android/autonomous/decide",
+  "/v1/router/execute",
+  "/v1/router/parallel-execute",
   "/v1/rwht-final-probe",
   "/v1/rwht-final-repair",
   "/v1/rwht-model-probe",
@@ -1592,10 +1595,11 @@ const PAUSED_MISSION_ENDPOINTS = new Set([
   "/v1/mission5/model-probe",
   "/v1/jobs/claim",
 ]);
+const PAUSED_MISSION_JOB_ROUTES = /^\\/v1\\/jobs\\/[^/]+\\/(?:start|resolve-secret)$/;
 Deno.serve(async(req)=>{
   const u=new URL(req.url);
   const p=u.pathname.replace(/^\/aria-device-gateway/,'').replace(/\/+$/,'')||'/';
-  if(MISSION_EXECUTION_PAUSED&&PAUSED_MISSION_ENDPOINTS.has(p)){
+  if(MISSION_EXECUTION_PAUSED&&(PAUSED_MISSION_ENDPOINTS.has(p)||PAUSED_MISSION_JOB_ROUTES.test(p))){
     return json({ok:false,status:'paused',error:'mission_execution_paused',runtime:'aria-device-gateway',endpoint:p,execution_enabled:false},423);
   }
   const b=await body(req);if(req.method==='POST'&&p==='/v1/rwht-final-repair'){
