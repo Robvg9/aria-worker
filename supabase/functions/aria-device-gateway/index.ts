@@ -1590,7 +1590,7 @@ const PAUSED_MISSION_ENDPOINTS = new Set([
 ]);
 Deno.serve(async(req)=>{
   const u=new URL(req.url);
-  const p=u.pathname.replace(/^\\/aria-device-gateway/,'').replace(/\\/+$/,'')||'/';
+  const p=u.pathname.replace(/^\/aria-device-gateway/,'').replace(/\/+$/,'')||'/';
   if(req.method==='POST'&&MISSION_EXECUTION_PAUSED&&PAUSED_MISSION_ENDPOINTS.has(p)){
     return json({ok:false,status:'paused',error:'mission_execution_paused',runtime:'aria-device-gateway',endpoint:p,execution_enabled:false},423);
   }
