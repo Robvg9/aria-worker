@@ -134,6 +134,9 @@ test('consistency checker flags terminal missions with open steps and missing ca
 
 test('Cloudflare Worker blocks authenticated mission and runtime proxy routes during the global freeze', () => {
   const worker = read('worker.js');
+  const appApi = worker.slice(worker.indexOf('async function proxyAppApi'), worker.indexOf('async function proxyPasswordSignIn'));
+  const apiGate = appApi.indexOf('MISSION_EXECUTION_PAUSED && pausedMissionMutation');
+  assert.ok(apiGate > 0 && apiGate < appApi.indexOf('const upstreamUrl=SUPABASE_APP_API'), 'Worker API proxy must block mission routes before forwarding');
   for (const name of ['proxyRuntime', 'startMission', 'directAria']) {
     const start = worker.indexOf('async function ' + name);
     const gate = worker.indexOf('if(MISSION_EXECUTION_PAUSED)', start);
