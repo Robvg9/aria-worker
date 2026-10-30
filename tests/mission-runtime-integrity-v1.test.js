@@ -33,8 +33,8 @@ assert.match(worker,/x-aria-autonomy-token/);
 assert.match(schedulerMigration,/aria\.robvg9\.workers\.dev\/scheduler\/tick/);
 
 // Global mission freeze: Cloudflare must not keep a second scheduler alive.
-assert.match(wrangler,/\[triggers\][\s\S]*?crons\s*=\s*\[\s*\]/);
-assert.doesNotMatch(wrangler,/crons\s*=\s*\[\s*['"]\*\s+\*\s+\*\s+\*\s+\*['"]\s*\]/);
+  assert.match(wrangler, /\[triggers\][\s\S]*?crons\s*=\s*\[\s*\]/);
+  assert.doesNotMatch(wrangler, /crons\s*=\s*\[\s*['"]\*\s+\*\s+\*\s+\*\s+\*['"]\s*\]/);
 assert.match(worker,/const MISSION_EXECUTION_PAUSED = true;/);
 const manualScheduler=worker.slice(worker.indexOf('async function schedulerTick'),worker.indexOf('async function runScheduledMission'));
 assert.match(manualScheduler,/MISSION_EXECUTION_PAUSED[\s\S]*?423/);
