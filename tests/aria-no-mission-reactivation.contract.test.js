@@ -75,6 +75,16 @@ test('autonomy selectors enforce max_attempts for core and gateway-local engines
   assert.equal(gateway.selectDynamicGoal(localCandidates.filter((candidate) => candidate.goal_id === 'runaway'), new Set(), new Set()), null);
 });
 
+test('the live operational diagnostics path consumes and persists the consistency checker', () => {
+  const operational = read('supabase/functions/_shared/operational-diagnostics.mjs');
+  const api = read('supabase/functions/aria-app-api-v3/index.ts');
+  assert.match(operational, /import \{ analyzeMissionConsistency \} from "\.\/mission-consistency\.mjs"/);
+  assert.match(operational, /consistency=analyzeMissionConsistency\(\{mission,steps,jobs,events,jobEvents\}\)/);
+  assert.match(api, /\.from\('execution_jobs'\)[\s\S]{0,260}\.eq\('mission_id',missionId\)/);
+  assert.match(api, /const consistency=diagnostic\.consistency/);
+  assert.match(api, /mission_consistency:consistency/);
+});
+
 test('consistency checker flags terminal missions with open steps and missing cancel events without mutating data', async () => {
   const { analyzeMissionConsistency } = await import('../supabase/functions/_shared/mission-consistency.mjs');
   for (const status of ['failed', 'blocked', 'cancelled']) {
