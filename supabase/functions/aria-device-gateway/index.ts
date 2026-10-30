@@ -1286,7 +1286,7 @@ async function autonomyCycle(b:any){
   const refreshed=await autonomySnapshot();
   const blockedIds=new Set(refreshed.goals.filter((g:any)=>['blocked','completed'].includes(g.status)).map((g:any)=>g.goal_id));
   const activeIds=new Set(refreshed.goals.filter((g:any)=>g.status==='running').map((g:any)=>g.goal_id));
-  const eligible=refreshed.goals.filter((g:any)=>g.status==='queued'&&(!g.next_run_at||Date.parse(g.next_run_at)<=Date.now()));
+  const eligible=refreshed.goals.filter((g:any)=>g.status==='queued'&&Number(g.attempts||0)<Number(g.max_attempts??3)&&(!g.next_run_at||Date.parse(g.next_run_at)<=Date.now()));
   const ranked=generateCandidates({goals:eligible},{now});
   const selected=selectDynamicGoal(ranked,blockedIds,activeIds);
   await supabase.schema('aria_internal').from('autonomy_cycles').insert({
