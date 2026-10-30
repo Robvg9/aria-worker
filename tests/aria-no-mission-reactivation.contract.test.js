@@ -222,12 +222,13 @@ test('legacy mission and execution endpoints stay frozen before parsing or dispa
     const source = read('supabase/functions/' + slug + '/index.ts');
     const server = source.indexOf('Deno.serve');
     const handler = source.slice(server);
-    const gateMatch = /if\\s*\\(\\s*MISSION_EXECUTION_PAUSED\\s*\\)/.exec(handler);
+    const gateOffset = handler.indexOf('MISSION_EXECUTION_PAUSED');
     assert.ok(server >= 0 && gateMatch, slug + ' must retain an in-handler freeze gate');
-    const gate = server + gateMatch.index;
+    assert.ok(gateOffset >= 0 && /if\\s*$/.test(handler.slice(Math.max(0, gateOffset - 6), gateOffset)), slug + ' must use a conditional in-handler freeze gate');
+    const gate = server + gateOffset;
     const response = source.indexOf('423', gate);
     assert.ok(response > gate, slug + ' must return HTTP 423 while paused');
-    assert.match(source, /const MISSION_EXECUTION_PAUSED\\s*=\\s*true\\s*;/, slug + ' must keep the explicit freeze flag');
+    assert.ok(source.includes('const MISSION_EXECUTION_PAUSED = true;'), slug + ' must keep the explicit freeze flag');
 
     for (const marker of ['.json()', '.text()', 'fetch(', 'aria_mission_claim_next_lease', 'aria_mission_create', 'enqueue_execution_job_gateway']) {
       const action = source.indexOf(marker, server);
