@@ -59,6 +59,8 @@ test('device gateway blocks mission, autonomy, manual queue execution, and job c
   const bodyRead = source.indexOf('const b=await body(req)', handler);
   assert.ok(handler >= 0 && gate > handler && bodyRead > gate, 'gateway route guard must precede request body handling');
   assert.doesNotMatch(source, /req\.method==='POST'&&MISSION_EXECUTION_PAUSED/, 'the gateway pause must also cover GET-based execution probes');
+  assert.match(source, /PAUSED_MISSION_JOB_ROUTES[\\s\\S]*?\\/start\\|resolve-secret/);
+  assert.match(source, /PAUSED_MISSION_JOB_ROUTES\.test\(p\)/);
   for (const endpoint of [
     '/v1/autonomy/cycle',
     '/v1/audit/all-for-one/start',
@@ -69,6 +71,9 @@ test('device gateway blocks mission, autonomy, manual queue execution, and job c
     '/v1/meditation/queue/add',
     '/v1/meditation/queue/run-next',
     '/v1/meditation/human-gate/complete',
+    '/v1/android/autonomous/decide',
+    '/v1/router/execute',
+    '/v1/router/parallel-execute',
     '/v1/rwht-final-probe',
     '/v1/rwht-final-repair',
     '/v1/rwht-model-probe',
