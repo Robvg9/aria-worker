@@ -63,6 +63,18 @@ function rewriteAuthChallenge(response){const headers=new Headers(response.heade
 function escapeHtml(value){return String(value).replace(/[&<>'\"]/g,ch=>({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;","\"":"&quot;"}[ch]))}
 async function proxyAppApi(request,url){
   const suffix=url.pathname.replace(/^\/api(?=\/|$)/,"")||"/";
+  const pausedMissionMutation = request.method === "POST" && (
+    suffix.endsWith("/conversation") ||
+    suffix.endsWith("/missions") ||
+    /\/missions\/[^/]+\/(?:verify-retry|invalidate-unverified-success|retry|human-gate\/approve|cancel)$/.test(suffix) ||
+    suffix.endsWith("/meditation/control") ||
+    suffix.endsWith("/meditation/idea-to-mission") ||
+    /\/meditation\/ideas\/[^/]+\/(?:decision|convert)$/.test(suffix) ||
+    suffix.endsWith("/meditation/queue/reorder")
+  );
+  if (MISSION_EXECUTION_PAUSED && pausedMissionMutation) {
+    return json({ ok: false, status: "paused", error: "mission_execution_paused", execution_enabled: false }, 423);
+  }
   const upstreamUrl=SUPABASE_APP_API+suffix+url.search;
   const headers=new Headers(request.headers);
   headers.delete("host");
