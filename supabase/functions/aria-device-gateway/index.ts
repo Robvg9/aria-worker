@@ -1574,7 +1574,27 @@ async function allForOneTick(){
   }
   return{ok:true,status:'idle',run_id:run.run_id};
 }
-Deno.serve(async(req)=>{const u=new URL(req.url);const p=u.pathname.replace(/^\/aria-device-gateway/,'').replace(/\/+$/,'')||'/';const b=await body(req);if(req.method==='POST'&&p==='/v1/rwht-final-repair'){
+const MISSION_EXECUTION_PAUSED = true;
+const PAUSED_MISSION_ENDPOINTS = new Set([
+  "/v1/autonomy/cycle",
+  "/v1/audit/all-for-one/start",
+  "/v1/audit/all-for-one/tick",
+  "/v1/meditation/tick-service",
+  "/v1/meditation/tick",
+  "/v1/meditation/queue/run-next",
+  "/v1/meditation/human-gate/complete",
+  "/v1/rwht-final-repair",
+  "/v1/mission5/agent-probe",
+  "/v1/mission5/model-probe",
+  "/v1/jobs/claim",
+]);
+Deno.serve(async(req)=>{
+  const u=new URL(req.url);
+  const p=u.pathname.replace(/^\\/aria-device-gateway/,'').replace(/\\/+$/,'')||'/';
+  if(req.method==='POST'&&MISSION_EXECUTION_PAUSED&&PAUSED_MISSION_ENDPOINTS.has(p)){
+    return json({ok:false,status:'paused',error:'mission_execution_paused',runtime:'aria-device-gateway',endpoint:p,execution_enabled:false},423);
+  }
+  const b=await body(req);if(req.method==='POST'&&p==='/v1/rwht-final-repair'){
   if(String(b?.mission_id||'')!=='mission_rwht_final_20260920_02')return json({error:'probe_mission_restricted'},403);
   const dbUrl=Deno.env.get('SUPABASE_DB_URL')||'';
   if(!dbUrl)return json({error:'db_url_unavailable'},503);
