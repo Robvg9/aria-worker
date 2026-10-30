@@ -13,6 +13,7 @@ import { handlePrivateVaultRequest, isPrivateVaultRoute, privateVaultAuthFailure
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const SECRET = Deno.env.get("ARIA_RUNTIME_SHARED_SECRET") ?? "";
+const MISSION_EXECUTION_PAUSED = true;
 const DIRECT = `${SUPABASE_URL}/functions/v1/aria-direct-v1`;
 const MEMORY = `${SUPABASE_URL}/functions/v1/aria-memory-v2`;
 const PLANNER = `${SUPABASE_URL}/functions/v1/aria-planner-v11`;
@@ -1952,6 +1953,20 @@ Deno.serve(async (req) => {
     const path = new URL(req.url).pathname.replace(/\/+$/, "");
     if (isPrivateVaultRoute(path)) {
       return await handlePrivateVaultRequest(req, String(user.id), crypto.randomUUID(), serviceClient());
+    }
+    const pausedMissionMutation =
+      req.method === "POST" &&
+      (
+        path.endsWith("/conversation") ||
+        path.endsWith("/missions") ||
+        /\/missions\/[^/]+\/(?:verify-retry|invalidate-unverified-success|retry|human-gate\/approve|cancel)$/.test(path) ||
+        path.endsWith("/meditation/control") ||
+        path.endsWith("/meditation/idea-to-mission") ||
+        /\/meditation\/ideas\/[^/]+\/(?:decision|convert)$/.test(path) ||
+        path.endsWith("/meditation/queue/reorder")
+      );
+    if (MISSION_EXECUTION_PAUSED && pausedMissionMutation) {
+      return json({ error: "mission_execution_paused", execution_enabled: false, trace_id: trace }, 423);
     }
     if (req.method === "GET" && path.endsWith("/session")) return json({ ok: true, service: "aria-app-api-v3", user: { id: user.id, email: user.email ?? null }, trace_id: trace });
     if (req.method === "GET" && path.endsWith("/system")) { const r = await fetch(DIRECT); const b = await r.json().catch(() => null); return json({ ok: r.ok, service: "aria-app-api-v3", user_id: user.id, aria: b, trace_id: trace }, r.ok ? 200 : 502); }
