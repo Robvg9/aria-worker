@@ -6,7 +6,6 @@ import { classifyConversation } from "../_shared/fast-lane.ts";
 import { shouldDebate, debatePrompt } from "../_shared/model-debate.ts";
 import { buildIdeaMissionProposal, validateProposal } from "../_shared/idea-to-mission.mjs";
 import { deriveOperationalDiagnostic } from "../_shared/operational-diagnostics.mjs";
-import { analyzeMissionConsistency } from "../_shared/mission-consistency.mjs";
 import { inspectGithubSource, buildCapabilityIndex, buildAbsorptionPlan, buildAbsorptionIdentity, advanceAbsorptionPlan, evaluateAbsorptionCompletion } from "../_shared/absorb-engine.mjs";
 import { deriveMissionDisplayTitle, MISSION_TITLE_VERSION } from "../_shared/mission-title.mjs";
 import { handlePrivateVaultRequest, isPrivateVaultRoute, privateVaultAuthFailure, privateVaultPreflight } from "./private-vault.ts";
@@ -1203,12 +1202,12 @@ async function missionDiagnosticForUser(missionId:string,userId:string){
     if(device){deviceHealth={status:String(device.status)==='online'?'healthy':String(device.status)==='pending'?'degraded':'unavailable',observed:true,device_id:device.device_id,last_seen_at:device.last_seen_at};}
   }
   const diagnostic=deriveOperationalDiagnostic({mission,steps:steps??[],events:events??[],jobs,jobEvents,health:{status:deviceHealth.status,observed:deviceHealth.observed,device:deviceHealth}});
-  const consistency=analyzeMissionConsistency({mission,steps:steps??[],jobs,events:events??[],jobEvents});
+  const consistency=diagnostic.consistency;
   const persistedEvidenceChain={
     ...(diagnostic.evidence_chain&&typeof diagnostic.evidence_chain==='object'?diagnostic.evidence_chain:{}),
     mission_consistency:consistency
   };
-  const enrichedDiagnostic={...diagnostic,mission_consistency:consistency,evidence_chain:persistedEvidenceChain};
+  const enrichedDiagnostic={...diagnostic,evidence_chain:persistedEvidenceChain};
   const now=new Date().toISOString();
   const {error:upsertError}=await sb.schema('aria_internal').from('mission_diagnostics').upsert({mission_id:missionId,diagnostic_version:diagnostic.version,correlation:diagnostic.correlation,classification:diagnostic.classification,diagnosis:diagnostic.diagnosis,versions:diagnostic.versions,attempts:diagnostic.attempts,evidence_chain:persistedEvidenceChain,health:diagnostic.health,generated_at:now,updated_at:now},{onConflict:'mission_id'});
   if(upsertError)throw new Error('mission_diagnostics_persist:'+upsertError.message);
