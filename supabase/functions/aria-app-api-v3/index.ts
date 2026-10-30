@@ -13,6 +13,7 @@ import { handlePrivateVaultRequest, isPrivateVaultRoute, privateVaultAuthFailure
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const SECRET = Deno.env.get("ARIA_RUNTIME_SHARED_SECRET") ?? "";
+const MISSION_EXECUTION_PAUSED = true;
 const DIRECT = `${SUPABASE_URL}/functions/v1/aria-direct-v1`;
 const MEMORY = `${SUPABASE_URL}/functions/v1/aria-memory-v2`;
 const PLANNER = `${SUPABASE_URL}/functions/v1/aria-planner-v11`;
@@ -1175,22 +1176,24 @@ async function missionDiagnosticForUser(missionId:string,userId:string){
   const mission=await missionForUser(missionId,userId);
   if(!mission)return null;
   const sb=serviceClient();
-  const [{data:steps,error:se},{data:events,error:ee}]=await Promise.all([
+  const [{data:steps,error:se},{data:events,error:ee},{data:jobsData,error:je}]=await Promise.all([
     sb.schema('aria_internal').from('mission_steps').select('mission_id,step_index,status,operation,agent_id,attempt_count,started_at,completed_at,result').eq('mission_id',missionId).order('step_index',{ascending:true}),
-    sb.schema('aria_internal').from('mission_events').select('event_id,mission_id,step_index,event_type,payload,created_at,trace_id,span_id,request_id,execution_id,error_code,runtime_version,source_sha').eq('mission_id',missionId).order('created_at',{ascending:true}).limit(300)
+    sb.schema('aria_internal').from('mission_events').select('event_id,mission_id,step_index,event_type,payload,created_at,trace_id,span_id,request_id,execution_id,error_code,runtime_version,source_sha').eq('mission_id',missionId).order('created_at',{ascending:true}).limit(300),
+    sb.schema('aria_internal').from('execution_jobs').select('job_id,mission_id,device_id,operation,status,timeout_ms,requested_at,started_at,completed_at,result,metadata,updated_at').eq('mission_id',missionId).limit(100)
   ]);
   if(se)throw new Error('mission_diagnostics_steps:'+se.message);
   if(ee)throw new Error('mission_diagnostics_events:'+ee.message);
-  const jobIds=Array.from(new Set((events??[]).map((e:any)=>String(e?.execution_id||e?.payload?.job_id||'')).filter(Boolean)));
-  let jobs:any[]=[];let jobEvents:any[]=[];
+  if(je)throw new Error('mission_diagnostics_jobs:'+je.message);
+  const jobs=jobsData??[];
+  const jobIds=Array.from(new Set([
+    ...jobs.map((j:any)=>String(j?.job_id||'')),
+    ...(events??[]).map((e:any)=>String(e?.execution_id||e?.payload?.job_id||''))
+  ].filter(Boolean)));
+  let jobEvents:any[]=[];
   if(jobIds.length){
-    const [{data:jobsData,error:je},{data:jobEventData,error:jve}]=await Promise.all([
-      sb.schema('aria_internal').from('execution_jobs').select('job_id,mission_id,device_id,operation,status,timeout_ms,requested_at,started_at,completed_at,result,metadata,updated_at').in('job_id',jobIds).limit(100),
-      sb.schema('aria_internal').from('execution_job_events').select('event_id,job_id,device_id,event_type,payload,created_at').in('job_id',jobIds).order('created_at',{ascending:true}).limit(200)
-    ]);
-    if(je)throw new Error('mission_diagnostics_jobs:'+je.message);
+    const {data:jobEventData,error:jve}=await sb.schema('aria_internal').from('execution_job_events').select('event_id,job_id,device_id,event_type,payload,created_at').in('job_id',jobIds).order('created_at',{ascending:true}).limit(200);
     if(jve)throw new Error('mission_diagnostics_job_events:'+jve.message);
-    jobs=jobsData??[];jobEvents=jobEventData??[];
+    jobEvents=jobEventData??[];
   }
   const lastEvent=(events??[])[(events??[]).length-1];
   const deviceId=String(lastEvent?.payload?.device_id||lastEvent?.device_id||jobs.find((j:any)=>j.device_id)?.device_id||'');
@@ -1200,10 +1203,16 @@ async function missionDiagnosticForUser(missionId:string,userId:string){
     if(device){deviceHealth={status:String(device.status)==='online'?'healthy':String(device.status)==='pending'?'degraded':'unavailable',observed:true,device_id:device.device_id,last_seen_at:device.last_seen_at};}
   }
   const diagnostic=deriveOperationalDiagnostic({mission,steps:steps??[],events:events??[],jobs,jobEvents,health:{status:deviceHealth.status,observed:deviceHealth.observed,device:deviceHealth}});
+  const consistency=diagnostic.consistency;
+  const persistedDiagnosis={
+    ...(diagnostic.diagnosis&&typeof diagnostic.diagnosis==='object'?diagnostic.diagnosis:{}),
+    mission_consistency:consistency
+  };
+  const enrichedDiagnostic={...diagnostic,diagnosis:persistedDiagnosis};
   const now=new Date().toISOString();
-  const {error:upsertError}=await sb.schema('aria_internal').from('mission_diagnostics').upsert({mission_id:missionId,diagnostic_version:diagnostic.version,correlation:diagnostic.correlation,classification:diagnostic.classification,diagnosis:diagnostic.diagnosis,versions:diagnostic.versions,attempts:diagnostic.attempts,evidence_chain:diagnostic.evidence_chain,health:diagnostic.health,generated_at:now,updated_at:now},{onConflict:'mission_id'});
+  const {error:upsertError}=await sb.schema('aria_internal').from('mission_diagnostics').upsert({mission_id:missionId,diagnostic_version:diagnostic.version,correlation:diagnostic.correlation,classification:diagnostic.classification,diagnosis:persistedDiagnosis,versions:diagnostic.versions,attempts:diagnostic.attempts,evidence_chain:diagnostic.evidence_chain,health:diagnostic.health,generated_at:now,updated_at:now},{onConflict:'mission_id'});
   if(upsertError)throw new Error('mission_diagnostics_persist:'+upsertError.message);
-  return diagnostic;
+  return enrichedDiagnostic;
 }
 
 async function operationalHealth(userId:string){
@@ -1944,6 +1953,20 @@ Deno.serve(async (req) => {
     const path = new URL(req.url).pathname.replace(/\/+$/, "");
     if (isPrivateVaultRoute(path)) {
       return await handlePrivateVaultRequest(req, String(user.id), crypto.randomUUID(), serviceClient());
+    }
+    const pausedMissionMutation =
+      req.method === "POST" &&
+      (
+        path.endsWith("/conversation") ||
+        path.endsWith("/missions") ||
+        /\/missions\/[^/]+\/(?:verify-retry|invalidate-unverified-success|retry|human-gate\/approve|cancel)$/.test(path) ||
+        path.endsWith("/meditation/control") ||
+        path.endsWith("/meditation/idea-to-mission") ||
+        /\/meditation\/ideas\/[^/]+\/(?:decision|convert)$/.test(path) ||
+        path.endsWith("/meditation/queue/reorder")
+      );
+    if (MISSION_EXECUTION_PAUSED && pausedMissionMutation) {
+      return json({ error: "mission_execution_paused", execution_enabled: false, trace_id: trace }, 423);
     }
     if (req.method === "GET" && path.endsWith("/session")) return json({ ok: true, service: "aria-app-api-v3", user: { id: user.id, email: user.email ?? null }, trace_id: trace });
     if (req.method === "GET" && path.endsWith("/system")) { const r = await fetch(DIRECT); const b = await r.json().catch(() => null); return json({ ok: r.ok, service: "aria-app-api-v3", user_id: user.id, aria: b, trace_id: trace }, r.ok ? 200 : 502); }

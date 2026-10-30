@@ -1286,7 +1286,7 @@ async function autonomyCycle(b:any){
   const refreshed=await autonomySnapshot();
   const blockedIds=new Set(refreshed.goals.filter((g:any)=>['blocked','completed'].includes(g.status)).map((g:any)=>g.goal_id));
   const activeIds=new Set(refreshed.goals.filter((g:any)=>g.status==='running').map((g:any)=>g.goal_id));
-  const eligible=refreshed.goals.filter((g:any)=>g.status==='queued'&&(!g.next_run_at||Date.parse(g.next_run_at)<=Date.now()));
+  const eligible=refreshed.goals.filter((g:any)=>g.status==='queued'&&Number(g.attempts||0)<Number(g.max_attempts??3)&&(!g.next_run_at||Date.parse(g.next_run_at)<=Date.now()));
   const ranked=generateCandidates({goals:eligible},{now});
   const selected=selectDynamicGoal(ranked,blockedIds,activeIds);
   await supabase.schema('aria_internal').from('autonomy_cycles').insert({
@@ -1574,7 +1574,35 @@ async function allForOneTick(){
   }
   return{ok:true,status:'idle',run_id:run.run_id};
 }
-Deno.serve(async(req)=>{const u=new URL(req.url);const p=u.pathname.replace(/^\/aria-device-gateway/,'').replace(/\/+$/,'')||'/';const b=await body(req);if(req.method==='POST'&&p==='/v1/rwht-final-repair'){
+const MISSION_EXECUTION_PAUSED = true;
+const PAUSED_MISSION_ENDPOINTS = new Set([
+  "/v1/autonomy/cycle",
+  "/v1/audit/all-for-one/start",
+  "/v1/audit/all-for-one/tick",
+  "/v1/meditation/tick-service",
+  "/v1/meditation/tick",
+  "/v1/meditation/idea-to-mission",
+  "/v1/meditation/queue/add",
+  "/v1/meditation/queue/run-next",
+  "/v1/meditation/human-gate/complete",
+  "/v1/android/autonomous/decide",
+  "/v1/router/execute",
+  "/v1/router/parallel-execute",
+  "/v1/rwht-final-probe",
+  "/v1/rwht-final-repair",
+  "/v1/rwht-model-probe",
+  "/v1/mission5/agent-probe",
+  "/v1/mission5/model-probe",
+  "/v1/jobs/claim",
+]);
+const PAUSED_MISSION_JOB_ROUTES = /^\/v1\/jobs\/[^/]+\/(?:start|resolve-secret)$/;
+Deno.serve(async(req)=>{
+  const u=new URL(req.url);
+  const p=u.pathname.replace(/^\/aria-device-gateway/,'').replace(/\/+$/,'')||'/';
+  if(MISSION_EXECUTION_PAUSED&&(PAUSED_MISSION_ENDPOINTS.has(p)||PAUSED_MISSION_JOB_ROUTES.test(p))){
+    return json({ok:false,status:'paused',error:'mission_execution_paused',runtime:'aria-device-gateway',endpoint:p,execution_enabled:false},423);
+  }
+  const b=await body(req);if(req.method==='POST'&&p==='/v1/rwht-final-repair'){
   if(String(b?.mission_id||'')!=='mission_rwht_final_20260920_02')return json({error:'probe_mission_restricted'},403);
   const dbUrl=Deno.env.get('SUPABASE_DB_URL')||'';
   if(!dbUrl)return json({error:'db_url_unavailable'},503);

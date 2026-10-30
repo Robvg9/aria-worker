@@ -13,6 +13,18 @@ on:
       - '.github/workflows/supabase-canonical-deploy.yml'
       - '.github/workflows/aria-npm-test.yml'
       - 'pwa/src/testCatalog.ts'
+      # Backend-only mission freeze/governance work must not redeploy the unrelated Cloudflare Worker.
+      - 'supabase/functions/**'
+      - 'autonomy/dynamic-goal-engine.mjs'
+      - 'tests/aria-no-mission-reactivation.contract.test.js'
+      - 'tests/mission7-autonomy-loop.test.js'
+      - 'tests/pwa-capabilities-test-center-v1.test.js'
+      - 'pwa/src/testCatalog.ts'
+      - 'package.json'
+      # Scheduler transport changes deploy only through the dedicated, exact-SHA workflow.
+      - 'worker.js'
+      - 'wrangler.toml'
+      - 'tests/mission-runtime-integrity-v1.test.js'
       - 'tests/pc-rwht-browser.test.js'
       - 'tests/pwa-capabilities-test-center-v1.test.js'
       - '.github/workflows/aria-autonomy-coordinator-deploy.yml'

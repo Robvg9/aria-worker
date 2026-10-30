@@ -1,4 +1,5 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+const MISSION_EXECUTION_PAUSED = true;
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { verifyStrategicCompletion } from "../_shared/strategic-goal-completion.mjs";
 import { githubRead, githubCreateBranch, githubWrite, githubPr } from "../_shared/github-app.mjs";
@@ -137,6 +138,7 @@ async function executeOne(id: string, step: any, attempts: Record<string, number
 Deno.serve(async r => {
   if (r.method !== "POST") return out({ error: "method_not_allowed" }, 405);
   if (!(await auth(r))) return out({ error: "unauthorized" }, 401);
+  if (MISSION_EXECUTION_PAUSED) return out({ ok: false, status: "paused", error: "mission_execution_paused", execution_enabled: false }, 423);
   const body = await r.json().catch(() => ({}));
   const token = r.headers.get("x-aria-autonomy-token");
   try {

@@ -8,7 +8,7 @@ export type TestCatalogItem = {
   capabilities: string;
 };
 
-export const TEST_CATALOG_VERSION = '2026-10-23-persistent-autonomy-v1';
+export const TEST_CATALOG_VERSION = '2026-10-30-mission-freeze-v1';
 export const TEST_CATALOG: TestCatalogItem[] = [
   {
     "id": "mission-job-authorization-fence",
@@ -576,6 +576,15 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "includedInNpmTest": false,
     "how": "Comprueba que una interfaz o contrato estructural siga existiendo y no se rompa.",
     "capabilities": "Comprueba orquestación, misiones, executors, recuperación, persistencia y ejecución universal."
+  },
+  {
+    "id": "aria-no-mission-reactivation",
+    "file": "tests/aria-no-mission-reactivation.contract.test.js",
+    "title": "ARIA No Mission Reactivation",
+    "category": "Seguridad / ejecución",
+    "includedInNpmTest": true,
+    "how": "Verifica que los runtimes y gateways permanezcan bloqueados y que ningún selector elija objetivos con los intentos agotados.",
+    "capabilities": "Protege el estado de misiones, evita recuperación/claim accidental, aplica max_attempts y detecta pasos abiertos en misiones terminales."
   },
   {
     "id": "autonomous-runtime",

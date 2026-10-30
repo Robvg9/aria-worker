@@ -5,6 +5,7 @@ import { deriveMissionDisplayTitle, MISSION_TITLE_VERSION } from "../_shared/mis
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SHARED_SECRET = Deno.env.get("ARIA_RUNTIME_SHARED_SECRET") ?? "";
+const MISSION_EXECUTION_PAUSED = true;
 const MISSION_INTAKE = `${SUPABASE_URL}/functions/v1/aria-mission-intake-v1`;
 const CANONICAL_RUNTIME = `${SUPABASE_URL}/functions/v1/aria-canonical-runtime-v1`;
 const MEMORY_GATEWAY = `${SUPABASE_URL}/functions/v1/aria-memory-v2`;
@@ -152,9 +153,9 @@ Deno.serve(async (request) => {
 
   if (request.method !== "POST") return out({ error: "method_not_allowed" }, 405);
   if (!SHARED_SECRET) return out({ error: "runtime_secret_not_configured" }, 500);
-
   const token = bearer(request);
   if (!token || !equal(token, SHARED_SECRET)) return out({ error: "unauthorized" }, 401);
+  if (MISSION_EXECUTION_PAUSED) return out({ error: "mission_execution_paused", execution_enabled: false }, 423);
 
   const body = await request.json().catch(() => null);
   if (!body || typeof body !== "object" || Array.isArray(body)) {

@@ -27,6 +27,8 @@ const PUBLIC_REGISTER_ENDPOINT = `${PUBLIC_ISSUER}/register`;
 const RUNTIME_GATEWAY = "https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-runtime-gateway-v1";
 const MISSION_INTAKE = "https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-mission-intake-v1";
 const CANONICAL_RUNTIME = "https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-canonical-runtime-v1";
+// Global execution freeze. Do not remove until mission queues and state are explicitly audited.
+const MISSION_EXECUTION_PAUSED = true;
 const DIRECT_ARIA = "https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-direct-v1";
 const CRON_AUTH_URL = "https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-cron-auth-v1";
 const SUPABASE_AUTH = "https://icuqsstxfdbvjytkhlog.supabase.co";
@@ -61,6 +63,18 @@ function rewriteAuthChallenge(response){const headers=new Headers(response.heade
 function escapeHtml(value){return String(value).replace(/[&<>'\"]/g,ch=>({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;","\"":"&quot;"}[ch]))}
 async function proxyAppApi(request,url){
   const suffix=url.pathname.replace(/^\/api(?=\/|$)/,"")||"/";
+  const pausedMissionMutation = request.method === "POST" && (
+    suffix.endsWith("/conversation") ||
+    suffix.endsWith("/missions") ||
+    /\/missions\/[^/]+\/(?:verify-retry|invalidate-unverified-success|retry|human-gate\/approve|cancel)$/.test(suffix) ||
+    suffix.endsWith("/meditation/control") ||
+    suffix.endsWith("/meditation/idea-to-mission") ||
+    /\/meditation\/ideas\/[^/]+\/(?:decision|convert)$/.test(suffix) ||
+    suffix.endsWith("/meditation/queue/reorder")
+  );
+  if (MISSION_EXECUTION_PAUSED && pausedMissionMutation) {
+    return json({ ok: false, status: "paused", error: "mission_execution_paused", execution_enabled: false }, 423);
+  }
   const upstreamUrl=SUPABASE_APP_API+suffix+url.search;
   const headers=new Headers(request.headers);
   headers.delete("host");
@@ -197,17 +211,18 @@ async function proxyOAuth(request,url){
   }
   return upstream;
 }
-async function proxyRuntime(request,env){if(request.method!=="POST")return json({error:"method_not_allowed"},405);if(!env.ARIA_RUNTIME_SHARED_SECRET)return json({error:"runtime_secret_not_configured"},500);const incomingToken=extractBearer(request);if(!incomingToken||!constantTimeEqual(incomingToken,env.ARIA_RUNTIME_SHARED_SECRET))return json({error:"unauthorized"},401);const body=await request.text();const upstream=await fetch(RUNTIME_GATEWAY,{method:"POST",headers:{"content-type":"application/json","authorization":`Bearer ${env.ARIA_RUNTIME_SHARED_SECRET}`},body});return new Response(upstream.body,{status:upstream.status,statusText:upstream.statusText,headers:{"content-type":upstream.headers.get("content-type")||"application/json; charset=utf-8","cache-control":"no-store"}})}
-async function startMission(request,env){if(request.method!=="POST")return json({error:"method_not_allowed"},405);if(!env.ARIA_RUNTIME_SHARED_SECRET)return json({error:"runtime_secret_not_configured"},500);const incomingToken=extractBearer(request);if(!incomingToken||!constantTimeEqual(incomingToken,env.ARIA_RUNTIME_SHARED_SECRET))return json({error:"unauthorized"},401);const body=await request.text();const upstream=await fetch(MISSION_INTAKE,{method:"POST",headers:{"content-type":"application/json","authorization":`Bearer ${env.ARIA_RUNTIME_SHARED_SECRET}`},body});return new Response(upstream.body,{status:upstream.status,statusText:upstream.statusText,headers:{"content-type":upstream.headers.get("content-type")||"application/json; charset=utf-8","cache-control":"no-store"}})}
-async function directAria(request,env){if(request.method==="GET")return fetch(DIRECT_ARIA,{method:"GET"});if(request.method!=="POST")return json({error:"method_not_allowed"},405);if(!env.ARIA_RUNTIME_SHARED_SECRET)return json({error:"runtime_secret_not_configured"},500);const incomingToken=extractBearer(request);if(!incomingToken||!constantTimeEqual(incomingToken,env.ARIA_RUNTIME_SHARED_SECRET))return json({error:"unauthorized"},401);const body=await request.text();const upstream=await fetch(DIRECT_ARIA,{method:"POST",headers:{"content-type":"application/json","authorization":`Bearer ${env.ARIA_RUNTIME_SHARED_SECRET}`},body});return new Response(upstream.body,{status:upstream.status,statusText:upstream.statusText,headers:{"content-type":upstream.headers.get("content-type")||"application/json; charset=utf-8","cache-control":"no-store"}})}
+async function proxyRuntime(request,env){if(request.method!=="POST")return json({error:"method_not_allowed"},405);if(!env.ARIA_RUNTIME_SHARED_SECRET)return json({error:"runtime_secret_not_configured"},500);const incomingToken=extractBearer(request);if(!incomingToken||!constantTimeEqual(incomingToken,env.ARIA_RUNTIME_SHARED_SECRET))return json({error:"unauthorized"},401);if(MISSION_EXECUTION_PAUSED)return json({ok:false,status:"paused",error:"mission_execution_paused",execution_enabled:false},423);const body=await request.text();const upstream=await fetch(RUNTIME_GATEWAY,{method:"POST",headers:{"content-type":"application/json","authorization":`Bearer ${env.ARIA_RUNTIME_SHARED_SECRET}`},body});return new Response(upstream.body,{status:upstream.status,statusText:upstream.statusText,headers:{"content-type":upstream.headers.get("content-type")||"application/json; charset=utf-8","cache-control":"no-store"}})}
+async function startMission(request,env){if(request.method!=="POST")return json({error:"method_not_allowed"},405);if(!env.ARIA_RUNTIME_SHARED_SECRET)return json({error:"runtime_secret_not_configured"},500);const incomingToken=extractBearer(request);if(!incomingToken||!constantTimeEqual(incomingToken,env.ARIA_RUNTIME_SHARED_SECRET))return json({error:"unauthorized"},401);if(MISSION_EXECUTION_PAUSED)return json({ok:false,status:"paused",error:"mission_execution_paused",execution_enabled:false},423);const body=await request.text();const upstream=await fetch(MISSION_INTAKE,{method:"POST",headers:{"content-type":"application/json","authorization":`Bearer ${env.ARIA_RUNTIME_SHARED_SECRET}`},body});return new Response(upstream.body,{status:upstream.status,statusText:upstream.statusText,headers:{"content-type":upstream.headers.get("content-type")||"application/json; charset=utf-8","cache-control":"no-store"}})}
+async function directAria(request,env){if(request.method==="GET")return fetch(DIRECT_ARIA,{method:"GET"});if(request.method!=="POST")return json({error:"method_not_allowed"},405);if(!env.ARIA_RUNTIME_SHARED_SECRET)return json({error:"runtime_secret_not_configured"},500);const incomingToken=extractBearer(request);if(!incomingToken||!constantTimeEqual(incomingToken,env.ARIA_RUNTIME_SHARED_SECRET))return json({error:"unauthorized"},401);if(MISSION_EXECUTION_PAUSED)return json({ok:false,status:"paused",error:"mission_execution_paused",execution_enabled:false},423);const body=await request.text();const upstream=await fetch(DIRECT_ARIA,{method:"POST",headers:{"content-type":"application/json","authorization":`Bearer ${env.ARIA_RUNTIME_SHARED_SECRET}`},body});return new Response(upstream.body,{status:upstream.status,statusText:upstream.statusText,headers:{"content-type":upstream.headers.get("content-type")||"application/json; charset=utf-8","cache-control":"no-store"}})}
 async function schedulerTick(request,env){
   if(request.method!=="POST")return json({error:"method_not_allowed"},405);
   const token=request.headers.get("x-aria-autonomy-token")||"";
   if(!token)return json({error:"unauthorized"},401);
+  if(MISSION_EXECUTION_PAUSED)return json({ok:false,status:"paused",error:"mission_execution_paused",runtime:"aria-cloudflare-worker",execution_enabled:false},423);
   const upstream=await fetch(CANONICAL_RUNTIME,{method:"POST",headers:{"content-type":"application/json","x-aria-trigger":"scheduler","x-aria-autonomy-token":token},body:await request.text()});
   return new Response(upstream.body,{status:upstream.status,statusText:upstream.statusText,headers:{"content-type":upstream.headers.get("content-type")||"application/json; charset=utf-8","cache-control":"no-store","x-aria-scheduler-route":"cloudflare"}});
 }
-async function runScheduledMission(env){if(!env.ARIA_RUNTIME_SHARED_SECRET){console.error("[ARIA CRON] runtime secret not configured");return}try{const response=await fetch(CANONICAL_RUNTIME,{method:"POST",headers:{"content-type":"application/json","x-aria-trigger":"scheduler","authorization":`Bearer ${env.ARIA_RUNTIME_SHARED_SECRET}`},body:"{}"});console.log(`[ARIA CRON] canonical-runtime status=${response.status}`);if(!response.ok){const text=await response.text().catch(()=>"");console.error(`[ARIA CRON] canonical-runtime failure status=${response.status} body=${text.slice(0,500)}`)}}catch(error){console.error(`[ARIA CRON] canonical-runtime request failed: ${error instanceof Error?error.message:String(error)}`)}}
+async function runScheduledMission(env){if(MISSION_EXECUTION_PAUSED){console.warn("[ARIA CRON] mission execution is paused");return}if(!env.ARIA_RUNTIME_SHARED_SECRET){console.error("[ARIA CRON] runtime secret not configured");return}try{const response=await fetch(CANONICAL_RUNTIME,{method:"POST",headers:{"content-type":"application/json","x-aria-trigger":"scheduler","authorization":`Bearer ${env.ARIA_RUNTIME_SHARED_SECRET}`},body:"{}"});console.log(`[ARIA CRON] canonical-runtime status=${response.status}`);if(!response.ok){const text=await response.text().catch(()=>"");console.error(`[ARIA CRON] canonical-runtime failure status=${response.status} body=${text.slice(0,500)}`)}}catch(error){console.error(`[ARIA CRON] canonical-runtime request failed: ${error instanceof Error?error.message:String(error)}`)}}
 // 2026-10-07 scheduler transport fallback
 const PROJECT_PREVIEW_ASSETS = Object.freeze({
   battlecruiser: '/project-previews/battlecruiser-reference.html'

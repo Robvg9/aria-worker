@@ -1,6 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
+const MISSION_EXECUTION_PAUSED = true;
 const URL=Deno.env.get("SUPABASE_URL")!;
 const KEY=Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const SECRET=Deno.env.get("ARIA_RUNTIME_SHARED_SECRET")!;
@@ -35,6 +36,7 @@ async function meditationKick(r:any,control:any){
 Deno.serve(async r=>{
   if(r.method!=="POST")return out({error:"method_not_allowed"},405);
   if(!await authorized(r))return out({error:"unauthorized"},401);
+  if(MISSION_EXECUTION_PAUSED)return out({ok:false,status:"paused",error:"mission_execution_paused",execution_enabled:false},423);
   try{
     const control=await meditationActive();
     if(control){

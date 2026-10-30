@@ -5,10 +5,10 @@ const URL=Deno.env.get("SUPABASE_URL")!;
 const KEY=Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const SECRET=Deno.env.get("ARIA_RUNTIME_SHARED_SECRET")!;
 const GATEWAY=`${URL}/functions/v1/aria-device-gateway`;
-const REPAIR_SUPERVISOR=`${URL}/functions/v1/aria-repair-supervisor-v1`;
 const sb=createClient(URL,KEY,{auth:{persistSession:false,autoRefreshToken:false}});
 
 const out=(b:unknown,s=200)=>new Response(JSON.stringify(b),{status:s,headers:{"content-type":"application/json","cache-control":"no-store"}});
+const MISSION_EXECUTION_PAUSED=true;
 const eq=(a:string,b:string)=>{const x=new TextEncoder().encode(a),y=new TextEncoder().encode(b);if(x.length!==y.length)return false;let d=0;for(let i=0;i<x.length;i++)d|=x[i]^y[i];return d===0};
 const bearer=(r:Request)=>{const h=r.headers.get("authorization")??"";return h.startsWith("Bearer ")?h.slice(7):null};
 async function rpc(n:string,a:Record<string,unknown>){const {data,error}=await sb.rpc(n,a);if(error)throw new Error(`${n}:${error.message}`);return data}
@@ -41,11 +41,6 @@ async function runCycle(authHeaders:Record<string,string>){
       "{}",
     ),
     requestJson(
-      REPAIR_SUPERVISOR,
-      {...authHeaders,"x-aria-trigger":"aria-autonomous-repair-supervisor"},
-      "{}",
-    ),
-    requestJson(
       `${GATEWAY}/v1/meditation/tick-service`,
       {...authHeaders,"x-aria-trigger":"meditation-ia-cloud-supervisor"},
       JSON.stringify({source:"aria-autonomy-supervisor-v5"}),
@@ -65,14 +60,15 @@ async function runCycle(authHeaders:Record<string,string>){
     if(entry.status==="fulfilled")return entry.value;
     return {http_status:0,ok:false,payload:{status:"request_failed",error:String(entry.reason??"unknown")},index};
   });
+  const repair={http_status:0,ok:false,payload:{status:"not_configured",error:"aria_repair_supervisor_v1_not_deployed"}};
   return {
     completed:true,
-    meditation:normalized[2],
-    repair:normalized[1],
-    autonomy:normalized[3],
+    meditation:normalized[1],
+    repair,
+    autonomy:normalized[2],
     audit_start:normalized[0],
-    audit_tick:normalized[4],
-    all_ok:normalized.every(x=>x.ok),
+    audit_tick:normalized[3],
+    all_ok:normalized.every(x=>x.ok)&&repair.ok,
   };
 }
 
@@ -105,6 +101,7 @@ Deno.serve(async r=>{
   if(r.method!=="POST")return out({error:"method_not_allowed"},405);
   try{
     if(!await authorized(r))return out({error:"unauthorized"},401);
+    if(MISSION_EXECUTION_PAUSED)return out({ok:false,status:"paused",error:"mission_execution_paused",runtime:"aria-autonomy-supervisor-v5",execution_enabled:false},423);
     const runtime=await kick(r);
     return out({
       ok:runtime.accepted===true,

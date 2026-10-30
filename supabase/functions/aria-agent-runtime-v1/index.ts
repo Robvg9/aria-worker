@@ -2,6 +2,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { toolLoop } from "./tool-loop.ts";
 
+const MISSION_EXECUTION_PAUSED = true;
 const URL = Deno.env.get("SUPABASE_URL")!;
 const KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const SECRET = Deno.env.get("ARIA_RUNTIME_SHARED_SECRET") ?? "";
@@ -57,6 +58,7 @@ async function recordDiagnostic(missionId: string, stepId: string, payload: Reco
 Deno.serve(async (r) => {
   if (r.method === "GET") { const catalog = await loadCatalog(); const resources = []; for (const a of catalog.filter(a => a.status === "available")) { const resource = await resolveResource(a.agent_id); if (resource) resources.push(resource); } return out({ ok: true, service: "aria-agent-runtime-v1", executor_type: "agent", catalog_source: "aria_agent_catalog", resource_graph: "aria_internal.resolve_agent_resource", available_agents: catalog.filter(a => a.status === "available"), ready_resources: resources.filter((r:any) => r.status === "ready"), blocked_resources: resources.filter((r:any) => r.status !== "ready") }); }
   if (r.method !== "POST") return out({ error: "method_not_allowed" }, 405); if (!(await auth(r))) return out({ error: "unauthorized" }, 401);
+  if (MISSION_EXECUTION_PAUSED) return out({ ok: false, status: "paused", error: { code: "mission_execution_paused" }, execution_enabled: false }, 423);
   const b: any = await r.json().catch(() => ({})); const agentId = String(b.agent_id || ""); const profile = profiles[agentId]; if (!profile) return out({ ok: false, status: "blocked", error: { code: "agent_not_profiled" } });
   const agent = await catalogFor(agentId); if (!agent) return out({ ok: false, status: "blocked", error: { code: "agent_unavailable_or_not_cataloged", agent_id: agentId } });
   const catalogAgent = agent.agent;

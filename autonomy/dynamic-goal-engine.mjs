@@ -38,7 +38,7 @@ function candidateFromGoal(goal) {
   const metadata = goal.metadata && typeof goal.metadata === 'object' ? goal.metadata : {};
   const strategic = Boolean(metadata.strategic || metadata.strategic_priority || metadata.roadmap_priority || priority >= 75);
   const historical = ['blocked', 'completed'].includes(text(goal.status)) || Boolean(metadata.historical);
-  return { goal_id: text(goal.goal_id), goal: text(goal.goal), priority, source_type: strategic ? 'priority' : (text(goal.source_type) || 'seed'), source_ref: text(goal.source_ref) || text(goal.goal_id), created_at: goal.created_at, attempts: Number(goal.attempts || 0), status: text(goal.status) || 'queued', urgency: Number(goal.urgency || 0), impact: Number(goal.impact || 0), confidence: Number(goal.confidence ?? 0.5), strategic, historical };
+  return { goal_id: text(goal.goal_id), goal: text(goal.goal), priority, source_type: strategic ? 'priority' : (text(goal.source_type) || 'seed'), source_ref: text(goal.source_ref) || text(goal.goal_id), created_at: goal.created_at, attempts: Number(goal.attempts || 0), max_attempts: Number(goal.max_attempts ?? 3), status: text(goal.status) || 'queued', urgency: Number(goal.urgency || 0), impact: Number(goal.impact || 0), confidence: Number(goal.confidence ?? 0.5), strategic, historical };
 }
 
 function generatedId(source, ref, objective) {
@@ -103,7 +103,14 @@ export function generateCandidates({ goals = [], failures = [], capabilityGaps =
 export function selectDynamicGoal(candidates, { blockedIds = new Set(), activeIds = new Set() } = {}) {
   const blocked = blockedIds instanceof Set ? blockedIds : new Set(blockedIds);
   const active = activeIds instanceof Set ? activeIds : new Set(activeIds);
-  return (candidates || []).find((candidate) => { const state = text(candidate.status) || 'queued'; if (blocked.has(candidate.goal_id) || active.has(candidate.goal_id)) return false; return state === 'queued' || state === 'paused'; }) || null;
+  return (candidates || []).find((candidate) => {
+    const state = text(candidate.status) || 'queued';
+    const attempts = Number(candidate.attempts || 0);
+    const maxAttempts = Number(candidate.max_attempts ?? 3);
+    if (blocked.has(candidate.goal_id) || active.has(candidate.goal_id)) return false;
+    if (!Number.isFinite(maxAttempts) || maxAttempts <= 0 || attempts >= maxAttempts) return false;
+    return state === 'queued' || state === 'paused';
+  }) || null;
 }
 
 export const dynamicGoalEngine = Object.freeze({ generateCandidates, selectDynamicGoal, scoreCandidate });

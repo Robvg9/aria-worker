@@ -1,6 +1,7 @@
 // Read-only integrity checks for the canonical mission -> step -> execution-job chain.
 // Diagnostics only: this module never mutates mission or job state.
 const TERMINAL_MISSIONS = new Set(["succeeded", "failed", "blocked", "cancelled"]);
+const OPEN_STEPS = new Set(["pending", "running", "waiting"]);
 const ACTIVE_JOBS = new Set(["queued", "claimed", "running"]);
 const TERMINAL_JOBS = new Set(["succeeded", "failed", "timeout", "cancelled", "blocked"]);
 const PROGRESS_EVENTS = new Set([
@@ -22,7 +23,7 @@ export function analyzeMissionConsistency({ mission, steps = [], jobs = [], even
   const missionId = clean(mission?.mission_id);
   if (!missionId) {
     add("mission_missing", "critical", "No existe una identidad canónica de misión verificable.");
-    return { version: "aria-mission-consistency-v1.1.0", mission_id: null, status: "inconsistent", checked_at: checkedAt,
+    return { version: "aria-mission-consistency-v1.2.0", mission_id: null, status: "inconsistent", checked_at: checkedAt,
       summary: "No se puede verificar la cadena sin una misión canónica.", checks, counts: { steps: 0, active_jobs: 0, terminal_jobs: 0 },
       recommended_action: "Consultar mission_state antes de reintentar o crear trabajo paralelo." };
   }
@@ -57,6 +58,20 @@ export function analyzeMissionConsistency({ mission, steps = [], jobs = [], even
       });
   }
 
+  if (["failed", "blocked", "cancelled"].includes(missionStatus)) {
+    const openSteps = steps.filter(step => OPEN_STEPS.has(clean(step?.status) || ""));
+    if (openSteps.length)
+      add("terminal_mission_has_open_steps", "critical", "Una misión terminal conserva pasos pendientes o en ejecución.", {
+        steps: openSteps.map(step => ({ step_index: step?.step_index ?? null, status: clean(step?.status) }))
+      });
+  }
+
+  if (missionStatus === "cancelled" && !scopedEvents.some(event => clean(event?.event_type) === "mission_cancelled"))
+    add("cancelled_mission_missing_event", "warning", "La misión está cancelada, pero no existe un evento mission_cancelled persistido.", {
+      mission_id: missionId,
+      available_event_types: scopedEvents.map(event => clean(event?.event_type)).filter(Boolean)
+    });
+
   if (TERMINAL_MISSIONS.has(missionStatus) && activeJobs.length)
     add("terminal_mission_has_active_jobs", "critical", "Una misión terminal conserva jobs activos.", {
       active_job_ids: activeJobs.map(job => clean(job.job_id)).filter(Boolean)
@@ -84,7 +99,7 @@ export function analyzeMissionConsistency({ mission, steps = [], jobs = [], even
   const status = checks.some(check => ["critical", "error"].includes(check.severity)) ? "inconsistent"
     : checks.some(check => check.severity === "warning") ? "degraded" : "consistent";
   return {
-    version: "aria-mission-consistency-v1.1.0", mission_id: missionId, status, checked_at: checkedAt,
+    version: "aria-mission-consistency-v1.2.0", mission_id: missionId, status, checked_at: checkedAt,
     summary: status === "consistent" ? "No se detectó drift estructural en la evidencia recibida."
       : `Detectadas ${checks.length} discrepancia(s) potencial(es) en la cadena canónica.`,
     checks,
