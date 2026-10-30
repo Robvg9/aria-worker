@@ -1581,9 +1581,13 @@ const PAUSED_MISSION_ENDPOINTS = new Set([
   "/v1/audit/all-for-one/tick",
   "/v1/meditation/tick-service",
   "/v1/meditation/tick",
+  "/v1/meditation/idea-to-mission",
+  "/v1/meditation/queue/add",
   "/v1/meditation/queue/run-next",
   "/v1/meditation/human-gate/complete",
+  "/v1/rwht-final-probe",
   "/v1/rwht-final-repair",
+  "/v1/rwht-model-probe",
   "/v1/mission5/agent-probe",
   "/v1/mission5/model-probe",
   "/v1/jobs/claim",
@@ -1591,7 +1595,7 @@ const PAUSED_MISSION_ENDPOINTS = new Set([
 Deno.serve(async(req)=>{
   const u=new URL(req.url);
   const p=u.pathname.replace(/^\/aria-device-gateway/,'').replace(/\/+$/,'')||'/';
-  if(req.method==='POST'&&MISSION_EXECUTION_PAUSED&&PAUSED_MISSION_ENDPOINTS.has(p)){
+  if(MISSION_EXECUTION_PAUSED&&PAUSED_MISSION_ENDPOINTS.has(p)){
     return json({ok:false,status:'paused',error:'mission_execution_paused',runtime:'aria-device-gateway',endpoint:p,execution_enabled:false},423);
   }
   const b=await body(req);if(req.method==='POST'&&p==='/v1/rwht-final-repair'){
