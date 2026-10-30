@@ -11,4 +11,5 @@ run_worker_first = true
 mode = "smart"
 
 [triggers]
-crons = ["* * * * *"]
+# No scheduled mission processing while ARIA remains in freeze mode.
+crons = []
