@@ -182,7 +182,7 @@ test('app API fail-closes chat, mission mutations, and meditation execution cont
   assert.match(source, /path\.endsWith\("\/meditation\/control"\)/);
 });
 
-test('legacy mission runners, autonomy supervisors and executors are tombstoned while frozen', () => {
+test('legacy mission and execution endpoints stay frozen before parsing or dispatch', () => {
   const frozenFunctions = [
     'aria-mission-runner-v1',
     'aria-mission-runner-v2',
@@ -221,13 +221,34 @@ test('legacy mission runners, autonomy supervisors and executors are tombstoned 
   for (const slug of frozenFunctions) {
     const source = read('supabase/functions/' + slug + '/index.ts');
     const server = source.indexOf('Deno.serve');
-    const method = source.indexOf('request.method !== "POST"', server);
-    const gate = source.indexOf('if (MISSION_EXECUTION_PAUSED)', server);
-    const response = source.indexOf('mission_execution_paused', gate);
-    assert.ok(server >= 0 && method > server && gate > method && response > gate, slug + ' must pause before parsing or dispatch');
-    assert.match(source, /const MISSION_EXECUTION_PAUSED = true;/, slug + ' must keep an explicit freeze flag');
-    assert.doesNotMatch(source, /aria_mission_create|aria_mission_claim_next|enqueue_execution_job_gateway/, slug + ' tombstone must not retain dispatch/RPC code');
+    const handler = source.slice(server);
+    const gateMatch = /if\\s*\\(\\s*MISSION_EXECUTION_PAUSED\\s*\\)/.exec(handler);
+    assert.ok(server >= 0 && gateMatch, slug + ' must retain an in-handler freeze gate');
+    const gate = server + gateMatch.index;
+    const response = source.indexOf('423', gate);
+    assert.ok(response > gate, slug + ' must return HTTP 423 while paused');
+    assert.match(source, /const MISSION_EXECUTION_PAUSED\\s*=\\s*true\\s*;/, slug + ' must keep the explicit freeze flag');
+
+    for (const marker of ['.json()', '.text()', 'fetch(', 'aria_mission_claim_next_lease', 'aria_mission_create', 'enqueue_execution_job_gateway']) {
+      const action = source.indexOf(marker, server);
+      if (action >= 0) assert.ok(gate < action, slug + ' freeze gate must precede ' + marker);
+    }
   }
+
+  const agent = read('supabase/functions/aria-agent-runtime-v1/index.ts');
+  assert.match(agent, /aria-agent-planner-v1/, 'agent catalog profiles must remain intact');
+  assert.ok(agent.indexOf('MISSION_EXECUTION_PAUSED', agent.indexOf('Deno.serve')) < agent.indexOf('await r.json()', agent.indexOf('Deno.serve')), 'agent delegate must pause before reading the request');
+
+  const execution = read('supabase/functions/aria-execution-runtime-v1/index.ts');
+  assert.match(execution, /"google\\/gemini-3\\.5-flash-direct":"gemini-3\\.5-flash"/, 'execution provider contract must remain intact');
+  assert.ok(execution.indexOf('MISSION_EXECUTION_PAUSED', execution.indexOf('Deno.serve')) < execution.indexOf('await r.json()', execution.indexOf('Deno.serve')), 'execution runtime must pause before reading the request');
+
+  const supervisor = read('supabase/functions/aria-autonomy-supervisor-v10/index.ts');
+  assert.match(supervisor, /aria-autonomy-supervisor-v5/, 'legacy supervisor must preserve its canonical route contract');
+  const supervisorHandler = supervisor.indexOf('Deno.serve');
+  const supervisorGate = supervisor.indexOf('MISSION_EXECUTION_PAUSED', supervisorHandler);
+  assert.ok(supervisorGate < supervisor.indexOf('meditationActive()', supervisorHandler), 'supervisor must pause before reading meditation controls');
+  assert.ok(supervisorGate < supervisor.indexOf('fetch(CANONICAL', supervisorHandler), 'supervisor must pause before canonical fan-out');
 });
 
 console.log('ARIA no-mission-reactivation contract tests registered');
