@@ -27,6 +27,8 @@ const PUBLIC_REGISTER_ENDPOINT = `${PUBLIC_ISSUER}/register`;
 const RUNTIME_GATEWAY = "https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-runtime-gateway-v1";
 const MISSION_INTAKE = "https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-mission-intake-v1";
 const CANONICAL_RUNTIME = "https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-canonical-runtime-v1";
+// Global execution freeze. Do not remove until mission queues and state are explicitly audited.
+const MISSION_EXECUTION_PAUSED = true;
 const DIRECT_ARIA = "https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-direct-v1";
 const CRON_AUTH_URL = "https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-cron-auth-v1";
 const SUPABASE_AUTH = "https://icuqsstxfdbvjytkhlog.supabase.co";
@@ -204,10 +206,11 @@ async function schedulerTick(request,env){
   if(request.method!=="POST")return json({error:"method_not_allowed"},405);
   const token=request.headers.get("x-aria-autonomy-token")||"";
   if(!token)return json({error:"unauthorized"},401);
+  if(MISSION_EXECUTION_PAUSED)return json({ok:false,status:"paused",error:"mission_execution_paused",runtime:"aria-cloudflare-worker",execution_enabled:false},423);
   const upstream=await fetch(CANONICAL_RUNTIME,{method:"POST",headers:{"content-type":"application/json","x-aria-trigger":"scheduler","x-aria-autonomy-token":token},body:await request.text()});
   return new Response(upstream.body,{status:upstream.status,statusText:upstream.statusText,headers:{"content-type":upstream.headers.get("content-type")||"application/json; charset=utf-8","cache-control":"no-store","x-aria-scheduler-route":"cloudflare"}});
 }
-async function runScheduledMission(env){if(!env.ARIA_RUNTIME_SHARED_SECRET){console.error("[ARIA CRON] runtime secret not configured");return}try{const response=await fetch(CANONICAL_RUNTIME,{method:"POST",headers:{"content-type":"application/json","x-aria-trigger":"scheduler","authorization":`Bearer ${env.ARIA_RUNTIME_SHARED_SECRET}`},body:"{}"});console.log(`[ARIA CRON] canonical-runtime status=${response.status}`);if(!response.ok){const text=await response.text().catch(()=>"");console.error(`[ARIA CRON] canonical-runtime failure status=${response.status} body=${text.slice(0,500)}`)}}catch(error){console.error(`[ARIA CRON] canonical-runtime request failed: ${error instanceof Error?error.message:String(error)}`)}}
+async function runScheduledMission(env){if(MISSION_EXECUTION_PAUSED){console.warn("[ARIA CRON] mission execution is paused");return}if(!env.ARIA_RUNTIME_SHARED_SECRET){console.error("[ARIA CRON] runtime secret not configured");return}try{const response=await fetch(CANONICAL_RUNTIME,{method:"POST",headers:{"content-type":"application/json","x-aria-trigger":"scheduler","authorization":`Bearer ${env.ARIA_RUNTIME_SHARED_SECRET}`},body:"{}"});console.log(`[ARIA CRON] canonical-runtime status=${response.status}`);if(!response.ok){const text=await response.text().catch(()=>"");console.error(`[ARIA CRON] canonical-runtime failure status=${response.status} body=${text.slice(0,500)}`)}}catch(error){console.error(`[ARIA CRON] canonical-runtime request failed: ${error instanceof Error?error.message:String(error)}`)}}
 // 2026-10-07 scheduler transport fallback
 const PROJECT_PREVIEW_ASSETS = Object.freeze({
   battlecruiser: '/project-previews/battlecruiser-reference.html'
