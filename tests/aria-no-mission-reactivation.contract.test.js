@@ -240,7 +240,7 @@ test('legacy mission and execution endpoints stay frozen before parsing or dispa
   assert.ok(agent.indexOf('MISSION_EXECUTION_PAUSED', agent.indexOf('Deno.serve')) < agent.indexOf('await r.json()', agent.indexOf('Deno.serve')), 'agent delegate must pause before reading the request');
 
   const execution = read('supabase/functions/aria-execution-runtime-v1/index.ts');
-  assert.match(execution, /"google\\/gemini-3\\.5-flash-direct":"gemini-3\\.5-flash"/, 'execution provider contract must remain intact');
+  assert.ok(execution.includes('"google/gemini-3.5-flash-direct":"gemini-3.5-flash"'), 'execution provider contract must remain intact');
   assert.ok(execution.indexOf('MISSION_EXECUTION_PAUSED', execution.indexOf('Deno.serve')) < execution.indexOf('await r.json()', execution.indexOf('Deno.serve')), 'execution runtime must pause before reading the request');
 
   const supervisor = read('supabase/functions/aria-autonomy-supervisor-v10/index.ts');
