@@ -132,4 +132,51 @@ test('consistency checker flags terminal missions with open steps and missing ca
   assert.equal(withEvent.version, 'aria-mission-consistency-v1.2.0');
 });
 
+test('Cloudflare Worker blocks authenticated mission and runtime proxy routes during the global freeze', () => {
+  const worker = read('worker.js');
+  for (const name of ['proxyRuntime', 'startMission', 'directAria']) {
+    const start = worker.indexOf('async function ' + name);
+    const gate = worker.indexOf('if(MISSION_EXECUTION_PAUSED)', start);
+    const body = worker.indexOf('const body=await request.text()', start);
+    assert.ok(start >= 0 && gate > start && body > gate, name + ' must fail closed before reading or forwarding a POST body');
+  }
+});
+
+test('mission intake and direct interface reject mission creation while preserving read-only direct health', () => {
+  const intake = read('supabase/functions/aria-mission-intake-v1/index.ts');
+  const direct = read('supabase/functions/aria-direct-v1/index.ts');
+  const intakeGate = intake.indexOf('if (MISSION_EXECUTION_PAUSED)');
+  assert.ok(intakeGate > intake.indexOf('if (!token || !constantTimeEqual(token, SHARED_SECRET))'));
+  assert.ok(intakeGate < intake.indexOf('body = await req.json()'));
+  assert.match(direct, /if \(request\.method === "GET"\)/);
+  const directGate = direct.indexOf('if (MISSION_EXECUTION_PAUSED)');
+  assert.ok(directGate > direct.indexOf('if (request.method !== "POST")'));
+  assert.ok(directGate < direct.indexOf('request.json()'));
+});
+
+test('runtime gateway pauses every mutating goal or job action but retains get_job reads', () => {
+  const source = read('supabase/functions/aria-runtime-gateway-v1/index.ts');
+  const action = source.indexOf('const action=body.action;');
+  const gate = source.indexOf('MISSION_EXECUTION_PAUSED', action);
+  const mutate = source.indexOf('enqueue_execution_job_gateway', action);
+  const readJob = source.indexOf('get_execution_job_gateway', action);
+  assert.ok(action >= 0 && gate > action && mutate > gate, 'gateway pause must precede job enqueue');
+  assert.match(source, /\["vision_sync","self_improve","enqueue_device_job"\]/);
+  assert.ok(readJob > gate, 'read-only job lookup must remain available');
+});
+
+test('app API fail-closes chat, mission mutations, and meditation execution controls while frozen', () => {
+  const source = read('supabase/functions/aria-app-api-v3/index.ts');
+  const gate = source.indexOf('const pausedMissionMutation');
+  const guard = source.indexOf('if (MISSION_EXECUTION_PAUSED && pausedMissionMutation)', gate);
+  const conversation = source.indexOf('path.endsWith("/conversation")', gate);
+  const missionCreate = source.indexOf('path.endsWith("/missions")', gate);
+  const retry = source.indexOf('verify-retry|invalidate-unverified-success|retry|human-gate', gate);
+  const handler = source.indexOf('if (req.method === "POST" && path.endsWith("/conversation"))', gate);
+  assert.ok(gate > 0 && guard > gate && conversation > gate && missionCreate > gate && retry > gate);
+  assert.ok(handler > guard, 'route guard must run before any conversation or mission handler');
+  assert.match(source, /path\.endsWith\("\/meditation\/idea-to-mission"\)/);
+  assert.match(source, /path\.endsWith\("\/meditation\/control"\)/);
+});
+
 console.log('ARIA no-mission-reactivation contract tests registered');
