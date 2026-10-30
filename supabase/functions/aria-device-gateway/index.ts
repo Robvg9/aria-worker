@@ -1595,7 +1595,7 @@ const PAUSED_MISSION_ENDPOINTS = new Set([
   "/v1/mission5/model-probe",
   "/v1/jobs/claim",
 ]);
-const PAUSED_MISSION_JOB_ROUTES = /^\\/v1\\/jobs\\/[^/]+\\/(?:start|resolve-secret)$/;
+const PAUSED_MISSION_JOB_ROUTES = /^\/v1\/jobs\/[^/]+\/(?:start|resolve-secret)$/;
 Deno.serve(async(req)=>{
   const u=new URL(req.url);
   const p=u.pathname.replace(/^\/aria-device-gateway/,'').replace(/\/+$/,'')||'/';
