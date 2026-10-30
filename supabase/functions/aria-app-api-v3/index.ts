@@ -6,6 +6,7 @@ import { classifyConversation } from "../_shared/fast-lane.ts";
 import { shouldDebate, debatePrompt } from "../_shared/model-debate.ts";
 import { buildIdeaMissionProposal, validateProposal } from "../_shared/idea-to-mission.mjs";
 import { deriveOperationalDiagnostic } from "../_shared/operational-diagnostics.mjs";
+import { analyzeMissionConsistency } from "../_shared/mission-consistency.mjs";
 import { inspectGithubSource, buildCapabilityIndex, buildAbsorptionPlan, buildAbsorptionIdentity, advanceAbsorptionPlan, evaluateAbsorptionCompletion } from "../_shared/absorb-engine.mjs";
 import { deriveMissionDisplayTitle, MISSION_TITLE_VERSION } from "../_shared/mission-title.mjs";
 import { handlePrivateVaultRequest, isPrivateVaultRoute, privateVaultAuthFailure, privateVaultPreflight } from "./private-vault.ts";
@@ -1175,22 +1176,24 @@ async function missionDiagnosticForUser(missionId:string,userId:string){
   const mission=await missionForUser(missionId,userId);
   if(!mission)return null;
   const sb=serviceClient();
-  const [{data:steps,error:se},{data:events,error:ee}]=await Promise.all([
+  const [{data:steps,error:se},{data:events,error:ee},{data:jobsData,error:je}]=await Promise.all([
     sb.schema('aria_internal').from('mission_steps').select('mission_id,step_index,status,operation,agent_id,attempt_count,started_at,completed_at,result').eq('mission_id',missionId).order('step_index',{ascending:true}),
-    sb.schema('aria_internal').from('mission_events').select('event_id,mission_id,step_index,event_type,payload,created_at,trace_id,span_id,request_id,execution_id,error_code,runtime_version,source_sha').eq('mission_id',missionId).order('created_at',{ascending:true}).limit(300)
+    sb.schema('aria_internal').from('mission_events').select('event_id,mission_id,step_index,event_type,payload,created_at,trace_id,span_id,request_id,execution_id,error_code,runtime_version,source_sha').eq('mission_id',missionId).order('created_at',{ascending:true}).limit(300),
+    sb.schema('aria_internal').from('execution_jobs').select('job_id,mission_id,device_id,operation,status,timeout_ms,requested_at,started_at,completed_at,result,metadata,updated_at').eq('mission_id',missionId).limit(100)
   ]);
   if(se)throw new Error('mission_diagnostics_steps:'+se.message);
   if(ee)throw new Error('mission_diagnostics_events:'+ee.message);
-  const jobIds=Array.from(new Set((events??[]).map((e:any)=>String(e?.execution_id||e?.payload?.job_id||'')).filter(Boolean)));
-  let jobs:any[]=[];let jobEvents:any[]=[];
+  if(je)throw new Error('mission_diagnostics_jobs:'+je.message);
+  const jobs=jobsData??[];
+  const jobIds=Array.from(new Set([
+    ...jobs.map((j:any)=>String(j?.job_id||'')),
+    ...(events??[]).map((e:any)=>String(e?.execution_id||e?.payload?.job_id||''))
+  ].filter(Boolean)));
+  let jobEvents:any[]=[];
   if(jobIds.length){
-    const [{data:jobsData,error:je},{data:jobEventData,error:jve}]=await Promise.all([
-      sb.schema('aria_internal').from('execution_jobs').select('job_id,mission_id,device_id,operation,status,timeout_ms,requested_at,started_at,completed_at,result,metadata,updated_at').in('job_id',jobIds).limit(100),
-      sb.schema('aria_internal').from('execution_job_events').select('event_id,job_id,device_id,event_type,payload,created_at').in('job_id',jobIds).order('created_at',{ascending:true}).limit(200)
-    ]);
-    if(je)throw new Error('mission_diagnostics_jobs:'+je.message);
+    const {data:jobEventData,error:jve}=await sb.schema('aria_internal').from('execution_job_events').select('event_id,job_id,device_id,event_type,payload,created_at').in('job_id',jobIds).order('created_at',{ascending:true}).limit(200);
     if(jve)throw new Error('mission_diagnostics_job_events:'+jve.message);
-    jobs=jobsData??[];jobEvents=jobEventData??[];
+    jobEvents=jobEventData??[];
   }
   const lastEvent=(events??[])[(events??[]).length-1];
   const deviceId=String(lastEvent?.payload?.device_id||lastEvent?.device_id||jobs.find((j:any)=>j.device_id)?.device_id||'');
@@ -1200,10 +1203,16 @@ async function missionDiagnosticForUser(missionId:string,userId:string){
     if(device){deviceHealth={status:String(device.status)==='online'?'healthy':String(device.status)==='pending'?'degraded':'unavailable',observed:true,device_id:device.device_id,last_seen_at:device.last_seen_at};}
   }
   const diagnostic=deriveOperationalDiagnostic({mission,steps:steps??[],events:events??[],jobs,jobEvents,health:{status:deviceHealth.status,observed:deviceHealth.observed,device:deviceHealth}});
+  const consistency=analyzeMissionConsistency({mission,steps:steps??[],jobs,events:events??[],jobEvents});
+  const persistedEvidenceChain={
+    ...(diagnostic.evidence_chain&&typeof diagnostic.evidence_chain==='object'?diagnostic.evidence_chain:{}),
+    mission_consistency:consistency
+  };
+  const enrichedDiagnostic={...diagnostic,mission_consistency:consistency,evidence_chain:persistedEvidenceChain};
   const now=new Date().toISOString();
-  const {error:upsertError}=await sb.schema('aria_internal').from('mission_diagnostics').upsert({mission_id:missionId,diagnostic_version:diagnostic.version,correlation:diagnostic.correlation,classification:diagnostic.classification,diagnosis:diagnostic.diagnosis,versions:diagnostic.versions,attempts:diagnostic.attempts,evidence_chain:diagnostic.evidence_chain,health:diagnostic.health,generated_at:now,updated_at:now},{onConflict:'mission_id'});
+  const {error:upsertError}=await sb.schema('aria_internal').from('mission_diagnostics').upsert({mission_id:missionId,diagnostic_version:diagnostic.version,correlation:diagnostic.correlation,classification:diagnostic.classification,diagnosis:diagnostic.diagnosis,versions:diagnostic.versions,attempts:diagnostic.attempts,evidence_chain:persistedEvidenceChain,health:diagnostic.health,generated_at:now,updated_at:now},{onConflict:'mission_id'});
   if(upsertError)throw new Error('mission_diagnostics_persist:'+upsertError.message);
-  return diagnostic;
+  return enrichedDiagnostic;
 }
 
 async function operationalHealth(userId:string){
