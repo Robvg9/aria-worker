@@ -6,6 +6,20 @@ const test = require('node:test');
 
 const read = (file) => fs.readFileSync(file, 'utf8');
 
+test('Cloudflare Worker cannot invoke the canonical runtime from cron or manual scheduler while frozen', () => {
+  const worker = read('worker.js');
+  const wrangler = read('wrangler.toml');
+  assert.match(wrangler, /\\[triggers\\][\\s\\S]*?crons\\s*=\\s*\\[\\s*\\]/);
+  assert.doesNotMatch(wrangler, /crons\\s*=\\s*\\[\\s*['"]\\*\\s+\\*\\s+\\*\\s+\\*\\s+\\*['"]\\s*\\]/);
+  assert.match(worker, /const MISSION_EXECUTION_PAUSED = true;/);
+  const manual = worker.slice(worker.indexOf('async function schedulerTick'), worker.indexOf('async function runScheduledMission'));
+  assert.match(manual, /MISSION_EXECUTION_PAUSED[\\s\\S]*?423/);
+  assert.ok(manual.indexOf('MISSION_EXECUTION_PAUSED') < manual.indexOf('fetch(CANONICAL_RUNTIME)'));
+  const scheduled = worker.slice(worker.indexOf('async function runScheduledMission'), worker.indexOf('// 2026-10-07 scheduler transport fallback'));
+  assert.match(scheduled, /MISSION_EXECUTION_PAUSED/);
+  assert.ok(scheduled.indexOf('MISSION_EXECUTION_PAUSED') < scheduled.indexOf('fetch(CANONICAL_RUNTIME)'));
+});
+
 test('canonical runtime is fail-closed before reading or forwarding a mission request', () => {
   const source = read('supabase/functions/aria-canonical-runtime-v1/index.ts');
   const handler = source.indexOf('Deno.serve(async r=>{');
