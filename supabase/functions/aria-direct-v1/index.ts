@@ -152,13 +152,10 @@ Deno.serve(async (request) => {
   }
 
   if (request.method !== "POST") return out({ error: "method_not_allowed" }, 405);
+  if (!SHARED_SECRET) return out({ error: "runtime_secret_not_configured" }, 500);
   const token = bearer(request);
   if (!token || !equal(token, SHARED_SECRET)) return out({ error: "unauthorized" }, 401);
   if (MISSION_EXECUTION_PAUSED) return out({ error: "mission_execution_paused", execution_enabled: false }, 423);
-  if (!SHARED_SECRET) return out({ error: "runtime_secret_not_configured" }, 500);
-
-  const token = bearer(request);
-  if (!token || !equal(token, SHARED_SECRET)) return out({ error: "unauthorized" }, 401);
 
   const body = await request.json().catch(() => null);
   if (!body || typeof body !== "object" || Array.isArray(body)) {
