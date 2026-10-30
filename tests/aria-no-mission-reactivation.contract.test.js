@@ -223,8 +223,9 @@ test('legacy mission and execution endpoints stay frozen before parsing or dispa
     const server = source.indexOf('Deno.serve');
     const handler = source.slice(server);
     const gateOffset = handler.indexOf('MISSION_EXECUTION_PAUSED');
-    assert.ok(server >= 0 && gateMatch, slug + ' must retain an in-handler freeze gate');
-    assert.ok(gateOffset >= 0 && /if\\s*$/.test(handler.slice(Math.max(0, gateOffset - 6), gateOffset)), slug + ' must use a conditional in-handler freeze gate');
+    assert.ok(server >= 0 && gateOffset >= 0, slug + ' must retain an in-handler freeze gate');
+    const beforeGate = handler.slice(Math.max(0, gateOffset - 8), gateOffset).trim();
+    assert.ok(beforeGate.endsWith('if(') || beforeGate.endsWith('if ('), slug + ' must use a conditional in-handler freeze gate');
     const gate = server + gateOffset;
     const response = source.indexOf('423', gate);
     assert.ok(response > gate, slug + ' must return HTTP 423 while paused');
