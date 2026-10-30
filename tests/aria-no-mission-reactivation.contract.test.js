@@ -14,10 +14,10 @@ test('Cloudflare Worker cannot invoke the canonical runtime from cron or manual 
   assert.match(worker, /const MISSION_EXECUTION_PAUSED = true;/);
   const manual = worker.slice(worker.indexOf('async function schedulerTick'), worker.indexOf('async function runScheduledMission'));
   assert.match(manual, /MISSION_EXECUTION_PAUSED[\s\S]*?423/);
-  assert.ok(manual.indexOf('MISSION_EXECUTION_PAUSED') < manual.indexOf('fetch(CANONICAL_RUNTIME)'));
+  assert.ok(manual.indexOf('MISSION_EXECUTION_PAUSED') < manual.indexOf('fetch(CANONICAL_RUNTIME,'));
   const scheduled = worker.slice(worker.indexOf('async function runScheduledMission'), worker.indexOf('// 2026-10-07 scheduler transport fallback'));
   assert.match(scheduled, /MISSION_EXECUTION_PAUSED/);
-  assert.ok(scheduled.indexOf('MISSION_EXECUTION_PAUSED') < scheduled.indexOf('fetch(CANONICAL_RUNTIME)'));
+  assert.ok(scheduled.indexOf('MISSION_EXECUTION_PAUSED') < scheduled.indexOf('fetch(CANONICAL_RUNTIME,'));
 });
 
 test('canonical runtime is fail-closed before reading or forwarding a mission request', () => {
@@ -59,8 +59,8 @@ test('device gateway blocks mission, autonomy, manual queue execution, and job c
   const bodyRead = source.indexOf('const b=await body(req)', handler);
   assert.ok(handler >= 0 && gate > handler && bodyRead > gate, 'gateway route guard must precede request body handling');
   assert.doesNotMatch(source, /req\.method==='POST'&&MISSION_EXECUTION_PAUSED/, 'the gateway pause must also cover GET-based execution probes');
-  assert.match(source, /PAUSED_MISSION_JOB_ROUTES[\\s\\S]*?\\/start\\|resolve-secret/);
-  assert.match(source, /PAUSED_MISSION_JOB_ROUTES\.test\(p\)/);
+  assert.ok(source.includes('PAUSED_MISSION_JOB_ROUTES.test(p)'), 'dynamic job start/secret routes must be blocked');
+  assert.ok(source.includes('(?:start|resolve-secret)'), 'both dynamic job routes must be covered');
   for (const endpoint of [
     '/v1/autonomy/cycle',
     '/v1/audit/all-for-one/start',
