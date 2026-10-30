@@ -2,6 +2,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 const SUPABASE_URL=Deno.env.get("SUPABASE_URL"),SERVICE_ROLE_KEY=Deno.env.get("SUPABASE_SERVICE_ROLE_KEY"),SHARED_SECRET=Deno.env.get("ARIA_RUNTIME_SHARED_SECRET");
 if(!SUPABASE_URL||!SERVICE_ROLE_KEY||!SHARED_SECRET)throw new Error("ARIA runtime gateway is not configured");
+const MISSION_EXECUTION_PAUSED=true;
 const supabase=createClient(SUPABASE_URL,SERVICE_ROLE_KEY,{auth:{persistSession:false,autoRefreshToken:false}});
 const internal=supabase.schema("aria_internal");
 const json=(b:unknown,s=200)=>new Response(JSON.stringify(b),{status:s,headers:{"content-type":"application/json; charset=utf-8","cache-control":"no-store"}});
@@ -15,6 +16,7 @@ const clean=(v:unknown,max:number)=>typeof v==="string"?v.trim().slice(0,max):""
 const isObject=(v:unknown):v is Record<string,unknown>=>Boolean(v&&typeof v==="object"&&!Array.isArray(v));
 async function sha256(text:string){const b=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(text));return Array.from(new Uint8Array(b)).map(x=>x.toString(16).padStart(2,"0")).join("")}
 Deno.serve(async(req:Request)=>{if(req.method!=="POST")return json({error:"method_not_allowed"},405);const a=req.headers.get("authorization")||"";if(!a.startsWith("Bearer ")||!(await eq(a.slice(7),SHARED_SECRET)))return json({error:"unauthorized"},401);let body:Record<string,unknown>;try{body=await req.json()}catch{return json({error:"invalid_json"},400)};const action=body.action;
+if(MISSION_EXECUTION_PAUSED&&["vision_sync","self_improve","enqueue_device_job"].includes(String(action)))return json({error:"mission_execution_paused",execution_enabled:false},423);
 if(action==="vision_sync"){
   const payload=isObject(body.payload)?body.payload:{};
   const visionId=clean(payload.vision_id,120)||"aria-master-vision-v1";
