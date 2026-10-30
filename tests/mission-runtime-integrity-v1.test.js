@@ -38,10 +38,10 @@ assert.match(schedulerMigration,/aria\.robvg9\.workers\.dev\/scheduler\/tick/);
 assert.match(worker,/const MISSION_EXECUTION_PAUSED = true;/);
 const manualScheduler=worker.slice(worker.indexOf('async function schedulerTick'),worker.indexOf('async function runScheduledMission'));
 assert.match(manualScheduler,/MISSION_EXECUTION_PAUSED[\s\S]*?423/);
-assert.ok(manualScheduler.indexOf('MISSION_EXECUTION_PAUSED')<manualScheduler.indexOf('fetch(CANONICAL_RUNTIME)'),'manual scheduler must be blocked before forwarding');
+assert.ok(manualScheduler.indexOf('MISSION_EXECUTION_PAUSED')<manualScheduler.indexOf('fetch(CANONICAL_RUNTIME,'),'manual scheduler must be blocked before forwarding');
 const scheduledMission=worker.slice(worker.indexOf('async function runScheduledMission'),worker.indexOf('// 2026-10-07 scheduler transport fallback'));
 assert.match(scheduledMission,/MISSION_EXECUTION_PAUSED/);
-assert.ok(scheduledMission.indexOf('MISSION_EXECUTION_PAUSED')<scheduledMission.indexOf('fetch(CANONICAL_RUNTIME)'),'scheduled runner must be blocked before forwarding');
+assert.ok(scheduledMission.indexOf('MISSION_EXECUTION_PAUSED')<scheduledMission.indexOf('fetch(CANONICAL_RUNTIME,'),'scheduled runner must be blocked before forwarding');
 
 
 console.log('MISSION OWNER + MULTI-PROJECT PLANNER + REPLAN RECOVERY + GLOBAL MISSION FREEZE CONTRACT: PASS');
