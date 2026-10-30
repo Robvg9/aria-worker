@@ -182,4 +182,52 @@ test('app API fail-closes chat, mission mutations, and meditation execution cont
   assert.match(source, /path\.endsWith\("\/meditation\/control"\)/);
 });
 
+test('legacy mission runners, autonomy supervisors and executors are tombstoned while frozen', () => {
+  const frozenFunctions = [
+    'aria-mission-runner-v1',
+    'aria-mission-runner-v2',
+    'aria-mission-runner-v3',
+    'aria-mission-runner-v4',
+    'aria-mission-runner-v5',
+    'aria-mission-runner-v6',
+    'aria-mission-runner-v7',
+    'aria-mission-runner-v8',
+    'aria-mission-runner-v9',
+    'aria-mission-runner-v10',
+    'aria-mission-runner-v11',
+    'aria-mission-runner-v12',
+    'aria-mission-runner-v13',
+    'aria-mission-runner-v14',
+    'aria-mission-runner-v15',
+    'aria-mission-runner-v16',
+    'aria-mission-runner-v17',
+    'aria-mission-runner-v18',
+    'aria-mission-runner-v19',
+    'aria-mission-runner-v21',
+    'aria-mission-runner-v23',
+    'aria-mission-runner-v24',
+    'aria-autonomy-supervisor-v1',
+    'aria-autonomy-supervisor-v2',
+    'aria-autonomy-supervisor-v3',
+    'aria-autonomy-supervisor-v4',
+    'aria-autonomy-supervisor-v6',
+    'aria-autonomy-supervisor-v7',
+    'aria-autonomy-supervisor-v8',
+    'aria-autonomy-supervisor-v9',
+    'aria-autonomy-supervisor-v10',
+    'aria-execution-runtime-v1',
+    'aria-agent-runtime-v1',
+  ];
+  for (const slug of frozenFunctions) {
+    const source = read('supabase/functions/' + slug + '/index.ts');
+    const server = source.indexOf('Deno.serve');
+    const method = source.indexOf('request.method !== "POST"', server);
+    const gate = source.indexOf('if (MISSION_EXECUTION_PAUSED)', server);
+    const response = source.indexOf('mission_execution_paused', gate);
+    assert.ok(server >= 0 && method > server && gate > method && response > gate, slug + ' must pause before parsing or dispatch');
+    assert.match(source, /const MISSION_EXECUTION_PAUSED = true;/, slug + ' must keep an explicit freeze flag');
+    assert.doesNotMatch(source, /aria_mission_create|aria_mission_claim_next|enqueue_execution_job_gateway/, slug + ' tombstone must not retain dispatch/RPC code');
+  }
+});
+
 console.log('ARIA no-mission-reactivation contract tests registered');
