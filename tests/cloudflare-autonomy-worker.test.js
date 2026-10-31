@@ -2,16 +2,19 @@
 
 const assert = require('node:assert/strict');
 let AriaMissionStore;
+let MISSION_EXECUTION_PAUSED;
+let UnpausedTestMissionStore;
 
 const clone = value => value == null ? value : JSON.parse(JSON.stringify(value));
 class MemoryStorage {
-  constructor() { this.values = new Map(); this.alarmAt = null; }
+  constructor() { this.values = new Map(); this.alarmAt = null; this.writeCounts = { put: 0, setAlarm: 0 }; }
   async get(key) { return clone(this.values.get(key)); }
-  async put(key, value) { this.values.set(key, clone(value)); }
+  async put(key, value) { this.writeCounts.put += 1; this.values.set(key, clone(value)); }
   async list({ prefix = '' } = {}) {
     return new Map(Array.from(this.values.entries()).filter(([key]) => key.startsWith(prefix)).map(([key, value]) => [key, clone(value)]));
   }
-  async setAlarm(value) { this.alarmAt = value; }
+  async setAlarm(value) { this.writeCounts.setAlarm += 1; this.alarmAt = value; }
+  resetWriteCounts() { this.writeCounts = { put: 0, setAlarm: 0 }; }
 }
 class MemoryState {
   constructor() { this.storage = new MemoryStorage(); this.pending = []; }
@@ -19,15 +22,23 @@ class MemoryState {
 }
 const controlToken = 'control-token-for-tests'.padEnd(40, 'c');
 const workerToken = 'worker-token-for-tests'.padEnd(40, 'w');
-function createStore() {
+function createStore({ paused = false } = {}) {
   const state = new MemoryState();
-  return { state, store: new AriaMissionStore(state, { ARIA_CONTROL_TOKEN: controlToken, ARIA_WORKER_TOKEN: workerToken, ARIA_WORKER_LEASE_MS: 60000 }) };
+  const Store = paused ? AriaMissionStore : UnpausedTestMissionStore;
+  return { state, store: new Store(state, { ARIA_CONTROL_TOKEN: controlToken, ARIA_WORKER_TOKEN: workerToken, ARIA_WORKER_LEASE_MS: 60000 }) };
 }
 function request(path, { method = 'GET', token = controlToken, body } = {}) {
   return new Request('https://aria-test.invalid' + path, {
     method,
     headers: { authorization: 'Bearer ' + token, ...(body === undefined ? {} : { 'content-type': 'application/json' }) },
     body: body === undefined ? undefined : JSON.stringify(body)
+  });
+}
+function rawRequest(path, { method = 'GET', token = controlToken, body = '{' } = {}) {
+  return new Request('https://aria-test.invalid' + path, {
+    method,
+    headers: { authorization: 'Bearer ' + token, 'content-type': 'application/json' },
+    body
   });
 }
 async function body(response) { return response.json(); }
@@ -111,7 +122,7 @@ async function testIrreversibleTaskNeedsExplicitApproval() {
   assert.equal(current.status, 'succeeded');
 }
 
-async function testRetryReplanAndLeaseProtection() {
+${newTest}async function testRetryReplanAndLeaseProtection() {
   const { store } = createStore();
   const mission = await createMission(store, 'Recover a failed task by replanning');
   const planJob = await claim(store, 'mission.plan');
@@ -142,7 +153,13 @@ async function testRetryReplanAndLeaseProtection() {
 }
 
 (async () => {
-  ({ AriaMissionStore } = await import('../cloudflare-autonomy/worker.mjs'));
+  ({ AriaMissionStore, MISSION_EXECUTION_PAUSED } = await import('../cloudflare-autonomy/worker.mjs'));
+  // Existing positive lifecycle tests run only against an isolated test subclass. The
+  // production export and Worker entrypoint always use the hard-coded paused class.
+  UnpausedTestMissionStore = class extends AriaMissionStore {
+    isMissionExecutionPaused() { return false; }
+  };
+  await testGlobalFreezeStopsMutationsAndAlarmRecovery();
   await testAuthAndVerifiedMissionLifecycle();
   await testIrreversibleTaskNeedsExplicitApproval();
   await testRetryReplanAndLeaseProtection();
