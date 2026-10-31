@@ -208,11 +208,16 @@ jobs:
 
           Write-Host "PACKAGE5_PHYSICAL_HOST=$env:COMPUTERNAME"
           Write-Host "PACKAGE5_RUNNER_IDENTITY=$([System.Security.Principal.WindowsIdentity]::GetCurrent().Name)"
-          $existingTask = Get-ScheduledTask -TaskName 'ARIA Persistent Windows Worker' -ErrorAction Stop
-          if ([string]$existingTask.State -ne 'Disabled') {
-            throw "ARIA_TASK_INITIAL_STATE_EXPECTED_DISABLED=$($existingTask.State)"
+          $taskService = New-Object -ComObject Schedule.Service
+          $taskService.Connect()
+          $taskFolder = $taskService.GetFolder('\')
+          $existingTask = $taskFolder.GetTask('ARIA Persistent Windows Worker')
+          if ([bool]$existingTask.Enabled -or [int]$existingTask.State -ne 1) {
+            throw "ARIA_TASK_INITIAL_STATE_EXPECTED_DISABLED:enabled=$($existingTask.Enabled);state=$($existingTask.State)"
           }
           Write-Host 'PACKAGE5_TASK_INITIAL_STATE=Disabled'
+          Write-Host "PACKAGE5_TASK_PRINCIPAL=$($existingTask.Definition.Principal.UserId)"
+          Write-Host "PACKAGE5_TASK_RUNLEVEL=$($existingTask.Definition.Principal.RunLevel)"
 
           $scratch = Join-Path $env:RUNNER_TEMP 'aria-windows-worker-preflight'
           $workspace = Join-Path $scratch 'workspace'
@@ -325,6 +330,22 @@ jobs:
           $controlHeaders = @{ Authorization = "Bearer $env:ARIA_CONTROL_TOKEN" }
           $workerHeaders = @{ Authorization = "Bearer $env:ARIA_WORKER_TOKEN" }
 
+          $script:Package5TaskService = New-Object -ComObject Schedule.Service
+          $script:Package5TaskService.Connect()
+
+          function Get-Package5Task {
+            $script:Package5TaskService.GetFolder('\').GetTask('ARIA Persistent Windows Worker')
+          }
+          function Get-Package5TaskState {
+            $registered = Get-Package5Task
+            if (-not [bool]$registered.Enabled -or [int]$registered.State -eq 1) { return 'Disabled' }
+            switch ([int]$registered.State) {
+              2 { return 'Queued' }
+              3 { return 'Ready' }
+              4 { return 'Running' }
+              default { return 'Unknown' }
+            }
+          }
           function Get-AriaWorkerProcesses {
             @(Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue |
               Where-Object { $_.CommandLine -and $_.CommandLine -match 'aria-persistent-windows-worker-v1\.js' })
@@ -388,14 +409,14 @@ jobs:
             throw "PACKAGE5_MISSION_TIMEOUT=$missionId"
           }
 
-          $task = Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
-          if ([string]$task.State -ne 'Disabled') {
-            throw "PACKAGE5_INITIAL_TASK_STATE_EXPECTED_DISABLED=$($task.State)"
+          $task = Get-Package5Task
+          if ([bool]$task.Enabled -or [int]$task.State -ne 1) {
+            throw "PACKAGE5_INITIAL_TASK_STATE_EXPECTED_DISABLED:enabled=$($task.Enabled);state=$($task.State)"
           }
-          if ($task.Principal.RunLevel -and [string]$task.Principal.RunLevel -ne 'Limited') {
-            throw "PACKAGE5_TASK_PRIVILEGE_EXPECTED_LIMITED=$($task.Principal.RunLevel)"
+          if ([int]$task.Definition.Principal.RunLevel -ne 0) {
+            throw "PACKAGE5_TASK_PRIVILEGE_EXPECTED_LIMITED=$($task.Definition.Principal.RunLevel)"
           }
-          $taskArguments = [string]$task.Actions[0].Arguments
+          $taskArguments = [string]$task.Definition.Actions.Item(1).Arguments
           if ($taskArguments -notmatch '-ConfigPath\s+"([^"]+)"') { throw 'PACKAGE5_TASK_CONFIG_ARGUMENT_MISSING' }
           $configPath = $Matches[1]
           if ($taskArguments -notmatch '-InstallDir\s+"([^"]+)"') { throw 'PACKAGE5_TASK_INSTALL_DIR_ARGUMENT_MISSING' }
@@ -418,12 +439,13 @@ jobs:
           try {
             Assert-NoUnrelatedActiveMissions
 
-            Enable-ScheduledTask -TaskName $taskName | Out-Null
-            Start-ScheduledTask -TaskName $taskName
+            $task = Get-Package5Task
+            $task.Enabled = $true
+            $null = $task.Run($null)
             $startupDeadline = (Get-Date).AddMinutes(2)
             $started = $false
             while ((Get-Date) -lt $startupDeadline) {
-              $state = (Get-ScheduledTask -TaskName $taskName).State
+              $state = Get-Package5TaskState
               $log = if (Test-Path -LiteralPath $logFile) { Get-Content -LiteralPath $logFile -Tail 300 -ErrorAction SilentlyContinue } else { @() }
               if ([string]$state -eq 'Running' -and ($log -match 'ARIA Windows worker started:')) {
                 $started = $true
@@ -432,8 +454,8 @@ jobs:
               Start-Sleep -Seconds 2
             }
             if (-not $started) {
-              $info = Get-ScheduledTaskInfo -TaskName $taskName
-              throw "PACKAGE5_PHYSICAL_WORKER_START_FAILED:state=$((Get-ScheduledTask -TaskName $taskName).State):lastResult=$($info.LastTaskResult)"
+              $failedTask = Get-Package5Task
+              throw "PACKAGE5_PHYSICAL_WORKER_START_FAILED:state=$(Get-Package5TaskState):lastResult=$($failedTask.LastTaskResult)"
             }
             Write-Host 'PACKAGE5_PHYSICAL_WORKER_START=PASS'
 
@@ -441,15 +463,16 @@ jobs:
             $testMissionIds += $mission1
             [void](Wait-SafeProbeMission $mission1)
 
-            Stop-ScheduledTask -TaskName $taskName -ErrorAction Stop
+            $task = Get-Package5Task
+            $task.Stop(0)
             $stopDeadline = (Get-Date).AddSeconds(30)
             while ((Get-Date) -lt $stopDeadline) {
-              $taskState = (Get-ScheduledTask -TaskName $taskName).State
+              $taskState = Get-Package5TaskState
               $processes = Get-AriaWorkerProcesses
               if ([string]$taskState -ne 'Running' -and $processes.Count -eq 0) { break }
               Start-Sleep -Seconds 2
             }
-            if ([string](Get-ScheduledTask -TaskName $taskName).State -eq 'Running' -or (Get-AriaWorkerProcesses).Count -gt 0) {
+            if ((Get-Package5TaskState) -eq 'Running' -or (Get-AriaWorkerProcesses).Count -gt 0) {
               throw 'PACKAGE5_WORKER_STOP_DID_NOT_TERMINATE_PROCESS'
             }
             Write-Host 'PACKAGE5_PHYSICAL_WORKER_STOP=PASS'
@@ -476,11 +499,13 @@ jobs:
             Start-Sleep -Seconds 65
             Write-Host 'PACKAGE5_INTERRUPTED_LEASE_EXPIRY_WAIT=PASS'
 
-            Start-ScheduledTask -TaskName $taskName
+            $task = Get-Package5Task
+            if (-not [bool]$task.Enabled) { $task.Enabled = $true }
+            $null = $task.Run($null)
             $restartDeadline = (Get-Date).AddMinutes(2)
             $restarted = $false
             while ((Get-Date) -lt $restartDeadline) {
-              $state = (Get-ScheduledTask -TaskName $taskName).State
+              $state = Get-Package5TaskState
               $log = if (Test-Path -LiteralPath $logFile) { Get-Content -LiteralPath $logFile -Tail 500 -ErrorAction SilentlyContinue } else { @() }
               if ([string]$state -eq 'Running' -and ($log -match "Claimed .* for mission $([regex]::Escape($mission2))")) {
                 $restarted = $true
@@ -489,8 +514,8 @@ jobs:
               Start-Sleep -Seconds 2
             }
             if (-not $restarted) {
-              $info = Get-ScheduledTaskInfo -TaskName $taskName
-              throw "PACKAGE5_RECOVERED_JOB_NOT_CLAIMED_BY_PHYSICAL_WORKER:state=$((Get-ScheduledTask -TaskName $taskName).State):lastResult=$($info.LastTaskResult)"
+              $failedTask = Get-Package5Task
+              throw "PACKAGE5_RECOVERED_JOB_NOT_CLAIMED_BY_PHYSICAL_WORKER:state=$(Get-Package5TaskState):lastResult=$($failedTask.LastTaskResult)"
             }
             Write-Host 'PACKAGE5_EXPIRED_LEASE_RECLAIMED_BY_ROBVG_WORKER=PASS'
 
@@ -518,24 +543,25 @@ jobs:
             Write-Host 'PACKAGE5_HYBRID_LIVE_E2E=PASS'
           }
           finally {
-            $activeTask = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
-            if ($activeTask) {
-              if ([string]$activeTask.State -eq 'Running') {
-                Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
-              }
-              if ([string]$activeTask.State -ne 'Disabled') {
-                Disable-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue | Out-Null
-              }
+            try {
+              $activeTask = Get-Package5Task
+              if ([int]$activeTask.State -eq 4) { $activeTask.Stop(0) }
+              if ([bool]$activeTask.Enabled) { $activeTask.Enabled = $false }
+            }
+            catch {
+              $endResult = & schtasks.exe /End /TN '\ARIA Persistent Windows Worker' 2>&1
+              $disableResult = & schtasks.exe /Change /TN '\ARIA Persistent Windows Worker' /Disable 2>&1
+              if ($LASTEXITCODE -ne 0) { Write-Error "PACKAGE5_TASK_CLEANUP_FAILED=$disableResult" }
             }
             $finalDeadline = (Get-Date).AddSeconds(30)
             while ((Get-Date) -lt $finalDeadline) {
-              $finalTask = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+              $finalTask = Get-Package5Task
               $processes = Get-AriaWorkerProcesses
-              if ($finalTask -and [string]$finalTask.State -eq 'Disabled' -and $processes.Count -eq 0) { break }
+              if (-not [bool]$finalTask.Enabled -and [int]$finalTask.State -eq 1 -and $processes.Count -eq 0) { break }
               Start-Sleep -Seconds 2
             }
-            $finalTask = Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
-            if ([string]$finalTask.State -ne 'Disabled') { throw "PACKAGE5_FINAL_TASK_STATE_NOT_DISABLED=$($finalTask.State)" }
+            $finalTask = Get-Package5Task
+            if ([bool]$finalTask.Enabled -or [int]$finalTask.State -ne 1) { throw "PACKAGE5_FINAL_TASK_STATE_NOT_DISABLED:enabled=$($finalTask.Enabled);state=$($finalTask.State)" }
             if ((Get-AriaWorkerProcesses).Count -gt 0) { throw 'PACKAGE5_FINAL_WORKER_PROCESS_STILL_RUNNING' }
             Write-Host 'PACKAGE5_FINAL_TASK_STATE=Disabled'
             Write-Host 'PACKAGE5_FINAL_WORKER_PROCESS=STOPPED'
@@ -616,23 +642,22 @@ jobs:
         shell: powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
         run: |
           $ErrorActionPreference = 'Stop'
-          $taskName = 'ARIA Persistent Windows Worker'
-          $task = Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
-          if ([string]$task.State -eq 'Running') {
-            Stop-ScheduledTask -TaskName $taskName
-          }
-          if ([string]$task.State -ne 'Disabled') {
-            Disable-ScheduledTask -TaskName $taskName | Out-Null
-          }
+          $taskService = New-Object -ComObject Schedule.Service
+          $taskService.Connect()
+          $folder = $taskService.GetFolder('\')
+          $task = $folder.GetTask('ARIA Persistent Windows Worker')
+          if ([int]$task.State -eq 4) { $task.Stop(0) }
+          if ([bool]$task.Enabled) { $task.Enabled = $false }
           $deadline = (Get-Date).AddSeconds(30)
+          $processes = @()
           while ((Get-Date) -lt $deadline) {
-            $task = Get-ScheduledTask -TaskName $taskName
+            $task = $folder.GetTask('ARIA Persistent Windows Worker')
             $processes = @(Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue |
               Where-Object { $_.CommandLine -and $_.CommandLine -match 'aria-persistent-windows-worker-v1\.js' })
-            if ([string]$task.State -eq 'Disabled' -and $processes.Count -eq 0) { break }
+            if (-not [bool]$task.Enabled -and [int]$task.State -eq 1 -and $processes.Count -eq 0) { break }
             Start-Sleep -Seconds 2
           }
-          if ([string]$task.State -ne 'Disabled') { throw "PACKAGE5_FINAL_TASK_STATE_NOT_DISABLED=$($task.State)" }
+          if ([bool]$task.Enabled -or [int]$task.State -ne 1) { throw "PACKAGE5_FINAL_TASK_STATE_NOT_DISABLED:enabled=$($task.Enabled);state=$($task.State)" }
           if ($processes.Count -gt 0) { throw 'PACKAGE5_FINAL_WORKER_PROCESS_STILL_RUNNING' }
           Write-Host 'PACKAGE5_INDEPENDENT_TASK_CHECK=PASS'
           Write-Host 'PACKAGE5_TASK_STATE=Disabled'
