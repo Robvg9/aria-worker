@@ -152,6 +152,7 @@ Open \`http://127.0.0.1:8787\` and enter the control token. This local-only mode
 Run with Node.js 20+:
 
 \`\`\`powershell
+node tests/cloudflare-autonomy-restart-recovery-v1.test.cjs
 node tests/persistent-control-plane-v1.test.js
 node tests/persistent-http-server-v1.test.js
 node tests/persistent-worker-bridge-v1.test.js
