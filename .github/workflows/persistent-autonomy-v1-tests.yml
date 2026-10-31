@@ -233,3 +233,47 @@ jobs:
             Remove-Item -LiteralPath $workspace -Recurse -Force -ErrorAction SilentlyContinue
             Remove-Item -LiteralPath $scratch -Force -ErrorAction SilentlyContinue
           }
+
+  live-security-readonly-check:
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.actor == github.repository_owner
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    env:
+      ARIA_CONTROL_TOKEN: ${{ secrets.ARIA_AUTONOMY_CONTROL_TOKEN }}
+      ARIA_WORKER_TOKEN: ${{ secrets.ARIA_AUTONOMY_WORKER_TOKEN }}
+    steps:
+      - name: Validate configured secrets without printing values
+        run: |
+          set -euo pipefail
+          test -n "$ARIA_CONTROL_TOKEN"
+          test -n "$ARIA_WORKER_TOKEN"
+          test "${#ARIA_CONTROL_TOKEN}" -ge 32
+          test "${#ARIA_WORKER_TOKEN}" -ge 32
+          test "$ARIA_CONTROL_TOKEN" != "$ARIA_WORKER_TOKEN"
+          echo 'ARIA_LIVE_AUTH_SECRET_PAIR_DISTINCT=PASS'
+
+      - name: Verify live control and worker authorization using GET only
+        run: |
+          set -euo pipefail
+          base='https://aria-autonomy-coordinator.robvg9.workers.dev'
+          health="$(curl --fail --silent --show-error --max-time 15 "$base/health")"
+          HEALTH_JSON="$health" python - <<'PY'
+          import json, os
+          value = json.loads(os.environ["HEALTH_JSON"])
+          assert value.get("ok") is True
+          assert value.get("supabase_independent") is True
+          PY
+          code="$(curl --silent --show-error --max-time 15 -o /dev/null -w '%{http_code}' "$base/api/missions")"
+          test "$code" = '401'
+          code="$(curl --silent --show-error --max-time 15 -o /dev/null -w '%{http_code}' "$base/api/missions" -H "Authorization: Bearer $ARIA_CONTROL_TOKEN")"
+          test "$code" = '200'
+          code="$(curl --silent --show-error --max-time 15 -o /dev/null -w '%{http_code}' "$base/api/missions" -H "Authorization: Bearer $ARIA_WORKER_TOKEN")"
+          test "$code" = '401'
+          code="$(curl --silent --show-error --max-time 15 -o /dev/null -w '%{http_code}' "$base/api/worker/claim" -H "Authorization: Bearer $ARIA_CONTROL_TOKEN")"
+          test "$code" = '401'
+          code="$(curl --silent --show-error --max-time 15 -o /dev/null -w '%{http_code}' "$base/api/worker/claim" -H "Authorization: Bearer $ARIA_WORKER_TOKEN")"
+          test "$code" = '405'
+          echo 'ARIA_LIVE_CONTROL_AUTH=PASS'
+          echo 'ARIA_LIVE_WORKER_AUTH=PASS'
+          echo 'ARIA_LIVE_CROSS_TOKEN_REJECTION=PASS'
+          echo 'ARIA_LIVE_READ_ONLY_PROBE=PASS'
