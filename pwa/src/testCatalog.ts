@@ -3030,6 +3030,15 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "how": "Verifica la reclamación de trabajos, leases, heartbeats y rechazo de resultados con tokens de lease obsoletos.",
     "capabilities": "Impide la ejecución duplicada por varios workers y facilita la recuperación."
   },
+  {
+    "id": "persistent-recovery-e2e-v1",
+    "file": "tests/persistent-recovery-e2e-v1.test.js",
+    "title": "Persistent Hybrid Recovery E2E",
+    "category": "Autonomía / recuperación",
+    "includedInNpmTest": false,
+    "how": "Verifica reinicios locales de coordinador y bridge, recuperación de leases expirados, fencing del worker anterior e idempotencia tras interrupciones.",
+    "capabilities": "Demuestra recuperación aislada sin tocar misiones cloud, Supabase ni iniciar el worker persistente."
+  }
 ];
 
 export type TestCatalogStats = Readonly<{
