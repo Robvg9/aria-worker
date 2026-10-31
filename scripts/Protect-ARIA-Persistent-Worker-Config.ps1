@@ -114,7 +114,7 @@ $document = [ordered]@{
 New-Item -ItemType Directory -Path $configDirectoryFull -Force | Out-Null
 
 # Lock this dedicated directory to the current interactive user before writing.
-$directoryAcl = New-Object System.Security.AccessControl.DirectorySecurity
+$directoryAcl = [System.Security.AccessControl.DirectorySecurity]::new()
 $directoryAcl.SetAccessRuleProtection($true, $false)
 $directoryAcl.SetOwner($identity.User)
 $directoryInheritanceFlags = [System.Security.AccessControl.InheritanceFlags]::ContainerInherit -bor [System.Security.AccessControl.InheritanceFlags]::ObjectInherit
@@ -131,9 +131,9 @@ Set-Acl -LiteralPath $configDirectoryFull -AclObject $directoryAcl
 $json = $document | ConvertTo-Json -Depth 6
 $tempPath = $ConfigPath + '.tmp'
 try {
-    [System.IO.File]::WriteAllText($tempPath, $json, (New-Object System.Text.UTF8Encoding($false)))
+    [System.IO.File]::WriteAllText($tempPath, $json, ([System.Text.UTF8Encoding]::new($false)))
 
-    $fileAcl = New-Object System.Security.AccessControl.FileSecurity
+    $fileAcl = [System.Security.AccessControl.FileSecurity]::new()
     $fileAcl.SetAccessRuleProtection($true, $false)
     $fileAcl.SetOwner($identity.User)
     $fileRule = [System.Security.AccessControl.FileSystemAccessRule]::new(
