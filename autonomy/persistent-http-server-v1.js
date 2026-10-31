@@ -52,6 +52,7 @@ function createPersistentHttpServer({
   if (typeof token !== 'string' || token.length < 32) throw new Error('ARIA_CONTROL_TOKEN must contain at least 32 characters');
   if (workerBridge && (typeof workerBridge.claimNext !== 'function' || typeof workerBridge.heartbeat !== 'function' || typeof workerBridge.complete !== 'function')) throw new TypeError('worker_bridge_invalid');
   if (workerBridge && (typeof workerToken !== 'string' || workerToken.length < 32)) throw new Error('ARIA_WORKER_TOKEN must contain at least 32 characters when the Windows worker bridge is enabled');
+  if (workerBridge && sameSecret(token, workerToken)) throw new Error('ARIA_CONTROL_TOKEN and ARIA_WORKER_TOKEN must be distinct when the Windows worker bridge is enabled');
   if (host !== '127.0.0.1' && host !== '::1' && host !== 'localhost') {
     if (process.env.ARIA_ALLOW_REMOTE_BIND !== 'true' || process.env.ARIA_CONTROL_HTTPS_TERMINATED !== 'true') {
       throw new Error('remote_bind_requires_ARIA_ALLOW_REMOTE_BIND=true_and_ARIA_CONTROL_HTTPS_TERMINATED=true');
