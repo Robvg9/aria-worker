@@ -355,7 +355,7 @@ jobs:
             )
             $supervisorProcess = Start-Process -FilePath $powershell -ArgumentList $supervisorArguments -PassThru -NoNewWindow
             if (-not $supervisorProcess.WaitForExit(30000)) {
-              & "$env:SystemRoot\\System32\\taskkill.exe" /PID $supervisorProcess.Id /T /F | Out-Null
+              Stop-Process -Id $supervisorProcess.Id -Force -ErrorAction SilentlyContinue
               throw 'Worker supervisor did not stop within 30 seconds; the complete child process tree was terminated.'
             }
             if ($supervisorProcess.ExitCode -ne 0) {
