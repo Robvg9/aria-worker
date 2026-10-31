@@ -273,6 +273,10 @@ async function testMissionRecoveryAfterStoreRecreationHonorsIdempotency() {
 }
 
 async function testWorkerPauseAndAuthErrorsAreTerminalButTransientFailuresRetry() {
+  const workerSource = await fs.readFile(path.join(__dirname, '..', 'scripts', 'aria-persistent-windows-worker-v1.js'), 'utf8');
+  assert.match(workerSource, /classifyClaimError\(error\)/);
+  assert.match(workerSource, /claimPolicy\.action === 'stop'/);
+  assert.match(workerSource, /stopping = true;\s*break;/);
   assert.deepEqual(
     classifyClaimError(new Error('coordinator_http_423:mission_execution_paused')),
     { action: 'stop', reason: 'MISSION_EXECUTION_PAUSED', exitCode: 0 }
