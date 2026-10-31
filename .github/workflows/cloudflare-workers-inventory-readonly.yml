@@ -27,6 +27,7 @@ jobs:
           import urllib.error
           import urllib.parse
           import urllib.request
+          import time
 
           BASE = "https://api.cloudflare.com/client/v4"
           ACCOUNT = os.environ["CLOUDFLARE_ACCOUNT_ID"]
@@ -40,20 +41,35 @@ jobs:
               if payload is not None:
                   headers["Content-Type"] = "application/json"
                   data = json.dumps(payload).encode()
-              req = urllib.request.Request(BASE + path, headers=headers, data=data, method=method)
-              try:
-                  with urllib.request.urlopen(req, timeout=25) as response:
-                      return response.status, json.loads(response.read().decode())
-              except urllib.error.HTTPError as exc:
+              last_status, last_body = 0, {"success": False, "error": "Request not attempted"}
+              # Retry transient Cloudflare rate-limit and server errors. A read-only
+              # inventory may encounter brief edge/API 429/5xx responses; never
+              # convert those into "empty" metadata.
+              for attempt in range(3):
+                  req = urllib.request.Request(BASE + path, headers=headers, data=data, method=method)
                   try:
-                      body = json.loads(exc.read().decode())
-                  except Exception:
-                      body = {}
-                  msg = "; ".join(x.get("message", "") for x in body.get("errors", []) if isinstance(x, dict))
-                  codes = [x.get("code") for x in body.get("errors", []) if isinstance(x, dict)]
-                  return exc.code, {"success": False, "error": msg[:400], "error_codes": codes}
-              except Exception as exc:
-                  return 0, {"success": False, "error": type(exc).__name__ + ": " + str(exc)[:250]}
+                      with urllib.request.urlopen(req, timeout=25) as response:
+                          return response.status, json.loads(response.read().decode())
+                  except urllib.error.HTTPError as exc:
+                      try:
+                          body = json.loads(exc.read().decode())
+                      except Exception:
+                          body = {}
+                      msg = "; ".join(x.get("message", "") for x in body.get("errors", []) if isinstance(x, dict))
+                      codes = [x.get("code") for x in body.get("errors", []) if isinstance(x, dict)]
+                      last_status = exc.code
+                      last_body = {"success": False, "error": msg[:400], "error_codes": codes}
+                      if exc.code not in (429, 500, 502, 503, 504) or attempt == 2:
+                          return last_status, last_body
+                      retry_after = exc.headers.get("Retry-After")
+                      try:
+                          pause = min(8, max(1, int(retry_after))) if retry_after else (attempt + 1) * 2
+                      except Exception:
+                          pause = (attempt + 1) * 2
+                      time.sleep(pause)
+                  except Exception as exc:
+                      return 0, {"success": False, "error": type(exc).__name__ + ": " + str(exc)[:250]}
+              return last_status, last_body
 
           def pages(path):
               all_items, status, error = [], 200, None
