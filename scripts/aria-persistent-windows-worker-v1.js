@@ -3,6 +3,7 @@
 // Windows-side outbound-only worker. It never opens an inbound port.
 const os = require('node:os');
 const path = require('node:path');
+const { classifyClaimError } = require('../autonomy/persistent-worker-error-policy-v1');
 
 const baseUrl = String(process.env.ARIA_CONTROL_URL || '').replace(/\/+$/, '');
 const token = process.env.ARIA_WORKER_TOKEN || '';
@@ -62,6 +63,13 @@ async function main() {
       const data = await request('/api/worker/claim', { worker_id: workerId, capabilities: Array.isArray(adapter.capabilities) ? adapter.capabilities : [] });
       job = data.job;
     } catch (error) {
+      const claimPolicy = classifyClaimError(error);
+      if (claimPolicy.action === 'stop') {
+        process.stdout.write('ARIA_WINDOWS_WORKER_STOPPED=' + claimPolicy.reason + '\n');
+        if (claimPolicy.exitCode) process.exitCode = claimPolicy.exitCode;
+        stopping = true;
+        break;
+      }
       process.stderr.write('Claim failed: ' + String(error.message || error) + '\n');
       await new Promise(resolve => setTimeout(resolve, pollMs));
       continue;
