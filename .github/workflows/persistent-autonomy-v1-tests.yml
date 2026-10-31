@@ -267,14 +267,14 @@ jobs:
           }
 
           $workerSource = Get-Content -LiteralPath (Join-Path $env:GITHUB_WORKSPACE 'cloudflare-autonomy/worker.mjs') -Raw
-          if ($workerSource -notmatch 'MISSION_EXECUTION_PAUSED\\s*=\\s*true') {
+          if ($workerSource -notmatch 'MISSION_EXECUTION_PAUSED\s*=\s*true') {
             throw 'Main source does not hard-lock mission execution. Refusing worker probe.'
           }
           if ([string]::IsNullOrWhiteSpace($env:ARIA_AUTONOMY_WORKER_TOKEN) -or $env:ARIA_AUTONOMY_WORKER_TOKEN.Length -lt 32) {
             throw 'Worker token secret is missing or invalid.'
           }
 
-          $node = 'D:\\Databank\\node\\node.exe'
+          $node = 'D:\Databank\node\node.exe'
           if (-not (Test-Path -LiteralPath $node -PathType Leaf)) {
             $node = (Get-Command node -ErrorAction Stop).Source
           }
@@ -286,11 +286,11 @@ jobs:
           $oldLocalAppData = $env:LOCALAPPDATA
           $profileRoot = Join-Path $env:RUNNER_TEMP 'aria-package2-frozen-worker-profile'
           $workspace = Join-Path $env:RUNNER_TEMP 'aria-package2-frozen-worker-workspace'
-          $configDirectory = Join-Path $profileRoot 'ARIA\\worker'
+          $configDirectory = Join-Path $profileRoot 'ARIA\worker'
           $configPath = Join-Path $configDirectory 'worker.config.json'
-          $logFile = Join-Path $profileRoot 'ARIA\\logs\\persistent-worker-supervisor.log'
-          $adapterPath = Join-Path $env:GITHUB_WORKSPACE 'tests\\fixtures\\aria-frozen-worker-probe-adapter.js'
-          $supervisor = Join-Path $env:GITHUB_WORKSPACE 'scripts\\Start-ARIA-Persistent-Worker.ps1'
+          $logFile = Join-Path $profileRoot 'ARIA\logs\persistent-worker-supervisor.log'
+          $adapterPath = Join-Path $env:GITHUB_WORKSPACE 'tests\fixtures\aria-frozen-worker-probe-adapter.js'
+          $supervisor = Join-Path $env:GITHUB_WORKSPACE 'scripts\Start-ARIA-Persistent-Worker.ps1'
           $powershell = (Get-Process -Id $PID).Path
           New-Item -ItemType Directory -Force -Path $configDirectory, $workspace | Out-Null
           $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent()
@@ -349,7 +349,7 @@ jobs:
             if (-not $log.Contains('Worker exited cleanly with code 0; supervisor stopping without restart.')) {
               throw 'Supervisor did not stop cleanly after worker exit code 0.'
             }
-            if ([regex]::Matches($log, 'Starting ARIA Windows worker\\.').Count -ne 1) {
+            if ([regex]::Matches($log, 'Starting ARIA Windows worker\.').Count -ne 1) {
               throw 'Supervisor started the worker more than once during the frozen stop probe.'
             }
             Write-Output 'WINDOWS_REAL_WORKER_START=PASS'
