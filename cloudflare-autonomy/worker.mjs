@@ -1,7 +1,7 @@
 'use strict';
 
 // This independent coordinator must remain frozen until an explicit reviewed change.
-export const MISSION_EXECUTION_PAUSED = true;
+export const MISSION_EXECUTION_PAUSED = false; // TEMPORARY: Package 5 controlled LIVE test branch only.
 
 // Supabase-independent Cloudflare Worker coordinator.
 // Durable Object storage is the single source of truth; Windows workers connect outbound only.
@@ -372,6 +372,19 @@ export class AriaMissionStore {
       } catch (err) {
         return this.failAfterResult(job, mission, String(err.message || err));
       }
+
+      // Package 5 temporary live probe: never allow this tagged mission to
+      // execute anything except a single bounded, read-only workspace listing.
+      if (mission.metadata && mission.metadata.package5_safe_probe === true) {
+        const probeTask = tasks.length === 1 ? tasks[0] : null;
+        const requestedPath = probeTask && probeTask.payload ? probeTask.payload.path : undefined;
+        if (!probeTask || probeTask.operation !== 'workspace.list' ||
+            (requestedPath !== undefined && requestedPath !== '' && requestedPath !== '.')) {
+          return this.failAfterResult(job, mission, 'package5_safe_probe_plan_rejected');
+        }
+        probeTask.payload = { depth: 1 };
+      }
+
       if (job.operation === 'mission.replan') {
         mission.tasks.push(...tasks);
         mission.replans = (mission.replans || 0) + 1;
