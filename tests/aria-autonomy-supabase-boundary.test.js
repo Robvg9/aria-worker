@@ -34,6 +34,7 @@ const autonomyOnlyPaths = [
   'autonomy/persistent-http-server-v1.js',
   'autonomy/persistent-notifications-v1.js',
   'autonomy/persistent-worker-bridge-v1.js',
+  'autonomy/persistent-worker-error-policy-v1.js',
   'autonomy/persistent-worker-coordinator-adapter-v1.js',
   'pwa/src/testCatalog.ts',
   'cloudflare-autonomy/assets/index.html',
@@ -48,6 +49,7 @@ const autonomyOnlyPaths = [
   'scripts/aria-persistent-windows-worker-preflight-v1.js',
   'scripts/aria-persistent-windows-worker-preflight-v1.test.js',
   'tests/cloudflare-autonomy-worker.test.js',
+  'tests/cloudflare-autonomy-restart-recovery-v1.test.cjs',
   'tests/pc-rwht-browser.test.js',
   'tests/pwa-capabilities-test-center-v1.test.js',
   'tests/aria-autonomy-supabase-boundary.test.js',
@@ -57,6 +59,7 @@ const autonomyOnlyPaths = [
   'tests/persistent-hybrid-e2e-v1.test.js',
   'tests/persistent-notifications-v1.test.js',
   'tests/persistent-worker-bridge-v1.test.js',
+  'tests/persistent-recovery-e2e-v1.test.cjs',
   'wrangler.aria-autonomy.toml'
 ];
 for (const file of autonomyOnlyPaths) {
@@ -105,4 +108,6 @@ assert.ok(!absorbPushPaths.includes("- '.github/workflows/aria-absorb.yml'"), 'e
 const absorbAutonomyDocsInclude = absorbPushPaths.indexOf("      - 'autonomy/**'");
 const absorbMissionDocsExclude = absorbPushPaths.indexOf("      - '!autonomy/PERSISTENT_AUTONOMY_V1.md'");
 assert.ok(absorbAutonomyDocsInclude >= 0 && absorbMissionDocsExclude > absorbAutonomyDocsInclude, 'updating the persistent autonomy guide must not trigger ABSORB production LIVE E2E');
+const absorbWorkerPauseExclude = absorbPushPaths.indexOf("      - '!autonomy/persistent-worker-error-policy-v1.js'");
+assert.ok(absorbWorkerPauseExclude > absorbAutonomyDocsInclude, 'the worker pause policy must not trigger ABSORB production LIVE E2E while the global freeze is active');
 process.stdout.write('aria-autonomy-supabase-boundary: all tests passed\n');

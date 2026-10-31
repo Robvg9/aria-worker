@@ -152,12 +152,16 @@ Open \`http://127.0.0.1:8787\` and enter the control token. This local-only mode
 Run with Node.js 20+:
 
 \`\`\`powershell
+node tests/cloudflare-autonomy-restart-recovery-v1.test.cjs
 node tests/persistent-control-plane-v1.test.js
 node tests/persistent-http-server-v1.test.js
 node tests/persistent-worker-bridge-v1.test.js
 node tests/persistent-notifications-v1.test.js
 node tests/ollama-persistent-adapter-v1.test.js
 node tests/persistent-hybrid-e2e-v1.test.js
+node tests/persistent-recovery-e2e-v1.test.cjs
 \`\`\`
 
 The isolated GitHub Actions workflow runs the mission, HTTP/dashboard, worker-bridge, notification, Ollama-adapter and simulated hybrid end-to-end contract tests on relevant pull-request changes. A green contract test is necessary but does not prove the Windows worker, cloud host, notifications or end-to-end hybrid path are deployed.
+
+The package 5 recovery tests use temporary directories, disposable fixture tokens, child processes, an in-memory Durable Object storage fixture and ephemeral loopback HTTP servers only. They recreate the JSON coordinator/store, verify event and mission-ledger continuity, execute the real Windows worker entrypoint as a local child process through plan/execute/verify, recreate the worker bridge after a lease expires, and prove a reclaimed lease fences the previous worker token. The Cloudflare Durable Object recovery contract also recreates the object against the same durable storage, recovers expired plan/task leases, rejects stale worker completions, and checks mission, events and notification outbox persistence. A separate frozen-coordinator fixture returns HTTP 423 and proves the worker stops after exactly one claim request instead of polling continuously. The claim-error policy stops on `mission_execution_paused` (HTTP 423), invalid credentials (401/403) and other non-retryable 4xx, while retaining retries for transient network, 5xx, 408 and 429 errors. These tests do not contact the public coordinator, Cloudflare, Supabase or external notification endpoints, and do not create or claim production missions.
