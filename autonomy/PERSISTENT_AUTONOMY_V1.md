@@ -89,26 +89,21 @@ Configure the host's persistent volume at \`D:\aria-data\` (or change the path) 
 
 Windows PC environment:
 
+Do not persist the worker token in a plain \`.env\` file or shell history. Use the Windows-only config helper; it prompts for the token as a SecureString, protects it with current-user DPAPI, and restricts the dedicated config directory ACL to that Windows user. Choose an Ollama model only after confirming that the PC can run it without unacceptable slowdown.
+
 \`\`\`powershell
-$env:ARIA_CONTROL_URL = "https://your-private-coordinator.example"
-$env:ARIA_WORKER_TOKEN = "<same-worker-token-as-coordinator>"
-$env:ARIA_WORKER_ID = "robvg-windows-worker"
-$env:ARIA_AUTONOMY_ADAPTER = "D:\path\to\aria-worker\autonomy\ollama-persistent-adapter-v1.js"
-$env:ARIA_WORKSPACE_ROOT = "D:\path\to\approved\workspace"
-$env:ARIA_OLLAMA_URL = "http://127.0.0.1:11434"
-$env:ARIA_OLLAMA_MODEL = "qwen3:4b"
-node scripts/aria-persistent-windows-worker-v1.js
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "D:\\path\\to\\aria-worker\\scripts\\Protect-ARIA-Persistent-Worker-Config.ps1" -InstallDir "D:\\path\\to\\aria-worker" -WorkspaceRoot "D:\\path\\to\\approved\\workspace" -OllamaModel "<locally-tested-model>"
 \`\`\`
 
-The PowerShell supervisor script `scripts/Start-ARIA-Persistent-Worker.ps1` loads an external private config and restarts the Node worker with bounded backoff. To start it automatically after sign-in/reboot, register that script with your approved Windows startup mechanism after the cloud URL and worker token are configured; this change does not register a persistent OS task by itself.
+The helper only creates the protected config. It does not start the worker or register a task. The supervisor's \`-InstallScheduledTask\` mode registers the AtLogOn task with Windows Task Scheduler explicitly disabled, verifies \`State=Disabled\`, and never starts it. The task must remain disabled until a separate human authorization clears the execution freeze.
 
 Before any persistent start, run the mutation-free Windows preflight. It loads the same external config, checks the local Ollama model, checks coordinator `/health`, and probes the worker-auth boundary using GET only:
 
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "D:\\path\\to\\aria-worker\\scripts\\Start-ARIA-Persistent-Worker.ps1" -ConfigPath "$env:LOCALAPPDATA\\ARIA\\worker.env" -InstallDir "D:\\path\\to\\aria-worker" -NodePath "D:\\Databank\\node\\node.exe" -PreflightOnly
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "D:\\path\\to\\aria-worker\\scripts\\Start-ARIA-Persistent-Worker.ps1" -ConfigPath "$env:LOCALAPPDATA\\ARIA\\worker\\worker.config.json" -InstallDir "D:\\path\\to\\aria-worker" -NodePath "D:\\Databank\\node\\node.exe" -PreflightOnly
 ```
 
-Expected result: `ARIA_WINDOWS_PREFLIGHT_PASS=true`, local Ollama ready, coordinator health HTTP 200, worker route without a token HTTP 401, and the same GET with the correct worker token HTTP 405 (authenticated but method not allowed). The authenticated probe is deliberately GET-only: it never submits a claim body and cannot create a job or lease. It does not register a scheduled task, start the polling loop, create missions, or change coordinator state. Never paste the worker token into chat or commit the external config. The worker token must match the separately configured `ARIA_AUTONOMY_WORKER_TOKEN` secret; GitHub does not reveal an existing secret value, so if its original value is unavailable, stop and handle token rotation as a separate reviewed deployment step.
+Expected result: `ARIA_WINDOWS_PREFLIGHT_PASS=true`, local Ollama ready, coordinator health HTTP 200, worker route without a token HTTP 401, and the same GET with the correct worker token HTTP 405 (authenticated but method not allowed). The authenticated probe is deliberately GET-only: it never submits a claim body and cannot create a job or lease. It does not register a scheduled task, start the polling loop, create missions, or change coordinator state. Never paste the worker token into chat, shell arguments, logs, or the repository. A plain env file is accepted only for disposable one-shot preflight runs; persistent startup and task registration require the DPAPI-protected config. The worker token must match the separately configured `ARIA_AUTONOMY_WORKER_TOKEN` secret; GitHub does not reveal an existing secret value, so if its original value is unavailable, stop and handle token rotation as a separate reviewed deployment step.
 
 The worker requires the configured Ollama model to be available locally. \`ARIA_WORKSPACE_ROOT\` is mandatory and is the only project tree it can read or modify. Writes and edits create backups under \`.aria-autonomy-backups\`. Credentials, \`.env\` files, \`.git\`, \`node_modules\`, and Supabase paths are excluded. Arbitrary shell commands, commits, pushes and deployments are not exposed by this adapter.
 
