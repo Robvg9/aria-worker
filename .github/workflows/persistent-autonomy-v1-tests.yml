@@ -13,7 +13,6 @@ on:
       - 'wrangler.aria-autonomy.toml'
       - 'tests/cloudflare-autonomy-worker.test.js'
       - 'tests/cloudflare-autonomy-restart-recovery-v1.test.cjs'
-      - 'tests/cloudflare-autonomy-restart-recovery-v1.test.cjs'
       - '.github/workflows/aria-autonomy-coordinator-deploy.yml'
       - '.github/workflows/aria-cloudflare-deploy.yml'
       - 'tests/aria-autonomy-supabase-boundary.test.js'
@@ -64,7 +63,6 @@ jobs:
       - run: node --check autonomy/ollama-persistent-adapter-v1.js
       - run: node --check cloudflare-autonomy/worker.mjs
       - run: node tests/cloudflare-autonomy-worker.test.js
-      - run: node tests/cloudflare-autonomy-restart-recovery-v1.test.cjs
       - run: node tests/cloudflare-autonomy-restart-recovery-v1.test.cjs
       - run: node tests/aria-autonomy-supabase-boundary.test.js
       - name: Validate Cloudflare build without publishing
