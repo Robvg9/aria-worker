@@ -1,0 +1,238 @@
+name: Cloudflare Workers inventory (read-only)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inventory:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Collect account inventory without changing Cloudflare
+        env:
+          CLOUDFLARE_API_TOKEN: \${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: \${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          test -n "$CLOUDFLARE_API_TOKEN"
+          test -n "$CLOUDFLARE_ACCOUNT_ID"
+          python - <<'PY'
+          import concurrent.futures
+          import datetime as dt
+          import json
+          import os
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+
+          BASE = "https://api.cloudflare.com/client/v4"
+          ACCOUNT = os.environ["CLOUDFLARE_ACCOUNT_ID"]
+          TOKEN = os.environ["CLOUDFLARE_API_TOKEN"]
+          HEADERS = {"Authorization": f"Bearer {TOKEN}", "Accept": "application/json"}
+          OUT = "cloudflare-workers-inventory.json"
+
+          def request(path, token=TOKEN, method="GET", payload=None):
+              headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+              data = None
+              if payload is not None:
+                  headers["Content-Type"] = "application/json"
+                  data = json.dumps(payload).encode()
+              req = urllib.request.Request(BASE + path, headers=headers, data=data, method=method)
+              try:
+                  with urllib.request.urlopen(req, timeout=25) as response:
+                      return response.status, json.loads(response.read().decode())
+              except urllib.error.HTTPError as exc:
+                  try:
+                      body = json.loads(exc.read().decode())
+                  except Exception:
+                      body = {}
+                  msg = "; ".join(x.get("message", "") for x in body.get("errors", []) if isinstance(x, dict))
+                  codes = [x.get("code") for x in body.get("errors", []) if isinstance(x, dict)]
+                  return exc.code, {"success": False, "error": msg[:400], "error_codes": codes}
+              except Exception as exc:
+                  return 0, {"success": False, "error": type(exc).__name__ + ": " + str(exc)[:250]}
+
+          def pages(path):
+              all_items, status, error = [], 200, None
+              for page in range(1, 21):
+                  sep = "&" if "?" in path else "?"
+                  st, body = request(f"{path}{sep}per_page=100&page={page}")
+                  if st != 200 or not body.get("success", False):
+                      status, error = st, body.get("error") or body.get("errors") or "API request failed"
+                      break
+                  items = body.get("result") or []
+                  if not isinstance(items, list):
+                      status, error = st, "Unexpected result format"
+                      break
+                  all_items.extend(items)
+                  info = body.get("result_info") or {}
+                  total_pages = info.get("total_pages")
+                  if (total_pages and page >= total_pages) or len(items) < 100:
+                      break
+              return all_items, status, error
+
+          def compact_binding(binding):
+              keep = ("name", "type", "service", "environment", "namespace", "class_name",
+                      "namespace_id", "queue_name", "bucket_name", "database_name",
+                      "script_name", "workflow_name", "dataset", "instance_name",
+                      "id", "migrations")
+              return {k: binding[k] for k in keep if k in binding and isinstance(binding[k], (str, int, bool, list))}
+
+          scripts, scripts_status, scripts_error = pages(f"/accounts/{ACCOUNT}/workers/scripts")
+          domains, domains_status, domains_error = pages(f"/accounts/{ACCOUNT}/workers/domains")
+          zones, zones_status, zones_error = pages(f"/zones?account.id={urllib.parse.quote(ACCOUNT)}")
+          zone_routes = []
+          routes_statuses = {}
+          if zones_status == 200:
+              for zone in zones:
+                  zid = zone.get("id")
+                  if not zid:
+                      continue
+                  routes, st, err = pages(f"/zones/{zid}/workers/routes")
+                  routes_statuses[zone.get("name", zid)] = {"status": st, "error": err}
+                  if st == 200:
+                      for route in routes:
+                          route["zone_name"] = zone.get("name")
+                          route["zone_id"] = zid
+                          zone_routes.append(route)
+
+          _, root_subdomain_status, root_subdomain = request(f"/accounts/{ACCOUNT}/workers/subdomain")
+          root_subdomain = root_subdomain.get("result") if isinstance(root_subdomain, dict) else None
+
+          script_rows = []
+          now = dt.datetime.now(dt.timezone.utc)
+          start = (now - dt.timedelta(days=30)).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+          end = now.isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+          def metrics_for(name):
+              query = """query GetWorkersAnalytics($accountTag: string, $datetimeStart: string, $datetimeEnd: string, $scriptName: string) {
+                viewer { accounts(filter: {accountTag: $accountTag}) {
+                  workersInvocationsAdaptive(limit: 100, filter: {
+                    scriptName: $scriptName, datetime_geq: $datetimeStart, datetime_leq: $datetimeEnd
+                  }) { sum { requests errors subrequests } }
+                } }
+              }"""
+              st, body = request("/graphql", method="POST", payload={
+                  "query": query,
+                  "variables": {"accountTag": ACCOUNT, "datetimeStart": start,
+                                "datetimeEnd": end, "scriptName": name}
+              })
+              if st != 200:
+                  return {"status": st, "requests": None, "errors": None,
+                          "note": body.get("error", "Analytics not available")}
+              if body.get("errors"):
+                  return {"status": "graphql_error", "requests": None, "errors": None,
+                          "note": str(body["errors"])[:300]}
+              try:
+                  rows = body["data"]["viewer"]["accounts"][0]["workersInvocationsAdaptive"]
+                  return {"status": 200,
+                          "requests": sum((r.get("sum") or {}).get("requests", 0) or 0 for r in rows),
+                          "errors": sum((r.get("sum") or {}).get("errors", 0) or 0 for r in rows),
+                          "note": "last 30 days"}
+              except Exception:
+                  return {"status": "unknown", "requests": None, "errors": None,
+                          "note": "No analytics rows or unexpected response"}
+
+          def inspect_script(script):
+              name = script.get("id") or script.get("name")
+              if not name:
+                  return None
+              enc = urllib.parse.quote(name, safe="")
+              base = f"/accounts/{ACCOUNT}/workers/scripts/{enc}"
+              settings_status, settings = request(base + "/settings")
+              sub_status, sub = request(base + "/subdomain")
+              schedule_status, schedule = request(base + "/schedules")
+              tail_status, tail = request(base + "/script-settings")
+              deployment_status, deployments = pages(base + "/deployments")
+              settings_result = settings.get("result") if isinstance(settings, dict) else {}
+              schedule_result = schedule.get("result") if isinstance(schedule, dict) else {}
+              tail_result = tail.get("result") if isinstance(tail, dict) else {}
+              sub_result = sub.get("result") if isinstance(sub, dict) else {}
+              bind_list = (settings_result or {}).get("bindings") or []
+              latest = sorted(deployments, key=lambda x: x.get("created_on", ""), reverse=True)[:5]
+              return {
+                  "name": name,
+                  "created_on": script.get("created_on"),
+                  "modified_on": script.get("modified_on"),
+                  "last_deployed_from": script.get("last_deployed_from"),
+                  "compatibility_date": script.get("compatibility_date"),
+                  "usage_model": script.get("usage_model"),
+                  "handlers": script.get("handlers"),
+                  "has_assets": script.get("has_assets"),
+                  "has_modules": script.get("has_modules"),
+                  "migration_tag": script.get("migration_tag"),
+                  "workers_dev": {"status": sub_status, "enabled": sub_result.get("enabled"),
+                                  "previews_enabled": sub_result.get("previews_enabled")},
+                  "settings_status": settings_status,
+                  "bindings": [compact_binding(x) for x in bind_list if isinstance(x, dict)],
+                  "schedules_status": schedule_status,
+                  "crons": (schedule_result or {}).get("crons"),
+                  "tail_consumers_status": tail_status,
+                  "tail_consumers": (tail_result or {}).get("tail_consumers"),
+                  "deployments_status": deployment_status,
+                  "recent_deployments": [{"id": x.get("id"), "created_on": x.get("created_on"),
+                                          "strategy": x.get("strategy")} for x in latest],
+                  "custom_domains": [{"hostname": d.get("hostname"), "enabled": d.get("enabled"),
+                                      "zone_name": d.get("zone_name"), "zone_id": d.get("zone_id")}
+                                     for d in domains if d.get("service") == name],
+                  "zone_routes": [{"pattern": r.get("pattern"), "zone_name": r.get("zone_name")}
+                                  for r in zone_routes if r.get("script") == name],
+                  "metrics_30d": metrics_for(name)
+              }
+
+          with concurrent.futures.ThreadPoolExecutor(max_workers=6) as pool:
+              script_rows = [x for x in pool.map(inspect_script, scripts) if x]
+
+          report = {
+              "generated_at": now.isoformat(),
+              "account_id_suffix": ACCOUNT[-6:],
+              "workers_dev_account": {"status": root_subdomain_status, "result": root_subdomain},
+              "scripts_inventory": {"status": scripts_status, "error": scripts_error, "count": len(scripts)},
+              "domains_inventory": {"status": domains_status, "error": domains_error,
+                                    "count": len(domains), "items": [
+                  {"hostname": d.get("hostname"), "service": d.get("service"),
+                   "enabled": d.get("enabled"), "zone_id": d.get("zone_id"),
+                   "zone_name": d.get("zone_name")} for d in domains]},
+              "zones_inventory": {"status": zones_status, "error": zones_error, "count": len(zones)},
+              "routes_inventory": {"status_by_zone": routes_statuses, "count": len(zone_routes),
+                                   "items": zone_routes},
+              "workers": script_rows,
+              "safety": {
+                  "cloudflare_mutations_performed": False,
+                  "http_methods_used": ["GET", "POST (read-only GraphQL query)"],
+                  "secrets_printed": False,
+                  "deletion_performed": False,
+                  "note": "This report is an inventory only. Zero traffic alone does not prove a Worker is disposable."
+              }
+          }
+          with open(OUT, "w", encoding="utf-8") as f:
+              json.dump(report, f, indent=2)
+          print("CLOUDFLARE_WORKERS_READ_ONLY_INVENTORY")
+          print(f"WORKER_SCRIPT_COUNT={len(scripts)} (Cloudflare Free cap reported by deploy: 100)")
+          print(f"DOMAINS_STATUS={domains_status}; DOMAINS_COUNT={len(domains)}")
+          print(f"ZONES_STATUS={zones_status}; ZONES_COUNT={len(zones)}")
+          print(f"ROUTES_COUNT={len(zone_routes)}; ROUTE_ZONES={len(routes_statuses)}")
+          for w in script_rows:
+              m = w["metrics_30d"]
+              print("WORKER=" + json.dumps({
+                  "name": w["name"], "modified_on": w["modified_on"],
+                  "last_deployed_from": w["last_deployed_from"],
+                  "workers_dev": w["workers_dev"], "crons": w["crons"],
+                  "bindings": w["bindings"], "tail_consumers": w["tail_consumers"],
+                  "custom_domains": w["custom_domains"], "zone_routes": w["zone_routes"],
+                  "requests_30d": m.get("requests"), "metrics_status": m.get("status"),
+                  "deployments": w["recent_deployments"]
+              }, ensure_ascii=False))
+          print("NO_CLOUDFLARE_MUTATIONS=true")
+          print("NO_WORKER_DELETIONS=true")
+          PY
+      - name: Persist inventory artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cloudflare-workers-inventory
+          path: cloudflare-workers-inventory.json
+          if-no-files-found: error
+          retention-days: 7
