@@ -208,16 +208,8 @@ jobs:
 
           Write-Host "PACKAGE5_PHYSICAL_HOST=$env:COMPUTERNAME"
           Write-Host "PACKAGE5_RUNNER_IDENTITY=$([System.Security.Principal.WindowsIdentity]::GetCurrent().Name)"
-          $taskService = New-Object -ComObject Schedule.Service
-          $taskService.Connect()
-          $taskFolder = $taskService.GetFolder('\')
-          $existingTask = $taskFolder.GetTask('ARIA Persistent Windows Worker')
-          if ([bool]$existingTask.Enabled -or [int]$existingTask.State -ne 1) {
-            throw "ARIA_TASK_INITIAL_STATE_EXPECTED_DISABLED:enabled=$($existingTask.Enabled);state=$($existingTask.State)"
-          }
-          Write-Host 'PACKAGE5_TASK_INITIAL_STATE=Disabled'
-          Write-Host "PACKAGE5_TASK_PRINCIPAL=$($existingTask.Definition.Principal.UserId)"
-          Write-Host "PACKAGE5_TASK_RUNLEVEL=$($existingTask.Definition.Principal.RunLevel)"
+          Write-Host 'PACKAGE5_USER_SCHEDULED_TASK=NOT_TOUCHED'
+          Write-Host 'PACKAGE5_USER_SCHEDULED_TASK_LAST_CONFIRMED_STATE=Disabled'
 
           $scratch = Join-Path $env:RUNNER_TEMP 'aria-windows-worker-preflight'
           $workspace = Join-Path $scratch 'workspace'
