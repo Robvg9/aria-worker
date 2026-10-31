@@ -185,18 +185,22 @@ export class AriaMissionStore {
   }
   async notify(event) {
     this.assertMissionExecutionEnabled();
+    const telegramRequested = Boolean(this.env.ARIA_TELEGRAM_BOT_TOKEN || this.env.ARIA_TELEGRAM_CHAT_ID);
+    const telegramConfigured = Boolean(this.env.ARIA_TELEGRAM_BOT_TOKEN && this.env.ARIA_TELEGRAM_CHAT_ID);
+    const webhookConfigured = Boolean(this.env.ARIA_NOTIFICATION_WEBHOOK_URL);
+    const configured = telegramRequested ? telegramConfigured : webhookConfigured;
     const record = {
       notification_id: uuid('notification'),
       created_at: nowIso(),
       updated_at: nowIso(),
-      status: this.env.ARIA_NOTIFICATION_WEBHOOK_URL ? 'pending' : 'waiting_config',
+      status: configured ? 'pending' : 'waiting_config',
       attempts: 0,
       delivered_at: null,
-      last_error: this.env.ARIA_NOTIFICATION_WEBHOOK_URL ? null : 'notification_webhook_not_configured',
+      last_error: configured ? null : (telegramRequested ? 'telegram_configuration_incomplete' : 'notification_webhook_not_configured'),
       event: clone(event)
     };
     await this.ctx.storage.put('notification:' + record.notification_id, record);
-    if (this.env.ARIA_NOTIFICATION_WEBHOOK_URL) {
+    if (configured) {
       this.ctx.waitUntil((async () => {
         try {
           await this.deliverNotification(record.notification_id);
@@ -212,20 +216,34 @@ export class AriaMissionStore {
     const record = await this.ctx.storage.get('notification:' + notificationId);
     if (!record || !['pending', 'waiting_config'].includes(record.status)) return;
 
+    const telegramRequested = Boolean(this.env.ARIA_TELEGRAM_BOT_TOKEN || this.env.ARIA_TELEGRAM_CHAT_ID);
+    const useTelegram = telegramRequested;
     let endpoint;
+    let telegramChatId = null;
     try {
-      endpoint = new URL(this.env.ARIA_NOTIFICATION_WEBHOOK_URL || '');
+      if (useTelegram) {
+        const botToken = String(this.env.ARIA_TELEGRAM_BOT_TOKEN || '').trim();
+        telegramChatId = String(this.env.ARIA_TELEGRAM_CHAT_ID || '').trim();
+        if (!botToken || !telegramChatId) throw new Error('telegram_configuration_incomplete');
+        if (!/^\d+:[A-Za-z0-9_-]{20,}$/.test(botToken)) throw new Error('telegram_bot_token_invalid');
+        if (!/^-?\d{1,25}$/.test(telegramChatId)) throw new Error('telegram_chat_id_invalid');
+        endpoint = new URL('https://api.telegram.org/bot' + botToken + '/sendMessage');
+      } else {
+        endpoint = new URL(this.env.ARIA_NOTIFICATION_WEBHOOK_URL || '');
+        if (endpoint.username || endpoint.password) throw new Error('notification_webhook_credentials_in_url_rejected');
+      }
       if (endpoint.protocol !== 'https:') throw new Error('notification_webhook_must_use_https');
-      if (endpoint.username || endpoint.password) throw new Error('notification_webhook_credentials_in_url_rejected');
-      const allowedHosts = String(this.env.ARIA_NOTIFICATION_ALLOWED_HOSTS || '')
+      const configuredHosts = String(this.env.ARIA_NOTIFICATION_ALLOWED_HOSTS || '')
         .split(',')
         .map(host => host.trim().toLowerCase())
         .filter(Boolean);
-      if (!allowedHosts.includes(endpoint.host.toLowerCase())) throw new Error('notification_webhook_host_not_allowlisted');
+      const allowedHosts = new Set(configuredHosts);
+      if (useTelegram) allowedHosts.add('api.telegram.org');
+      if (!allowedHosts.has(endpoint.host.toLowerCase())) throw new Error(useTelegram ? 'telegram_api_host_not_allowlisted' : 'notification_webhook_host_not_allowlisted');
     } catch (err) {
       const message = String(err && err.message || err);
       record.status = 'failed';
-      record.last_error = message.includes('notification_webhook_') ? message : 'notification_webhook_url_invalid';
+      record.last_error = /^(telegram_|notification_webhook_)/.test(message) ? message : 'notification_webhook_url_invalid';
       record.updated_at = nowIso();
       await this.ctx.storage.put('notification:' + notificationId, record);
       return;
@@ -253,17 +271,44 @@ export class AriaMissionStore {
       details: event.details == null ? null : String(event.details).slice(0, 1000),
       created_at: record.created_at
     };
+    const telegramText = [
+      'ARIA · ' + payload.type,
+      payload.mission_id ? 'Misión: ' + payload.mission_id : null,
+      payload.task_id ? 'Tarea: ' + payload.task_id : null,
+      payload.approval_id ? 'Aprobación: ' + payload.approval_id : null,
+      payload.reason ? 'Motivo: ' + payload.reason : null,
+      payload.details ? 'Detalles: ' + payload.details : null,
+      'Aviso: ' + payload.notification_id,
+      'Fecha: ' + payload.created_at
+    ].filter(Boolean).join('\n').slice(0, 4096);
+
+    const requestBody = useTelegram
+      ? { chat_id: telegramChatId, text: telegramText }
+      : payload;
+    const headers = { 'content-type': 'application/json' };
+    if (!useTelegram && this.env.ARIA_NOTIFICATION_TOKEN) {
+      headers.authorization = 'Bearer ' + this.env.ARIA_NOTIFICATION_TOKEN;
+    }
 
     record.attempts += 1;
     try {
       const response = await fetch(endpoint.toString(), {
         method: 'POST',
-        headers: { 'content-type': 'application/json', ...(this.env.ARIA_NOTIFICATION_TOKEN ? { authorization: 'Bearer ' + this.env.ARIA_NOTIFICATION_TOKEN } : {}) },
-        body: JSON.stringify(payload),
+        headers,
+        body: JSON.stringify(requestBody),
         redirect: 'manual',
         signal: AbortSignal.timeout(10000)
       });
-      if (response.ok) {
+      let telegramAccepted = true;
+      if (useTelegram && response.ok) {
+        try {
+          const telegramResult = await response.clone().json();
+          telegramAccepted = telegramResult && telegramResult.ok === true;
+        } catch (_) {
+          telegramAccepted = false;
+        }
+      }
+      if (response.ok && telegramAccepted) {
         record.status = 'delivered';
         record.delivered_at = nowIso();
         record.last_error = null;
@@ -271,11 +316,14 @@ export class AriaMissionStore {
         const status = Number(response.status) || 0;
         const retryable = status === 408 || status === 425 || status === 429 || status >= 500;
         record.status = retryable && record.attempts < maxAttempts ? 'pending' : 'failed';
-        record.last_error = 'webhook_http_' + status;
+        record.last_error = useTelegram
+          ? (status ? 'telegram_http_' + status : 'telegram_response_not_accepted')
+          : 'webhook_http_' + status;
       }
     } catch (err) {
       record.status = record.attempts < maxAttempts ? 'pending' : 'failed';
-      record.last_error = String(err && err.message || err).slice(0, 500);
+      // Do not persist fetch errors for Telegram: some runtimes include the bot-token URL.
+      record.last_error = useTelegram ? 'telegram_network_error' : String(err && err.message || err).slice(0, 500);
     }
     record.updated_at = nowIso();
     await this.ctx.storage.put('notification:' + notificationId, record);
