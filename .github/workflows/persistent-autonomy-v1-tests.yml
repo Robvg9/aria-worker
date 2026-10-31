@@ -254,7 +254,7 @@ jobs:
           import fs from 'node:fs';
           const source = fs.readFileSync('cloudflare-autonomy/worker.mjs', 'utf8');
           if (!/MISSION_EXECUTION_PAUSED\s*=\s*false/.test(source)) throw new Error('temporary_unpaused_branch_not_found');
-          if (!source.includes('package5_safe_probe_plan_rejected')) throw new Error('safe_probe_guard_missing');
+          if (!source.includes('package5_workspace_list')) throw new Error('safe_probe_guard_missing');
           NODE
       - name: Refuse to run while unrelated missions are active
         env:
