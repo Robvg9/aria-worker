@@ -18,6 +18,7 @@ on:
       - 'autonomy/persistent-worker-coordinator-adapter-v1.js'
       - 'autonomy/persistent-http-server-v1.js'
       - 'autonomy/persistent-worker-bridge-v1.js'
+      - 'autonomy/persistent-worker-error-policy-v1.js'
       - 'autonomy/persistent-notifications-v1.js'
       - 'autonomy/persistent-dashboard-v1.html'
       - 'autonomy/persistent-autonomy-v1.env.example'
@@ -32,6 +33,7 @@ on:
       - 'tests/persistent-control-plane-v1.test.js'
       - 'tests/persistent-http-server-v1.test.js'
       - 'tests/persistent-worker-bridge-v1.test.js'
+      - 'tests/persistent-recovery-e2e-v1.test.js'
       - 'tests/persistent-notifications-v1.test.js'
       - 'tests/persistent-hybrid-e2e-v1.test.js'
       - 'tests/ollama-persistent-adapter-v1.test.js'
@@ -66,6 +68,8 @@ jobs:
       - run: node tests/persistent-control-plane-v1.test.js
       - run: node tests/persistent-http-server-v1.test.js
       - run: node tests/persistent-worker-bridge-v1.test.js
+      - run: node --check autonomy/persistent-worker-error-policy-v1.js
+      - run: node tests/persistent-recovery-e2e-v1.test.js
       - run: node tests/persistent-notifications-v1.test.js
       - run: node tests/persistent-hybrid-e2e-v1.test.js
       - run: node tests/ollama-persistent-adapter-v1.test.js
