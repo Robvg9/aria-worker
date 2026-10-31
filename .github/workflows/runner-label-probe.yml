@@ -22,6 +22,7 @@ jobs:
           Write-Host "PROBE_RUNNER_OS=$env:RUNNER_OS"
           Write-Host "PROBE_RUNNER_ARCH=$env:RUNNER_ARCH"
           Write-Host "PROBE_RUNNER_ENV=$env:RUNNER_ENVIRONMENT"
+          Write-Host "PROBE_COMPUTERNAME=$env:COMPUTERNAME"
 
   windows:
     runs-on: [self-hosted, Windows, X64]
@@ -33,3 +34,4 @@ jobs:
           Write-Host "WINDOWS_PROBE_RUNNER_NAME=$env:RUNNER_NAME"
           Write-Host "WINDOWS_PROBE_RUNNER_OS=$env:RUNNER_OS"
           Write-Host "WINDOWS_PROBE_RUNNER_ARCH=$env:RUNNER_ARCH"
+          Write-Host "WINDOWS_PROBE_COMPUTERNAME=$env:COMPUTERNAME"
