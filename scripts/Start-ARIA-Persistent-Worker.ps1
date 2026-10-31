@@ -10,7 +10,9 @@ param(
 
     [string]$TaskName = 'ARIA Persistent Windows Worker',
 
-    [switch]$InstallScheduledTask
+    [switch]$InstallScheduledTask,
+
+    [switch]$PreflightOnly
 )
 
 $ErrorActionPreference = 'Stop'
@@ -31,8 +33,14 @@ $allowedKeys = @(
     'ARIA_WORKER_HEARTBEAT_MS'
 )
 
+if ($PreflightOnly -and $InstallScheduledTask) {
+    throw 'PreflightOnly and InstallScheduledTask cannot be used together.'
+}
 if (-not (Test-Path -LiteralPath $workerScript -PathType Leaf)) {
     throw "Worker entrypoint not found: $workerScript"
+}
+if ($PreflightOnly -and -not (Test-Path -LiteralPath $preflightScript -PathType Leaf)) {
+    throw "Worker preflight entrypoint not found: $preflightScript"
 }
 if (-not (Test-Path -LiteralPath $config -PathType Leaf)) {
     throw "Worker configuration file not found: $config"
@@ -54,6 +62,12 @@ foreach ($line in Get-Content -LiteralPath $config) {
         $value = $value.Substring(1, $value.Length - 2)
     }
     [Environment]::SetEnvironmentVariable($key, $value, 'Process')
+}
+
+if ($PreflightOnly) {
+    & $NodePath $preflightScript
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    exit 0
 }
 
 if ($InstallScheduledTask) {
