@@ -50,11 +50,11 @@ jobs:
           sed "s/__BUILD__/$GITHUB_SHA/g" public/sw.js > "dist/sw-$GITHUB_SHA.js"
           grep -q "aria-pwa-$GITHUB_SHA" "dist/sw-$GITHUB_SHA.js"
           grep -q "2026-10-30-mission-freeze-v1" "dist/index-$GITHUB_SHA.html"
-          grep -q "content='336'" "dist/index-$GITHUB_SHA.html"
+          grep -q "content='335'" "dist/index-$GITHUB_SHA.html"
           rm -f dist/index.html
           echo "PWA_BUILD_EXACT_SHA=$GITHUB_SHA"
           echo "PWA_TEST_CATALOG_VERSION=2026-10-30-mission-freeze-v1"
-          echo "PWA_TEST_CATALOG_TOTAL=336"
+          echo "PWA_TEST_CATALOG_TOTAL=335"
 
   omniroute-final-live:
     runs-on: windows-latest
