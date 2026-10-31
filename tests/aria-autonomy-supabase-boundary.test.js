@@ -49,6 +49,7 @@ const autonomyOnlyPaths = [
   'scripts/aria-persistent-windows-worker-preflight-v1.js',
   'scripts/aria-persistent-windows-worker-preflight-v1.test.js',
   'tests/cloudflare-autonomy-worker.test.js',
+  'tests/cloudflare-autonomy-restart-recovery-v1.test.cjs',
   'tests/pc-rwht-browser.test.js',
   'tests/pwa-capabilities-test-center-v1.test.js',
   'tests/aria-autonomy-supabase-boundary.test.js',
