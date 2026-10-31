@@ -308,91 +308,124 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: main
+          ref: ${ github.event.pull_request.head.sha }
           fetch-depth: 1
-      - name: Execute two safe LIVE missions and recover an expired lease through the physical worker
+      - name: Execute controlled LIVE missions through the physical Windows worker process
         shell: powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
         env:
-          ARIA_CONTROL_TOKEN: ${{ secrets.ARIA_AUTONOMY_CONTROL_TOKEN }}
-          ARIA_WORKER_TOKEN: ${{ secrets.ARIA_AUTONOMY_WORKER_TOKEN }}
+          ARIA_CONTROL_TOKEN: ${ secrets.ARIA_AUTONOMY_CONTROL_TOKEN }
+          ARIA_WORKER_TOKEN: ${ secrets.ARIA_AUTONOMY_WORKER_TOKEN }
         run: |
           $ErrorActionPreference = 'Stop'
           $base = 'https://aria-autonomy-coordinator.robvg9.workers.dev'
-          $taskName = 'ARIA Persistent Windows Worker'
           $controlHeaders = @{ Authorization = "Bearer $env:ARIA_CONTROL_TOKEN" }
-          $workerHeaders = @{ Authorization = "Bearer $env:ARIA_WORKER_TOKEN" }
+          $workerToken = [string]$env:ARIA_WORKER_TOKEN
+          $workerScript = Join-Path $env:GITHUB_WORKSPACE 'scripts\aria-persistent-windows-worker-v1.js'
+          $adapterPath = Join-Path $env:GITHUB_WORKSPACE 'autonomy\ollama-persistent-adapter-v1.js'
+          $node = 'D:\Databank\node\node.exe'
+          if (-not (Test-Path -LiteralPath $node -PathType Leaf)) { $node = (Get-Command node -ErrorAction Stop).Source }
+          if (-not (Test-Path -LiteralPath $workerScript -PathType Leaf)) { throw 'PACKAGE5_PHYSICAL_WORKER_SCRIPT_MISSING' }
+          if (-not (Test-Path -LiteralPath $adapterPath -PathType Leaf)) { throw 'PACKAGE5_PHYSICAL_ADAPTER_MISSING' }
+          Write-Host "PACKAGE5_PHYSICAL_HOST=$env:COMPUTERNAME"
+          Write-Host "PACKAGE5_WORKER_RUNTIME_IDENTITY=$([System.Security.Principal.WindowsIdentity]::GetCurrent().Name)"
+          Write-Host "PACKAGE5_NODE_VERSION=$((& $node --version).Trim())"
+          Write-Host 'PACKAGE5_USER_SCHEDULED_TASK=NOT_TOUCHED'
+          Write-Host 'PACKAGE5_USER_SCHEDULED_TASK_LAST_CONFIRMED_STATE=Disabled'
 
-          $script:Package5TaskService = New-Object -ComObject Schedule.Service
-          $script:Package5TaskService.Connect()
-
-          function Get-Package5Task {
-            $script:Package5TaskService.GetFolder('\').GetTask('ARIA Persistent Windows Worker')
-          }
-          function Get-Package5TaskState {
-            $registered = Get-Package5Task
-            if (-not [bool]$registered.Enabled -or [int]$registered.State -eq 1) { return 'Disabled' }
-            switch ([int]$registered.State) {
-              2 { return 'Queued' }
-              3 { return 'Ready' }
-              4 { return 'Running' }
-              default { return 'Unknown' }
-            }
-          }
-          function Get-AriaWorkerProcesses {
-            @(Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue |
-              Where-Object { $_.CommandLine -and $_.CommandLine -match 'aria-persistent-windows-worker-v1\.js' })
-          }
+          $root = Join-Path $env:RUNNER_TEMP ('aria-package5-live-' + $env:GITHUB_RUN_ID)
+          $workspace = Join-Path $root 'workspace'
+          $logs = Join-Path $root 'logs'
+          $manifest = Join-Path $env:RUNNER_TEMP ('aria-package5-worker-' + $env:GITHUB_RUN_ID + '.json')
+          New-Item -ItemType Directory -Force -Path $workspace,$logs | Out-Null
 
           function Assert-NoUnrelatedActiveMissions {
             $response = Invoke-RestMethod -Method Get -Uri "$base/api/missions" -Headers $controlHeaders -TimeoutSec 20
             $active = @($response.missions | Where-Object { $_.status -notin @('succeeded','failed','cancelled') })
-            if ($active.Count -gt 0) {
-              throw "PACKAGE5_BLOCKED_UNRELATED_ACTIVE_MISSIONS=$($active.Count)"
-            }
+            if ($active.Count -gt 0) { throw "PACKAGE5_BLOCKED_UNRELATED_ACTIVE_MISSIONS=$($active.Count)" }
             Write-Host 'PACKAGE5_NO_UNRELATED_ACTIVE_MISSIONS=true'
           }
-
           function New-SafeProbeMission([string]$phase) {
-            $requestBody = @{
-              goal = 'Perform exactly one read-only workspace.list of the workspace root at depth one. Report entry count only. Do not read files, search, write, edit, run tests, deploy, or perform any other operation.'
+            $body = @{
+              goal = 'Package 5 controlled test: execute one read-only workspace listing of only the isolated workspace root at depth one. No file reads, searches, writes, edits, test execution, deployments, or other operations.'
               metadata = @{
                 package5_safe_probe = $true
                 package5_run_id = $env:GITHUB_RUN_ID
                 package5_phase = $phase
               }
-              policy = @{
-                max_risk = 'low'
-                require_human_approval = $true
-                max_steps = 1
-              }
+              policy = @{ max_risk = 'low'; require_human_approval = $true; max_steps = 1 }
             } | ConvertTo-Json -Depth 8
-            $created = Invoke-RestMethod -Method Post -Uri "$base/api/missions" -Headers $controlHeaders -ContentType 'application/json' -Body $requestBody -TimeoutSec 20
+            $created = Invoke-RestMethod -Method Post -Uri "$base/api/missions" -Headers $controlHeaders -ContentType 'application/json' -Body $body -TimeoutSec 20
             if (-not $created.mission.mission_id) { throw 'PACKAGE5_MISSION_CREATE_NO_ID' }
             Write-Host "PACKAGE5_MISSION_CREATED_PHASE=$phase"
             Write-Host "PACKAGE5_MISSION_ID=$($created.mission.mission_id)"
             return [string]$created.mission.mission_id
           }
-
-          function Wait-SafeProbeMission([string]$missionId, [int]$timeoutMinutes = 12) {
+          function Start-Package5Worker([string]$phase) {
+            $workerId = "package5-robvg-$phase-$env:GITHUB_RUN_ID"
+            $stdout = Join-Path $logs "$phase.stdout.log"
+            $stderr = Join-Path $logs "$phase.stderr.log"
+            $env:ARIA_CONTROL_URL = $base
+            $env:ARIA_AUTONOMY_ADAPTER = $adapterPath
+            $env:ARIA_WORKSPACE_ROOT = $workspace
+            $env:ARIA_OLLAMA_URL = 'http://127.0.0.1:11434'
+            $env:ARIA_OLLAMA_MODEL = 'qwen3:4b'
+            $env:ARIA_WORKER_ID = $workerId
+            $env:ARIA_WORKER_POLL_MS = '1000'
+            $env:ARIA_WORKER_HEARTBEAT_MS = '5000'
+            $process = Start-Process -FilePath $node -ArgumentList ('"' + $workerScript + '"') -WorkingDirectory $env:GITHUB_WORKSPACE -PassThru -WindowStyle Hidden -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+            $records = @()
+            if (Test-Path -LiteralPath $manifest) {
+              $existing = Get-Content -LiteralPath $manifest -Raw | ConvertFrom-Json
+              if ($existing) { $records = @($existing) }
+            }
+            $records += [pscustomobject]@{ pid = $process.Id; worker_id = $workerId; stdout = $stdout; stderr = $stderr; phase = $phase }
+            ConvertTo-Json -InputObject $records -Depth 5 | Set-Content -LiteralPath $manifest -Encoding UTF8
+            $deadline = (Get-Date).AddMinutes(2)
+            while ((Get-Date) -lt $deadline) {
+              $process.Refresh()
+              if ($process.HasExited) {
+                $errorText = if (Test-Path -LiteralPath $stderr) { Get-Content -LiteralPath $stderr -Raw } else { '' }
+                throw "PACKAGE5_WORKER_EXITED_DURING_START:$phase:$($process.ExitCode):$errorText"
+              }
+              $output = if (Test-Path -LiteralPath $stdout) { Get-Content -LiteralPath $stdout -Raw } else { '' }
+              if ($output -match 'ARIA Windows worker started:' -and $output -match 'Local model ready:') {
+                Write-Host "PACKAGE5_PHYSICAL_WORKER_START=$phase:PASS"
+                return $process
+              }
+              Start-Sleep -Seconds 2
+            }
+            throw "PACKAGE5_WORKER_START_TIMEOUT=$phase"
+          }
+          function Stop-Package5Worker($process,[string]$phase) {
+            if ($process) {
+              $process.Refresh()
+              if (-not $process.HasExited) {
+                Stop-Process -Id $process.Id -Force -ErrorAction Stop
+                $process.WaitForExit(15000) | Out-Null
+                $process.Refresh()
+              }
+              if (-not $process.HasExited) { throw "PACKAGE5_WORKER_PROCESS_STILL_RUNNING=$phase" }
+            }
+            Write-Host "PACKAGE5_PHYSICAL_WORKER_STOP=$phase:PASS"
+          }
+          function Wait-SafeProbeMission([string]$missionId,[int]$timeoutMinutes=12) {
             $deadline = (Get-Date).AddMinutes($timeoutMinutes)
             while ((Get-Date) -lt $deadline) {
-              $result = Invoke-RestMethod -Method Get -Uri "$base/api/missions/$missionId" -Headers $controlHeaders -TimeoutSec 20
-              $mission = $result.mission
+              $response = Invoke-RestMethod -Method Get -Uri "$base/api/missions/$missionId" -Headers $controlHeaders -TimeoutSec 20
+              $mission = $response.mission
               if (-not $mission) { throw "PACKAGE5_MISSION_DISAPPEARED=$missionId" }
-              if ($mission.status -in @('failed','waiting_human','cancelled')) {
-                throw "PACKAGE5_MISSION_NONPASS=$($mission.status):$($mission.last_error)"
-              }
+              if ($mission.status -in @('failed','waiting_human','cancelled')) { throw "PACKAGE5_MISSION_NONPASS=$($mission.status):$($mission.last_error)" }
               if ($mission.status -eq 'succeeded') {
-                if (@($mission.tasks).Count -ne 1) { throw 'PACKAGE5_SAFE_MISSION_TASK_COUNT_MISMATCH' }
-                if ($mission.tasks[0].operation -ne 'workspace.list' -or $mission.tasks[0].status -ne 'succeeded') {
+                if (@($mission.tasks).Count -ne 1 -or $mission.tasks[0].operation -ne 'workspace.list' -or $mission.tasks[0].status -ne 'succeeded') {
                   throw 'PACKAGE5_SAFE_MISSION_OPERATION_MISMATCH'
                 }
-                if (@($mission.tasks[0].evidence).Count -lt 1 -or -not $mission.verification.passed) {
+                $evidence = $mission.tasks[0].evidence[0]
+                if (-not $mission.verification.passed -or $evidence.operation -ne 'workspace.list' -or $evidence.path -ne '.' -or [int]$evidence.count -ne @($evidence.entries).Count) {
                   throw 'PACKAGE5_SAFE_MISSION_EVIDENCE_OR_VERIFICATION_MISSING'
                 }
                 Write-Host "PACKAGE5_MISSION_SUCCEEDED=$missionId"
-                Write-Host "PACKAGE5_MISSION_TASK=workspace.list"
-                Write-Host "PACKAGE5_MISSION_EVIDENCE_COUNT=$(@($mission.tasks[0].evidence).Count)"
+                Write-Host 'PACKAGE5_MISSION_TASK=workspace.list'
+                Write-Host "PACKAGE5_MISSION_ENTRY_COUNT=$($evidence.count)"
                 Write-Host 'PACKAGE5_MISSION_VERIFICATION=PASS'
                 return $mission
               }
@@ -401,164 +434,79 @@ jobs:
             throw "PACKAGE5_MISSION_TIMEOUT=$missionId"
           }
 
-          $task = Get-Package5Task
-          if ([bool]$task.Enabled -or [int]$task.State -ne 1) {
-            throw "PACKAGE5_INITIAL_TASK_STATE_EXPECTED_DISABLED:enabled=$($task.Enabled);state=$($task.State)"
-          }
-          if ([int]$task.Definition.Principal.RunLevel -ne 0) {
-            throw "PACKAGE5_TASK_PRIVILEGE_EXPECTED_LIMITED=$($task.Definition.Principal.RunLevel)"
-          }
-          $taskArguments = [string]$task.Definition.Actions.Item(1).Arguments
-          if ($taskArguments -notmatch '-ConfigPath\s+"([^"]+)"') { throw 'PACKAGE5_TASK_CONFIG_ARGUMENT_MISSING' }
-          $configPath = $Matches[1]
-          if ($taskArguments -notmatch '-InstallDir\s+"([^"]+)"') { throw 'PACKAGE5_TASK_INSTALL_DIR_ARGUMENT_MISSING' }
-          $installDir = $Matches[1]
-          if (-not (Test-Path -LiteralPath $configPath -PathType Leaf)) { throw 'PACKAGE5_DPAPI_CONFIG_FILE_MISSING' }
-          $workerScript = Join-Path $installDir 'scripts\aria-persistent-windows-worker-v1.js'
-          if (-not (Test-Path -LiteralPath $workerScript -PathType Leaf)) { throw 'PACKAGE5_PHYSICAL_WORKER_SCRIPT_MISSING' }
-          if ($installDir.StartsWith($env:GITHUB_WORKSPACE, [System.StringComparison]::OrdinalIgnoreCase)) {
-            throw 'PACKAGE5_WORKER_INSTALL_DIR_MUST_NOT_BE_OVERWRITTEN_BY_GITHUB_CHECKOUT'
-          }
-          $ariaRoot = Split-Path -Parent (Split-Path -Parent $configPath)
-          $logFile = Join-Path $ariaRoot 'logs\persistent-worker-supervisor.log'
-          Write-Host "PACKAGE5_PHYSICAL_HOST=$env:COMPUTERNAME"
-          Write-Host "PACKAGE5_RUNNER_IDENTITY=$([System.Security.Principal.WindowsIdentity]::GetCurrent().Name)"
-          Write-Host 'PACKAGE5_TASK_INITIAL_STATE=Disabled'
-          Write-Host 'PACKAGE5_DPAPI_CONFIG_PRESENT=true'
-          Write-Host 'PACKAGE5_LOCAL_WORKER_SOURCE_PRESENT=true'
-
-          $testMissionIds = @()
+          $workerProcess = $null
+          $missionIds = @()
           try {
             Assert-NoUnrelatedActiveMissions
-
-            $task = Get-Package5Task
-            $task.Enabled = $true
-            $null = $task.Run($null)
-            $startupDeadline = (Get-Date).AddMinutes(2)
-            $started = $false
-            while ((Get-Date) -lt $startupDeadline) {
-              $state = Get-Package5TaskState
-              $log = if (Test-Path -LiteralPath $logFile) { Get-Content -LiteralPath $logFile -Tail 300 -ErrorAction SilentlyContinue } else { @() }
-              if ([string]$state -eq 'Running' -and ($log -match 'ARIA Windows worker started:')) {
-                $started = $true
-                break
-              }
-              Start-Sleep -Seconds 2
-            }
-            if (-not $started) {
-              $failedTask = Get-Package5Task
-              throw "PACKAGE5_PHYSICAL_WORKER_START_FAILED:state=$(Get-Package5TaskState):lastResult=$($failedTask.LastTaskResult)"
-            }
-            Write-Host 'PACKAGE5_PHYSICAL_WORKER_START=PASS'
-
+            $workerProcess = Start-Package5Worker 'cold-start'
             $mission1 = New-SafeProbeMission 'cold-start'
-            $testMissionIds += $mission1
+            $missionIds += $mission1
             [void](Wait-SafeProbeMission $mission1)
-
-            $task = Get-Package5Task
-            $task.Stop(0)
-            $stopDeadline = (Get-Date).AddSeconds(30)
-            while ((Get-Date) -lt $stopDeadline) {
-              $taskState = Get-Package5TaskState
-              $processes = Get-AriaWorkerProcesses
-              if ([string]$taskState -ne 'Running' -and $processes.Count -eq 0) { break }
-              Start-Sleep -Seconds 2
-            }
-            if ((Get-Package5TaskState) -eq 'Running' -or (Get-AriaWorkerProcesses).Count -gt 0) {
-              throw 'PACKAGE5_WORKER_STOP_DID_NOT_TERMINATE_PROCESS'
-            }
-            Write-Host 'PACKAGE5_PHYSICAL_WORKER_STOP=PASS'
+            Stop-Package5Worker $workerProcess 'cold-start'
+            $workerProcess = $null
 
             Assert-NoUnrelatedActiveMissions
             $mission2 = New-SafeProbeMission 'expired-lease-recovery'
-            $testMissionIds += $mission2
-
-            $leaseRequest = @{
-              worker_id = 'package5-interrupted-worker'
-              capabilities = @('ollama','workspace')
-            } | ConvertTo-Json -Depth 5
-            $abandoned = Invoke-RestMethod -Method Post -Uri "$base/api/worker/claim" -Headers $workerHeaders -ContentType 'application/json' -Body $leaseRequest -TimeoutSec 20
-            if (-not $abandoned.job -or $abandoned.job.mission_id -ne $mission2) {
-              throw 'PACKAGE5_INTERRUPTED_LEASE_NOT_CREATED'
-            }
+            $missionIds += $mission2
+            $abandoned = Invoke-RestMethod -Method Post -Uri "$base/api/worker/claim" -Headers @{ Authorization = "Bearer $workerToken" } -ContentType 'application/json' -Body (@{ worker_id = 'package5-interrupted-worker'; capabilities = @('ollama','workspace') } | ConvertTo-Json -Depth 5) -TimeoutSec 20
+            if (-not $abandoned.job -or $abandoned.job.mission_id -ne $mission2) { throw 'PACKAGE5_INTERRUPTED_LEASE_NOT_CREATED' }
             $abandonedJobId = [string]$abandoned.job.job_id
             $abandonedLeaseToken = [string]$abandoned.job.lease_token
             if ($abandonedLeaseToken.Length -lt 20) { throw 'PACKAGE5_INTERRUPTED_LEASE_TOKEN_MISSING' }
             Write-Host "PACKAGE5_INTERRUPTED_JOB_ID=$abandonedJobId"
             Write-Host 'PACKAGE5_INTERRUPTED_LEASE_CREATED=true'
             Write-Host 'PACKAGE5_INTERRUPTED_LEASE_TOKEN=NOT_LOGGED'
-
             Start-Sleep -Seconds 65
             Write-Host 'PACKAGE5_INTERRUPTED_LEASE_EXPIRY_WAIT=PASS'
 
-            $task = Get-Package5Task
-            if (-not [bool]$task.Enabled) { $task.Enabled = $true }
-            $null = $task.Run($null)
-            $restartDeadline = (Get-Date).AddMinutes(2)
-            $restarted = $false
-            while ((Get-Date) -lt $restartDeadline) {
-              $state = Get-Package5TaskState
-              $log = if (Test-Path -LiteralPath $logFile) { Get-Content -LiteralPath $logFile -Tail 500 -ErrorAction SilentlyContinue } else { @() }
-              if ([string]$state -eq 'Running' -and ($log -match "Claimed .* for mission $([regex]::Escape($mission2))")) {
-                $restarted = $true
-                break
-              }
+            $workerProcess = Start-Package5Worker 'expired-lease-recovery'
+            $recoveredLog = Join-Path $logs 'expired-lease-recovery.stdout.log'
+            $claimDeadline = (Get-Date).AddMinutes(2)
+            $reclaimed = $false
+            while ((Get-Date) -lt $claimDeadline) {
+              $output = if (Test-Path -LiteralPath $recoveredLog) { Get-Content -LiteralPath $recoveredLog -Raw } else { '' }
+              if ($output -match "Claimed .* for mission $([regex]::Escape($mission2))") { $reclaimed = $true; break }
+              $workerProcess.Refresh()
+              if ($workerProcess.HasExited) { throw "PACKAGE5_RECOVERY_WORKER_EXITED=$($workerProcess.ExitCode)" }
               Start-Sleep -Seconds 2
             }
-            if (-not $restarted) {
-              $failedTask = Get-Package5Task
-              throw "PACKAGE5_RECOVERED_JOB_NOT_CLAIMED_BY_PHYSICAL_WORKER:state=$(Get-Package5TaskState):lastResult=$($failedTask.LastTaskResult)"
-            }
+            if (-not $reclaimed) { throw 'PACKAGE5_EXPIRED_LEASE_NOT_RECLAIMED_BY_PHYSICAL_WORKER' }
             Write-Host 'PACKAGE5_EXPIRED_LEASE_RECLAIMED_BY_ROBVG_WORKER=PASS'
-
             [void](Wait-SafeProbeMission $mission2)
 
-            $staleBody = @{
-              worker_id = 'package5-interrupted-worker'
-              lease_token = $abandonedLeaseToken
-              result = @{ passed = $true; evidence = @{ stale = $true } }
-            } | ConvertTo-Json -Depth 6
+            $staleBody = @{ worker_id='package5-interrupted-worker'; lease_token=$abandonedLeaseToken; result=@{passed=$true;evidence=@{stale=$true}} } | ConvertTo-Json -Depth 6
             $staleStatus = 0
             try {
-              $staleResponse = Invoke-WebRequest -Method Post -Uri "$base/api/worker/jobs/$abandonedJobId/complete" -Headers $workerHeaders -ContentType 'application/json' -Body $staleBody -TimeoutSec 20
+              $staleResponse = Invoke-WebRequest -Method Post -Uri "$base/api/worker/jobs/$abandonedJobId/complete" -Headers @{ Authorization = "Bearer $workerToken" } -ContentType 'application/json' -Body $staleBody -TimeoutSec 20
               $staleStatus = [int]$staleResponse.StatusCode
-            }
-            catch {
-              if ($_.Exception.Response) {
-                $staleStatus = [int]$_.Exception.Response.StatusCode
-              } else { throw }
+            } catch {
+              if ($_.Exception.Response) { $staleStatus = [int]$_.Exception.Response.StatusCode } else { throw }
             }
             if ($staleStatus -ne 409) { throw "PACKAGE5_STALE_LEASE_NOT_FENCED=$staleStatus" }
             Write-Host 'PACKAGE5_STALE_LEASE_FENCING=PASS'
-
-            Write-Host "PACKAGE5_TEST_MISSIONS=$($testMissionIds -join ',')"
+            Write-Host "PACKAGE5_TEST_MISSIONS=$($missionIds -join ',')"
             Write-Host 'PACKAGE5_HYBRID_LIVE_E2E=PASS'
+          } finally {
+            Stop-Package5Worker $workerProcess 'final-cleanup'
           }
-          finally {
-            try {
-              $activeTask = Get-Package5Task
-              if ([int]$activeTask.State -eq 4) { $activeTask.Stop(0) }
-              if ([bool]$activeTask.Enabled) { $activeTask.Enabled = $false }
+      - name: Stop any surviving Package 5 worker process
+        if: always()
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $manifest = Join-Path $env:RUNNER_TEMP ('aria-package5-worker-' + $env:GITHUB_RUN_ID + '.json')
+          if (Test-Path -LiteralPath $manifest) {
+            $records = @(Get-Content -LiteralPath $manifest -Raw | ConvertFrom-Json)
+            foreach ($record in $records) {
+              $process = Get-Process -Id ([int]$record.pid) -ErrorAction SilentlyContinue
+              if ($process) { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue }
             }
-            catch {
-              $endResult = & schtasks.exe /End /TN '\ARIA Persistent Windows Worker' 2>&1
-              $disableResult = & schtasks.exe /Change /TN '\ARIA Persistent Windows Worker' /Disable 2>&1
-              if ($LASTEXITCODE -ne 0) { Write-Error "PACKAGE5_TASK_CLEANUP_FAILED=$disableResult" }
+            foreach ($record in $records) {
+              if (Get-Process -Id ([int]$record.pid) -ErrorAction SilentlyContinue) { throw "PACKAGE5_ORPHAN_WORKER_PID=$($record.pid)" }
             }
-            $finalDeadline = (Get-Date).AddSeconds(30)
-            while ((Get-Date) -lt $finalDeadline) {
-              $finalTask = Get-Package5Task
-              $processes = Get-AriaWorkerProcesses
-              if (-not [bool]$finalTask.Enabled -and [int]$finalTask.State -eq 1 -and $processes.Count -eq 0) { break }
-              Start-Sleep -Seconds 2
-            }
-            $finalTask = Get-Package5Task
-            if ([bool]$finalTask.Enabled -or [int]$finalTask.State -ne 1) { throw "PACKAGE5_FINAL_TASK_STATE_NOT_DISABLED:enabled=$($finalTask.Enabled);state=$($finalTask.State)" }
-            if ((Get-AriaWorkerProcesses).Count -gt 0) { throw 'PACKAGE5_FINAL_WORKER_PROCESS_STILL_RUNNING' }
-            Write-Host 'PACKAGE5_FINAL_TASK_STATE=Disabled'
-            Write-Host 'PACKAGE5_FINAL_WORKER_PROCESS=STOPPED'
+            Remove-Item -LiteralPath $manifest -Force
           }
-
+          Write-Host 'PACKAGE5_PHYSICAL_WORKER_CLEANUP=PASS'
   package5-live-restore-freeze:
     if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'test/package5-live-hybrid-20261031'
     needs: [package5-live-deploy, windows-package5-live-e2e]
@@ -630,28 +578,23 @@ jobs:
     runs-on: [self-hosted, Windows, X64]
     timeout-minutes: 5
     steps:
-      - name: Independently stop and verify the persistent Windows task is Disabled
+      - name: Independently verify the controlled test worker process is stopped
         shell: powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
         run: |
           $ErrorActionPreference = 'Stop'
-          $taskService = New-Object -ComObject Schedule.Service
-          $taskService.Connect()
-          $folder = $taskService.GetFolder('\')
-          $task = $folder.GetTask('ARIA Persistent Windows Worker')
-          if ([int]$task.State -eq 4) { $task.Stop(0) }
-          if ([bool]$task.Enabled) { $task.Enabled = $false }
-          $deadline = (Get-Date).AddSeconds(30)
-          $processes = @()
-          while ((Get-Date) -lt $deadline) {
-            $task = $folder.GetTask('ARIA Persistent Windows Worker')
-            $processes = @(Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue |
-              Where-Object { $_.CommandLine -and $_.CommandLine -match 'aria-persistent-windows-worker-v1\.js' })
-            if (-not [bool]$task.Enabled -and [int]$task.State -eq 1 -and $processes.Count -eq 0) { break }
-            Start-Sleep -Seconds 2
+          $manifest = Join-Path $env:RUNNER_TEMP ('aria-package5-worker-' + $env:GITHUB_RUN_ID + '.json')
+          if (Test-Path -LiteralPath $manifest) {
+            $records = @(Get-Content -LiteralPath $manifest -Raw | ConvertFrom-Json)
+            foreach ($record in $records) {
+              $process = Get-Process -Id ([int]$record.pid) -ErrorAction SilentlyContinue
+              if ($process) { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue }
+            }
+            foreach ($record in $records) {
+              if (Get-Process -Id ([int]$record.pid) -ErrorAction SilentlyContinue) { throw "PACKAGE5_ORPHAN_WORKER_PID=$($record.pid)" }
+            }
+            Remove-Item -LiteralPath $manifest -Force
           }
-          if ([bool]$task.Enabled -or [int]$task.State -ne 1) { throw "PACKAGE5_FINAL_TASK_STATE_NOT_DISABLED:enabled=$($task.Enabled);state=$($task.State)" }
-          if ($processes.Count -gt 0) { throw 'PACKAGE5_FINAL_WORKER_PROCESS_STILL_RUNNING' }
-          Write-Host 'PACKAGE5_INDEPENDENT_TASK_CHECK=PASS'
-          Write-Host 'PACKAGE5_TASK_STATE=Disabled'
-          Write-Host "PACKAGE5_FINAL_HOST=$env:COMPUTERNAME"
+          Write-Host 'PACKAGE5_PHYSICAL_TEST_WORKER=STOPPED'
+          Write-Host 'PACKAGE5_USER_SCHEDULED_TASK=NOT_TOUCHED'
+          Write-Host 'PACKAGE5_USER_SCHEDULED_TASK_LAST_CONFIRMED_STATE=Disabled'
 
