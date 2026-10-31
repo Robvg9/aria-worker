@@ -90,8 +90,11 @@ assert.ok(windowsLauncher.includes('PreflightOnly and InstallScheduledTask canno
 assert.ok(persistentWorkflow.includes('-File $supervisor') && persistentWorkflow.includes('-PreflightOnly'), 'RobVG physical job must run the actual PowerShell supervisor in preflight-only mode');
 assert.ok(persistentWorkflow.includes('sparse-checkout:') && persistentWorkflow.includes('scripts/aria-persistent-windows-worker-preflight-v1.js'), 'physical supervisor preflight must receive only the required source files');
 assert.doesNotMatch(persistentWorkflow, /& \$node \$supervisor/, 'PowerShell supervisor must never be passed to Node as a JavaScript entrypoint');
-const absorbPrPaths = absorbWorkflow.split(/^  pull_request:\\s*$/m)[1]?.split(/^  push:\\s*$/m)[0] || '';
-const absorbPushPaths = absorbWorkflow.split(/^  push:\\s*$/m)[1]?.split(/^  workflow_dispatch:\\s*$/m)[0] || '';
+const absorbPrStart = absorbWorkflow.indexOf('\n  pull_request:');
+const absorbPushStart = absorbWorkflow.indexOf('\n  push:', absorbPrStart);
+const absorbDispatchStart = absorbWorkflow.indexOf('\n  workflow_dispatch:', absorbPushStart);
+const absorbPrPaths = absorbWorkflow.slice(absorbPrStart, absorbPushStart);
+const absorbPushPaths = absorbWorkflow.slice(absorbPushStart, absorbDispatchStart);
 for (const file of ['.github/workflows/aria-cloudflare-deploy.yml', '.github/workflows/aria-pwa-fast-deploy.yml']) {
   assert.ok(absorbPrPaths.includes("- '" + file + "'"), 'ABSORB contract validation must continue to run for PR edits to ' + file);
   assert.ok(!absorbPushPaths.includes("- '" + file + "'"), 'ABSORB live E2E must not run on administrative edits to ' + file);
