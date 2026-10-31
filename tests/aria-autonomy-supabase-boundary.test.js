@@ -81,4 +81,4 @@ assert.ok(!windowsLauncher.includes('-File "\' + $workerScript + \'"'), 'schedul
 assert.ok(windowsLauncher.includes('[switch]$PreflightOnly'), 'supervisor must expose a one-shot preflight mode');
 assert.ok(windowsLauncher.includes('& $NodePath $preflightScript'), 'preflight mode must invoke the read-only Node verifier');
 assert.ok(windowsLauncher.includes('PreflightOnly and InstallScheduledTask cannot be used together.'), 'preflight must not be combined with task installation');
-process.stdout.write('aria-autonomy-supabase-boundary: all tests passed\\n');
+process.stdout.write('aria-autonomy-supabase-boundary: all tests passed\n');
