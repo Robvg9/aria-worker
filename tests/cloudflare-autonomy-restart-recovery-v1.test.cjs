@@ -79,10 +79,11 @@ async function expireLease(state, jobId) {
 
 (async () => {
   const { AriaMissionStore, MISSION_EXECUTION_PAUSED } = await import('../cloudflare-autonomy/worker.mjs');
-  assert.equal(MISSION_EXECUTION_PAUSED, true, 'production Durable Object remains globally frozen');
+  assert.equal(MISSION_EXECUTION_PAUSED, false, 'temporary Package 5 branch is unpaused only for its controlled LIVE test');
 
-  // The test-only subclass permits a disposable lifecycle in a fake storage
-  // implementation. Production exports remain frozen and are never mutated.
+  // The test-only subclass runs a disposable lifecycle against fake storage.
+  // The temporary Package 5 branch is isolated from main and is re-frozen by
+  // the workflow's always-run restore job after the physical E2E.
   class UnpausedTestMissionStore extends AriaMissionStore {
     isMissionExecutionPaused() { return false; }
   }
