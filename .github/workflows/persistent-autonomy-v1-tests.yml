@@ -99,7 +99,7 @@ jobs:
           ARIA_WORKER_TOKEN: ${{ secrets.ARIA_AUTONOMY_WORKER_TOKEN }}
         run: |
           $ErrorActionPreference = 'Stop'
-          $node = 'D:\\Databank\\node\\node.exe'
+          $node = 'D:\Databank\node\node.exe'
           if (-not (Test-Path -LiteralPath $node -PathType Leaf)) {
             $node = (Get-Command node -ErrorAction Stop).Source
           }
@@ -114,14 +114,14 @@ jobs:
           $scratch = Join-Path $env:RUNNER_TEMP 'aria-windows-worker-preflight'
           $workspace = Join-Path $scratch 'workspace'
           $config = Join-Path $scratch 'worker.env'
-          $supervisor = Join-Path $env:GITHUB_WORKSPACE 'scripts\\Start-ARIA-Persistent-Worker.ps1'
+          $supervisor = Join-Path $env:GITHUB_WORKSPACE 'scripts\Start-ARIA-Persistent-Worker.ps1'
           New-Item -ItemType Directory -Force -Path $workspace | Out-Null
 
           try {
             $values = @(
               'ARIA_CONTROL_URL=https://aria-autonomy-coordinator.robvg9.workers.dev'
               "ARIA_WORKER_TOKEN=$env:ARIA_WORKER_TOKEN"
-              "ARIA_AUTONOMY_ADAPTER=$(Join-Path $env:GITHUB_WORKSPACE 'autonomy\\ollama-persistent-adapter-v1.js')"
+              "ARIA_AUTONOMY_ADAPTER=$(Join-Path $env:GITHUB_WORKSPACE 'autonomy\ollama-persistent-adapter-v1.js')"
               "ARIA_WORKSPACE_ROOT=$workspace"
               'ARIA_OLLAMA_URL=http://127.0.0.1:11434'
               'ARIA_OLLAMA_MODEL=qwen3:4b'
