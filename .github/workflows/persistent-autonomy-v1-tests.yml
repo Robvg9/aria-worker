@@ -385,11 +385,11 @@ jobs:
               $process.Refresh()
               if ($process.HasExited) {
                 $errorText = if (Test-Path -LiteralPath $stderr) { Get-Content -LiteralPath $stderr -Raw } else { '' }
-                throw "PACKAGE5_WORKER_EXITED_DURING_START:$phase:$($process.ExitCode):$errorText"
+                throw "PACKAGE5_WORKER_EXITED_DURING_START:${phase}:$($process.ExitCode):$errorText"
               }
               $output = if (Test-Path -LiteralPath $stdout) { Get-Content -LiteralPath $stdout -Raw } else { '' }
               if ($output -match 'ARIA Windows worker started:' -and $output -match 'Local model ready:') {
-                Write-Host "PACKAGE5_PHYSICAL_WORKER_START=$phase:PASS"
+                Write-Host "PACKAGE5_PHYSICAL_WORKER_START=${phase}:PASS"
                 return $process
               }
               Start-Sleep -Seconds 2
@@ -406,7 +406,7 @@ jobs:
               }
               if (-not $process.HasExited) { throw "PACKAGE5_WORKER_PROCESS_STILL_RUNNING=$phase" }
             }
-            Write-Host "PACKAGE5_PHYSICAL_WORKER_STOP=$phase:PASS"
+            Write-Host "PACKAGE5_PHYSICAL_WORKER_STOP=${phase}:PASS"
           }
           function Wait-SafeProbeMission([string]$missionId,[int]$timeoutMinutes=12) {
             $deadline = (Get-Date).AddMinutes($timeoutMinutes)
@@ -491,7 +491,7 @@ jobs:
           }
       - name: Stop any surviving Package 5 worker process
         if: always()
-        shell: powershell
+        shell: powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
         run: |
           $ErrorActionPreference = 'Stop'
           $manifest = Join-Path $env:RUNNER_TEMP ('aria-package5-worker-' + $env:GITHUB_RUN_ID + '.json')
