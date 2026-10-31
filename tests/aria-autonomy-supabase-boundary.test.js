@@ -39,6 +39,7 @@ const autonomyOnlyPaths = [
   'cloudflare-autonomy/assets/index.html',
   'cloudflare-autonomy/worker.mjs',
   'scripts/Start-ARIA-Persistent-Worker.ps1',
+  'scripts/Protect-ARIA-Persistent-Worker-Config.ps1',
   'scripts/aria-persistent-autonomy-v1.js',
   'scripts/aria-persistent-coordinator-v1.js',
   'scripts/aria-persistent-windows-worker-v1.js',
