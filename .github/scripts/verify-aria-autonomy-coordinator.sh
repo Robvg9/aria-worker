@@ -2,10 +2,12 @@
 set -euo pipefail
 
 BASE_URL="${ARIA_AUTONOMY_BASE_URL:-https://aria-autonomy-coordinator.robvg9.workers.dev}"
+ARIA_CONTROL_TOKEN="${ARIA_CONTROL_TOKEN:-}"
+ARIA_WORKER_TOKEN="${ARIA_WORKER_TOKEN:-}"
 RESPONSE_FILE="$(mktemp)"
 trap 'rm -f "$RESPONSE_FILE"' EXIT
 
-if [ "${#ARIA_CONTROL_TOKEN:-0}" -lt 32 ] || [ "${#ARIA_WORKER_TOKEN:-0}" -lt 32 ]; then
+if [ "${#ARIA_CONTROL_TOKEN}" -lt 32 ] || [ "${#ARIA_WORKER_TOKEN}" -lt 32 ]; then
   echo "ARIA_AUTONOMY_VERIFY_TOKENS_INVALID=true" >&2
   exit 1
 fi
@@ -70,8 +72,8 @@ expect_status unauthenticated_read 401 "$BASE_URL/api/missions"
 expect_status authenticated_read 200 "$BASE_URL/api/missions" \
   -H "Authorization: Bearer $ARIA_CONTROL_TOKEN"
 
-# All mutation probes are deliberately non-mutating even if a regression removes
-# the freeze: malformed JSON fails before writes; fake IDs cannot match stored data.
+# These probes are intentionally non-mutating even if the freeze regresses:
+# malformed JSON fails before writes; fake IDs cannot match stored data.
 expect_status create_rejected_while_frozen 423 "$BASE_URL/api/missions" \
   -X POST -H "Authorization: Bearer $ARIA_CONTROL_TOKEN" \
   -H 'content-type: application/json' --data-binary '{'
