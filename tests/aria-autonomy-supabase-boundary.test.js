@@ -19,6 +19,7 @@ assert.match(legacyWorkflow, /paths-ignore:/);
 assert.match(legacyWorkflow, /workflow_dispatch:/);
 const autonomyOnlyPaths = [
   '.github/workflows/aria-cloudflare-deploy.yml',
+  '.github/workflows/aria-absorb.yml',
   '.github/workflows/aria-autonomy-coordinator-deploy.yml',
   '.github/workflows/aria-pwa-fast-deploy.yml',
   '.github/workflows/supabase-canonical-deploy.yml',
