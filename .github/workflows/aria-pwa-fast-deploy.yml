@@ -9,6 +9,7 @@ on:
     paths-ignore:
       - '.github/workflows/aria-pwa-fast-deploy.yml'
       - '.github/workflows/aria-cloudflare-deploy.yml'
+      - '.github/workflows/aria-absorb.yml'
       - '.github/workflows/aria-autonomy-coordinator-deploy.yml'
       - '.github/workflows/aria-npm-test.yml'
       - '.github/workflows/persistent-autonomy-v1-tests.yml'
@@ -29,6 +30,8 @@ on:
       - 'scripts/aria-persistent-autonomy-v1.js'
       - 'scripts/aria-persistent-coordinator-v1.js'
       - 'scripts/aria-persistent-windows-worker-v1.js'
+      - 'scripts/aria-persistent-windows-worker-preflight-v1.js'
+      - 'scripts/aria-persistent-windows-worker-preflight-v1.test.js'
       - 'tests/aria-autonomy-supabase-boundary.test.js'
       - 'tests/cloudflare-autonomy-worker.test.js'
       - 'tests/ollama-persistent-adapter-v1.test.js'

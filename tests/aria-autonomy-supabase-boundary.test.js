@@ -12,12 +12,14 @@ const supabaseDeploy = fs.readFileSync(path.join(root, '.github/workflows/supaba
 const cloudWorker = fs.readFileSync(path.join(root, 'cloudflare-autonomy/worker.mjs'), 'utf8');
 const wrangler = fs.readFileSync(path.join(root, 'wrangler.aria-autonomy.toml'), 'utf8');
 const persistentWorkflow = fs.readFileSync(path.join(root, '.github/workflows/persistent-autonomy-v1-tests.yml'), 'utf8');
+const absorbWorkflow = fs.readFileSync(path.join(root, '.github/workflows/aria-absorb.yml'), 'utf8');
 const windowsLauncher = fs.readFileSync(path.join(root, 'scripts/Start-ARIA-Persistent-Worker.ps1'), 'utf8');
 
 assert.match(legacyWorkflow, /paths-ignore:/);
 assert.match(legacyWorkflow, /workflow_dispatch:/);
 const autonomyOnlyPaths = [
   '.github/workflows/aria-cloudflare-deploy.yml',
+  '.github/workflows/aria-absorb.yml',
   '.github/workflows/aria-autonomy-coordinator-deploy.yml',
   '.github/workflows/aria-pwa-fast-deploy.yml',
   '.github/workflows/supabase-canonical-deploy.yml',
@@ -40,6 +42,10 @@ const autonomyOnlyPaths = [
   'scripts/aria-persistent-autonomy-v1.js',
   'scripts/aria-persistent-coordinator-v1.js',
   'scripts/aria-persistent-windows-worker-v1.js',
+  'scripts/aria-persistent-windows-worker-preflight-v1.js',
+  'scripts/aria-persistent-windows-worker-preflight-v1.test.js',
+  'scripts/aria-persistent-windows-worker-preflight-v1.js',
+  'scripts/aria-persistent-windows-worker-preflight-v1.test.js',
   'tests/cloudflare-autonomy-worker.test.js',
   'tests/pc-rwht-browser.test.js',
   'tests/pwa-capabilities-test-center-v1.test.js',
@@ -85,4 +91,14 @@ assert.ok(windowsLauncher.includes('PreflightOnly and InstallScheduledTask canno
 assert.ok(persistentWorkflow.includes('-File $supervisor') && persistentWorkflow.includes('-PreflightOnly'), 'RobVG physical job must run the actual PowerShell supervisor in preflight-only mode');
 assert.ok(persistentWorkflow.includes('sparse-checkout:') && persistentWorkflow.includes('scripts/aria-persistent-windows-worker-preflight-v1.js'), 'physical supervisor preflight must receive only the required source files');
 assert.doesNotMatch(persistentWorkflow, /& \$node \$supervisor/, 'PowerShell supervisor must never be passed to Node as a JavaScript entrypoint');
+const absorbPrStart = absorbWorkflow.indexOf('\n  pull_request:');
+const absorbPushStart = absorbWorkflow.indexOf('\n  push:', absorbPrStart);
+const absorbDispatchStart = absorbWorkflow.indexOf('\n  workflow_dispatch:', absorbPushStart);
+const absorbPrPaths = absorbWorkflow.slice(absorbPrStart, absorbPushStart);
+const absorbPushPaths = absorbWorkflow.slice(absorbPushStart, absorbDispatchStart);
+for (const file of ['.github/workflows/aria-cloudflare-deploy.yml', '.github/workflows/aria-pwa-fast-deploy.yml']) {
+  assert.ok(absorbPrPaths.includes("- '" + file + "'"), 'ABSORB contract validation must continue to run for PR edits to ' + file);
+  assert.ok(!absorbPushPaths.includes("- '" + file + "'"), 'ABSORB live E2E must not run on administrative edits to ' + file);
+}
+assert.ok(!absorbPushPaths.includes("- '.github/workflows/aria-absorb.yml'"), 'editing the ABSORB workflow itself must not trigger production LIVE E2E');
 process.stdout.write('aria-autonomy-supabase-boundary: all tests passed\n');
