@@ -232,6 +232,10 @@ try {
         [System.Security.AccessControl.PropagationFlags]::None,
         [System.Security.AccessControl.AccessControlType]::Allow
     )
+    $systemSid = [System.Security.Principal.SecurityIdentifier]::new('S-1-5-18')
+    $adminSid = [System.Security.Principal.SecurityIdentifier]::new('S-1-5-32-544')
+    $systemEvidenceRule = [System.Security.AccessControl.FileSystemAccessRule]::new($systemSid, [System.Security.AccessControl.FileSystemRights]::FullControl, ([System.Security.AccessControl.InheritanceFlags]::ContainerInherit -bor [System.Security.AccessControl.InheritanceFlags]::ObjectInherit), [System.Security.AccessControl.PropagationFlags]::None, [System.Security.AccessControl.AccessControlType]::Allow)
+    $adminEvidenceRule = [System.Security.AccessControl.FileSystemAccessRule]::new($adminSid, [System.Security.AccessControl.FileSystemRights]::FullControl, ([System.Security.AccessControl.InheritanceFlags]::ContainerInherit -bor [System.Security.AccessControl.InheritanceFlags]::ObjectInherit), [System.Security.AccessControl.PropagationFlags]::None, [System.Security.AccessControl.AccessControlType]::Allow)
     $networkServiceSid = [System.Security.Principal.SecurityIdentifier]::new('S-1-5-20')
     $evidenceNetworkRule = [System.Security.AccessControl.FileSystemAccessRule]::new(
         $networkServiceSid,
@@ -241,6 +245,8 @@ try {
         [System.Security.AccessControl.AccessControlType]::Allow
     )
     [void]$evidenceDirectoryAcl.AddAccessRule($evidenceUserRule)
+    [void]$evidenceDirectoryAcl.AddAccessRule($systemEvidenceRule)
+    [void]$evidenceDirectoryAcl.AddAccessRule($adminEvidenceRule)
     [void]$evidenceDirectoryAcl.AddAccessRule($evidenceNetworkRule)
     Set-Acl -LiteralPath $evidenceDirectory -AclObject $evidenceDirectoryAcl
 
