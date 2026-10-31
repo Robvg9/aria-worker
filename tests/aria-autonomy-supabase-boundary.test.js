@@ -34,6 +34,7 @@ const autonomyOnlyPaths = [
   'autonomy/persistent-http-server-v1.js',
   'autonomy/persistent-notifications-v1.js',
   'autonomy/persistent-worker-bridge-v1.js',
+  'autonomy/persistent-worker-error-policy-v1.js',
   'autonomy/persistent-worker-coordinator-adapter-v1.js',
   'pwa/src/testCatalog.ts',
   'cloudflare-autonomy/assets/index.html',
@@ -57,6 +58,7 @@ const autonomyOnlyPaths = [
   'tests/persistent-hybrid-e2e-v1.test.js',
   'tests/persistent-notifications-v1.test.js',
   'tests/persistent-worker-bridge-v1.test.js',
+  'tests/persistent-recovery-e2e-v1.test.js',
   'wrangler.aria-autonomy.toml'
 ];
 for (const file of autonomyOnlyPaths) {
