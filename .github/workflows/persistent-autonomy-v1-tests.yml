@@ -40,6 +40,9 @@ on:
       - 'tests/persistent-worker-supervisor-policy-v1.test.ps1'
       - 'tests/fixtures/aria-frozen-worker-probe-adapter.js'
       - 'scripts/Protect-ARIA-Persistent-Worker-Config.ps1'
+      - 'scripts/Install-ARIA-Package2-Frozen-Persistence-Task.ps1'
+      - 'scripts/Run-ARIA-Package2-Frozen-Persistence-Task.ps1'
+      - 'tests/package2-frozen-persistence-task-scripts-v1.test.cjs'
       - 'tests/persistent-control-plane-v1.test.js'
       - 'tests/persistent-http-server-v1.test.js'
       - 'tests/persistent-worker-bridge-v1.test.js'
@@ -96,7 +99,9 @@ jobs:
           $paths = @(
             'scripts/Start-ARIA-Persistent-Worker.ps1',
             'scripts/aria-worker-supervisor-policy-v1.ps1',
-            'scripts/Protect-ARIA-Persistent-Worker-Config.ps1'
+            'scripts/Protect-ARIA-Persistent-Worker-Config.ps1',
+            'scripts/Install-ARIA-Package2-Frozen-Persistence-Task.ps1',
+            'scripts/Run-ARIA-Package2-Frozen-Persistence-Task.ps1'
           )
           foreach ($relativePath in $paths) {
             $tokens = $null
@@ -111,6 +116,8 @@ jobs:
           }
           Write-Output 'WINDOWS_WORKER_SUPERVISOR_AND_CONFIG_PARSE=PASS'
           & (Join-Path $PWD 'tests/persistent-worker-supervisor-policy-v1.test.ps1')
+          & node 'tests/package2-frozen-persistence-task-scripts-v1.test.cjs'
+          if ($LASTEXITCODE -ne 0) { throw 'Package2 frozen persistence script contract test failed.' }
 
       - name: Exercise DPAPI config creation and ACLs with a disposable test token
         shell: pwsh
