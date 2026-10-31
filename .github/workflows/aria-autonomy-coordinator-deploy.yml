@@ -8,13 +8,18 @@ on:
         type: boolean
         required: true
         default: false
+      verify_live_only:
+        description: "Run read-only LIVE health/auth/freeze checks without deploying"
+        type: boolean
+        required: true
+        default: false
 
 permissions:
   contents: read
 
 jobs:
   deploy:
-    if: inputs.confirm_public_deploy == true
+    if: inputs.confirm_public_deploy == true && inputs.verify_live_only != true
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -78,26 +83,16 @@ jobs:
         env:
           ARIA_CONTROL_TOKEN: ${{ secrets.ARIA_AUTONOMY_CONTROL_TOKEN }}
           ARIA_WORKER_TOKEN: ${{ secrets.ARIA_AUTONOMY_WORKER_TOKEN }}
-        run: |
-          set -euo pipefail
-          base="https://aria-autonomy-coordinator.robvg9.workers.dev"
-          health="$(curl --fail --silent --show-error --max-time 15 "$base/health")"
-          HEALTH="$health" python - <<'PY'
-          import json, os
-          x=json.loads(os.environ["HEALTH"])
-          assert x.get("ok") is True
-          assert x.get("supabase_independent") is True
-          PY
-          code="$(curl --silent --show-error --max-time 15 -o /tmp/aria-autonomy-unauth.json -w '%{http_code}' "$base/api/missions")"
-          test "$code" = "401"
-          code="$(curl --silent --show-error --max-time 15 -o /tmp/aria-autonomy-auth.json -w '%{http_code}' "$base/api/missions" -H "Authorization: Bearer $ARIA_CONTROL_TOKEN")"
-          test "$code" = "200"
-          code="$(curl --silent --show-error --max-time 15 -o /tmp/aria-autonomy-create-paused.json -w '%{http_code}' -X POST "$base/api/missions" -H "Authorization: Bearer $ARIA_CONTROL_TOKEN" -H 'content-type: application/json' --data-binary '{')"
-          test "$code" = "423"
-          code="$(curl --silent --show-error --max-time 15 -o /tmp/aria-autonomy-resume-paused.json -w '%{http_code}' -X POST "$base/api/missions/freeze-probe/resume" -H "Authorization: Bearer $ARIA_CONTROL_TOKEN" -H 'content-type: application/json' --data-binary '{')"
-          test "$code" = "423"
-          code="$(curl --silent --show-error --max-time 15 -o /tmp/aria-autonomy-approval-paused.json -w '%{http_code}' -X POST "$base/api/approvals/freeze-probe" -H "Authorization: Bearer $ARIA_CONTROL_TOKEN" -H 'content-type: application/json' --data-binary '{')"
-          test "$code" = "423"
-          code="$(curl --silent --show-error --max-time 15 -o /tmp/aria-autonomy-claim-paused.json -w '%{http_code}' -X POST "$base/api/worker/claim" -H "Authorization: Bearer $ARIA_WORKER_TOKEN" -H 'content-type: application/json' --data-binary '{')"
-          test "$code" = "423"
-          echo "ARIA_AUTONOMY_LIVE_HEALTH_AUTH_AND_GLOBAL_FREEZE_PASS=true"
+        run: bash .github/scripts/verify-aria-autonomy-coordinator.sh
+
+  verify-live-only:
+    if: inputs.verify_live_only == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run read-only LIVE health/auth/freeze verification
+        env:
+          ARIA_CONTROL_TOKEN: ${{ secrets.ARIA_AUTONOMY_CONTROL_TOKEN }}
+          ARIA_WORKER_TOKEN: ${{ secrets.ARIA_AUTONOMY_WORKER_TOKEN }}
+        run: bash .github/scripts/verify-aria-autonomy-coordinator.sh
