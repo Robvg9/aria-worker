@@ -29,6 +29,7 @@ on:
       - '!autonomy/persistent-http-server-v1.js'
       - '!autonomy/persistent-notifications-v1.js'
       - '!autonomy/persistent-worker-bridge-v1.js'
+      - '!autonomy/persistent-worker-error-policy-v1.js'
       - '!autonomy/persistent-worker-coordinator-adapter-v1.js'
       - '!.github/workflows/supabase-canonical-deploy.yml'
   workflow_dispatch:
