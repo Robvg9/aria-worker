@@ -58,7 +58,7 @@ const autonomyOnlyPaths = [
   'tests/persistent-hybrid-e2e-v1.test.js',
   'tests/persistent-notifications-v1.test.js',
   'tests/persistent-worker-bridge-v1.test.js',
-  'tests/persistent-recovery-e2e-v1.test.js',
+  'tests/persistent-recovery-e2e-v1.test.cjs',
   'wrangler.aria-autonomy.toml'
 ];
 for (const file of autonomyOnlyPaths) {
