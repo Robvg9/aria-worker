@@ -141,7 +141,7 @@ try {
         catch [System.Net.WebException] {
             $response = $_.Exception.Response
             if (-not $response) {
-                throw "Coordinator did not respond to $Method $Uri: $($_.Exception.Message)"
+                throw "Coordinator did not respond to $Method ${Uri}: $($_.Exception.Message)"
             }
         }
         try {
