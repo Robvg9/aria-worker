@@ -1,11 +1,17 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+const { spawn } = require('node:child_process');
 const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
 const { createJsonMissionStore, createPersistentAutonomy } = require('../autonomy/persistent-control-plane-v1');
-const { createPersistentWorkerBridge } = require('../autonomy/persistent-worker-bridge-v1');
+const {
+  createPersistentWorkerBridge,
+  createWorkerBackedPlanner,
+  createWorkerBackedExecutor,
+  createWorkerBackedVerifier
+} = require('../autonomy/persistent-worker-bridge-v1');
 const { createPersistentHttpServer } = require('../autonomy/persistent-http-server-v1');
 const { classifyClaimError } = require('../autonomy/persistent-worker-error-policy-v1');
 
@@ -272,6 +278,120 @@ async function testMissionRecoveryAfterStoreRecreationHonorsIdempotency() {
   });
 }
 
+async function testActualWorkerProcessAgainstEphemeralCoordinator() {
+  await withDirectory('aria-package5-worker-process-', async directory => {
+    const workspace = path.join(directory, 'workspace');
+    await fs.mkdir(workspace, { recursive: true });
+    const adapterPath = path.join(directory, 'fixture-adapter.cjs');
+    const adapterSource = `'use strict';
+module.exports = {
+  createAdapter: ({ workspaceRoot }) => ({
+    supabaseIndependent: true,
+    capabilities: ['ollama', 'workspace'],
+    health: async () => ({ ok: true, model: 'package5-fixture-model' }),
+    plan: async () => [{
+      task_id: 'worker-process-read',
+      title: 'Read a disposable fixture',
+      operation: 'workspace.read',
+      payload: { path: 'fixture.txt' },
+      risk: 'low',
+      idempotent: true
+    }],
+    executeTask: async task => ({
+      passed: true,
+      evidence: {
+        operation: task.operation,
+        path: task.payload.path,
+        workspace_root: workspaceRoot,
+        verified: true
+      }
+    }),
+    verifyCompletion: async mission => ({
+      passed: mission.tasks.length === 1 &&
+        mission.tasks[0].status === 'succeeded' &&
+        mission.tasks[0].evidence.length > 0
+    })
+  })
+};
+`;
+    await fs.writeFile(adapterPath, adapterSource, 'utf8');
+
+    const store = createJsonMissionStore({ directory });
+    const bridge = createPersistentWorkerBridge({ directory, leaseMs: 10000 });
+    const autonomy = createPersistentAutonomy({
+      store,
+      plan: createWorkerBackedPlanner({ bridge, timeoutMs: 12000, pollMs: 25 }),
+      executeTask: createWorkerBackedExecutor({ bridge, timeoutMs: 12000, pollMs: 25 }),
+      verifyCompletion: createWorkerBackedVerifier({ bridge, timeoutMs: 12000, pollMs: 25 }),
+      notify: async () => {},
+      deferPlanning: true
+    });
+    const app = createPersistentHttpServer({
+      store,
+      autonomy,
+      token: CONTROL_TOKEN,
+      workerBridge: bridge,
+      workerToken: WORKER_TOKEN,
+      host: '127.0.0.1',
+      port: 0,
+      runSupervisor: false,
+      notify: async () => {}
+    });
+
+    let child = null;
+    let childExit = null;
+    let workerOutput = '';
+    try {
+      const address = await app.listen();
+      child = spawn(process.execPath, [
+        path.join(__dirname, '..', 'scripts', 'aria-persistent-windows-worker-v1.js')
+      ], {
+        env: {
+          ...process.env,
+          ARIA_CONTROL_URL: 'http://127.0.0.1:' + address.port,
+          ARIA_WORKER_TOKEN: WORKER_TOKEN,
+          ARIA_AUTONOMY_ADAPTER: adapterPath,
+          ARIA_WORKSPACE_ROOT: workspace,
+          ARIA_OLLAMA_MODEL: 'package5-fixture-model',
+          ARIA_WORKER_POLL_MS: '25',
+          ARIA_WORKER_HEARTBEAT_MS: '5000'
+        },
+        stdio: ['ignore', 'pipe', 'pipe']
+      });
+      child.stdout.on('data', chunk => { workerOutput += chunk.toString(); });
+      child.stderr.on('data', chunk => { workerOutput += chunk.toString(); });
+      childExit = new Promise((resolve, reject) => {
+        child.once('error', reject);
+        child.once('exit', (code, signal) => resolve({ code, signal }));
+      });
+
+      const created = await autonomy.start({ goal: 'Run a disposable local mission through the real worker process.' });
+      assert.equal(created.status, 'planning');
+      const completed = await autonomy.tick(created.mission_id, { max_steps: 8, max_runtime_ms: 20000 });
+      assert.equal(completed.status, 'succeeded', workerOutput);
+      assert.equal(completed.progress_percent, 100);
+      assert.equal(completed.tasks.length, 1);
+      assert.equal(completed.tasks[0].status, 'succeeded');
+      assert.equal(completed.tasks[0].evidence[0].verified, true);
+      assert.equal(completed.verification.passed, true);
+      assert.ok(workerOutput.includes('ARIA Windows worker started:'));
+      assert.ok(workerOutput.includes('Reported result for'));
+      assert.equal(workerOutput.includes(WORKER_TOKEN), false);
+      assert.equal((await bridge.list()).every(job => job.status === 'succeeded'), true);
+    } finally {
+      if (child && child.exitCode === null && child.signalCode === null) {
+        child.kill('SIGTERM');
+        const result = await Promise.race([
+          childExit,
+          sleep(3000).then(() => { throw new Error('temporary worker process did not stop'); })
+        ]);
+        assert.equal(result.code, 0, workerOutput);
+      }
+      await app.close();
+    }
+  });
+}
+
 async function testWorkerPauseAndAuthErrorsAreTerminalButTransientFailuresRetry() {
   const workerSource = await fs.readFile(path.join(__dirname, '..', 'scripts', 'aria-persistent-windows-worker-v1.js'), 'utf8');
   assert.match(workerSource, /classifyClaimError\(error\)/);
@@ -311,6 +431,7 @@ async function testWorkerPauseAndAuthErrorsAreTerminalButTransientFailuresRetry(
   await testCoordinatorRestartKeepsMissionLedgerAndEvents();
   await testBridgeRestartReclaimsExpiredLeaseAndFencesOldWorker();
   await testMissionRecoveryAfterStoreRecreationHonorsIdempotency();
+  await testActualWorkerProcessAgainstEphemeralCoordinator();
   await testWorkerPauseAndAuthErrorsAreTerminalButTransientFailuresRetry();
   process.stdout.write('persistent-recovery-e2e-v1: all tests passed\n');
 })().catch(error => {
