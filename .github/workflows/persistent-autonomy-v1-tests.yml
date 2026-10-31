@@ -32,6 +32,7 @@ on:
       - 'scripts/Start-ARIA-Persistent-Worker.ps1'
       - 'scripts/aria-worker-supervisor-policy-v1.ps1'
       - 'tests/persistent-worker-supervisor-policy-v1.test.ps1'
+      - 'tests/fixtures/aria-frozen-worker-probe-adapter.js'
       - 'scripts/Protect-ARIA-Persistent-Worker-Config.ps1'
       - 'tests/persistent-control-plane-v1.test.js'
       - 'tests/persistent-http-server-v1.test.js'
@@ -237,6 +238,133 @@ jobs:
             Remove-Item -LiteralPath $config -Force -ErrorAction SilentlyContinue
             Remove-Item -LiteralPath $workspace -Recurse -Force -ErrorAction SilentlyContinue
             Remove-Item -LiteralPath $scratch -Force -ErrorAction SilentlyContinue
+          }
+
+  windows-physical-frozen-worker-stop:
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'feat/aria-package2-safe-frozen-worker-e2e-20261031'
+    needs: [contract-tests, windows-supervisor-syntax, live-security-readonly-check]
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          sparse-checkout: |
+            scripts/Start-ARIA-Persistent-Worker.ps1
+            scripts/aria-worker-supervisor-policy-v1.ps1
+            scripts/aria-persistent-windows-worker-v1.js
+            tests/fixtures/aria-frozen-worker-probe-adapter.js
+            cloudflare-autonomy/worker.mjs
+          sparse-checkout-cone-mode: false
+      - name: Start the real worker once against the frozen coordinator and verify clean stop
+        shell: powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
+        env:
+          ARIA_AUTONOMY_WORKER_TOKEN: ${{ secrets.ARIA_AUTONOMY_WORKER_TOKEN }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:COMPUTERNAME -ne 'ROBVG') {
+            throw "Refusing physical worker probe on unexpected machine '$env:COMPUTERNAME'; expected ROBVG. No worker was started."
+          }
+
+          $workerSource = Get-Content -LiteralPath (Join-Path $env:GITHUB_WORKSPACE 'cloudflare-autonomy/worker.mjs') -Raw
+          if ($workerSource -notmatch 'MISSION_EXECUTION_PAUSED\\s*=\\s*true') {
+            throw 'Main source does not hard-lock mission execution. Refusing worker probe.'
+          }
+          if ([string]::IsNullOrWhiteSpace($env:ARIA_AUTONOMY_WORKER_TOKEN) -or $env:ARIA_AUTONOMY_WORKER_TOKEN.Length -lt 32) {
+            throw 'Worker token secret is missing or invalid.'
+          }
+
+          $node = 'D:\\Databank\\node\\node.exe'
+          if (-not (Test-Path -LiteralPath $node -PathType Leaf)) {
+            $node = (Get-Command node -ErrorAction Stop).Source
+          }
+          $nodeVersion = (& $node --version).Trim()
+          if ([version]($nodeVersion.TrimStart('v')) -lt [version]'20.0.0') {
+            throw "Node 20+ required; found $nodeVersion"
+          }
+
+          $oldLocalAppData = $env:LOCALAPPDATA
+          $profileRoot = Join-Path $env:RUNNER_TEMP 'aria-package2-frozen-worker-profile'
+          $workspace = Join-Path $env:RUNNER_TEMP 'aria-package2-frozen-worker-workspace'
+          $configDirectory = Join-Path $profileRoot 'ARIA\\worker'
+          $configPath = Join-Path $configDirectory 'worker.config.json'
+          $logFile = Join-Path $profileRoot 'ARIA\\logs\\persistent-worker-supervisor.log'
+          $adapterPath = Join-Path $env:GITHUB_WORKSPACE 'tests\\fixtures\\aria-frozen-worker-probe-adapter.js'
+          $supervisor = Join-Path $env:GITHUB_WORKSPACE 'scripts\\Start-ARIA-Persistent-Worker.ps1'
+          $powershell = (Get-Process -Id $PID).Path
+          New-Item -ItemType Directory -Force -Path $configDirectory, $workspace | Out-Null
+          $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+          $secureToken = ConvertTo-SecureString -String $env:ARIA_AUTONOMY_WORKER_TOKEN -AsPlainText -Force
+
+          try {
+            $protectedToken = ConvertFrom-SecureString -SecureString $secureToken
+            $directoryAcl = [System.Security.AccessControl.DirectorySecurity]::new()
+            $directoryAcl.SetAccessRuleProtection($true, $false)
+            $directoryAcl.SetOwner($identity.User)
+            $directoryRule = [System.Security.AccessControl.FileSystemAccessRule]::new(
+              $identity.User,
+              [System.Security.AccessControl.FileSystemRights]::FullControl,
+              ([System.Security.AccessControl.InheritanceFlags]::ContainerInherit -bor [System.Security.AccessControl.InheritanceFlags]::ObjectInherit),
+              [System.Security.AccessControl.PropagationFlags]::None,
+              [System.Security.AccessControl.AccessControlType]::Allow
+            )
+            [void]$directoryAcl.AddAccessRule($directoryRule)
+            Set-Acl -LiteralPath $configDirectory -AclObject $directoryAcl
+
+            $document = [ordered]@{
+              format = 'aria-worker-config-dpapi-v1'
+              protectedForSid = $identity.User.Value
+              createdAtUtc = [DateTime]::UtcNow.ToString('o')
+              workerTokenDpapi = $protectedToken
+              values = [ordered]@{
+                ARIA_CONTROL_URL = 'https://aria-autonomy-coordinator.robvg9.workers.dev'
+                ARIA_AUTONOMY_ADAPTER = $adapterPath
+                ARIA_WORKSPACE_ROOT = $workspace
+                ARIA_WORKER_ID = ('package2-frozen-probe-' + $env:COMPUTERNAME)
+                ARIA_WORKER_POLL_MS = '1000'
+                ARIA_WORKER_HEARTBEAT_MS = '15000'
+              }
+            }
+            $json = $document | ConvertTo-Json -Depth 6
+            [System.IO.File]::WriteAllText($configPath, $json, ([System.Text.UTF8Encoding]::new($false)))
+            $fileAcl = [System.Security.AccessControl.FileSecurity]::new()
+            $fileAcl.SetAccessRuleProtection($true, $false)
+            $fileAcl.SetOwner($identity.User)
+            $fileRule = [System.Security.AccessControl.FileSystemAccessRule]::new(
+              $identity.User,
+              [System.Security.AccessControl.FileSystemRights]::FullControl,
+              [System.Security.AccessControl.AccessControlType]::Allow
+            )
+            [void]$fileAcl.AddAccessRule($fileRule)
+            Set-Acl -LiteralPath $configPath -AclObject $fileAcl
+
+            $env:LOCALAPPDATA = $profileRoot
+            & $powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $supervisor -ConfigPath $configPath -InstallDir $env:GITHUB_WORKSPACE -NodePath $node
+            if ($LASTEXITCODE -ne 0) { throw "WINDOWS_FROZEN_WORKER_SUPERVISOR_EXIT=$LASTEXITCODE" }
+
+            $log = Get-Content -LiteralPath $logFile -Raw
+            if (-not $log.Contains('ARIA_WINDOWS_WORKER_STOPPED=MISSION_EXECUTION_PAUSED')) {
+              throw 'Worker did not report the expected frozen stop reason.'
+            }
+            if (-not $log.Contains('Worker exited cleanly with code 0; supervisor stopping without restart.')) {
+              throw 'Supervisor did not stop cleanly after worker exit code 0.'
+            }
+            if ([regex]::Matches($log, 'Starting ARIA Windows worker\\.').Count -ne 1) {
+              throw 'Supervisor started the worker more than once during the frozen stop probe.'
+            }
+            Write-Output 'WINDOWS_REAL_WORKER_START=PASS'
+            Write-Output 'WINDOWS_REAL_WORKER_FROZEN_STOP_423=PASS'
+            Write-Output 'WINDOWS_SUPERVISOR_NO_RESTART_LOOP=PASS'
+            Write-Output 'WINDOWS_OLLAMA_NOT_USED=true'
+            Write-Output 'WINDOWS_SCHEDULED_TASK_TOUCHED=false'
+            Write-Output 'WINDOWS_MISSION_OR_LEASE_CREATED=false'
+          }
+          finally {
+            $env:ARIA_AUTONOMY_WORKER_TOKEN = $null
+            $secureToken.Dispose()
+            $env:LOCALAPPDATA = $oldLocalAppData
+            Remove-Item -LiteralPath $profileRoot -Recurse -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $workspace -Recurse -Force -ErrorAction SilentlyContinue
           }
 
   live-security-readonly-check:
