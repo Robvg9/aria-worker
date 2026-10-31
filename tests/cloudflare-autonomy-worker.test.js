@@ -62,6 +62,14 @@ async function complete(store, job, result) {
   }));
 }
 
+async function testControlAndWorkerTokensMustDiffer() {
+  const state = new MemoryState();
+  const store = new AriaMissionStore(state, { ARIA_CONTROL_TOKEN: controlToken, ARIA_WORKER_TOKEN: controlToken, ARIA_WORKER_LEASE_MS: 60000 });
+  assert.equal((await store.fetch(request('/health'))).status, 503);
+  assert.equal((await store.fetch(request('/api/missions', { token: controlToken }))).status, 503);
+  assert.equal((await store.fetch(request('/api/worker/claim', { method: 'POST', token: controlToken, body: { worker_id: 'same-token' } }))).status, 503);
+}
+
 async function testAuthAndVerifiedMissionLifecycle() {
   const { store } = createStore();
   assert.equal((await store.fetch(request('/api/missions', { token: 'wrong-token' }))).status, 401);
@@ -520,6 +528,7 @@ async function testRetryReplanAndLeaseProtection() {
     isMissionExecutionPaused() { return false; }
   };
   await testGlobalFreezeStopsMutationsAndAlarmRecovery();
+  await testControlAndWorkerTokensMustDiffer();
   await testAuthAndVerifiedMissionLifecycle();
   await testIrreversibleTaskNeedsExplicitApproval();
   await testNotificationPayloadAllowlistAndAutomaticRetry();
