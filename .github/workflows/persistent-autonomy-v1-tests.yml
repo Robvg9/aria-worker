@@ -26,7 +26,7 @@ on:
       - 'scripts/aria-persistent-coordinator-v1.js'
       - 'scripts/aria-persistent-windows-worker-v1.js'
       - 'scripts/aria-persistent-windows-worker-preflight-v1.js'
-      - 'tests/persistent-worker-preflight-v1.test.js'
+      - 'scripts/aria-persistent-windows-worker-preflight-v1.test.js'
       - 'scripts/Start-ARIA-Persistent-Worker.ps1'
       - 'tests/persistent-control-plane-v1.test.js'
       - 'tests/persistent-http-server-v1.test.js'
@@ -55,7 +55,7 @@ jobs:
       - run: node --check scripts/aria-persistent-coordinator-v1.js
       - run: node --check scripts/aria-persistent-windows-worker-v1.js
       - run: node --check scripts/aria-persistent-windows-worker-preflight-v1.js
-      - run: node tests/persistent-worker-preflight-v1.test.js
+      - run: node scripts/aria-persistent-windows-worker-preflight-v1.test.js
       - run: node --check autonomy/ollama-persistent-adapter-v1.js
       - run: node --check cloudflare-autonomy/worker.mjs
       - run: node tests/cloudflare-autonomy-worker.test.js
