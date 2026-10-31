@@ -93,7 +93,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Verify actual RobVG Ollama and Cloudflare worker authentication without claiming jobs
-        shell: powershell
+        shell: powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
         env:
           ARIA_WORKER_TOKEN: ${{ secrets.ARIA_AUTONOMY_WORKER_TOKEN }}
         run: |
