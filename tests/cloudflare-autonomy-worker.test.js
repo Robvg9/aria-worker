@@ -23,10 +23,10 @@ class MemoryState {
 }
 const controlToken = 'control-token-for-tests'.padEnd(40, 'c');
 const workerToken = 'worker-token-for-tests'.padEnd(40, 'w');
-function createStore({ paused = false } = {}) {
+function createStore({ paused = false, extraEnv = {} } = {}) {
   const state = new MemoryState();
   const Store = paused ? AriaMissionStore : UnpausedTestMissionStore;
-  return { state, store: new Store(state, { ARIA_CONTROL_TOKEN: controlToken, ARIA_WORKER_TOKEN: workerToken, ARIA_WORKER_LEASE_MS: 60000 }) };
+  return { state, store: new Store(state, { ARIA_CONTROL_TOKEN: controlToken, ARIA_WORKER_TOKEN: workerToken, ARIA_WORKER_LEASE_MS: 60000, ...extraEnv }) };
 }
 function request(path, { method = 'GET', token = controlToken, body } = {}) {
   return new Request('https://aria-test.invalid' + path, {
@@ -228,6 +228,260 @@ async function testGlobalFreezeStopsMutationsAndAlarmRecovery() {
   assert.deepEqual(state.storage.operationCounts, { get: 0, list: 0, put: 0, setAlarm: 0 }, 'alarm/reconcile and direct mutation guards must perform zero storage operations');
 }
 
+async function testNotificationPayloadAllowlistAndAutomaticRetry() {
+  const originalFetch = global.fetch;
+  const payloads = [];
+  let responseStatus = 503;
+  global.fetch = async (url, options) => {
+    assert.equal(url, 'https://notify.example.test/aria');
+    payloads.push({ body: JSON.parse(options.body), headers: options.headers, redirect: options.redirect });
+    return new Response('mocked', { status: responseStatus });
+  };
+  try {
+    const { state, store } = createStore({ extraEnv: {
+      ARIA_NOTIFICATION_WEBHOOK_URL: 'https://notify.example.test/aria',
+      ARIA_NOTIFICATION_ALLOWED_HOSTS: 'notify.example.test',
+      ARIA_NOTIFICATION_TOKEN: 'notification-secret-for-test'
+    } });
+    const notice = await store.notify({
+      type: 'human_intervention_required',
+      mission_id: 'mission_safe',
+      task_id: 'task_safe',
+      reason: 'r'.repeat(1200),
+      details: 'A human should review this.',
+      secret_field: 'must-not-leave-the-coordinator'
+    });
+    await Promise.all(state.pending);
+
+    let persisted = await state.storage.get('notification:' + notice.notification_id);
+    assert.equal(persisted.status, 'pending');
+    assert.equal(persisted.attempts, 1);
+    assert.ok(state.storage.alarmAt, 'a failed initial delivery must automatically schedule its retry');
+    assert.equal(payloads.length, 1);
+    assert.equal(payloads[0].body.type, 'human_intervention_required');
+    assert.equal(payloads[0].body.mission_id, 'mission_safe');
+    assert.equal(payloads[0].body.task_id, 'task_safe');
+    assert.equal(payloads[0].body.reason.length, 1000);
+    assert.equal(payloads[0].body.secret_field, undefined);
+    assert.equal(JSON.stringify(payloads[0].body).includes('notification-secret-for-test'), false);
+    assert.equal(payloads[0].headers.authorization, 'Bearer notification-secret-for-test');
+    assert.equal(payloads[0].redirect, 'manual');
+
+    responseStatus = 200;
+    await store.alarm();
+    persisted = await state.storage.get('notification:' + notice.notification_id);
+    assert.equal(persisted.status, 'delivered');
+    assert.equal(persisted.attempts, 2);
+    assert.equal(payloads.length, 2);
+  } finally {
+    global.fetch = originalFetch;
+  }
+}
+
+async function testTelegramNotificationDeliveryAndRetry() {
+  const originalFetch = global.fetch;
+  const token = '123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklm';
+  const chatId = '987654321';
+  const calls = [];
+  let responseStatus = 429;
+  global.fetch = async (url, options) => {
+    calls.push({ url, options, body: JSON.parse(options.body) });
+    if (responseStatus === 429) {
+      return new Response(JSON.stringify({ ok: false, description: 'Too Many Requests' }), {
+        status: 429,
+        headers: { 'content-type': 'application/json' }
+      });
+    }
+    return new Response(JSON.stringify({ ok: true, result: { message_id: 42 } }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' }
+    });
+  };
+  try {
+    const { state, store } = createStore({ extraEnv: {
+      ARIA_TELEGRAM_BOT_TOKEN: token,
+      ARIA_TELEGRAM_CHAT_ID: chatId
+    } });
+    const notice = await store.notify({
+      type: 'human_intervention_required',
+      mission_id: 'mission_telegram',
+      task_id: 'approval_task',
+      reason: 'Needs a human review.',
+      details: 'Review the pending approval.',
+      secret_field: 'must-not-be-sent'
+    });
+    await Promise.all(state.pending);
+
+    let persisted = await state.storage.get('notification:' + notice.notification_id);
+    assert.equal(persisted.status, 'pending');
+    assert.equal(persisted.attempts, 1);
+    assert.ok(state.storage.alarmAt, 'Telegram 429 must schedule an automatic retry');
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].url, 'https://api.telegram.org/bot' + token + '/sendMessage');
+    assert.equal(calls[0].body.chat_id, chatId);
+    assert.match(calls[0].body.text, /ARIA · human_intervention_required/);
+    assert.match(calls[0].body.text, /Misión: mission_telegram/);
+    assert.match(calls[0].body.text, /Motivo: Needs a human review\./);
+    assert.equal(calls[0].body.secret_field, undefined);
+    assert.equal(calls[0].options.redirect, 'manual');
+    assert.equal(calls[0].options.headers.authorization, undefined);
+    assert.equal(JSON.stringify(persisted).includes(token), false);
+
+    responseStatus = 200;
+    await store.alarm();
+    persisted = await state.storage.get('notification:' + notice.notification_id);
+    assert.equal(persisted.status, 'delivered');
+    assert.equal(persisted.attempts, 2);
+    assert.equal(calls.length, 2);
+  } finally {
+    global.fetch = originalFetch;
+  }
+}
+
+async function testAuthenticatedTelegramProbeWorksDuringGlobalFreeze() {
+  const originalFetch = global.fetch;
+  const token = '123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklm';
+  const chatId = '1472893961';
+  const outbound = [];
+  global.fetch = async (url, options) => {
+    outbound.push({ url, body: JSON.parse(options.body), options });
+    return new Response(JSON.stringify({ ok: true, result: { message_id: 77 } }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' }
+    });
+  };
+  try {
+    const { state, store } = createStore({ paused: true, extraEnv: {
+      ARIA_TELEGRAM_BOT_TOKEN: token,
+      ARIA_TELEGRAM_CHAT_ID: chatId
+    } });
+
+    const unauthenticated = await store.fetch(request('/api/notifications/test', {
+      method: 'POST', token: 'wrong-token', body: { confirm: 'SEND_TELEGRAM_TEST_ONCE' }
+    }));
+    assert.equal(unauthenticated.status, 401);
+
+    const notConfirmed = await store.fetch(request('/api/notifications/test', {
+      method: 'POST', body: { confirm: 'no' }
+    }));
+    assert.equal(notConfirmed.status, 400);
+    assert.equal(outbound.length, 0);
+
+    const response = await store.fetch(request('/api/notifications/test', {
+      method: 'POST', body: { confirm: 'SEND_TELEGRAM_TEST_ONCE' }
+    }));
+    assert.equal(response.status, 200);
+    const result = await body(response);
+    assert.equal(result.notification.status, 'delivered');
+    assert.equal(result.notification.attempts, 1);
+    assert.ok(result.notification.delivered_at);
+    assert.equal(result.notification.last_error, null);
+    assert.equal(outbound.length, 1);
+    assert.equal(outbound[0].url, 'https://api.telegram.org/bot' + token + '/sendMessage');
+    assert.equal(outbound[0].body.chat_id, chatId);
+    assert.match(outbound[0].body.text, /ARIA · telegram_connection_test/);
+    assert.match(outbound[0].body.text, /Prueba de conexión/);
+    assert.equal(outbound[0].options.redirect, 'manual');
+
+    assert.equal(MISSION_EXECUTION_PAUSED, true);
+    assert.equal(store.isMissionExecutionPaused(), true);
+    const blockedMission = await store.fetch(request('/api/missions', {
+      method: 'POST', body: { goal: 'This mutation must remain blocked' }
+    }));
+    assert.equal(blockedMission.status, 423);
+    const blockedClaim = await store.fetch(request('/api/worker/claim', {
+      method: 'POST', token: workerToken, body: { worker_id: 'freeze-probe' }
+    }));
+    assert.equal(blockedClaim.status, 423);
+
+    const missions = await state.storage.list({ prefix: 'mission:' });
+    const jobs = await state.storage.list({ prefix: 'job:' });
+    assert.equal(missions.size, 0);
+    assert.equal(jobs.size, 0);
+
+    const throttled = await store.fetch(request('/api/notifications/test', {
+      method: 'POST', body: { confirm: 'SEND_TELEGRAM_TEST_ONCE' }
+    }));
+    assert.equal(throttled.status, 429);
+    assert.equal(outbound.length, 1, 'the probe must be rate limited to one attempt per minute');
+  } finally {
+    global.fetch = originalFetch;
+  }
+}
+
+async function testTelegramIncompleteConfigurationWaitsSafely() {
+  const originalFetch = global.fetch;
+  let outbound = 0;
+  global.fetch = async () => { outbound += 1; return new Response('unexpected', { status: 200 }); };
+  try {
+    const { state, store } = createStore({ extraEnv: {
+      ARIA_TELEGRAM_BOT_TOKEN: '123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklm'
+    } });
+    const notice = await store.notify({ type: 'telegram_setup_pending' });
+    const persisted = await state.storage.get('notification:' + notice.notification_id);
+    assert.equal(persisted.status, 'waiting_config');
+    assert.equal(persisted.last_error, 'telegram_configuration_incomplete');
+    assert.equal(state.pending.length, 0);
+    assert.equal(outbound, 0, 'incomplete Telegram credentials must never make an outbound request');
+  } finally {
+    global.fetch = originalFetch;
+  }
+}
+
+async function testNotificationRejectsUnapprovedHostAndPermanentFailure() {
+  const originalFetch = global.fetch;
+  let outbound = 0;
+  try {
+    global.fetch = async () => { outbound += 1; return new Response('unexpected', { status: 200 }); };
+    const blocked = createStore({ extraEnv: {
+      ARIA_NOTIFICATION_WEBHOOK_URL: 'https://unapproved.example.test/aria',
+      ARIA_NOTIFICATION_ALLOWED_HOSTS: 'notify.example.test'
+    } });
+    const blockedNotice = await blocked.store.notify({ type: 'blocked_host' });
+    await Promise.all(blocked.state.pending);
+    let persisted = await blocked.state.storage.get('notification:' + blockedNotice.notification_id);
+    assert.equal(persisted.status, 'failed');
+    assert.equal(persisted.last_error, 'notification_webhook_host_not_allowlisted');
+    assert.equal(persisted.attempts, 0);
+    assert.equal(outbound, 0, 'the coordinator must not contact a host outside the explicit allowlist');
+
+    global.fetch = async () => new Response('rejected', { status: 400 });
+    const permanent = createStore({ extraEnv: {
+      ARIA_NOTIFICATION_WEBHOOK_URL: 'https://notify.example.test/aria',
+      ARIA_NOTIFICATION_ALLOWED_HOSTS: 'notify.example.test'
+    } });
+    const failedNotice = await permanent.store.notify({ type: 'permanent_failure' });
+    await Promise.all(permanent.state.pending);
+    persisted = await permanent.state.storage.get('notification:' + failedNotice.notification_id);
+    assert.equal(persisted.status, 'failed', 'non-retryable 4xx responses must fail without looping');
+    assert.equal(persisted.attempts, 1);
+    assert.equal(permanent.state.storage.alarmAt, null);
+  } finally {
+    global.fetch = originalFetch;
+  }
+}
+
+async function testNotificationRetryLimit() {
+  const originalFetch = global.fetch;
+  let outbound = 0;
+  try {
+    global.fetch = async () => { outbound += 1; return new Response('unavailable', { status: 503 }); };
+    const { state, store } = createStore({ extraEnv: {
+      ARIA_NOTIFICATION_WEBHOOK_URL: 'https://notify.example.test/aria',
+      ARIA_NOTIFICATION_ALLOWED_HOSTS: 'notify.example.test'
+    } });
+    const notice = await store.notify({ type: 'temporary_failure' });
+    await Promise.all(state.pending);
+    for (let attempt = 1; attempt < 5; attempt += 1) await store.alarm();
+    const persisted = await state.storage.get('notification:' + notice.notification_id);
+    assert.equal(persisted.status, 'failed', 'transient failures must stop at the retry cap');
+    assert.equal(persisted.attempts, 5);
+    assert.equal(outbound, 5);
+  } finally {
+    global.fetch = originalFetch;
+  }
+}
+
 async function testRetryReplanAndLeaseProtection() {
   const { store } = createStore();
   const mission = await createMission(store, 'Recover a failed task by replanning');
@@ -268,6 +522,12 @@ async function testRetryReplanAndLeaseProtection() {
   await testGlobalFreezeStopsMutationsAndAlarmRecovery();
   await testAuthAndVerifiedMissionLifecycle();
   await testIrreversibleTaskNeedsExplicitApproval();
+  await testNotificationPayloadAllowlistAndAutomaticRetry();
+  await testTelegramNotificationDeliveryAndRetry();
+  await testAuthenticatedTelegramProbeWorksDuringGlobalFreeze();
+  await testTelegramIncompleteConfigurationWaitsSafely();
+  await testNotificationRejectsUnapprovedHostAndPermanentFailure();
+  await testNotificationRetryLimit();
   await testRetryReplanAndLeaseProtection();
   process.stdout.write('cloudflare-autonomy-worker: all tests passed\n');
 })().catch(err => {

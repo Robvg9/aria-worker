@@ -4,6 +4,11 @@ compatibility_date = "2026-10-01"
 compatibility_flags = ["nodejs_compat"]
 workers_dev = true
 
+# Refuse deployment unless Telegram credentials exist as encrypted Worker Secrets.
+# Do not move these names into [vars]; Wrangler prints plaintext vars during config diffs.
+[secrets]
+required = ["ARIA_TELEGRAM_BOT_TOKEN", "ARIA_TELEGRAM_CHAT_ID"]
+
 [assets]
 directory = "./cloudflare-autonomy/assets"
 binding = "ASSETS"
