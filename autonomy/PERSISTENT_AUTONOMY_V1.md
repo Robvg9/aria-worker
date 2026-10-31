@@ -158,6 +158,9 @@ node tests/persistent-worker-bridge-v1.test.js
 node tests/persistent-notifications-v1.test.js
 node tests/ollama-persistent-adapter-v1.test.js
 node tests/persistent-hybrid-e2e-v1.test.js
+node tests/persistent-recovery-e2e-v1.test.js
 \`\`\`
 
 The isolated GitHub Actions workflow runs the mission, HTTP/dashboard, worker-bridge, notification, Ollama-adapter and simulated hybrid end-to-end contract tests on relevant pull-request changes. A green contract test is necessary but does not prove the Windows worker, cloud host, notifications or end-to-end hybrid path are deployed.
+
+The package 5 recovery test uses temporary directories and an ephemeral loopback HTTP server only. It recreates the coordinator/store, verifies event and mission-ledger continuity, recreates the worker bridge after a lease expires, proves a reclaimed lease fences the previous worker token, and verifies that interrupted idempotent work is retried while interrupted non-idempotent work waits for explicit human review. The claim-error policy stops the worker loop on `mission_execution_paused` (HTTP 423) and invalid credentials (401/403), while retaining retries for transient network, 5xx, 408 and 429 errors. These tests do not contact the public coordinator, Cloudflare, Supabase or external notification endpoints, and do not create or claim production missions.
