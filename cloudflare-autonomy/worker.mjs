@@ -196,30 +196,85 @@ export class AriaMissionStore {
       event: clone(event)
     };
     await this.ctx.storage.put('notification:' + record.notification_id, record);
-    if (this.env.ARIA_NOTIFICATION_WEBHOOK_URL) this.ctx.waitUntil(this.deliverNotification(record.notification_id));
+    if (this.env.ARIA_NOTIFICATION_WEBHOOK_URL) {
+      this.ctx.waitUntil((async () => {
+        try {
+          await this.deliverNotification(record.notification_id);
+        } finally {
+          await this.scheduleAlarm();
+        }
+      })());
+    }
     return record;
   }
   async deliverNotification(notificationId) {
     this.assertMissionExecutionEnabled();
     const record = await this.ctx.storage.get('notification:' + notificationId);
     if (!record || !['pending', 'waiting_config'].includes(record.status)) return;
+
     let endpoint;
     try {
       endpoint = new URL(this.env.ARIA_NOTIFICATION_WEBHOOK_URL || '');
       if (endpoint.protocol !== 'https:') throw new Error('notification_webhook_must_use_https');
-      record.attempts += 1;
+      if (endpoint.username || endpoint.password) throw new Error('notification_webhook_credentials_in_url_rejected');
+      const allowedHosts = String(this.env.ARIA_NOTIFICATION_ALLOWED_HOSTS || '')
+        .split(',')
+        .map(host => host.trim().toLowerCase())
+        .filter(Boolean);
+      if (!allowedHosts.includes(endpoint.host.toLowerCase())) throw new Error('notification_webhook_host_not_allowlisted');
+    } catch (err) {
+      const message = String(err && err.message || err);
+      record.status = 'failed';
+      record.last_error = message.includes('notification_webhook_') ? message : 'notification_webhook_url_invalid';
+      record.updated_at = nowIso();
+      await this.ctx.storage.put('notification:' + notificationId, record);
+      return;
+    }
+
+    const maxAttempts = 5;
+    record.attempts = Number.isSafeInteger(record.attempts) && record.attempts >= 0 ? record.attempts : 0;
+    if (record.attempts >= maxAttempts) {
+      record.status = 'failed';
+      record.last_error = 'notification_retry_limit_reached';
+      record.updated_at = nowIso();
+      await this.ctx.storage.put('notification:' + notificationId, record);
+      return;
+    }
+
+    const event = record.event && typeof record.event === 'object' && !Array.isArray(record.event) ? record.event : {};
+    const payload = {
+      source: 'ARIA Mission Control',
+      notification_id: String(record.notification_id || '').slice(0, 128),
+      type: event.type == null ? 'aria_event' : String(event.type).slice(0, 80),
+      mission_id: event.mission_id == null ? null : String(event.mission_id).slice(0, 128),
+      task_id: event.task_id == null ? null : String(event.task_id).slice(0, 128),
+      approval_id: event.approval_id == null ? null : String(event.approval_id).slice(0, 128),
+      reason: event.reason == null ? null : String(event.reason).slice(0, 1000),
+      details: event.details == null ? null : String(event.details).slice(0, 1000),
+      created_at: record.created_at
+    };
+
+    record.attempts += 1;
+    try {
       const response = await fetch(endpoint.toString(), {
         method: 'POST',
         headers: { 'content-type': 'application/json', ...(this.env.ARIA_NOTIFICATION_TOKEN ? { authorization: 'Bearer ' + this.env.ARIA_NOTIFICATION_TOKEN } : {}) },
-        body: JSON.stringify({ source: 'ARIA Mission Control', ...record.event, notification_id: record.notification_id, created_at: record.created_at }),
+        body: JSON.stringify(payload),
+        redirect: 'manual',
         signal: AbortSignal.timeout(10000)
       });
-      if (!response.ok) throw new Error('webhook_http_' + response.status);
-      record.status = 'delivered';
-      record.delivered_at = nowIso();
-      record.last_error = null;
+      if (response.ok) {
+        record.status = 'delivered';
+        record.delivered_at = nowIso();
+        record.last_error = null;
+      } else {
+        const status = Number(response.status) || 0;
+        const retryable = status === 408 || status === 425 || status === 429 || status >= 500;
+        record.status = retryable && record.attempts < maxAttempts ? 'pending' : 'failed';
+        record.last_error = 'webhook_http_' + status;
+      }
     } catch (err) {
-      record.status = 'pending';
+      record.status = record.attempts < maxAttempts ? 'pending' : 'failed';
       record.last_error = String(err && err.message || err).slice(0, 500);
     }
     record.updated_at = nowIso();
@@ -231,7 +286,9 @@ export class AriaMissionStore {
     const hasActive = Array.from(missions.values()).some(m => ACTIVE_MISSION_STATES.has(m.status));
     const jobs = await this.ctx.storage.list({ prefix: 'job:' });
     const hasJobs = Array.from(jobs.values()).some(job => ACTIVE_JOB_STATES.has(job.status));
-    if (hasActive || hasJobs) await this.ctx.storage.setAlarm(Date.now() + this.alarmMs);
+    const notices = await this.ctx.storage.list({ prefix: 'notification:' });
+    const hasPendingNotifications = Array.from(notices.values()).some(item => item.status === 'pending');
+    if (hasActive || hasJobs || hasPendingNotifications) await this.ctx.storage.setAlarm(Date.now() + this.alarmMs);
   }
   async createJob(mission, operation, task, context = {}) {
     this.assertMissionExecutionEnabled();
