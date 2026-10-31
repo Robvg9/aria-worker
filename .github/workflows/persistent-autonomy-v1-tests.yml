@@ -621,9 +621,24 @@ jobs:
           Write-Output ('STABLE_ADAPTER_EXISTS=' + [string](Test-Path -LiteralPath $stableAdapter -PathType Leaf))
           Write-Output ('PREFERRED_NODE_EXISTS=' + [string](Test-Path -LiteralPath 'D:\\Databank\\node\\node.exe' -PathType Leaf))
           if (Test-Path -LiteralPath $stableGit -PathType Container) {
-            $stableSha = (& git -C $stableRoot rev-parse HEAD 2>$null)
-            if ($LASTEXITCODE -eq 0) {
-              Write-Output ('STABLE_ARIA_GIT_SHA=' + ([string]$stableSha).Trim())
+            $safeDirectoryValue = $stableRoot.Replace('\\', '/')
+            $stableShaOutput = @(& git -c ("safe.directory=" + $safeDirectoryValue) -C $stableRoot rev-parse HEAD 2>&1)
+            $stableShaExit = $LASTEXITCODE
+            if ($stableShaExit -eq 0 -and $stableShaOutput.Count -gt 0) {
+              Write-Output ('STABLE_ARIA_GIT_SHA=' + ([string]$stableShaOutput[-1]).Trim())
+            }
+            else {
+              Write-Output ('STABLE_ARIA_GIT_SHA_STATUS=ERROR_' + $stableShaExit)
+            }
+
+            $stableStatusOutput = @(& git -c ("safe.directory=" + $safeDirectoryValue) -C $stableRoot status --short 2>&1)
+            $stableStatusExit = $LASTEXITCODE
+            if ($stableStatusExit -eq 0) {
+              $stableDirtyCount = @($stableStatusOutput | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) }).Count
+              Write-Output ('STABLE_ARIA_WORKTREE_DIRTY_COUNT=' + $stableDirtyCount)
+            }
+            else {
+              Write-Output ('STABLE_ARIA_WORKTREE_STATUS=ERROR_' + $stableStatusExit)
             }
           }
 
