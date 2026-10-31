@@ -361,8 +361,16 @@ jobs:
             )
             $supervisorProcess = Start-Process -FilePath $powershell -ArgumentList $supervisorArguments -PassThru -NoNewWindow
             if (-not $supervisorProcess.WaitForExit(30000)) {
-              Stop-Process -Id $supervisorProcess.Id -Force -ErrorAction SilentlyContinue
-              throw 'Worker supervisor did not stop within 30 seconds; the complete child process tree was terminated.'
+              function Stop-AriaProbeProcessTree {
+                param([Parameter(Mandatory = $true)][int]$ProcessId)
+                $children = @(Get-CimInstance Win32_Process -Filter "ParentProcessId = $ProcessId" -ErrorAction SilentlyContinue)
+                foreach ($child in $children) {
+                  Stop-AriaProbeProcessTree -ProcessId ([int]$child.ProcessId)
+                }
+                Stop-Process -Id $ProcessId -Force -ErrorAction SilentlyContinue
+              }
+              Stop-AriaProbeProcessTree -ProcessId $supervisorProcess.Id
+              throw 'Worker supervisor did not stop within 30 seconds; its child process tree was terminated.'
             }
             if ($supervisorProcess.ExitCode -ne 0) {
               throw "WINDOWS_FROZEN_WORKER_SUPERVISOR_EXIT=$($supervisorProcess.ExitCode)"
