@@ -338,6 +338,77 @@ async function testTelegramNotificationDeliveryAndRetry() {
   }
 }
 
+async function testAuthenticatedTelegramProbeWorksDuringGlobalFreeze() {
+  const originalFetch = global.fetch;
+  const token = '123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklm';
+  const chatId = '1472893961';
+  const outbound = [];
+  global.fetch = async (url, options) => {
+    outbound.push({ url, body: JSON.parse(options.body), options });
+    return new Response(JSON.stringify({ ok: true, result: { message_id: 77 } }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' }
+    });
+  };
+  try {
+    const { state, store } = createStore({ paused: true, extraEnv: {
+      ARIA_TELEGRAM_BOT_TOKEN: token,
+      ARIA_TELEGRAM_CHAT_ID: chatId
+    } });
+
+    const unauthenticated = await store.fetch(request('/api/notifications/test', {
+      method: 'POST', token: 'wrong-token', body: { confirm: 'SEND_TELEGRAM_TEST_ONCE' }
+    }));
+    assert.equal(unauthenticated.status, 401);
+
+    const notConfirmed = await store.fetch(request('/api/notifications/test', {
+      method: 'POST', body: { confirm: 'no' }
+    }));
+    assert.equal(notConfirmed.status, 400);
+    assert.equal(outbound.length, 0);
+
+    const response = await store.fetch(request('/api/notifications/test', {
+      method: 'POST', body: { confirm: 'SEND_TELEGRAM_TEST_ONCE' }
+    }));
+    assert.equal(response.status, 200);
+    const result = await body(response);
+    assert.equal(result.notification.status, 'delivered');
+    assert.equal(result.notification.attempts, 1);
+    assert.ok(result.notification.delivered_at);
+    assert.equal(result.notification.last_error, null);
+    assert.equal(outbound.length, 1);
+    assert.equal(outbound[0].url, 'https://api.telegram.org/bot' + token + '/sendMessage');
+    assert.equal(outbound[0].body.chat_id, chatId);
+    assert.match(outbound[0].body.text, /ARIA · telegram_connection_test/);
+    assert.match(outbound[0].body.text, /Prueba de conexión/);
+    assert.equal(outbound[0].options.redirect, 'manual');
+
+    assert.equal(MISSION_EXECUTION_PAUSED, true);
+    assert.equal(store.isMissionExecutionPaused(), true);
+    const blockedMission = await store.fetch(request('/api/missions', {
+      method: 'POST', body: { goal: 'This mutation must remain blocked' }
+    }));
+    assert.equal(blockedMission.status, 423);
+    const blockedClaim = await store.fetch(request('/api/worker/claim', {
+      method: 'POST', token: workerToken, body: { worker_id: 'freeze-probe' }
+    }));
+    assert.equal(blockedClaim.status, 423);
+
+    const missions = await state.storage.list({ prefix: 'mission:' });
+    const jobs = await state.storage.list({ prefix: 'job:' });
+    assert.equal(missions.size, 0);
+    assert.equal(jobs.size, 0);
+
+    const throttled = await store.fetch(request('/api/notifications/test', {
+      method: 'POST', body: { confirm: 'SEND_TELEGRAM_TEST_ONCE' }
+    }));
+    assert.equal(throttled.status, 429);
+    assert.equal(outbound.length, 1, 'the probe must be rate limited to one attempt per minute');
+  } finally {
+    global.fetch = originalFetch;
+  }
+}
+
 async function testTelegramIncompleteConfigurationWaitsSafely() {
   const originalFetch = global.fetch;
   let outbound = 0;
@@ -453,6 +524,7 @@ async function testRetryReplanAndLeaseProtection() {
   await testIrreversibleTaskNeedsExplicitApproval();
   await testNotificationPayloadAllowlistAndAutomaticRetry();
   await testTelegramNotificationDeliveryAndRetry();
+  await testAuthenticatedTelegramProbeWorksDuringGlobalFreeze();
   await testTelegramIncompleteConfigurationWaitsSafely();
   await testNotificationRejectsUnapprovedHostAndPermanentFailure();
   await testNotificationRetryLimit();
