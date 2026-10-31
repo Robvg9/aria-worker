@@ -17,6 +17,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $workerScript = Join-Path (Resolve-Path -LiteralPath $InstallDir).Path 'scripts\aria-persistent-windows-worker-v1.js'
+$preflightScript = Join-Path (Resolve-Path -LiteralPath $InstallDir).Path 'scripts\aria-persistent-windows-worker-preflight-v1.js'
 $config = (Resolve-Path -LiteralPath $ConfigPath).Path
 $logDir = Join-Path $env:LOCALAPPDATA 'ARIA\logs'
 $logFile = Join-Path $logDir 'persistent-worker-supervisor.log'
