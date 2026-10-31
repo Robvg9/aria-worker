@@ -39,6 +39,7 @@ on:
       - 'supabase/migrations/20261017*mission_job_authorization*'
       - 'autonomy/**'
       - '!autonomy/PERSISTENT_AUTONOMY_V1.md'
+      - '!autonomy/persistent-worker-error-policy-v1.js'
       - 'rwht/pc-browser/**'
       - 'tests/pc-rwht-browser.test.js'
       - 'tests/mission-job-authorization-fence-contract.test.js'
