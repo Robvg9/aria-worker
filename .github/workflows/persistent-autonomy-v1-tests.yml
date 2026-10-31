@@ -1,6 +1,12 @@
 name: Persistent Autonomy v1 Contract Tests
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/persistent-autonomy-v1-tests.yml'
+      - 'tests/fixtures/aria-frozen-worker-probe-adapter.js'
   pull_request:
     branches:
       - main
@@ -241,7 +247,7 @@ jobs:
           }
 
   windows-physical-frozen-worker-stop:
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'feat/aria-package2-safe-frozen-worker-e2e-20261031'
+    if: (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'feat/aria-package2-safe-frozen-worker-e2e-20261031') || (github.event_name == 'push' && github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, 'Run one safe frozen-worker start/stop probe on RobVG'))
     needs: [contract-tests, windows-supervisor-syntax, live-security-readonly-check]
     runs-on: [self-hosted, Windows, X64]
     timeout-minutes: 3
@@ -388,7 +394,7 @@ jobs:
           }
 
   live-security-readonly-check:
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.actor == github.repository_owner
+    if: (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.actor == github.repository_owner) || (github.event_name == 'push' && github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, 'Run one safe frozen-worker start/stop probe on RobVG'))
     runs-on: ubuntu-latest
     timeout-minutes: 2
     env:
