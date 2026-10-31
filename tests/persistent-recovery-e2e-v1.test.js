@@ -2,6 +2,7 @@
 
 const assert = require('node:assert/strict');
 const { spawn } = require('node:child_process');
+const http = require('node:http');
 const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
@@ -392,6 +393,75 @@ module.exports = {
   });
 }
 
+async function testActualWorkerStopsOnCoordinatorFreezeWithoutPollingAgain() {
+  await withDirectory('aria-package5-worker-freeze-', async directory => {
+    const adapterPath = path.join(directory, 'fixture-adapter.cjs');
+    await fs.writeFile(adapterPath, `'use strict';
+module.exports = {
+  createAdapter: () => ({
+    supabaseIndependent: true,
+    capabilities: ['ollama', 'workspace'],
+    health: async () => ({ ok: true, model: 'package5-freeze-fixture' }),
+    executeTask: async () => ({ passed: true, evidence: { unexpected_execution: true } })
+  })
+};
+`, 'utf8');
+
+    let claimCalls = 0;
+    const coordinator = http.createServer((req, res) => {
+      if (req.method === 'POST' && req.url === '/api/worker/claim') {
+        claimCalls += 1;
+        res.writeHead(423, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ error: 'mission_execution_paused' }));
+        return;
+      }
+      res.writeHead(404);
+      res.end();
+    });
+    await new Promise((resolve, reject) => {
+      coordinator.once('error', reject);
+      coordinator.listen(0, '127.0.0.1', resolve);
+    });
+    let child = null;
+    try {
+      const address = coordinator.address();
+      child = spawn(process.execPath, [
+        path.join(__dirname, '..', 'scripts', 'aria-persistent-windows-worker-v1.js')
+      ], {
+        env: {
+          ...process.env,
+          ARIA_CONTROL_URL: 'http://127.0.0.1:' + address.port,
+          ARIA_WORKER_TOKEN: WORKER_TOKEN,
+          ARIA_AUTONOMY_ADAPTER: adapterPath,
+          ARIA_WORKSPACE_ROOT: directory,
+          ARIA_OLLAMA_MODEL: 'package5-freeze-fixture',
+          ARIA_WORKER_POLL_MS: '25',
+          ARIA_WORKER_HEARTBEAT_MS: '5000'
+        },
+        stdio: ['ignore', 'pipe', 'pipe']
+      });
+      let output = '';
+      child.stdout.on('data', chunk => { output += chunk.toString(); });
+      child.stderr.on('data', chunk => { output += chunk.toString(); });
+      const exit = new Promise((resolve, reject) => {
+        child.once('error', reject);
+        child.once('exit', (code, signal) => resolve({ code, signal }));
+      });
+      const result = await Promise.race([
+        exit,
+        sleep(3000).then(() => { throw new Error('worker did not stop after coordinator freeze: ' + output); })
+      ]);
+      assert.equal(result.code, 0, output);
+      assert.equal(claimCalls, 1, 'worker must not poll again after HTTP 423 mission_execution_paused');
+      assert.ok(output.includes('ARIA_WINDOWS_WORKER_STOPPED=MISSION_EXECUTION_PAUSED'), output);
+      assert.equal(output.includes(WORKER_TOKEN), false);
+    } finally {
+      if (child && child.exitCode === null && child.signalCode === null) child.kill('SIGTERM');
+      await new Promise(resolve => coordinator.close(resolve));
+    }
+  });
+}
+
 async function testWorkerPauseAndAuthErrorsAreTerminalButTransientFailuresRetry() {
   const workerSource = await fs.readFile(path.join(__dirname, '..', 'scripts', 'aria-persistent-windows-worker-v1.js'), 'utf8');
   assert.match(workerSource, /classifyClaimError\(error\)/);
@@ -432,6 +502,7 @@ async function testWorkerPauseAndAuthErrorsAreTerminalButTransientFailuresRetry(
   await testBridgeRestartReclaimsExpiredLeaseAndFencesOldWorker();
   await testMissionRecoveryAfterStoreRecreationHonorsIdempotency();
   await testActualWorkerProcessAgainstEphemeralCoordinator();
+  await testActualWorkerStopsOnCoordinatorFreezeWithoutPollingAgain();
   await testWorkerPauseAndAuthErrorsAreTerminalButTransientFailuresRetry();
   process.stdout.write('persistent-recovery-e2e-v1: all tests passed\n');
 })().catch(error => {
