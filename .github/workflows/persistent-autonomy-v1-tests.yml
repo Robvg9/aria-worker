@@ -92,7 +92,16 @@ jobs:
     runs-on: [self-hosted, Windows, X64]
     timeout-minutes: 5
     steps:
-      - name: Verify actual RobVG Ollama and Cloudflare worker authentication without claiming jobs
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          sparse-checkout: |
+            scripts/Start-ARIA-Persistent-Worker.ps1
+            scripts/aria-persistent-windows-worker-v1.js
+            scripts/aria-persistent-windows-worker-preflight-v1.js
+            autonomy/ollama-persistent-adapter-v1.js
+          sparse-checkout-cone-mode: false
+      - name: Run the actual Windows supervisor in read-only preflight mode
         shell: powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
         env:
           ARIA_WORKER_TOKEN: ${{ secrets.ARIA_AUTONOMY_WORKER_TOKEN }}
@@ -110,49 +119,30 @@ jobs:
             throw 'ARIA_AUTONOMY_WORKER_TOKEN repository secret is missing or invalid'
           }
 
-          $ollama = Invoke-RestMethod -Uri 'http://127.0.0.1:11434/api/tags' -Method Get -TimeoutSec 10
-          $modelNames = @($ollama.models | ForEach-Object {
-            if ($_.name) { $_.name }
-            elseif ($_.model) { $_.model }
-          } | Where-Object { $_ })
-          if ($modelNames -notcontains 'qwen3:4b') {
-            throw 'Local Ollama does not report the required qwen3:4b model'
-          }
-          Write-Host 'WINDOWS_OLLAMA_QWEN3_4B=PASS'
+          $scratch = Join-Path $env:RUNNER_TEMP 'aria-windows-worker-preflight'
+          $workspace = Join-Path $scratch 'workspace'
+          $config = Join-Path $scratch 'worker.env'
+          $supervisor = Join-Path $env:GITHUB_WORKSPACE 'scripts\Start-ARIA-Persistent-Worker.ps1'
+          $powershell = (Get-Process -Id $PID).Path
+          New-Item -ItemType Directory -Force -Path $workspace | Out-Null
 
-          $base = 'https://aria-autonomy-coordinator.robvg9.workers.dev'
-          $health = Invoke-RestMethod -Uri "$base/health" -Method Get -TimeoutSec 15
-          if ($health.ok -ne $true -or $health.service -ne 'aria-autonomy-coordinator' -or $health.supabase_independent -ne $true) {
-            throw 'Coordinator health contract did not match'
-          }
-          Write-Host 'WINDOWS_COORDINATOR_HEALTH=PASS'
-
-          function Get-ReadOnlyStatus {
-            param(
-              [Parameter(Mandatory = $true)][string]$Uri,
-              [hashtable]$Headers = @{}
+          try {
+            $values = @(
+              'ARIA_CONTROL_URL=https://aria-autonomy-coordinator.robvg9.workers.dev'
+              "ARIA_WORKER_TOKEN=$env:ARIA_WORKER_TOKEN"
+              "ARIA_AUTONOMY_ADAPTER=$(Join-Path $env:GITHUB_WORKSPACE 'autonomy\ollama-persistent-adapter-v1.js')"
+              "ARIA_WORKSPACE_ROOT=$workspace"
+              'ARIA_OLLAMA_URL=http://127.0.0.1:11434'
+              'ARIA_OLLAMA_MODEL=qwen3:4b'
             )
-            try {
-              $response = Invoke-WebRequest -UseBasicParsing -Uri $Uri -Method Get -Headers $Headers -TimeoutSec 15
-              return [int]$response.StatusCode
-            }
-            catch {
-              $httpResponse = $_.Exception.Response
-              if ($null -eq $httpResponse) {
-                throw 'Read-only HTTP probe failed without an HTTP response'
-              }
-              try { return [int]$httpResponse.StatusCode.value__ }
-              catch { return [int]$httpResponse.StatusCode }
-            }
+            [System.IO.File]::WriteAllLines($config, $values, [System.Text.Encoding]::ASCII)
+            Write-Host "WINDOWS_NODE_VERSION=$nodeVersion"
+            & $powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $supervisor -ConfigPath $config -InstallDir $env:GITHUB_WORKSPACE -NodePath $node -PreflightOnly
+            if ($LASTEXITCODE -ne 0) { throw "WINDOWS_SUPERVISOR_PREFLIGHT_EXIT=$LASTEXITCODE" }
+            Write-Host 'WINDOWS_SUPERVISOR_PREFLIGHT=PASS'
           }
-
-          $unauthStatus = Get-ReadOnlyStatus -Uri "$base/api/worker/claim"
-          if ($unauthStatus -ne 401) { throw "Unauthenticated worker probe expected 401; got $unauthStatus" }
-          Write-Host 'WINDOWS_WORKER_AUTH_REQUIRED=PASS'
-
-          $authHeaders = @{ Authorization = "Bearer $env:ARIA_WORKER_TOKEN" }
-          $authStatus = Get-ReadOnlyStatus -Uri "$base/api/worker/claim" -Headers $authHeaders
-          if ($authStatus -ne 405) { throw "Authenticated GET worker probe expected 405; got $authStatus" }
-          Write-Host 'WINDOWS_WORKER_TOKEN_ACCEPTED_READ_ONLY=PASS'
-          Write-Host "WINDOWS_NODE_VERSION=$nodeVersion"
-          Write-Host 'WINDOWS_PHYSICAL_PREFLIGHT=PASS'
+          finally {
+            Remove-Item -LiteralPath $config -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $workspace -Recurse -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $scratch -Force -ErrorAction SilentlyContinue
+          }
