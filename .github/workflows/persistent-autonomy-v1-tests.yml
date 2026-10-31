@@ -531,7 +531,10 @@ jobs:
               }
               throw 'Worker supervisor did not stop within 20 seconds; child process tree was terminated after exporting diagnostics.'
             }
-            if ($supervisorProcess.ExitCode -ne 0) {
+            $supervisorProcess.Refresh()
+            $supervisorExitCode = $supervisorProcess.ExitCode
+            Write-Output ("WINDOWS_SUPERVISOR_EXIT_CODE={0}" -f $supervisorExitCode)
+            if ([int]$supervisorExitCode -ne 0) {
               foreach ($diagnosticPath in @($logFile, $supervisorStdout, $supervisorStderr)) {
                 if (Test-Path -LiteralPath $diagnosticPath) {
                   Write-Output ('SUPERVISOR_DIAGNOSTIC_BEGIN=' + [System.IO.Path]::GetFileName($diagnosticPath))
@@ -539,7 +542,7 @@ jobs:
                   Write-Output ('SUPERVISOR_DIAGNOSTIC_END=' + [System.IO.Path]::GetFileName($diagnosticPath))
                 }
               }
-              throw "WINDOWS_FROZEN_WORKER_SUPERVISOR_EXIT=$($supervisorProcess.ExitCode)"
+              throw ("WINDOWS_FROZEN_WORKER_SUPERVISOR_EXIT={0}" -f $supervisorExitCode)
             }
 
             $log = Get-Content -LiteralPath $logFile -Raw
