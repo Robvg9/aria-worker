@@ -108,4 +108,6 @@ assert.ok(!absorbPushPaths.includes("- '.github/workflows/aria-absorb.yml'"), 'e
 const absorbAutonomyDocsInclude = absorbPushPaths.indexOf("      - 'autonomy/**'");
 const absorbMissionDocsExclude = absorbPushPaths.indexOf("      - '!autonomy/PERSISTENT_AUTONOMY_V1.md'");
 assert.ok(absorbAutonomyDocsInclude >= 0 && absorbMissionDocsExclude > absorbAutonomyDocsInclude, 'updating the persistent autonomy guide must not trigger ABSORB production LIVE E2E');
+const absorbWorkerPauseExclude = absorbPushPaths.indexOf("      - '!autonomy/persistent-worker-error-policy-v1.js'");
+assert.ok(absorbWorkerPauseExclude > absorbAutonomyDocsInclude, 'the worker pause policy must not trigger ABSORB production LIVE E2E while the global freeze is active');
 process.stdout.write('aria-autonomy-supabase-boundary: all tests passed\n');
