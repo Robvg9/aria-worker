@@ -230,11 +230,15 @@ jobs:
               }, ensure_ascii=False))
           print("NO_CLOUDFLARE_MUTATIONS=true")
           print("NO_WORKER_DELETIONS=true")
+          if scripts_status != 200:
+              print("INVENTORY_BLOCKED: cannot list account Workers; inspect the reported API permission error.")
+              raise SystemExit(2)
           PY
       - name: Persist inventory artifact
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: cloudflare-workers-inventory
           path: cloudflare-workers-inventory.json
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 7
