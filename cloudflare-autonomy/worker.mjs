@@ -135,6 +135,11 @@ export class AriaMissionStore {
 
     if (!url.pathname.startsWith('/api/')) return error('not_found', 404);
     if (!authorized(request, this.env.ARIA_CONTROL_TOKEN)) return error('unauthorized', 401);
+    // The only mutation permitted during the global freeze is a one-shot,
+    // authenticated Telegram delivery probe. It cannot create or resume missions.
+    if (method === 'POST' && url.pathname === '/api/notifications/test') {
+      return this.sendTelegramTest(request);
+    }
     if (method !== 'GET' && this.isMissionExecutionPaused()) return this.pausedResponse();
 
     if (method === 'GET' && url.pathname === '/api/missions') {
@@ -183,6 +188,57 @@ export class AriaMissionStore {
       details: clone(details)
     });
   }
+  async sendTelegramTest(request) {
+    let body;
+    try { body = await request.json(); } catch (_) { return error('invalid_json', 400); }
+    if (!body || body.confirm !== 'SEND_TELEGRAM_TEST_ONCE') {
+      return error('explicit_telegram_test_confirmation_required', 400);
+    }
+    if (!this.env.ARIA_TELEGRAM_BOT_TOKEN || !this.env.ARIA_TELEGRAM_CHAT_ID) {
+      return error('telegram_configuration_incomplete', 409);
+    }
+
+    const throttleKey = 'internal:telegram-test:last-attempt';
+    const priorAttempt = await this.ctx.storage.get(throttleKey);
+    if (priorAttempt && Date.now() - Date.parse(priorAttempt.created_at) < 60000) {
+      return error('telegram_test_rate_limited', 429);
+    }
+    await this.ctx.storage.put(throttleKey, { created_at: nowIso() });
+
+    const record = {
+      notification_id: uuid('notification'),
+      created_at: nowIso(),
+      updated_at: nowIso(),
+      status: 'pending',
+      attempts: 0,
+      delivered_at: null,
+      last_error: null,
+      event: {
+        type: 'telegram_connection_test',
+        details: 'Prueba de conexión: ARIA puede enviarte avisos por Telegram.'
+      }
+    };
+    await this.ctx.storage.put('notification:' + record.notification_id, record);
+    await this.deliverNotification(record.notification_id, { allowWhilePaused: true });
+
+    const delivered = await this.ctx.storage.get('notification:' + record.notification_id);
+    if (delivered && delivered.status === 'pending') {
+      delivered.status = 'failed';
+      delivered.last_error = delivered.last_error || 'telegram_test_not_delivered';
+      delivered.updated_at = nowIso();
+      await this.ctx.storage.put('notification:' + record.notification_id, delivered);
+    }
+    const result = await this.ctx.storage.get('notification:' + record.notification_id);
+    const notification = {
+      notification_id: result.notification_id,
+      status: result.status,
+      attempts: result.attempts,
+      delivered_at: result.delivered_at,
+      last_error: result.last_error
+    };
+    return json({ notification }, result.status === 'delivered' ? 200 : 502);
+  }
+
   async notify(event) {
     this.assertMissionExecutionEnabled();
     const telegramRequested = Boolean(this.env.ARIA_TELEGRAM_BOT_TOKEN || this.env.ARIA_TELEGRAM_CHAT_ID);
@@ -211,8 +267,8 @@ export class AriaMissionStore {
     }
     return record;
   }
-  async deliverNotification(notificationId) {
-    this.assertMissionExecutionEnabled();
+  async deliverNotification(notificationId, { allowWhilePaused = false } = {}) {
+    if (!allowWhilePaused) this.assertMissionExecutionEnabled();
     const record = await this.ctx.storage.get('notification:' + notificationId);
     if (!record || !['pending', 'waiting_config'].includes(record.status)) return;
 
