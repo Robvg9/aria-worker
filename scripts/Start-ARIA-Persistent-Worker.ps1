@@ -19,6 +19,7 @@ $ErrorActionPreference = 'Stop'
 $installRoot = (Resolve-Path -LiteralPath $InstallDir).Path.TrimEnd('\')
 $workerScript = Join-Path $installRoot 'scripts\aria-persistent-windows-worker-v1.js'
 $preflightScript = Join-Path $installRoot 'scripts\aria-persistent-windows-worker-preflight-v1.js'
+$supervisorPolicyPath = Join-Path $installRoot 'scripts\aria-worker-supervisor-policy-v1.ps1'
 $launcherScript = Join-Path $installRoot 'scripts\Start-ARIA-Persistent-Worker.ps1'
 $config = (Resolve-Path -LiteralPath $ConfigPath).Path
 $logDir = Join-Path $env:LOCALAPPDATA 'ARIA\logs'
@@ -109,6 +110,10 @@ if (-not (Test-Path -LiteralPath $workerScript -PathType Leaf)) {
 if (-not (Test-Path -LiteralPath $launcherScript -PathType Leaf)) {
     throw "Worker launcher not found: $launcherScript"
 }
+if (-not (Test-Path -LiteralPath $supervisorPolicyPath -PathType Leaf)) {
+    throw "Worker supervisor policy not found: $supervisorPolicyPath"
+}
+. $supervisorPolicyPath
 if ($PreflightOnly -and $InstallScheduledTask) {
     throw 'PreflightOnly and InstallScheduledTask cannot be used together.'
 }
@@ -204,6 +209,11 @@ while ($true) {
     catch {
         Add-Content -LiteralPath $logFile -Value "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Worker launch error: $($_.Exception.Message)"
         $exitCode = 1
+    }
+    $supervisorDecision = Get-ARIAWorkerSupervisorDecision -ExitCode $exitCode
+    if ($supervisorDecision -eq 'stop') {
+        Add-Content -LiteralPath $logFile -Value "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Worker exited cleanly with code 0; supervisor stopping without restart."
+        exit 0
     }
     Add-Content -LiteralPath $logFile -Value "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Worker exited with code $exitCode; restarting in $delaySeconds seconds."
     Start-Sleep -Seconds $delaySeconds

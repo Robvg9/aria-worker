@@ -30,6 +30,8 @@ on:
       - 'scripts/aria-persistent-windows-worker-preflight-v1.js'
       - 'scripts/aria-persistent-windows-worker-preflight-v1.test.js'
       - 'scripts/Start-ARIA-Persistent-Worker.ps1'
+      - 'scripts/aria-worker-supervisor-policy-v1.ps1'
+      - 'tests/persistent-worker-supervisor-policy-v1.test.ps1'
       - 'scripts/Protect-ARIA-Persistent-Worker-Config.ps1'
       - 'tests/persistent-control-plane-v1.test.js'
       - 'tests/persistent-http-server-v1.test.js'
@@ -86,6 +88,7 @@ jobs:
         run: |
           $paths = @(
             'scripts/Start-ARIA-Persistent-Worker.ps1',
+            'scripts/aria-worker-supervisor-policy-v1.ps1',
             'scripts/Protect-ARIA-Persistent-Worker-Config.ps1'
           )
           foreach ($relativePath in $paths) {
@@ -100,6 +103,7 @@ jobs:
             }
           }
           Write-Output 'WINDOWS_WORKER_SUPERVISOR_AND_CONFIG_PARSE=PASS'
+          & (Join-Path $PWD 'tests/persistent-worker-supervisor-policy-v1.test.ps1')
 
       - name: Exercise DPAPI config creation and ACLs with a disposable test token
         shell: pwsh
@@ -184,6 +188,7 @@ jobs:
           fetch-depth: 1
           sparse-checkout: |
             scripts/Start-ARIA-Persistent-Worker.ps1
+            scripts/aria-worker-supervisor-policy-v1.ps1
             scripts/aria-persistent-windows-worker-v1.js
             scripts/aria-persistent-windows-worker-preflight-v1.js
             autonomy/ollama-persistent-adapter-v1.js
