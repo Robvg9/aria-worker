@@ -101,7 +101,7 @@ function createPersistentWorkerBridge({ directory, leaseMs = 60000 } = {}) {
       const job = await get(jobId);
       if (!job) throw new Error('job_not_found');
       if (job.status !== 'leased' || job.worker_id !== worker_id || !lease_token || job.lease_token !== lease_token) throw new Error('worker_lease_mismatch');
-      const leaseExpiry = Date.parse(job.lease_until || '');
+      const leaseExpiry = typeof job.lease_until === 'string' ? Date.parse(job.lease_until) : NaN;
       if (!Number.isFinite(leaseExpiry) || leaseExpiry <= Date.now()) throw new Error('worker_lease_expired');
       job.lease_until = new Date(Date.now() + Math.max(5000, leaseMs)).toISOString();
       job.updated_at = nowIso();
@@ -113,7 +113,7 @@ function createPersistentWorkerBridge({ directory, leaseMs = 60000 } = {}) {
       const job = await get(jobId);
       if (!job) throw new Error('job_not_found');
       if (job.status !== 'leased' || job.worker_id !== worker_id || !lease_token || job.lease_token !== lease_token) throw new Error('worker_lease_mismatch');
-      const leaseExpiry = Date.parse(job.lease_until || '');
+      const leaseExpiry = typeof job.lease_until === 'string' ? Date.parse(job.lease_until) : NaN;
       if (!Number.isFinite(leaseExpiry) || leaseExpiry <= Date.now()) throw new Error('worker_lease_expired');
       job.updated_at = nowIso();
       job.lease_until = null;
