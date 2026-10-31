@@ -133,6 +133,22 @@ finally {
             [System.Security.AccessControl.PropagationFlags]::None,
             [System.Security.AccessControl.AccessControlType]::Allow
         )
+        $systemSid = [System.Security.Principal.SecurityIdentifier]::new('S-1-5-18')
+        $adminSid = [System.Security.Principal.SecurityIdentifier]::new('S-1-5-32-544')
+        $systemRule = [System.Security.AccessControl.FileSystemAccessRule]::new(
+            $systemSid,
+            [System.Security.AccessControl.FileSystemRights]::FullControl,
+            ([System.Security.AccessControl.InheritanceFlags]::ContainerInherit -bor [System.Security.AccessControl.InheritanceFlags]::ObjectInherit),
+            [System.Security.AccessControl.PropagationFlags]::None,
+            [System.Security.AccessControl.AccessControlType]::Allow
+        )
+        $adminRule = [System.Security.AccessControl.FileSystemAccessRule]::new(
+            $adminSid,
+            [System.Security.AccessControl.FileSystemRights]::FullControl,
+            ([System.Security.AccessControl.InheritanceFlags]::ContainerInherit -bor [System.Security.AccessControl.InheritanceFlags]::ObjectInherit),
+            [System.Security.AccessControl.PropagationFlags]::None,
+            [System.Security.AccessControl.AccessControlType]::Allow
+        )
         $networkServiceSid = [System.Security.Principal.SecurityIdentifier]::new('S-1-5-20')
         $networkRule = [System.Security.AccessControl.FileSystemAccessRule]::new(
             $networkServiceSid,
@@ -142,6 +158,8 @@ finally {
             [System.Security.AccessControl.AccessControlType]::Allow
         )
         [void]$directoryAcl.AddAccessRule($currentRule)
+        [void]$directoryAcl.AddAccessRule($systemRule)
+        [void]$directoryAcl.AddAccessRule($adminRule)
         [void]$directoryAcl.AddAccessRule($networkRule)
         Set-Acl -LiteralPath $evidenceDirectory -AclObject $directoryAcl
 
@@ -155,12 +173,24 @@ finally {
             [System.Security.AccessControl.FileSystemRights]::FullControl,
             [System.Security.AccessControl.AccessControlType]::Allow
         )
+        $fileSystemRule = [System.Security.AccessControl.FileSystemAccessRule]::new(
+            $systemSid,
+            [System.Security.AccessControl.FileSystemRights]::FullControl,
+            [System.Security.AccessControl.AccessControlType]::Allow
+        )
+        $fileAdminRule = [System.Security.AccessControl.FileSystemAccessRule]::new(
+            $adminSid,
+            [System.Security.AccessControl.FileSystemRights]::FullControl,
+            [System.Security.AccessControl.AccessControlType]::Allow
+        )
         $fileNetworkRule = [System.Security.AccessControl.FileSystemAccessRule]::new(
             $networkServiceSid,
             [System.Security.AccessControl.FileSystemRights]::Read,
             [System.Security.AccessControl.AccessControlType]::Allow
         )
         [void]$fileAcl.AddAccessRule($fileCurrentRule)
+        [void]$fileAcl.AddAccessRule($fileSystemRule)
+        [void]$fileAcl.AddAccessRule($fileAdminRule)
         [void]$fileAcl.AddAccessRule($fileNetworkRule)
         Set-Acl -LiteralPath $tempEvidence -AclObject $fileAcl
         Move-Item -LiteralPath $tempEvidence -Destination $evidencePath -Force
