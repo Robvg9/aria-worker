@@ -175,7 +175,7 @@ jobs:
           }
 
   windows-physical-readonly-preflight:
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'feat/aria-windows-worker-preflight-20261031'
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'test/package5-live-hybrid-20261031'
     runs-on: [self-hosted, Windows, X64]
     timeout-minutes: 5
     steps:
@@ -206,6 +206,11 @@ jobs:
             throw 'ARIA_AUTONOMY_WORKER_TOKEN repository secret is missing or invalid'
           }
 
+          Write-Host "PACKAGE5_PHYSICAL_HOST=$env:COMPUTERNAME"
+          Write-Host "PACKAGE5_RUNNER_IDENTITY=$([System.Security.Principal.WindowsIdentity]::GetCurrent().Name)"
+          Write-Host 'PACKAGE5_USER_SCHEDULED_TASK=NOT_TOUCHED'
+          Write-Host 'PACKAGE5_USER_SCHEDULED_TASK_LAST_CONFIRMED_STATE=Disabled'
+
           $scratch = Join-Path $env:RUNNER_TEMP 'aria-windows-worker-preflight'
           $workspace = Join-Path $scratch 'workspace'
           $config = Join-Path $scratch 'worker.env'
@@ -233,3 +238,376 @@ jobs:
             Remove-Item -LiteralPath $workspace -Recurse -Force -ErrorAction SilentlyContinue
             Remove-Item -LiteralPath $scratch -Force -ErrorAction SilentlyContinue
           }
+
+  package5-live-deploy:
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'test/package5-live-hybrid-20261031'
+    needs: [contract-tests, windows-supervisor-syntax, windows-physical-readonly-preflight]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Validate temporary unpaused coordinator and safe-probe guard
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const source = fs.readFileSync('cloudflare-autonomy/worker.mjs', 'utf8');
+          if (!/MISSION_EXECUTION_PAUSED\s*=\s*false/.test(source)) throw new Error('temporary_unpaused_branch_not_found');
+          if (!source.includes('package5_workspace_list')) throw new Error('safe_probe_guard_missing');
+          NODE
+      - name: Refuse to run while unrelated missions are active
+        env:
+          ARIA_CONTROL_TOKEN: ${{ secrets.ARIA_AUTONOMY_CONTROL_TOKEN }}
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --max-time 20 \
+            -H "Authorization: Bearer $ARIA_CONTROL_TOKEN" \
+            "https://aria-autonomy-coordinator.robvg9.workers.dev/api/missions" \
+            -o "$RUNNER_TEMP/package5-before-missions.json"
+          python - <<'PY'
+          import json, os
+          data=json.load(open(os.path.join(os.environ["RUNNER_TEMP"], "package5-before-missions.json"), encoding="utf-8"))
+          terminal={"succeeded","failed","cancelled"}
+          active=[m for m in data.get("missions",[]) if m.get("status") not in terminal]
+          if active:
+              raise SystemExit("PACKAGE5_BLOCKED_UNRELATED_ACTIVE_MISSIONS=" + str(len(active)))
+          print("PACKAGE5_NO_UNRELATED_ACTIVE_MISSIONS=true")
+          PY
+      - name: Deploy temporary coordinator branch (separate Worker; no Supabase)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          ARIA_CONTROL_TOKEN: ${{ secrets.ARIA_AUTONOMY_CONTROL_TOKEN }}
+          ARIA_WORKER_TOKEN: ${{ secrets.ARIA_AUTONOMY_WORKER_TOKEN }}
+        run: |
+          set -euo pipefail
+          npm install --global wrangler@latest
+          python - <<'PY'
+          import json, os
+          with open(".aria-package5-secrets.json", "w", encoding="utf-8") as f:
+              json.dump({
+                  "ARIA_CONTROL_TOKEN": os.environ["ARIA_CONTROL_TOKEN"],
+                  "ARIA_WORKER_TOKEN": os.environ["ARIA_WORKER_TOKEN"],
+              }, f)
+          PY
+          trap 'rm -f .aria-package5-secrets.json' EXIT
+          wrangler deploy --config wrangler.aria-autonomy.toml --secrets-file .aria-package5-secrets.json
+      - name: Verify temporary coordinator health
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --max-time 20 \
+            "https://aria-autonomy-coordinator.robvg9.workers.dev/health" \
+            | python -c 'import json,sys; x=json.load(sys.stdin); assert x.get("ok") is True and x.get("supabase_independent") is True; print("PACKAGE5_TEMP_COORDINATOR_HEALTH=PASS")'
+
+  windows-package5-live-e2e:
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'test/package5-live-hybrid-20261031'
+    needs: [package5-live-deploy, windows-physical-readonly-preflight]
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 1
+      - name: Execute controlled LIVE missions through the physical Windows worker process
+        shell: powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
+        env:
+          ARIA_CONTROL_TOKEN: ${{ secrets.ARIA_AUTONOMY_CONTROL_TOKEN }}
+          ARIA_WORKER_TOKEN: ${{ secrets.ARIA_AUTONOMY_WORKER_TOKEN }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $base = 'https://aria-autonomy-coordinator.robvg9.workers.dev'
+          $controlHeaders = @{ Authorization = "Bearer $env:ARIA_CONTROL_TOKEN" }
+          $workerToken = [string]$env:ARIA_WORKER_TOKEN
+          $workerScript = Join-Path $env:GITHUB_WORKSPACE 'scripts\aria-persistent-windows-worker-v1.js'
+          $adapterPath = Join-Path $env:GITHUB_WORKSPACE 'autonomy\ollama-persistent-adapter-v1.js'
+          $node = 'D:\Databank\node\node.exe'
+          if (-not (Test-Path -LiteralPath $node -PathType Leaf)) { $node = (Get-Command node -ErrorAction Stop).Source }
+          if (-not (Test-Path -LiteralPath $workerScript -PathType Leaf)) { throw 'PACKAGE5_PHYSICAL_WORKER_SCRIPT_MISSING' }
+          if (-not (Test-Path -LiteralPath $adapterPath -PathType Leaf)) { throw 'PACKAGE5_PHYSICAL_ADAPTER_MISSING' }
+          $claimPolicyPath = Join-Path $env:GITHUB_WORKSPACE 'autonomy\\persistent-worker-error-policy-v1.js'
+          if (-not (Test-Path -LiteralPath $claimPolicyPath -PathType Leaf)) {
+            $trackedPolicy = & git -C $env:GITHUB_WORKSPACE show 'HEAD:autonomy/persistent-worker-error-policy-v1.js'
+            if ($LASTEXITCODE -ne 0 -or -not $trackedPolicy) { throw 'PACKAGE5_CLAIM_POLICY_MISSING_FROM_CHECKOUT_AND_HEAD' }
+            [System.IO.File]::WriteAllText($claimPolicyPath, (($trackedPolicy -join [Environment]::NewLine) + [Environment]::NewLine), ([System.Text.UTF8Encoding]::new($false)))
+            Write-Host 'PACKAGE5_CLAIM_POLICY_RESTORED_FROM_EXACT_HEAD=true'
+          } else {
+            Write-Host 'PACKAGE5_CLAIM_POLICY_PRESENT_IN_CHECKOUT=true'
+          }
+          $env:PACKAGE5_WORKER_SCRIPT = $workerScript
+          & $node -e "const Module=require('node:module'); const path=require('node:path'); const m=new Module(process.env.PACKAGE5_WORKER_SCRIPT); m.filename=process.env.PACKAGE5_WORKER_SCRIPT; m.paths=Module._nodeModulePaths(path.dirname(m.filename)); const p=m.require('../autonomy/persistent-worker-error-policy-v1'); if(typeof p.classifyClaimError!=='function') process.exit(2); console.log('PACKAGE5_CLAIM_POLICY_REQUIRE=PASS');"
+          if ($LASTEXITCODE -ne 0) { throw 'PACKAGE5_CLAIM_POLICY_REQUIRE_FAILED' }
+          Remove-Item Env:PACKAGE5_WORKER_SCRIPT -ErrorAction SilentlyContinue
+          Write-Host "PACKAGE5_PHYSICAL_HOST=$env:COMPUTERNAME"
+          Write-Host "PACKAGE5_WORKER_RUNTIME_IDENTITY=$([System.Security.Principal.WindowsIdentity]::GetCurrent().Name)"
+          Write-Host "PACKAGE5_NODE_VERSION=$((& $node --version).Trim())"
+          Write-Host 'PACKAGE5_USER_SCHEDULED_TASK=NOT_TOUCHED'
+          Write-Host 'PACKAGE5_USER_SCHEDULED_TASK_LAST_CONFIRMED_STATE=Disabled'
+
+          $root = Join-Path $env:RUNNER_TEMP ('aria-package5-live-' + $env:GITHUB_RUN_ID)
+          $workspace = Join-Path $root 'workspace'
+          $logs = Join-Path $root 'logs'
+          $manifest = Join-Path $env:RUNNER_TEMP ('aria-package5-worker-' + $env:GITHUB_RUN_ID + '.json')
+          New-Item -ItemType Directory -Force -Path $workspace,$logs | Out-Null
+
+          function Assert-NoUnrelatedActiveMissions {
+            $response = Invoke-RestMethod -Method Get -Uri "$base/api/missions" -Headers $controlHeaders -TimeoutSec 20
+            $active = @($response.missions | Where-Object { $_.status -notin @('succeeded','failed','cancelled') })
+            if ($active.Count -gt 0) { throw "PACKAGE5_BLOCKED_UNRELATED_ACTIVE_MISSIONS=$($active.Count)" }
+            Write-Host 'PACKAGE5_NO_UNRELATED_ACTIVE_MISSIONS=true'
+          }
+          function New-SafeProbeMission([string]$phase) {
+            $body = @{
+              goal = 'Package 5 controlled test: execute one read-only workspace listing of only the isolated workspace root at depth one. No file reads, searches, writes, edits, test execution, deployments, or other operations.'
+              metadata = @{
+                package5_safe_probe = $true
+                package5_run_id = $env:GITHUB_RUN_ID
+                package5_phase = $phase
+              }
+              policy = @{ max_risk = 'low'; require_human_approval = $true; max_steps = 1 }
+            } | ConvertTo-Json -Depth 8
+            $created = Invoke-RestMethod -Method Post -Uri "$base/api/missions" -Headers $controlHeaders -ContentType 'application/json' -Body $body -TimeoutSec 20
+            if (-not $created.mission.mission_id) { throw 'PACKAGE5_MISSION_CREATE_NO_ID' }
+            Write-Host "PACKAGE5_MISSION_CREATED_PHASE=$phase"
+            Write-Host "PACKAGE5_MISSION_ID=$($created.mission.mission_id)"
+            return [string]$created.mission.mission_id
+          }
+          function Start-Package5Worker([string]$phase) {
+            $workerId = "package5-robvg-$phase-$env:GITHUB_RUN_ID"
+            $stdout = Join-Path $logs "$phase.stdout.log"
+            $stderr = Join-Path $logs "$phase.stderr.log"
+            $env:ARIA_CONTROL_URL = $base
+            $env:ARIA_AUTONOMY_ADAPTER = $adapterPath
+            $env:ARIA_WORKSPACE_ROOT = $workspace
+            $env:ARIA_OLLAMA_URL = 'http://127.0.0.1:11434'
+            $env:ARIA_OLLAMA_MODEL = 'qwen3:4b'
+            $env:ARIA_WORKER_ID = $workerId
+            $env:ARIA_WORKER_POLL_MS = '1000'
+            $env:ARIA_WORKER_HEARTBEAT_MS = '5000'
+            $process = Start-Process -FilePath $node -ArgumentList ('"' + $workerScript + '"') -WorkingDirectory $env:GITHUB_WORKSPACE -PassThru -WindowStyle Hidden -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+            $records = @()
+            if (Test-Path -LiteralPath $manifest) {
+              $existing = Get-Content -LiteralPath $manifest -Raw | ConvertFrom-Json
+              if ($existing) { $records = @($existing) }
+            }
+            $records += [pscustomobject]@{ pid = $process.Id; worker_id = $workerId; stdout = $stdout; stderr = $stderr; phase = $phase }
+            ConvertTo-Json -InputObject $records -Depth 5 | Set-Content -LiteralPath $manifest -Encoding UTF8
+            $deadline = (Get-Date).AddMinutes(2)
+            while ((Get-Date) -lt $deadline) {
+              $process.Refresh()
+              if ($process.HasExited) {
+                $errorText = if (Test-Path -LiteralPath $stderr) { Get-Content -LiteralPath $stderr -Raw } else { '' }
+                throw "PACKAGE5_WORKER_EXITED_DURING_START:${phase}:$($process.ExitCode):$errorText"
+              }
+              $output = if (Test-Path -LiteralPath $stdout) { Get-Content -LiteralPath $stdout -Raw } else { '' }
+              if ($output -match 'ARIA Windows worker started:' -and $output -match 'Local model ready:') {
+                Write-Host "PACKAGE5_PHYSICAL_WORKER_START=${phase}:PASS"
+                return $process
+              }
+              Start-Sleep -Seconds 2
+            }
+            throw "PACKAGE5_WORKER_START_TIMEOUT=$phase"
+          }
+          function Stop-Package5Worker($process,[string]$phase) {
+            if ($process) {
+              $process.Refresh()
+              if (-not $process.HasExited) {
+                Stop-Process -Id $process.Id -Force -ErrorAction Stop
+                $process.WaitForExit(15000) | Out-Null
+                $process.Refresh()
+              }
+              if (-not $process.HasExited) { throw "PACKAGE5_WORKER_PROCESS_STILL_RUNNING=$phase" }
+            }
+            Write-Host "PACKAGE5_PHYSICAL_WORKER_STOP=${phase}:PASS"
+          }
+          function Wait-SafeProbeMission([string]$missionId,[int]$timeoutMinutes=12) {
+            $deadline = (Get-Date).AddMinutes($timeoutMinutes)
+            while ((Get-Date) -lt $deadline) {
+              $response = Invoke-RestMethod -Method Get -Uri "$base/api/missions/$missionId" -Headers $controlHeaders -TimeoutSec 20
+              $mission = $response.mission
+              if (-not $mission) { throw "PACKAGE5_MISSION_DISAPPEARED=$missionId" }
+              if ($mission.status -in @('failed','waiting_human','cancelled')) { throw "PACKAGE5_MISSION_NONPASS=$($mission.status):$($mission.last_error)" }
+              if ($mission.status -eq 'succeeded') {
+                if (@($mission.tasks).Count -ne 1 -or $mission.tasks[0].operation -ne 'workspace.list' -or $mission.tasks[0].status -ne 'succeeded') {
+                  throw 'PACKAGE5_SAFE_MISSION_OPERATION_MISMATCH'
+                }
+                $evidence = $mission.tasks[0].evidence[0]
+                if (-not $mission.verification.passed -or $evidence.operation -ne 'workspace.list' -or $evidence.path -ne '.' -or [int]$evidence.count -ne @($evidence.entries).Count) {
+                  throw 'PACKAGE5_SAFE_MISSION_EVIDENCE_OR_VERIFICATION_MISSING'
+                }
+                Write-Host "PACKAGE5_MISSION_SUCCEEDED=$missionId"
+                Write-Host 'PACKAGE5_MISSION_TASK=workspace.list'
+                Write-Host "PACKAGE5_MISSION_ENTRY_COUNT=$($evidence.count)"
+                Write-Host 'PACKAGE5_MISSION_VERIFICATION=PASS'
+                return $mission
+              }
+              Start-Sleep -Seconds 3
+            }
+            throw "PACKAGE5_MISSION_TIMEOUT=$missionId"
+          }
+
+          $workerProcess = $null
+          $missionIds = @()
+          try {
+            Assert-NoUnrelatedActiveMissions
+            $workerProcess = Start-Package5Worker 'cold-start'
+            $mission1 = New-SafeProbeMission 'cold-start'
+            $missionIds += $mission1
+            [void](Wait-SafeProbeMission $mission1)
+            Stop-Package5Worker $workerProcess 'cold-start'
+            $workerProcess = $null
+
+            Assert-NoUnrelatedActiveMissions
+            $mission2 = New-SafeProbeMission 'expired-lease-recovery'
+            $missionIds += $mission2
+            $abandoned = Invoke-RestMethod -Method Post -Uri "$base/api/worker/claim" -Headers @{ Authorization = "Bearer $workerToken" } -ContentType 'application/json' -Body (@{ worker_id = 'package5-interrupted-worker'; capabilities = @('ollama','workspace') } | ConvertTo-Json -Depth 5) -TimeoutSec 20
+            if (-not $abandoned.job -or $abandoned.job.mission_id -ne $mission2) { throw 'PACKAGE5_INTERRUPTED_LEASE_NOT_CREATED' }
+            $abandonedJobId = [string]$abandoned.job.job_id
+            $abandonedLeaseToken = [string]$abandoned.job.lease_token
+            if ($abandonedLeaseToken.Length -lt 20) { throw 'PACKAGE5_INTERRUPTED_LEASE_TOKEN_MISSING' }
+            Write-Host "PACKAGE5_INTERRUPTED_JOB_ID=$abandonedJobId"
+            Write-Host 'PACKAGE5_INTERRUPTED_LEASE_CREATED=true'
+            Write-Host 'PACKAGE5_INTERRUPTED_LEASE_TOKEN=NOT_LOGGED'
+            Start-Sleep -Seconds 65
+            Write-Host 'PACKAGE5_INTERRUPTED_LEASE_EXPIRY_WAIT=PASS'
+
+            $workerProcess = Start-Package5Worker 'expired-lease-recovery'
+            $recoveredLog = Join-Path $logs 'expired-lease-recovery.stdout.log'
+            $claimDeadline = (Get-Date).AddMinutes(2)
+            $reclaimed = $false
+            while ((Get-Date) -lt $claimDeadline) {
+              $output = if (Test-Path -LiteralPath $recoveredLog) { Get-Content -LiteralPath $recoveredLog -Raw } else { '' }
+              if ($output -match "Claimed .* for mission $([regex]::Escape($mission2))") { $reclaimed = $true; break }
+              $workerProcess.Refresh()
+              if ($workerProcess.HasExited) { throw "PACKAGE5_RECOVERY_WORKER_EXITED=$($workerProcess.ExitCode)" }
+              Start-Sleep -Seconds 2
+            }
+            if (-not $reclaimed) { throw 'PACKAGE5_EXPIRED_LEASE_NOT_RECLAIMED_BY_PHYSICAL_WORKER' }
+            Write-Host 'PACKAGE5_EXPIRED_LEASE_RECLAIMED_BY_ROBVG_WORKER=PASS'
+            [void](Wait-SafeProbeMission $mission2)
+
+            $staleBody = @{ worker_id='package5-interrupted-worker'; lease_token=$abandonedLeaseToken; result=@{passed=$true;evidence=@{stale=$true}} } | ConvertTo-Json -Depth 6
+            $staleStatus = 0
+            try {
+              $staleResponse = Invoke-WebRequest -Method Post -Uri "$base/api/worker/jobs/$abandonedJobId/complete" -Headers @{ Authorization = "Bearer $workerToken" } -ContentType 'application/json' -Body $staleBody -TimeoutSec 20
+              $staleStatus = [int]$staleResponse.StatusCode
+            } catch {
+              if ($_.Exception.Response) { $staleStatus = [int]$_.Exception.Response.StatusCode } else { throw }
+            }
+            if ($staleStatus -ne 409) { throw "PACKAGE5_STALE_LEASE_NOT_FENCED=$staleStatus" }
+            Write-Host 'PACKAGE5_STALE_LEASE_FENCING=PASS'
+            Write-Host "PACKAGE5_TEST_MISSIONS=$($missionIds -join ',')"
+            Write-Host 'PACKAGE5_HYBRID_LIVE_E2E=PASS'
+          } finally {
+            Stop-Package5Worker $workerProcess 'final-cleanup'
+          }
+      - name: Stop any surviving Package 5 worker process
+        if: always()
+        shell: powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $manifest = Join-Path $env:RUNNER_TEMP ('aria-package5-worker-' + $env:GITHUB_RUN_ID + '.json')
+          if (Test-Path -LiteralPath $manifest) {
+            $records = @(Get-Content -LiteralPath $manifest -Raw | ConvertFrom-Json)
+            foreach ($record in $records) {
+              $process = Get-Process -Id ([int]$record.pid) -ErrorAction SilentlyContinue
+              if ($process) { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue }
+            }
+            foreach ($record in $records) {
+              if (Get-Process -Id ([int]$record.pid) -ErrorAction SilentlyContinue) { throw "PACKAGE5_ORPHAN_WORKER_PID=$($record.pid)" }
+            }
+            Remove-Item -LiteralPath $manifest -Force
+          }
+          Write-Host 'PACKAGE5_PHYSICAL_WORKER_CLEANUP=PASS'
+  package5-live-restore-freeze:
+    if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'test/package5-live-hybrid-20261031'
+    needs: [package5-live-deploy, windows-package5-live-e2e]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Assert canonical main remains frozen
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const source = fs.readFileSync('cloudflare-autonomy/worker.mjs', 'utf8');
+          if (!/MISSION_EXECUTION_PAUSED\s*=\s*true/.test(source)) throw new Error('MAIN_FREEZE_NOT_TRUE');
+          console.log('PACKAGE5_MAIN_FREEZE_SOURCE=TRUE');
+          NODE
+      - name: Restore frozen coordinator from main (no Supabase)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          ARIA_CONTROL_TOKEN: ${{ secrets.ARIA_AUTONOMY_CONTROL_TOKEN }}
+          ARIA_WORKER_TOKEN: ${{ secrets.ARIA_AUTONOMY_WORKER_TOKEN }}
+        run: |
+          set -euo pipefail
+          npm install --global wrangler@latest
+          python - <<'PY'
+          import json, os
+          with open(".aria-package5-restore-secrets.json", "w", encoding="utf-8") as f:
+              json.dump({
+                  "ARIA_CONTROL_TOKEN": os.environ["ARIA_CONTROL_TOKEN"],
+                  "ARIA_WORKER_TOKEN": os.environ["ARIA_WORKER_TOKEN"],
+              }, f)
+          PY
+          trap 'rm -f .aria-package5-restore-secrets.json' EXIT
+          wrangler deploy --config wrangler.aria-autonomy.toml --secrets-file .aria-package5-restore-secrets.json
+      - name: Verify live freeze blocks mission creation and worker claim
+        env:
+          ARIA_CONTROL_TOKEN: ${{ secrets.ARIA_AUTONOMY_CONTROL_TOKEN }}
+          ARIA_WORKER_TOKEN: ${{ secrets.ARIA_AUTONOMY_WORKER_TOKEN }}
+        run: |
+          set -euo pipefail
+          base="https://aria-autonomy-coordinator.robvg9.workers.dev"
+          curl --fail --silent --show-error --max-time 20 "$base/health" \
+            | python -c 'import json,sys; assert json.load(sys.stdin).get("ok") is True; print("PACKAGE5_RESTORED_COORDINATOR_HEALTH=PASS")'
+          code="$(curl --silent --show-error --max-time 20 -o "$RUNNER_TEMP/freeze-mission.json" -w '%{http_code}' \
+            -X POST "$base/api/missions" -H "Authorization: Bearer $ARIA_CONTROL_TOKEN" \
+            -H 'content-type: application/json' --data '{"goal":"Package 5 freeze verification probe"}')"
+          test "$code" = "423"
+          python - "$RUNNER_TEMP/freeze-mission.json" <<'PY'
+          import json,sys
+          x=json.load(open(sys.argv[1],encoding="utf-8"))
+          assert x.get("error")=="mission_execution_paused"
+          PY
+          code="$(curl --silent --show-error --max-time 20 -o "$RUNNER_TEMP/freeze-claim.json" -w '%{http_code}' \
+            -X POST "$base/api/worker/claim" -H "Authorization: Bearer $ARIA_WORKER_TOKEN" \
+            -H 'content-type: application/json' --data '{"worker_id":"package5-freeze-probe","capabilities":[]}')"
+          test "$code" = "423"
+          python - "$RUNNER_TEMP/freeze-claim.json" <<'PY'
+          import json,sys
+          x=json.load(open(sys.argv[1],encoding="utf-8"))
+          assert x.get("error")=="mission_execution_paused"
+          PY
+          echo PACKAGE5_LIVE_FREEZE_RESTORED_AND_VERIFIED=true
+
+  windows-package5-final-check:
+    if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'test/package5-live-hybrid-20261031'
+    needs: [windows-physical-readonly-preflight, windows-package5-live-e2e, package5-live-restore-freeze]
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    steps:
+      - name: Independently verify the controlled test worker process is stopped
+        shell: powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $manifest = Join-Path $env:RUNNER_TEMP ('aria-package5-worker-' + $env:GITHUB_RUN_ID + '.json')
+          if (Test-Path -LiteralPath $manifest) {
+            $records = @(Get-Content -LiteralPath $manifest -Raw | ConvertFrom-Json)
+            foreach ($record in $records) {
+              $process = Get-Process -Id ([int]$record.pid) -ErrorAction SilentlyContinue
+              if ($process) { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue }
+            }
+            foreach ($record in $records) {
+              if (Get-Process -Id ([int]$record.pid) -ErrorAction SilentlyContinue) { throw "PACKAGE5_ORPHAN_WORKER_PID=$($record.pid)" }
+            }
+            Remove-Item -LiteralPath $manifest -Force
+          }
+          Write-Host 'PACKAGE5_PHYSICAL_TEST_WORKER=STOPPED'
+          Write-Host 'PACKAGE5_USER_SCHEDULED_TASK=NOT_TOUCHED'
+          Write-Host 'PACKAGE5_USER_SCHEDULED_TASK_LAST_CONFIRMED_STATE=Disabled'
+

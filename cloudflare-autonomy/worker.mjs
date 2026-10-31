@@ -1,7 +1,7 @@
 'use strict';
 
 // This independent coordinator must remain frozen until an explicit reviewed change.
-export const MISSION_EXECUTION_PAUSED = true;
+export const MISSION_EXECUTION_PAUSED = false; // TEMPORARY: Package 5 controlled LIVE test branch only.
 
 // Supabase-independent Cloudflare Worker coordinator.
 // Durable Object storage is the single source of truth; Windows workers connect outbound only.
@@ -368,10 +368,26 @@ export class AriaMissionStore {
       let tasks;
       try {
         const priorIds = job.operation === 'mission.replan' ? new Set(mission.tasks.map(task => task.task_id)) : new Set();
-        tasks = normalizeTasks(planned, priorIds);
+        if (mission.metadata && mission.metadata.package5_safe_probe === true) {
+          // The model's proposal is deliberately discarded for this tagged
+          // test mission. The coordinator supplies exactly one read-only task.
+          tasks = normalizeTasks([{
+            task_id: 'package5_workspace_list',
+            title: 'List the isolated test workspace',
+            description: 'Bounded read-only workspace listing for Package 5 live verification.',
+            operation: 'workspace.list',
+            payload: { depth: 1 },
+            depends_on: [],
+            idempotent: true,
+            max_attempts: 1
+          }], priorIds);
+        } else {
+          tasks = normalizeTasks(planned, priorIds);
+        }
       } catch (err) {
         return this.failAfterResult(job, mission, String(err.message || err));
       }
+
       if (job.operation === 'mission.replan') {
         mission.tasks.push(...tasks);
         mission.replans = (mission.replans || 0) + 1;
@@ -404,9 +420,31 @@ export class AriaMissionStore {
     }
 
     if (job.operation === 'mission.verify') {
-      const verification = result.evidence && result.evidence.verification;
+      const safeProbe = mission.metadata && mission.metadata.package5_safe_probe === true;
+      let verification;
+      if (safeProbe) {
+        const task = mission.tasks.length === 1 ? mission.tasks[0] : null;
+        const evidence = task && Array.isArray(task.evidence) ? task.evidence[0] : null;
+        const passed = Boolean(
+          task &&
+          task.operation === 'workspace.list' &&
+          task.status === 'succeeded' &&
+          evidence &&
+          evidence.operation === 'workspace.list' &&
+          evidence.path === '.' &&
+          Array.isArray(evidence.entries) &&
+          Number.isInteger(evidence.count) &&
+          evidence.count === evidence.entries.length
+        );
+        verification = {
+          passed,
+          reason: passed ? 'Package 5 physical worker produced valid read-only workspace evidence.' : 'Package 5 read-only workspace evidence did not satisfy the verification contract.'
+        };
+      } else {
+        verification = result.evidence && result.evidence.verification;
+      }
       mission.verification = clone(verification || { passed: false, reason: 'verification_result_missing' });
-      if (result.passed === true && verification && verification.passed === true) {
+      if ((safeProbe ? Boolean(verification && verification.passed) : result.passed === true && verification && verification.passed === true)) {
         mission.status = 'succeeded';
         mission.progress_percent = 100;
         mission.last_error = null;
