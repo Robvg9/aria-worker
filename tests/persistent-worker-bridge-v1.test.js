@@ -85,6 +85,24 @@ const supervisorScriptPath = path.join(__dirname, '..', 'scripts', 'Start-ARIA-P
       () => bridge.complete(expiredClaim.job_id, { worker_id: 'expired-lease-worker', lease_token: expiredClaim.lease_token, result: { passed: true } }),
       /worker_lease_expired/
     );
+    persistedJob.lease_until = 12345;
+    await fs.writeFile(persistedJobPath, JSON.stringify(persistedJob, null, 2), 'utf8');
+    await assert.rejects(
+      () => bridge.heartbeat(expiredClaim.job_id, { worker_id: 'expired-lease-worker', lease_token: expiredClaim.lease_token }),
+      /worker_lease_expired/
+    );
+    await assert.rejects(
+      () => bridge.complete(expiredClaim.job_id, { worker_id: 'expired-lease-worker', lease_token: expiredClaim.lease_token, result: { passed: true } }),
+      /worker_lease_expired/
+    );
+    await assert.rejects(
+      () => bridge.heartbeat(expiredClaim.job_id, { worker_id: 'expired-lease-worker', lease_token: expiredClaim.lease_token }),
+      /worker_lease_expired/
+    );
+    await assert.rejects(
+      () => bridge.complete(expiredClaim.job_id, { worker_id: 'expired-lease-worker', lease_token: expiredClaim.lease_token, result: { passed: true } }),
+      /worker_lease_expired/
+    );
     persistedJob.lease_until = new Date(Date.now() - 1000).toISOString();
     await fs.writeFile(persistedJobPath, JSON.stringify(persistedJob, null, 2), 'utf8');
     const replacement = await bridge.claimNext({ worker_id: 'replacement-worker', capabilities: ['node'] });
