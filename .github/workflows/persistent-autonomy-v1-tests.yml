@@ -337,7 +337,80 @@ jobs:
           }
 
           $controlBase = 'https://aria-autonomy-coordinator.robvg9.workers.dev'
-          $healthProbe = Invoke-AriaProbeHttp -Uri ($controlBase + '/health') -Method GET
+          $controlHost = 'aria-autonomy-coordinator.robvg9.workers.dev'
+          try {
+            $healthProbe = Invoke-AriaProbeHttp -Uri ($controlBase + '/health') -Method GET
+          }
+          catch {
+            Write-Output ('ROBVG_SERVICE_IDENTITY=' + [System.Security.Principal.WindowsIdentity]::GetCurrent().Name)
+            Write-Output ('ROBVG_HEALTH_HTTP_ERROR=' + $_.Exception.Message)
+
+            try {
+              $addresses = [System.Net.Dns]::GetHostAddresses($controlHost)
+              Write-Output ('ROBVG_DNS_ADDRESSES=' + (($addresses | ForEach-Object { $_.IPAddressToString }) -join ','))
+              Write-Output 'ROBVG_DNS=PASS'
+            }
+            catch {
+              Write-Output ('ROBVG_DNS=FAIL;ERROR=' + $_.Exception.Message)
+            }
+
+            try {
+              $tcpOk = Test-NetConnection -ComputerName $controlHost -Port 443 -InformationLevel Quiet -WarningAction SilentlyContinue
+              Write-Output ('ROBVG_TCP_443=' + [string]$tcpOk)
+            }
+            catch {
+              Write-Output ('ROBVG_TCP_443=ERROR;DETAIL=' + $_.Exception.Message)
+            }
+
+            try {
+              $proxyOutput = (& netsh winhttp show proxy 2>&1 | Out-String)
+              if ($proxyOutput -match 'Direct access') {
+                Write-Output 'ROBVG_WINHTTP_PROXY_MODE=DIRECT'
+              }
+              else {
+                Write-Output 'ROBVG_WINHTTP_PROXY_MODE=CONFIGURED'
+              }
+            }
+            catch {
+              Write-Output ('ROBVG_WINHTTP_PROXY_MODE=ERROR;DETAIL=' + $_.Exception.Message)
+            }
+
+            $curlCommand = Get-Command curl.exe -ErrorAction SilentlyContinue
+            if ($curlCommand) {
+              $curlBody = Join-Path $env:RUNNER_TEMP 'aria-package2-curl-health.txt'
+              $curlOutput = & $curlCommand.Source --silent --show-error --max-time 12 --connect-timeout 5 --output $curlBody --write-out 'http=%{http_code};remote=%{remote_ip};connect=%{time_connect};tls=%{time_appconnect}' ($controlBase + '/health') 2>&1
+              Write-Output ('ROBVG_CURL_HEALTH=' + ($curlOutput -join ' '))
+              Write-Output ('ROBVG_CURL_EXIT=' + $LASTEXITCODE)
+              Remove-Item -LiteralPath $curlBody -Force -ErrorAction SilentlyContinue
+            }
+            else {
+              Write-Output 'ROBVG_CURL_HEALTH=UNAVAILABLE'
+            }
+
+            $nodeProbe = Join-Path $env:RUNNER_TEMP 'aria-package2-node-fetch-health.js'
+            $nodeSource = @'
+fetch("https://aria-autonomy-coordinator.robvg9.workers.dev/health", { signal: AbortSignal.timeout(10000) })
+  .then(async (response) => {
+    console.log("ROBVG_NODE_FETCH_HTTP=" + response.status);
+    const body = await response.json().catch(() => ({}));
+    console.log("ROBVG_NODE_FETCH_SUPABASE_INDEPENDENT=" + String(body.supabase_independent === true));
+    process.exitCode = response.status === 200 && body.ok === true ? 0 : 2;
+  })
+  .catch((error) => {
+    console.log("ROBVG_NODE_FETCH_ERROR=" + String(error && error.name || "Error") + ":" + String(error && error.message || error));
+    const cause = error && error.cause;
+    if (cause) console.log("ROBVG_NODE_FETCH_CAUSE=" + JSON.stringify({ code: cause.code, syscall: cause.syscall, hostname: cause.hostname }));
+    process.exitCode = 3;
+  });
+'@
+            [System.IO.File]::WriteAllText($nodeProbe, $nodeSource, ([System.Text.UTF8Encoding]::new($false)))
+            & $node $nodeProbe
+            Write-Output ('ROBVG_NODE_FETCH_EXIT=' + $LASTEXITCODE)
+            Remove-Item -LiteralPath $nodeProbe -Force -ErrorAction SilentlyContinue
+
+            throw 'ROBVG_COORDINATOR_HEALTH_UNREACHABLE; no worker was started.'
+          }
+
           if ($healthProbe.StatusCode -ne 200) {
             throw "ARIA_PROBE_HEALTH_STATUS=$($healthProbe.StatusCode)"
           }
