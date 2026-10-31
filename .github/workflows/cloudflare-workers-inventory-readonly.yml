@@ -99,8 +99,8 @@ jobs:
                           route["zone_id"] = zid
                           zone_routes.append(route)
 
-          _, root_subdomain_status, root_subdomain = request(f"/accounts/{ACCOUNT}/workers/subdomain")
-          root_subdomain = root_subdomain.get("result") if isinstance(root_subdomain, dict) else None
+          root_subdomain_status, root_subdomain_body = request(f"/accounts/{ACCOUNT}/workers/subdomain")
+          root_subdomain = root_subdomain_body.get("result") if isinstance(root_subdomain_body, dict) else None
 
           script_rows = []
           now = dt.datetime.now(dt.timezone.utc)
