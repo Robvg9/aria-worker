@@ -95,6 +95,79 @@ jobs:
           }
           Write-Output 'WINDOWS_WORKER_SUPERVISOR_AND_CONFIG_PARSE=PASS'
 
+      - name: Exercise DPAPI config creation and ACLs with a disposable test token
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $originalLocalAppData = $env:LOCALAPPDATA
+          $testRoot = Join-Path $env:RUNNER_TEMP ('aria-dpapi-config-test-' + [guid]::NewGuid().ToString('N'))
+          $env:LOCALAPPDATA = Join-Path $testRoot 'profile'
+          $workspace = Join-Path $testRoot 'workspace'
+          $testToken = 'package4-ci-test-' + [guid]::NewGuid().ToString('N') + '-token'
+          New-Item -ItemType Directory -Force -Path $workspace | Out-Null
+
+          function global:Read-Host {
+            param([string]$Prompt, [switch]$AsSecureString)
+            if (-not $AsSecureString) { throw 'Unexpected interactive input request during DPAPI test.' }
+            ConvertTo-SecureString -String $global:Package4CiTestToken -AsPlainText -Force
+          }
+          $global:Package4CiTestToken = $testToken
+
+          try {
+            $scriptPath = Join-Path $env:GITHUB_WORKSPACE 'scripts/Protect-ARIA-Persistent-Worker-Config.ps1'
+            & $scriptPath -InstallDir $env:GITHUB_WORKSPACE -WorkspaceRoot $workspace -OllamaModel 'ci-test-model:latest'
+            $configPath = Join-Path $env:LOCALAPPDATA 'ARIA/worker/worker.config.json'
+            if (-not (Test-Path -LiteralPath $configPath -PathType Leaf)) {
+              throw 'DPAPI config file was not created.'
+            }
+
+            $document = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json -ErrorAction Stop
+            $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+            $sid = $identity.User.Value
+            if ($document.format -ne 'aria-worker-config-dpapi-v1' -or $document.protectedForSid -ne $sid) {
+              throw 'DPAPI config metadata or owner SID does not match the current user.'
+            }
+
+            $secureToken = ConvertTo-SecureString -String ([string]$document.workerTokenDpapi) -ErrorAction Stop
+            $pointer = [IntPtr]::Zero
+            try {
+              $pointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secureToken)
+              $decodedToken = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($pointer)
+              if ($decodedToken -cne $testToken) { throw 'DPAPI round-trip did not preserve the test token.' }
+            }
+            finally {
+              if ($pointer -ne [IntPtr]::Zero) {
+                [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($pointer)
+              }
+              $decodedToken = $null
+              $secureToken.Dispose()
+            }
+
+            foreach ($protectedPath in @((Split-Path -Parent $configPath), $configPath)) {
+              $acl = Get-Acl -LiteralPath $protectedPath
+              $ownerSid = $acl.GetOwner([System.Security.Principal.SecurityIdentifier]).Value
+              if ($ownerSid -ne $sid) {
+                throw "Protected path owner does not match current SID: $protectedPath"
+              }
+              $rules = $acl.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier])
+              if ($rules.Count -ne 1 -or $rules[0].IdentityReference.Value -ne $sid -or
+                  $rules[0].AccessControlType -ne [System.Security.AccessControl.AccessControlType]::Allow -or
+                  ($rules[0].FileSystemRights -band [System.Security.AccessControl.FileSystemRights]::FullControl) -ne [System.Security.AccessControl.FileSystemRights]::FullControl) {
+                throw "Protected path ACL is not restricted to current-user FullControl: $protectedPath"
+              }
+            }
+
+            Write-Output 'WINDOWS_DPAPI_CONFIG_CREATE=PASS'
+            Write-Output 'WINDOWS_DPAPI_TOKEN_ROUNDTRIP=PASS'
+            Write-Output 'WINDOWS_DPAPI_CURRENT_USER_ACL=PASS'
+          }
+          finally {
+            Remove-Item Function:\Read-Host -ErrorAction SilentlyContinue
+            $global:Package4CiTestToken = $null
+            $env:LOCALAPPDATA = $originalLocalAppData
+            Remove-Item -LiteralPath $testRoot -Recurse -Force -ErrorAction SilentlyContinue
+          }
+
   windows-physical-readonly-preflight:
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'feat/aria-windows-worker-preflight-20261031'
     runs-on: [self-hosted, Windows, X64]
