@@ -250,7 +250,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${ github.event.pull_request.head.sha }
+          ref: ${{ github.event.pull_request.head.sha }}
       - name: Validate temporary unpaused coordinator and safe-probe guard
         run: |
           node --input-type=module <<'NODE'
@@ -261,7 +261,7 @@ jobs:
           NODE
       - name: Refuse to run while unrelated missions are active
         env:
-          ARIA_CONTROL_TOKEN: ${ secrets.ARIA_AUTONOMY_CONTROL_TOKEN }
+          ARIA_CONTROL_TOKEN: ${{ secrets.ARIA_AUTONOMY_CONTROL_TOKEN }}
         run: |
           set -euo pipefail
           curl --fail --silent --show-error --max-time 20 \
@@ -279,10 +279,10 @@ jobs:
           PY
       - name: Deploy temporary coordinator branch (separate Worker; no Supabase)
         env:
-          CLOUDFLARE_API_TOKEN: ${ secrets.CLOUDFLARE_API_TOKEN }
-          CLOUDFLARE_ACCOUNT_ID: ${ secrets.CLOUDFLARE_ACCOUNT_ID }
-          ARIA_CONTROL_TOKEN: ${ secrets.ARIA_AUTONOMY_CONTROL_TOKEN }
-          ARIA_WORKER_TOKEN: ${ secrets.ARIA_AUTONOMY_WORKER_TOKEN }
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          ARIA_CONTROL_TOKEN: ${{ secrets.ARIA_AUTONOMY_CONTROL_TOKEN }}
+          ARIA_WORKER_TOKEN: ${{ secrets.ARIA_AUTONOMY_WORKER_TOKEN }}
         run: |
           set -euo pipefail
           npm install --global wrangler@latest
@@ -316,8 +316,8 @@ jobs:
       - name: Execute two safe LIVE missions and recover an expired lease through the physical worker
         shell: powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
         env:
-          ARIA_CONTROL_TOKEN: ${ secrets.ARIA_AUTONOMY_CONTROL_TOKEN }
-          ARIA_WORKER_TOKEN: ${ secrets.ARIA_AUTONOMY_WORKER_TOKEN }
+          ARIA_CONTROL_TOKEN: ${{ secrets.ARIA_AUTONOMY_CONTROL_TOKEN }}
+          ARIA_WORKER_TOKEN: ${{ secrets.ARIA_AUTONOMY_WORKER_TOKEN }}
         run: |
           $ErrorActionPreference = 'Stop'
           $base = 'https://aria-autonomy-coordinator.robvg9.workers.dev'
@@ -523,7 +523,9 @@ jobs:
               if ([string]$activeTask.State -eq 'Running') {
                 Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
               }
-              Disable-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue | Out-Null
+              if ([string]$activeTask.State -ne 'Disabled') {
+                Disable-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue | Out-Null
+              }
             }
             $finalDeadline = (Get-Date).AddSeconds(30)
             while ((Get-Date) -lt $finalDeadline) {
@@ -558,10 +560,10 @@ jobs:
           NODE
       - name: Restore frozen coordinator from main (no Supabase)
         env:
-          CLOUDFLARE_API_TOKEN: ${ secrets.CLOUDFLARE_API_TOKEN }
-          CLOUDFLARE_ACCOUNT_ID: ${ secrets.CLOUDFLARE_ACCOUNT_ID }
-          ARIA_CONTROL_TOKEN: ${ secrets.ARIA_AUTONOMY_CONTROL_TOKEN }
-          ARIA_WORKER_TOKEN: ${ secrets.ARIA_AUTONOMY_WORKER_TOKEN }
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          ARIA_CONTROL_TOKEN: ${{ secrets.ARIA_AUTONOMY_CONTROL_TOKEN }}
+          ARIA_WORKER_TOKEN: ${{ secrets.ARIA_AUTONOMY_WORKER_TOKEN }}
         run: |
           set -euo pipefail
           npm install --global wrangler@latest
@@ -577,8 +579,8 @@ jobs:
           wrangler deploy --config wrangler.aria-autonomy.toml --secrets-file .aria-package5-restore-secrets.json
       - name: Verify live freeze blocks mission creation and worker claim
         env:
-          ARIA_CONTROL_TOKEN: ${ secrets.ARIA_AUTONOMY_CONTROL_TOKEN }
-          ARIA_WORKER_TOKEN: ${ secrets.ARIA_AUTONOMY_WORKER_TOKEN }
+          ARIA_CONTROL_TOKEN: ${{ secrets.ARIA_AUTONOMY_CONTROL_TOKEN }}
+          ARIA_WORKER_TOKEN: ${{ secrets.ARIA_AUTONOMY_WORKER_TOKEN }}
         run: |
           set -euo pipefail
           base="https://aria-autonomy-coordinator.robvg9.workers.dev"
@@ -619,7 +621,9 @@ jobs:
           if ([string]$task.State -eq 'Running') {
             Stop-ScheduledTask -TaskName $taskName
           }
-          Disable-ScheduledTask -TaskName $taskName | Out-Null
+          if ([string]$task.State -ne 'Disabled') {
+            Disable-ScheduledTask -TaskName $taskName | Out-Null
+          }
           $deadline = (Get-Date).AddSeconds(30)
           while ((Get-Date) -lt $deadline) {
             $task = Get-ScheduledTask -TaskName $taskName
