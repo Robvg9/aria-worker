@@ -152,7 +152,11 @@ jobs:
               settings_result = settings.get("result") if isinstance(settings, dict) else {}
               schedule_result = schedule.get("result") if isinstance(schedule, dict) else {}
               tail_result = tail.get("result") if isinstance(tail, dict) else {}
+              # Cloudflare may return {"result": null} when a Worker has no
+              # workers.dev subdomain configuration. Treat this as unavailable
+              # metadata rather than aborting the entire account inventory.
               sub_result = sub.get("result") if isinstance(sub, dict) else {}
+              sub_result = sub_result if isinstance(sub_result, dict) else {}
               bind_list = (settings_result or {}).get("bindings") or []
               latest = sorted(deployments, key=lambda x: x.get("created_on", ""), reverse=True)[:5]
               return {
