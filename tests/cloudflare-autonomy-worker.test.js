@@ -143,7 +143,7 @@ async function testGlobalFreezeStopsMutationsAndAlarmRecovery() {
     status: 'leased',
     worker_id: 'existing-worker',
     lease_token: 'existing-lease-token',
-    lease_until: new Date(Date.now() + 60000).toISOString(),
+    lease_until: new Date(Date.now() - 60000).toISOString(),
     attempts: 1,
     created_at: now,
     updated_at: now
