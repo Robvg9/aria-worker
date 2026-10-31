@@ -110,4 +110,10 @@ const absorbMissionDocsExclude = absorbPushPaths.indexOf("      - '!autonomy/PER
 assert.ok(absorbAutonomyDocsInclude >= 0 && absorbMissionDocsExclude > absorbAutonomyDocsInclude, 'updating the persistent autonomy guide must not trigger ABSORB production LIVE E2E');
 const absorbWorkerPauseExclude = absorbPushPaths.indexOf("      - '!autonomy/persistent-worker-error-policy-v1.js'");
 assert.ok(absorbWorkerPauseExclude > absorbAutonomyDocsInclude, 'the worker pause policy must not trigger ABSORB production LIVE E2E while the global freeze is active');
+
+assert.match(isolatedDeploy, /confirm_public_deploy:[\s\S]*?default: false/, 'coordinator deployment must require explicit confirmation');
+assert.match(isolatedDeploy, /send_telegram_test:[\s\S]*?default: false/, 'Telegram delivery must be opt-in and default off');
+const telegramDeliveryStep = isolatedDeploy.slice(isolatedDeploy.indexOf('- name: Send one explicitly confirmed Telegram delivery test'));
+assert.match(telegramDeliveryStep, /if: inputs\.send_telegram_test == true/, 'Telegram delivery must not be coupled to deployment');
+
 process.stdout.write('aria-autonomy-supabase-boundary: all tests passed\n');
