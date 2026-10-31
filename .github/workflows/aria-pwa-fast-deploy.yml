@@ -9,6 +9,7 @@ on:
     paths-ignore:
       - '.github/workflows/aria-pwa-fast-deploy.yml'
       - '.github/workflows/aria-cloudflare-deploy.yml'
+      - '.github/workflows/aria-absorb.yml'
       - '.github/workflows/aria-autonomy-coordinator-deploy.yml'
       - '.github/workflows/aria-npm-test.yml'
       - '.github/workflows/persistent-autonomy-v1-tests.yml'
