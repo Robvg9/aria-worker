@@ -267,7 +267,7 @@ async function testNotificationPayloadAllowlistAndAutomaticRetry() {
     assert.equal(payloads[0].headers.authorization, 'Bearer notification-secret-for-test');
     assert.equal(payloads[0].redirect, 'manual');
 
-    responseStatus = 204;
+    responseStatus = 200;
     await store.alarm();
     persisted = await state.storage.get('notification:' + notice.notification_id);
     assert.equal(persisted.status, 'delivered');
