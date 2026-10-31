@@ -87,6 +87,9 @@ async function expireLease(state, jobId) {
   class UnpausedTestMissionStore extends AriaMissionStore {
     isMissionExecutionPaused() { return false; }
   }
+  class PausedTestMissionStore extends AriaMissionStore {
+    isMissionExecutionPaused() { return true; }
+  }
 
   const state = createState();
   let store = makeStore(UnpausedTestMissionStore, state);
@@ -199,7 +202,7 @@ async function expireLease(state, jobId) {
 
     // Production class still rejects mutating operations, even with the
     // valid control token; GET health remains available.
-    const frozenStore = makeStore(AriaMissionStore, state);
+    const frozenStore = makeStore(PausedTestMissionStore, state);
     assert.equal((await frozenStore.fetch(request('/health'))).status, 200);
     const frozenMutation = await frozenStore.fetch(request('/api/missions', {
       method: 'POST',
