@@ -278,6 +278,85 @@ async function testNotificationPayloadAllowlistAndAutomaticRetry() {
   }
 }
 
+async function testTelegramNotificationDeliveryAndRetry() {
+  const originalFetch = global.fetch;
+  const token = '123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklm';
+  const chatId = '987654321';
+  const calls = [];
+  let responseStatus = 429;
+  global.fetch = async (url, options) => {
+    calls.push({ url, options, body: JSON.parse(options.body) });
+    if (responseStatus === 429) {
+      return new Response(JSON.stringify({ ok: false, description: 'Too Many Requests' }), {
+        status: 429,
+        headers: { 'content-type': 'application/json' }
+      });
+    }
+    return new Response(JSON.stringify({ ok: true, result: { message_id: 42 } }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' }
+    });
+  };
+  try {
+    const { state, store } = createStore({ extraEnv: {
+      ARIA_TELEGRAM_BOT_TOKEN: token,
+      ARIA_TELEGRAM_CHAT_ID: chatId
+    } });
+    const notice = await store.notify({
+      type: 'human_intervention_required',
+      mission_id: 'mission_telegram',
+      task_id: 'approval_task',
+      reason: 'Needs a human review.',
+      details: 'Review the pending approval.',
+      secret_field: 'must-not-be-sent'
+    });
+    await Promise.all(state.pending);
+
+    let persisted = await state.storage.get('notification:' + notice.notification_id);
+    assert.equal(persisted.status, 'pending');
+    assert.equal(persisted.attempts, 1);
+    assert.ok(state.storage.alarmAt, 'Telegram 429 must schedule an automatic retry');
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].url, 'https://api.telegram.org/bot' + token + '/sendMessage');
+    assert.equal(calls[0].body.chat_id, chatId);
+    assert.match(calls[0].body.text, /ARIA · human_intervention_required/);
+    assert.match(calls[0].body.text, /Misión: mission_telegram/);
+    assert.match(calls[0].body.text, /Motivo: Needs a human review\./);
+    assert.equal(calls[0].body.secret_field, undefined);
+    assert.equal(calls[0].options.redirect, 'manual');
+    assert.equal(calls[0].options.headers.authorization, undefined);
+    assert.equal(JSON.stringify(persisted).includes(token), false);
+
+    responseStatus = 200;
+    await store.alarm();
+    persisted = await state.storage.get('notification:' + notice.notification_id);
+    assert.equal(persisted.status, 'delivered');
+    assert.equal(persisted.attempts, 2);
+    assert.equal(calls.length, 2);
+  } finally {
+    global.fetch = originalFetch;
+  }
+}
+
+async function testTelegramIncompleteConfigurationWaitsSafely() {
+  const originalFetch = global.fetch;
+  let outbound = 0;
+  global.fetch = async () => { outbound += 1; return new Response('unexpected', { status: 200 }); };
+  try {
+    const { state, store } = createStore({ extraEnv: {
+      ARIA_TELEGRAM_BOT_TOKEN: '123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklm'
+    } });
+    const notice = await store.notify({ type: 'telegram_setup_pending' });
+    const persisted = await state.storage.get('notification:' + notice.notification_id);
+    assert.equal(persisted.status, 'waiting_config');
+    assert.equal(persisted.last_error, 'telegram_configuration_incomplete');
+    assert.equal(state.pending.length, 0);
+    assert.equal(outbound, 0, 'incomplete Telegram credentials must never make an outbound request');
+  } finally {
+    global.fetch = originalFetch;
+  }
+}
+
 async function testNotificationRejectsUnapprovedHostAndPermanentFailure() {
   const originalFetch = global.fetch;
   let outbound = 0;
@@ -373,6 +452,8 @@ async function testRetryReplanAndLeaseProtection() {
   await testAuthAndVerifiedMissionLifecycle();
   await testIrreversibleTaskNeedsExplicitApproval();
   await testNotificationPayloadAllowlistAndAutomaticRetry();
+  await testTelegramNotificationDeliveryAndRetry();
+  await testTelegramIncompleteConfigurationWaitsSafely();
   await testNotificationRejectsUnapprovedHostAndPermanentFailure();
   await testNotificationRetryLimit();
   await testRetryReplanAndLeaseProtection();
