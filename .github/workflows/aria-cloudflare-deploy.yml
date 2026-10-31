@@ -50,6 +50,7 @@ on:
       - 'scripts/aria-persistent-windows-worker-preflight-v1.js'
       - 'scripts/aria-persistent-windows-worker-preflight-v1.test.js'
       - 'tests/cloudflare-autonomy-worker.test.js'
+      - 'tests/cloudflare-autonomy-restart-recovery-v1.test.cjs'
       - 'tests/aria-autonomy-supabase-boundary.test.js'
       - 'tests/ollama-persistent-adapter-v1.test.js'
       - 'tests/persistent-control-plane-v1.test.js'
