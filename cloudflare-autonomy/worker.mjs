@@ -613,7 +613,7 @@ export class AriaMissionStore {
   }
 
   async reconcile() {
-    this.assertMissionExecutionEnabled();
+    if (this.isMissionExecutionPaused()) return false;
     const jobs = await this.ctx.storage.list({ prefix: 'job:' });
     for (const job of jobs.values()) {
       if (job.status === 'leased' && job.lease_until && Date.parse(job.lease_until) <= Date.now()) {
