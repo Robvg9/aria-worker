@@ -81,7 +81,41 @@ jobs:
                       "id", "migrations")
               return {k: binding[k] for k in keep if k in binding and isinstance(binding[k], (str, int, bool, list))}
 
-          scripts, scripts_status, scripts_error = pages(f"/accounts/{ACCOUNT}/workers/scripts")
+          def list_scripts_search():
+              # /workers/scripts is a single-page listing. Supplying page=... to
+              # that endpoint repeats the same page. Use the dedicated
+              # /workers/scripts-search endpoint for true page/per_page paging.
+              collected, status, error = [], 200, None
+              for page in range(1, 101):
+                  st, body = request(
+                      f"/accounts/{ACCOUNT}/workers/scripts-search?per_page=100&page={page}"
+                  )
+                  if st != 200 or not body.get("success", False):
+                      status, error = st, body.get("error") or body.get("errors") or "Worker search failed"
+                      break
+                  batch = body.get("result") or []
+                  if not isinstance(batch, list):
+                      status, error = st, "Unexpected Worker search result format"
+                      break
+                  collected.extend(batch)
+                  info = body.get("result_info") or {}
+                  total_pages = info.get("total_pages")
+                  if total_pages is not None and page >= total_pages:
+                      break
+                  if not batch or len(batch) < 100:
+                      break
+              # Defensive de-duplication by script name before fanning out requests.
+              unique = {}
+              for item in collected:
+                  if not isinstance(item, dict):
+                      continue
+                  name = item.get("script_name") or item.get("id") or item.get("name")
+                  if name:
+                      item["id"] = name
+                      unique[name] = item
+              return list(unique.values()), status, error
+
+          scripts, scripts_status, scripts_error = list_scripts_search()
           domains, domains_status, domains_error = pages(f"/accounts/{ACCOUNT}/workers/domains")
           zones, zones_status, zones_error = pages(f"/zones?account.id={urllib.parse.quote(ACCOUNT)}")
           zone_routes = []
@@ -137,7 +171,7 @@ jobs:
                           "note": "No analytics rows or unexpected response"}
 
           def inspect_script(script):
-              name = script.get("id") or script.get("name")
+              name = script.get("id") or script.get("script_name") or script.get("name")
               if not name:
                   return None
               enc = urllib.parse.quote(name, safe="")
@@ -189,7 +223,7 @@ jobs:
                   "metrics_30d": metrics_for(name)
               }
 
-          with concurrent.futures.ThreadPoolExecutor(max_workers=6) as pool:
+          with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
               script_rows = [x for x in pool.map(inspect_script, scripts) if x]
 
           report = {
@@ -217,7 +251,7 @@ jobs:
           with open(OUT, "w", encoding="utf-8") as f:
               json.dump(report, f, indent=2)
           print("CLOUDFLARE_WORKERS_READ_ONLY_INVENTORY")
-          print(f"WORKER_SCRIPT_COUNT={len(scripts)} (Cloudflare Free cap reported by deploy: 100)")
+          print(f"WORKER_SCRIPT_COUNT={len(scripts)} (unique names from workers/scripts-search)")
           print(f"DOMAINS_STATUS={domains_status}; DOMAINS_COUNT={len(domains)}")
           print(f"ZONES_STATUS={zones_status}; ZONES_COUNT={len(zones)}")
           print(f"ROUTES_COUNT={len(zone_routes)}; ROUTE_ZONES={len(routes_statuses)}")
