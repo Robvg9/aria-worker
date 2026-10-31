@@ -419,6 +419,10 @@ jobs:
               throw "Refusing probe because the existing scheduled task is not Disabled (state=$($existingTask.State))."
             }
 
+            $logDirectory = Split-Path -Parent $logFile
+            New-Item -ItemType Directory -Force -Path $logDirectory | Out-Null
+            $supervisorStdout = Join-Path $logDirectory 'supervisor.stdout.log'
+            $supervisorStderr = Join-Path $logDirectory 'supervisor.stderr.log'
             $supervisorArguments = @(
               '-NoProfile',
               '-NonInteractive',
@@ -428,8 +432,8 @@ jobs:
               '-InstallDir', ('"' + $env:GITHUB_WORKSPACE + '"'),
               '-NodePath', ('"' + $node + '"')
             )
-            $supervisorProcess = Start-Process -FilePath $powershell -ArgumentList $supervisorArguments -PassThru -NoNewWindow
-            if (-not $supervisorProcess.WaitForExit(30000)) {
+            $supervisorProcess = Start-Process -FilePath $powershell -ArgumentList $supervisorArguments -PassThru -NoNewWindow -RedirectStandardOutput $supervisorStdout -RedirectStandardError $supervisorStderr
+            if (-not $supervisorProcess.WaitForExit(20000)) {
               function Stop-AriaProbeProcessTree {
                 param([Parameter(Mandatory = $true)][int]$ProcessId)
                 $children = @(Get-CimInstance Win32_Process -Filter "ParentProcessId = $ProcessId" -ErrorAction SilentlyContinue)
@@ -439,9 +443,29 @@ jobs:
                 Stop-Process -Id $ProcessId -Force -ErrorAction SilentlyContinue
               }
               Stop-AriaProbeProcessTree -ProcessId $supervisorProcess.Id
-              throw 'Worker supervisor did not stop within 30 seconds; its child process tree was terminated.'
+              Start-Sleep -Milliseconds 300
+              if (Test-Path -LiteralPath $logFile) {
+                Write-Output 'WORKER_SUPERVISOR_LOG_BEGIN'
+                Get-Content -LiteralPath $logFile -Tail 80
+                Write-Output 'WORKER_SUPERVISOR_LOG_END'
+              }
+              foreach ($diagnosticPath in @($supervisorStdout, $supervisorStderr)) {
+                if (Test-Path -LiteralPath $diagnosticPath) {
+                  Write-Output ('SUPERVISOR_DIAGNOSTIC_BEGIN=' + [System.IO.Path]::GetFileName($diagnosticPath))
+                  Get-Content -LiteralPath $diagnosticPath -Tail 80
+                  Write-Output ('SUPERVISOR_DIAGNOSTIC_END=' + [System.IO.Path]::GetFileName($diagnosticPath))
+                }
+              }
+              throw 'Worker supervisor did not stop within 20 seconds; child process tree was terminated after exporting diagnostics.'
             }
             if ($supervisorProcess.ExitCode -ne 0) {
+              foreach ($diagnosticPath in @($logFile, $supervisorStdout, $supervisorStderr)) {
+                if (Test-Path -LiteralPath $diagnosticPath) {
+                  Write-Output ('SUPERVISOR_DIAGNOSTIC_BEGIN=' + [System.IO.Path]::GetFileName($diagnosticPath))
+                  Get-Content -LiteralPath $diagnosticPath -Tail 80
+                  Write-Output ('SUPERVISOR_DIAGNOSTIC_END=' + [System.IO.Path]::GetFileName($diagnosticPath))
+                }
+              }
               throw "WINDOWS_FROZEN_WORKER_SUPERVISOR_EXIT=$($supervisorProcess.ExitCode)"
             }
 
