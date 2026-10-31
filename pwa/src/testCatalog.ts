@@ -3030,6 +3030,15 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "how": "Verifica la reclamación de trabajos, leases, heartbeats y rechazo de resultados con tokens de lease obsoletos.",
     "capabilities": "Impide la ejecución duplicada por varios workers y facilita la recuperación."
   },
+  {
+    "id": "persistent-worker-preflight-v1",
+    "file": "tests/persistent-worker-preflight-v1.test.js",
+    "title": "Persistent Windows Worker Read-only Preflight",
+    "category": "Autonomía / ejecución Windows",
+    "includedInNpmTest": false,
+    "how": "Comprueba HTTPS, salud local de Ollama y la frontera de autenticación del coordinador sin ejecutar claims ni operaciones mutables.",
+    "capabilities": "Detecta configuraciones inseguras o tokens incorrectos antes de instalar el worker persistente; sus probes remotos son exclusivamente GET y no crean jobs ni leases."
+  },
 ];
 
 export type TestCatalogStats = Readonly<{
