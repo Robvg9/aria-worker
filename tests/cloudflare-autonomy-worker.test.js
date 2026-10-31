@@ -73,6 +73,7 @@ async function testControlAndWorkerTokensMustDiffer() {
 async function testAuthAndVerifiedMissionLifecycle() {
   const { store } = createStore();
   assert.equal((await store.fetch(request('/api/missions', { token: 'wrong-token' }))).status, 401);
+  assert.equal((await store.fetch(request('/api/missions', { token: workerToken }))).status, 401, 'worker token must not authorize control-plane reads');
   assert.equal((await store.fetch(request('/api/worker/claim', { method: 'POST', token: controlToken, body: { worker_id: 'bad' } }))).status, 401);
 
   const created = await createMission(store);
