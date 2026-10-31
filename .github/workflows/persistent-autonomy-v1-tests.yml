@@ -247,10 +247,10 @@ jobs:
           }
 
   windows-physical-frozen-worker-stop:
-    if: (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'feat/aria-package2-safe-frozen-worker-e2e-20261031') || (github.event_name == 'push' && github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, 'Run one safe frozen-worker start/stop probe on RobVG'))
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'feat/aria-package2-safe-frozen-worker-e2e-20261031'
     needs: [contract-tests, windows-supervisor-syntax, live-security-readonly-check]
     runs-on: [self-hosted, Windows, X64]
-    timeout-minutes: 3
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
         with:
@@ -289,6 +289,74 @@ jobs:
           if ([version]($nodeVersion.TrimStart('v')) -lt [version]'20.0.0') {
             throw "Node 20+ required; found $nodeVersion"
           }
+
+          function Invoke-AriaProbeHttp {
+            param(
+              [Parameter(Mandatory = $true)][string]$Uri,
+              [Parameter(Mandatory = $true)][ValidateSet('GET', 'POST')][string]$Method,
+              [string]$Body
+            )
+            $request = [System.Net.HttpWebRequest]::Create($Uri)
+            $request.Method = $Method
+            $request.Timeout = 10000
+            $request.ReadWriteTimeout = 10000
+            $request.KeepAlive = $false
+            if ($Method -eq 'POST') {
+              $request.ContentType = 'application/json'
+              $request.Headers['Authorization'] = 'Bearer ' + $env:ARIA_AUTONOMY_WORKER_TOKEN
+              $bytes = [System.Text.Encoding]::UTF8.GetBytes($Body)
+              $request.ContentLength = $bytes.Length
+              $requestStream = $request.GetRequestStream()
+              try { $requestStream.Write($bytes, 0, $bytes.Length) }
+              finally { $requestStream.Dispose() }
+            }
+
+            $response = $null
+            try {
+              $response = $request.GetResponse()
+            }
+            catch [System.Net.WebException] {
+              $response = $_.Exception.Response
+              if (-not $response) {
+                throw "ARIA_PROBE_HTTP_NO_RESPONSE method=$Method uri=$Uri error=$($_.Exception.Message)"
+              }
+            }
+
+            try {
+              $reader = New-Object System.IO.StreamReader($response.GetResponseStream())
+              try { $responseBody = $reader.ReadToEnd() }
+              finally { $reader.Dispose() }
+              return [pscustomobject]@{
+                StatusCode = [int]$response.StatusCode
+                Body = $responseBody
+              }
+            }
+            finally {
+              if ($response) { $response.Close() }
+            }
+          }
+
+          $controlBase = 'https://aria-autonomy-coordinator.robvg9.workers.dev'
+          $healthProbe = Invoke-AriaProbeHttp -Uri ($controlBase + '/health') -Method GET
+          if ($healthProbe.StatusCode -ne 200) {
+            throw "ARIA_PROBE_HEALTH_STATUS=$($healthProbe.StatusCode)"
+          }
+          $healthData = $healthProbe.Body | ConvertFrom-Json
+          if ($healthData.ok -ne $true -or $healthData.supabase_independent -ne $true) {
+            throw 'ARIA_PROBE_HEALTH_CONTRACT_FAILED'
+          }
+          Write-Output 'ROBVG_COORDINATOR_HEALTH=PASS'
+
+          $claimBody = @{
+            worker_id = ('package2-frozen-precheck-' + $env:COMPUTERNAME)
+            capabilities = @()
+          } | ConvertTo-Json -Compress
+          $claimProbe = Invoke-AriaProbeHttp -Uri ($controlBase + '/api/worker/claim') -Method POST -Body $claimBody
+          if ($claimProbe.StatusCode -ne 423 -or $claimProbe.Body -notmatch 'mission_execution_paused') {
+            throw "ROBVG_CLAIM_PRECHECK_EXPECTED_423_ACTUAL_$($claimProbe.StatusCode)"
+          }
+          Write-Output 'ROBVG_CLAIM_PREFLIGHT_423=PASS'
+          Write-Output 'ROBVG_PREFLIGHT_CREATED_NO_LEASE=true'
 
           $oldLocalAppData = $env:LOCALAPPDATA
           $profileRoot = Join-Path $env:RUNNER_TEMP 'aria-package2-frozen-worker-profile'
