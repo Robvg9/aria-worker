@@ -42,8 +42,6 @@ on:
       - 'tests/pc-rwht-browser.test.js'
       - 'tests/mission-job-authorization-fence-contract.test.js'
       - 'tests/sql/mission-job-authorization-fence-*.sql'
-      - '.github/workflows/aria-cloudflare-deploy.yml'
-      - '.github/workflows/aria-pwa-fast-deploy.yml'
       - '.github/workflows/supabase-canonical-deploy.yml'
       - '.github/workflows/mission-job-authorization-fence.yml'
       - '.github/workflows/e2e-human-gate-safe-autonomy.yml'
@@ -54,7 +52,6 @@ on:
       - 'supabase/functions/_shared/absorb-engine.mjs'
       - 'absorb/tests/**'
       - 'rwht/pc-browser/absorb-rwht.mjs'
-      - '.github/workflows/aria-absorb.yml'
   workflow_dispatch:
 
 permissions:
