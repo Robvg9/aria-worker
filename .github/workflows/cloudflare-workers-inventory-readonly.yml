@@ -1,7 +1,21 @@
-name: Cloudflare Workers inventory (read-only)
+name: Cloudflare Workers inventory and guarded obsolete-preview cleanup
 
 on:
   workflow_dispatch:
+    inputs:
+      action:
+        description: "Choose read-only inventory or the separately guarded cleanup"
+        type: choice
+        required: true
+        default: inventory
+        options:
+          - inventory
+          - cleanup_obsolete_previews
+      confirm_cleanup:
+        description: "Required only for cleanup: DELETE_144_OBSOLETE_BC_PREVIEWS"
+        type: string
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -296,3 +310,282 @@ jobs:
           path: cloudflare-workers-inventory.json
           if-no-files-found: warn
           retention-days: 7
+
+  cleanup-obsolete-previews:
+    if: ${{ inputs.action == 'cleanup_obsolete_previews' }}
+    needs: inventory
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Download the fresh inventory from this same run
+        uses: actions/download-artifact@v4
+        with:
+          name: cloudflare-workers-inventory
+          path: audit
+
+      - name: Revalidate, delete only audited orphaned previews, and verify
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CONFIRM_CLEANUP: ${{ inputs.confirm_cleanup }}
+        run: |
+          set -euo pipefail
+          test -n "$CLOUDFLARE_API_TOKEN"
+          test -n "$CLOUDFLARE_ACCOUNT_ID"
+          python - <<'PY'
+          import datetime as dt
+          import json
+          import os
+          import re
+          import time
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+
+          BASE = "https://api.cloudflare.com/client/v4"
+          ACCOUNT = os.environ["CLOUDFLARE_ACCOUNT_ID"]
+          TOKEN = os.environ["CLOUDFLARE_API_TOKEN"]
+          REQUIRED_CONFIRMATION = "DELETE_144_OBSOLETE_BC_PREVIEWS"
+          AUDIT_PATH = "audit/cloudflare-workers-inventory.json"
+          REPORT_PATH = "cloudflare-workers-cleanup-report.json"
+          PROTECTED = {
+              "aria",
+              "cuevacoin",
+              "battlecruiser",
+              "actualizaciondeaplicaciones",
+              "aria-rwht-android-bridge",
+              "bc-pr-224-battlecruiser",
+          }
+          PREVIEW_RE = re.compile(r"^bc-pr-[0-9]+-battlecruiser$")
+
+          def abort(message):
+              print("CLEANUP_ABORTED=" + message)
+              raise SystemExit(2)
+
+          if os.environ.get("CONFIRM_CLEANUP", "") != REQUIRED_CONFIRMATION:
+              abort("Explicit confirmation string did not match; no deletion was attempted.")
+
+          with open(AUDIT_PATH, "r", encoding="utf-8") as f:
+              audit = json.load(f)
+
+          generated = dt.datetime.fromisoformat(audit["generated_at"].replace("Z", "+00:00"))
+          age = (dt.datetime.now(dt.timezone.utc) - generated).total_seconds()
+          if age < 0 or age > 1800:
+              abort("Inventory artifact is older than 30 minutes or has an invalid timestamp.")
+          if audit.get("account_id_suffix") != ACCOUNT[-6:]:
+              abort("Audit account suffix does not match the configured Cloudflare account.")
+          if audit.get("safety", {}).get("cloudflare_mutations_performed") is not False:
+              abort("Inventory artifact does not certify read-only collection.")
+          if audit.get("safety", {}).get("deletion_performed") is not False:
+              abort("Inventory artifact unexpectedly reports a prior deletion.")
+          for section in ("scripts_inventory", "domains_inventory", "zones_inventory"):
+              if audit.get(section, {}).get("status") != 200:
+                  abort("Account-wide " + section + " is incomplete.")
+          if audit.get("domains_inventory", {}).get("items") != []:
+              abort("Account has custom domains; aborting bulk preview cleanup.")
+          if audit.get("zones_inventory", {}).get("count") != 0:
+              abort("Account reports zones; route coverage must be reviewed before cleanup.")
+          if audit.get("routes_inventory", {}).get("count") != 0:
+              abort("Account reports Worker routes; aborting bulk preview cleanup.")
+
+          workers = audit.get("workers", [])
+          if not workers or audit.get("scripts_inventory", {}).get("count") != len(workers):
+              abort("Worker inventory count is inconsistent.")
+          by_name = {w.get("name"): w for w in workers}
+          if len(by_name) != len(workers):
+              abort("Duplicate worker names found in fresh inventory.")
+          missing_protected = sorted(PROTECTED - set(by_name))
+          if missing_protected:
+              abort("Protected Workers missing from inventory: " + ", ".join(missing_protected))
+
+          # Require every script's dependency, schedule, tail, deployment, and
+          # analytics metadata to be readable before any destructive operation.
+          for w in workers:
+              for field in ("settings_status", "schedules_status",
+                            "tail_consumers_status", "deployments_status"):
+                  if w.get(field) != 200:
+                      abort("Incomplete " + field + " for " + str(w.get("name")))
+              if (w.get("metrics_30d") or {}).get("status") != 200:
+                  abort("Analytics unavailable for " + str(w.get("name")))
+
+          candidates = sorted(
+              name for name in by_name
+              if PREVIEW_RE.fullmatch(name) and name != "bc-pr-224-battlecruiser"
+          )
+          if len(candidates) != 144:
+              abort("Expected exactly the 144 audited orphan previews; found " + str(len(candidates)))
+
+          # Every candidate must match the audit's zero-dependency / zero-traffic
+          # contract. Any anomaly aborts the entire batch rather than broadening it.
+          for name in candidates:
+              w = by_name[name]
+              m = w["metrics_30d"]
+              if m.get("requests") != 0 or m.get("errors") != 0:
+                  abort("Candidate has traffic or errors in the 30-day window: " + name)
+              if w.get("bindings") != []:
+                  abort("Candidate has bindings: " + name)
+              if w.get("crons") not in (None, []):
+                  abort("Candidate has scheduled events: " + name)
+              if w.get("tail_consumers") not in (None, []):
+                  abort("Candidate has Tail consumers: " + name)
+              if w.get("custom_domains") != [] or w.get("zone_routes") != []:
+                  abort("Candidate has a domain or route: " + name)
+              if (w.get("workers_dev") or {}).get("status") != 200:
+                  abort("Candidate workers.dev metadata is incomplete: " + name)
+
+          # Check every script for service/DO references to candidate names.
+          candidate_set = set(candidates)
+          for owner in workers:
+              for binding in owner.get("bindings") or []:
+                  btype = str(binding.get("type", "")).lower()
+                  targets = {
+                      str(binding.get(k, ""))
+                      for k in ("service", "script_name", "namespace", "name")
+                      if binding.get(k) is not None
+                  }
+                  if btype in ("service", "durable_object_namespace", "durable_object") and targets & candidate_set:
+                      abort("A Worker binding references a cleanup candidate from " + str(owner.get("name")))
+
+          # Verify the live BattleCruiser CI has exactly one shared PR preview,
+          # and that it is the protected worker. Do not assume a closed PR is unused
+          # unless the current workflow confirms the single-preview architecture.
+          quality_url = "https://raw.githubusercontent.com/Robvg9/battlecruiser/main/.github/workflows/quality.yml"
+          req = urllib.request.Request(quality_url, headers={"User-Agent": "RobVG-Cloudflare-Inventory-Cleanup"})
+          try:
+              with urllib.request.urlopen(req, timeout=20) as response:
+                  quality_text = response.read().decode("utf-8")
+          except Exception as exc:
+              abort("Could not verify current BattleCruiser preview workflow: " + type(exc).__name__)
+          preview_refs = set(re.findall(r"bc-pr-[0-9]+-battlecruiser", quality_text))
+          if preview_refs != {"bc-pr-224-battlecruiser"}:
+              abort("BattleCruiser quality workflow no longer confirms the single shared bc-pr-224 preview.")
+
+          print("AUDIT_WORKERS=" + str(len(workers)))
+          print("VERIFIED_ORPHAN_PREVIEWS=" + str(len(candidates)))
+          print("PROTECTED_WORKER_COUNT=" + str(len(PROTECTED)))
+          print("ACTIVE_SHARED_PREVIEW=bc-pr-224-battlecruiser")
+          print("DELETE_FORCE_PARAMETER=OMITTED")
+
+          headers = {
+              "Authorization": "Bearer " + TOKEN,
+              "Accept": "application/json",
+              "User-Agent": "RobVG-Cloudflare-Inventory-Cleanup"
+          }
+
+          def cf_request(path, method="GET"):
+              req = urllib.request.Request(BASE + path, headers=headers, method=method)
+              try:
+                  with urllib.request.urlopen(req, timeout=25) as response:
+                      raw = response.read()
+                      body = json.loads(raw.decode()) if raw else {}
+                      return response.status, body
+              except urllib.error.HTTPError as exc:
+                  try:
+                      raw = exc.read()
+                      body = json.loads(raw.decode()) if raw else {}
+                  except Exception:
+                      body = {}
+                  return exc.code, body
+              except Exception as exc:
+                  return 0, {"success": False, "error": type(exc).__name__ + ": " + str(exc)[:200]}
+
+          def search_exact(name):
+              q = urllib.parse.urlencode({"name": name, "per_page": 100, "page": 1})
+              st, body = cf_request(f"/accounts/{ACCOUNT}/workers/scripts-search?{q}")
+              if st != 200 or not body.get("success", False):
+                  return None, st
+              found = body.get("result") or []
+              return any((x.get("script_name") == name or x.get("id") == name) for x in found), st
+
+          deleted, skipped, failed = [], [], []
+          for index, name in enumerate(candidates, 1):
+              exists, st = search_exact(name)
+              if exists is None:
+                  skipped.append({"name": name, "reason": "fresh existence check failed", "http_status": st})
+                  print(f"SKIPPED {index}/{len(candidates)} {name}: existence check HTTP {st}")
+                  continue
+              if not exists:
+                  skipped.append({"name": name, "reason": "already absent"})
+                  print(f"ALREADY_ABSENT {index}/{len(candidates)} {name}")
+                  continue
+
+              # Critical safety rule: DELETE request has no force=true parameter.
+              path = f"/accounts/{ACCOUNT}/workers/scripts/{urllib.parse.quote(name, safe='')}"
+              delete_status, delete_body = cf_request(path, method="DELETE")
+              if delete_status in (200, 202, 204) and delete_body.get("success", True) is not False:
+                  deleted.append(name)
+                  print(f"DELETED {index}/{len(candidates)} {name} HTTP {delete_status}")
+              elif delete_status == 404:
+                  skipped.append({"name": name, "reason": "became absent before delete"})
+                  print(f"ALREADY_ABSENT {index}/{len(candidates)} {name}")
+              else:
+                  failed.append({
+                      "name": name,
+                      "http_status": delete_status,
+                      "error": str(delete_body.get("errors") or delete_body.get("error") or "Delete rejected")[:400]
+                  })
+                  print(f"NOT_DELETED {index}/{len(candidates)} {name} HTTP {delete_status}")
+              time.sleep(0.2)
+
+          # Read-after-write verification of the entire account's Worker inventory.
+          all_after, status, error = [], 200, None
+          for page in range(1, 101):
+              q = urllib.parse.urlencode({"per_page": 100, "page": page})
+              st, body = cf_request(f"/accounts/{ACCOUNT}/workers/scripts-search?{q}")
+              if st != 200 or not body.get("success", False):
+                  status, error = st, body.get("errors") or body.get("error") or "final inventory failed"
+                  break
+              batch = body.get("result") or []
+              all_after.extend(batch)
+              info = body.get("result_info") or {}
+              if (info.get("total_pages") is not None and page >= info["total_pages"]) or len(batch) < 100:
+                  break
+          if status != 200:
+              abort("Deletion calls completed but final verification could not list Workers: " + str(error))
+          remaining_names = {
+              x.get("script_name") or x.get("id")
+              for x in all_after if isinstance(x, dict)
+          }
+          confirmed_absent = sorted(set(deleted) - remaining_names)
+          still_present = sorted(set(deleted) & remaining_names)
+          protected_still_present = sorted(PROTECTED & remaining_names)
+          report = {
+              "generated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+              "source_inventory_generated_at": audit["generated_at"],
+              "account_id_suffix": ACCOUNT[-6:],
+              "source_inventory_run": os.environ.get("GITHUB_RUN_ID"),
+              "candidate_count": len(candidates),
+              "deleted_api_success": deleted,
+              "already_absent_or_skipped": skipped,
+              "delete_rejections": failed,
+              "confirmed_absent_after_delete": confirmed_absent,
+              "still_present_after_delete": still_present,
+              "protected_workers_still_present": protected_still_present,
+              "delete_force_parameter_used": False,
+              "supabase_accessed": False,
+              "mission_state_mutated": False
+          }
+          with open(REPORT_PATH, "w", encoding="utf-8") as f:
+              json.dump(report, f, indent=2)
+          print("CLEANUP_SUMMARY=" + json.dumps({
+              "candidates": len(candidates),
+              "deleted_api_success": len(deleted),
+              "confirmed_absent_after_delete": len(confirmed_absent),
+              "already_absent_or_skipped": len(skipped),
+              "delete_rejections": len(failed),
+              "still_present_after_delete": len(still_present),
+              "protected_present": protected_still_present,
+              "force": False
+          }))
+          if still_present or failed or len(confirmed_absent) != len(deleted):
+              raise SystemExit(1)
+          PY
+
+      - name: Persist cleanup report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cloudflare-workers-cleanup-report
+          path: cloudflare-workers-cleanup-report.json
+          if-no-files-found: warn
+          retention-days: 90
