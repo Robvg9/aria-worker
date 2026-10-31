@@ -117,10 +117,11 @@ New-Item -ItemType Directory -Path $configDirectoryFull -Force | Out-Null
 $directoryAcl = New-Object System.Security.AccessControl.DirectorySecurity
 $directoryAcl.SetAccessRuleProtection($true, $false)
 $directoryAcl.SetOwner($identity.User)
-$directoryRule = New-Object System.Security.AccessControl.FileSystemAccessRule(
+$directoryInheritanceFlags = [System.Security.AccessControl.InheritanceFlags]::ContainerInherit -bor [System.Security.AccessControl.InheritanceFlags]::ObjectInherit
+$directoryRule = [System.Security.AccessControl.FileSystemAccessRule]::new(
     $identity.User,
     [System.Security.AccessControl.FileSystemRights]::FullControl,
-    [System.Security.AccessControl.InheritanceFlags]::ContainerInherit -bor [System.Security.AccessControl.InheritanceFlags]::ObjectInherit,
+    $directoryInheritanceFlags,
     [System.Security.AccessControl.PropagationFlags]::None,
     [System.Security.AccessControl.AccessControlType]::Allow
 )
@@ -135,7 +136,7 @@ try {
     $fileAcl = New-Object System.Security.AccessControl.FileSecurity
     $fileAcl.SetAccessRuleProtection($true, $false)
     $fileAcl.SetOwner($identity.User)
-    $fileRule = New-Object System.Security.AccessControl.FileSystemAccessRule(
+    $fileRule = [System.Security.AccessControl.FileSystemAccessRule]::new(
         $identity.User,
         [System.Security.AccessControl.FileSystemRights]::FullControl,
         [System.Security.AccessControl.AccessControlType]::Allow
