@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 let AriaMissionStore;
 let MISSION_EXECUTION_PAUSED;
 let UnpausedTestMissionStore;
+let PausedTestMissionStore;
 
 const clone = value => value == null ? value : JSON.parse(JSON.stringify(value));
 class MemoryStorage {
@@ -25,7 +26,7 @@ const controlToken = 'control-token-for-tests'.padEnd(40, 'c');
 const workerToken = 'worker-token-for-tests'.padEnd(40, 'w');
 function createStore({ paused = false } = {}) {
   const state = new MemoryState();
-  const Store = paused ? AriaMissionStore : UnpausedTestMissionStore;
+  const Store = paused ? PausedTestMissionStore : UnpausedTestMissionStore;
   return { state, store: new Store(state, { ARIA_CONTROL_TOKEN: controlToken, ARIA_WORKER_TOKEN: workerToken, ARIA_WORKER_LEASE_MS: 60000 }) };
 }
 function request(path, { method = 'GET', token = controlToken, body } = {}) {
@@ -260,10 +261,13 @@ async function testRetryReplanAndLeaseProtection() {
 
 (async () => {
   ({ AriaMissionStore, MISSION_EXECUTION_PAUSED } = await import('../cloudflare-autonomy/worker.mjs'));
-  // Existing positive lifecycle tests run only against an isolated test subclass. The
-  // production export and Worker entrypoint always use the hard-coded paused class.
+  // Both states are explicit fixtures so this suite remains valid in the
+  // temporary Package 5 unpaused test branch as well as the frozen main branch.
   UnpausedTestMissionStore = class extends AriaMissionStore {
     isMissionExecutionPaused() { return false; }
+  };
+  PausedTestMissionStore = class extends AriaMissionStore {
+    isMissionExecutionPaused() { return true; }
   };
   await testGlobalFreezeStopsMutationsAndAlarmRecovery();
   await testAuthAndVerifiedMissionLifecycle();
