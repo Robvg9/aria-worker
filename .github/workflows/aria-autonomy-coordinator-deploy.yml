@@ -8,6 +8,11 @@ on:
         type: boolean
         required: true
         default: false
+      confirm_telegram_test:
+        description: "Send one real test notification to the configured Telegram chat after deployment"
+        type: boolean
+        required: true
+        default: false
 
 permissions:
   contents: read
@@ -101,3 +106,29 @@ jobs:
           code="$(curl --silent --show-error --max-time 15 -o /tmp/aria-autonomy-claim-paused.json -w '%{http_code}' -X POST "$base/api/worker/claim" -H "Authorization: Bearer $ARIA_WORKER_TOKEN" -H 'content-type: application/json' --data-binary '{')"
           test "$code" = "423"
           echo "ARIA_AUTONOMY_LIVE_HEALTH_AUTH_AND_GLOBAL_FREEZE_PASS=true"
+      - name: Send one explicitly confirmed Telegram delivery test
+        if: inputs.confirm_telegram_test == true
+        env:
+          ARIA_CONTROL_TOKEN: ${{ secrets.ARIA_AUTONOMY_CONTROL_TOKEN }}
+        run: |
+          set -euo pipefail
+          base="https://aria-autonomy-coordinator.robvg9.workers.dev"
+          response_file="$RUNNER_TEMP/aria-telegram-delivery-test.json"
+          code="$(curl --silent --show-error --max-time 20 -o "$response_file" -w '%{http_code}' \
+            -X POST "$base/api/notifications/test" \
+            -H "Authorization: Bearer $ARIA_CONTROL_TOKEN" \
+            -H 'content-type: application/json' \
+            --data '{"confirm":"SEND_TELEGRAM_TEST_ONCE"}')"
+          test "$code" = "200"
+          RESULT_FILE="$response_file" python - <<'PY'
+          import json, os
+          with open(os.environ["RESULT_FILE"], encoding="utf-8") as handle:
+              result = json.load(handle)
+          notice = result.get("notification") or {}
+          assert notice.get("status") == "delivered"
+          assert notice.get("attempts") == 1
+          assert notice.get("delivered_at")
+          assert notice.get("last_error") is None
+          print("ARIA_TELEGRAM_REAL_DELIVERY_PASS=true")
+          print("ARIA_TELEGRAM_NOTIFICATION_STATUS=delivered")
+          PY
