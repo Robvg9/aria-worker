@@ -40,6 +40,8 @@ const autonomyOnlyPaths = [
   'scripts/aria-persistent-autonomy-v1.js',
   'scripts/aria-persistent-coordinator-v1.js',
   'scripts/aria-persistent-windows-worker-v1.js',
+  'scripts/aria-persistent-windows-worker-preflight-v1.js',
+  'scripts/aria-persistent-windows-worker-preflight-v1.test.js',
   'tests/cloudflare-autonomy-worker.test.js',
   'tests/pc-rwht-browser.test.js',
   'tests/pwa-capabilities-test-center-v1.test.js',
