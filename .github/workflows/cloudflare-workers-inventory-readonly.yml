@@ -562,8 +562,8 @@ jobs:
               x.get("script_name") or x.get("id")
               for x in all_after if isinstance(x, dict)
           }
-          confirmed_absent = sorted(set(deleted) - remaining_names)
-          still_present = sorted(set(deleted) & remaining_names)
+          confirmed_absent = sorted(expected_candidates - remaining_names)
+          still_present = sorted(expected_candidates & remaining_names)
           protected_still_present = sorted(PROTECTED & remaining_names)
           report = {
               "generated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
