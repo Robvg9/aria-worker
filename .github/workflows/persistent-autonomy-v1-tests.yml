@@ -326,6 +326,19 @@ jobs:
           if (-not (Test-Path -LiteralPath $node -PathType Leaf)) { $node = (Get-Command node -ErrorAction Stop).Source }
           if (-not (Test-Path -LiteralPath $workerScript -PathType Leaf)) { throw 'PACKAGE5_PHYSICAL_WORKER_SCRIPT_MISSING' }
           if (-not (Test-Path -LiteralPath $adapterPath -PathType Leaf)) { throw 'PACKAGE5_PHYSICAL_ADAPTER_MISSING' }
+          $claimPolicyPath = Join-Path $env:GITHUB_WORKSPACE 'autonomy\\persistent-worker-error-policy-v1.js'
+          if (-not (Test-Path -LiteralPath $claimPolicyPath -PathType Leaf)) {
+            $trackedPolicy = & git -C $env:GITHUB_WORKSPACE show 'HEAD:autonomy/persistent-worker-error-policy-v1.js'
+            if ($LASTEXITCODE -ne 0 -or -not $trackedPolicy) { throw 'PACKAGE5_CLAIM_POLICY_MISSING_FROM_CHECKOUT_AND_HEAD' }
+            [System.IO.File]::WriteAllText($claimPolicyPath, (($trackedPolicy -join [Environment]::NewLine) + [Environment]::NewLine), ([System.Text.UTF8Encoding]::new($false)))
+            Write-Host 'PACKAGE5_CLAIM_POLICY_RESTORED_FROM_EXACT_HEAD=true'
+          } else {
+            Write-Host 'PACKAGE5_CLAIM_POLICY_PRESENT_IN_CHECKOUT=true'
+          }
+          $env:PACKAGE5_WORKER_SCRIPT = $workerScript
+          & $node -e "const Module=require('node:module'); const path=require('node:path'); const m=new Module(process.env.PACKAGE5_WORKER_SCRIPT); m.filename=process.env.PACKAGE5_WORKER_SCRIPT; m.paths=Module._nodeModulePaths(path.dirname(m.filename)); const p=m.require('../autonomy/persistent-worker-error-policy-v1'); if(typeof p.classifyClaimError!=='function') process.exit(2); console.log('PACKAGE5_CLAIM_POLICY_REQUIRE=PASS');"
+          if ($LASTEXITCODE -ne 0) { throw 'PACKAGE5_CLAIM_POLICY_REQUIRE_FAILED' }
+          Remove-Item Env:PACKAGE5_WORKER_SCRIPT -ErrorAction SilentlyContinue
           Write-Host "PACKAGE5_PHYSICAL_HOST=$env:COMPUTERNAME"
           Write-Host "PACKAGE5_WORKER_RUNTIME_IDENTITY=$([System.Security.Principal.WindowsIdentity]::GetCurrent().Name)"
           Write-Host "PACKAGE5_NODE_VERSION=$((& $node --version).Trim())"
