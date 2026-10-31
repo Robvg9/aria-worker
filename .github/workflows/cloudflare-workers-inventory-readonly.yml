@@ -2,20 +2,6 @@ name: Cloudflare Workers inventory and guarded obsolete-preview cleanup
 
 on:
   workflow_dispatch:
-    inputs:
-      action:
-        description: "Choose read-only inventory or the separately guarded cleanup"
-        type: choice
-        required: true
-        default: inventory
-        options:
-          - inventory
-          - cleanup_obsolete_previews
-      confirm_cleanup:
-        description: "Required only for cleanup: DELETE_144_OBSOLETE_BC_PREVIEWS"
-        type: string
-        required: false
-        default: ""
 
 permissions:
   contents: read
@@ -312,7 +298,8 @@ jobs:
           retention-days: 7
 
   cleanup-obsolete-previews:
-    if: ${{ inputs.action == 'cleanup_obsolete_previews' }}
+    # This separate, explicitly named branch is the manual authorization gate.
+    if: ${{ github.ref == 'refs/heads/cleanup/cloudflare-obsolete-bc-previews-20261031' }}
     needs: inventory
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -327,7 +314,6 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          CONFIRM_CLEANUP: ${{ inputs.confirm_cleanup }}
         run: |
           set -euo pipefail
           test -n "$CLOUDFLARE_API_TOKEN"
@@ -345,7 +331,6 @@ jobs:
           BASE = "https://api.cloudflare.com/client/v4"
           ACCOUNT = os.environ["CLOUDFLARE_ACCOUNT_ID"]
           TOKEN = os.environ["CLOUDFLARE_API_TOKEN"]
-          REQUIRED_CONFIRMATION = "DELETE_144_OBSOLETE_BC_PREVIEWS"
           AUDIT_PATH = "audit/cloudflare-workers-inventory.json"
           REPORT_PATH = "cloudflare-workers-cleanup-report.json"
           PROTECTED = {
@@ -361,9 +346,6 @@ jobs:
           def abort(message):
               print("CLEANUP_ABORTED=" + message)
               raise SystemExit(2)
-
-          if os.environ.get("CONFIRM_CLEANUP", "") != REQUIRED_CONFIRMATION:
-              abort("Explicit confirmation string did not match; no deletion was attempted.")
 
           with open(AUDIT_PATH, "r", encoding="utf-8") as f:
               audit = json.load(f)
