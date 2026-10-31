@@ -339,8 +339,28 @@ jobs:
             Set-Acl -LiteralPath $configPath -AclObject $fileAcl
 
             $env:LOCALAPPDATA = $profileRoot
-            & $powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $supervisor -ConfigPath $configPath -InstallDir $env:GITHUB_WORKSPACE -NodePath $node
-            if ($LASTEXITCODE -ne 0) { throw "WINDOWS_FROZEN_WORKER_SUPERVISOR_EXIT=$LASTEXITCODE" }
+            $existingTask = Get-ScheduledTask -TaskName 'ARIA Persistent Windows Worker' -ErrorAction SilentlyContinue
+            if ($existingTask -and [string]$existingTask.State -ne 'Disabled') {
+              throw "Refusing probe because the existing scheduled task is not Disabled (state=$($existingTask.State))."
+            }
+
+            $supervisorArguments = @(
+              '-NoProfile',
+              '-NonInteractive',
+              '-ExecutionPolicy', 'Bypass',
+              '-File', ('"' + $supervisor + '"'),
+              '-ConfigPath', ('"' + $configPath + '"'),
+              '-InstallDir', ('"' + $env:GITHUB_WORKSPACE + '"'),
+              '-NodePath', ('"' + $node + '"')
+            )
+            $supervisorProcess = Start-Process -FilePath $powershell -ArgumentList $supervisorArguments -PassThru -NoNewWindow
+            if (-not $supervisorProcess.WaitForExit(30000)) {
+              & "$env:SystemRoot\\System32\\taskkill.exe" /PID $supervisorProcess.Id /T /F | Out-Null
+              throw 'Worker supervisor did not stop within 30 seconds; the complete child process tree was terminated.'
+            }
+            if ($supervisorProcess.ExitCode -ne 0) {
+              throw "WINDOWS_FROZEN_WORKER_SUPERVISOR_EXIT=$($supervisorProcess.ExitCode)"
+            }
 
             $log = Get-Content -LiteralPath $logFile -Raw
             if (-not $log.Contains('ARIA_WINDOWS_WORKER_STOPPED=MISSION_EXECUTION_PAUSED')) {
