@@ -49,6 +49,59 @@ const supervisorScriptPath = path.join(__dirname, '..', 'scripts', 'Start-ARIA-P
     });
     assert.equal(completed.status, 'succeeded');
     assert.deepEqual(await bridge.waitForResult(claimed.job_id), { passed: true, evidence: { test: 'verified' } });
+
+    const expiredJob = await bridge.enqueue({ mission_id: 'mission_expired_lease', task: { task_id: 'expired-task', title: 'Expired lease test' } });
+    const expiredClaim = await bridge.claimNext({ worker_id: 'expired-lease-worker', capabilities: ['node'] });
+    assert.equal(expiredClaim.job_id, expiredJob.job_id);
+    const persistedJobPath = path.join(directory, 'worker-jobs', expiredClaim.job_id + '.json');
+    const persistedJob = JSON.parse(await fs.readFile(persistedJobPath, 'utf8'));
+    persistedJob.lease_until = new Date(Date.now() - 1000).toISOString();
+    await fs.writeFile(persistedJobPath, JSON.stringify(persistedJob, null, 2), 'utf8');
+    await assert.rejects(
+      () => bridge.heartbeat(expiredClaim.job_id, { worker_id: 'expired-lease-worker', lease_token: expiredClaim.lease_token }),
+      /worker_lease_expired/
+    );
+    await assert.rejects(
+      () => bridge.complete(expiredClaim.job_id, { worker_id: 'expired-lease-worker', lease_token: expiredClaim.lease_token, result: { passed: true } }),
+      /worker_lease_expired/
+    );
+    persistedJob.lease_until = 'not-a-date';
+    await fs.writeFile(persistedJobPath, JSON.stringify(persistedJob, null, 2), 'utf8');
+    await assert.rejects(
+      () => bridge.heartbeat(expiredClaim.job_id, { worker_id: 'expired-lease-worker', lease_token: expiredClaim.lease_token }),
+      /worker_lease_expired/
+    );
+    await assert.rejects(
+      () => bridge.complete(expiredClaim.job_id, { worker_id: 'expired-lease-worker', lease_token: expiredClaim.lease_token, result: { passed: true } }),
+      /worker_lease_expired/
+    );
+    delete persistedJob.lease_until;
+    await fs.writeFile(persistedJobPath, JSON.stringify(persistedJob, null, 2), 'utf8');
+    await assert.rejects(
+      () => bridge.heartbeat(expiredClaim.job_id, { worker_id: 'expired-lease-worker', lease_token: expiredClaim.lease_token }),
+      /worker_lease_expired/
+    );
+    await assert.rejects(
+      () => bridge.complete(expiredClaim.job_id, { worker_id: 'expired-lease-worker', lease_token: expiredClaim.lease_token, result: { passed: true } }),
+      /worker_lease_expired/
+    );
+    persistedJob.lease_until = new Date(Date.now() - 1000).toISOString();
+    await fs.writeFile(persistedJobPath, JSON.stringify(persistedJob, null, 2), 'utf8');
+    const replacement = await bridge.claimNext({ worker_id: 'replacement-worker', capabilities: ['node'] });
+    assert.equal(replacement.job_id, expiredClaim.job_id);
+    assert.notEqual(replacement.lease_token, expiredClaim.lease_token);
+    await assert.rejects(
+      () => bridge.heartbeat(expiredClaim.job_id, { worker_id: 'expired-lease-worker', lease_token: expiredClaim.lease_token }),
+      /worker_lease_mismatch/
+    );
+    await assert.rejects(
+      () => bridge.complete(expiredClaim.job_id, { worker_id: 'expired-lease-worker', lease_token: expiredClaim.lease_token, result: { passed: true } }),
+      /worker_lease_mismatch/
+    );
+    const replacementComplete = await bridge.complete(replacement.job_id, {
+      worker_id: 'replacement-worker', lease_token: replacement.lease_token, result: { passed: true, evidence: { fencing: true } }
+    });
+    assert.equal(replacementComplete.status, 'succeeded');
     const reopened = createPersistentWorkerBridge({ directory });
     assert.equal((await reopened.get(claimed.job_id)).status, 'succeeded');
     const planner = createWorkerBackedPlanner({ bridge, timeoutMs: 300, pollMs: 250 });
