@@ -389,20 +389,20 @@ jobs:
 
             $nodeProbe = Join-Path $env:RUNNER_TEMP 'aria-package2-node-fetch-health.js'
             $nodeSource = @'
-fetch("https://aria-autonomy-coordinator.robvg9.workers.dev/health", { signal: AbortSignal.timeout(10000) })
-  .then(async (response) => {
-    console.log("ROBVG_NODE_FETCH_HTTP=" + response.status);
-    const body = await response.json().catch(() => ({}));
-    console.log("ROBVG_NODE_FETCH_SUPABASE_INDEPENDENT=" + String(body.supabase_independent === true));
-    process.exitCode = response.status === 200 && body.ok === true ? 0 : 2;
-  })
-  .catch((error) => {
-    console.log("ROBVG_NODE_FETCH_ERROR=" + String(error && error.name || "Error") + ":" + String(error && error.message || error));
-    const cause = error && error.cause;
-    if (cause) console.log("ROBVG_NODE_FETCH_CAUSE=" + JSON.stringify({ code: cause.code, syscall: cause.syscall, hostname: cause.hostname }));
-    process.exitCode = 3;
-  });
-'@
+          fetch("https://aria-autonomy-coordinator.robvg9.workers.dev/health", { signal: AbortSignal.timeout(10000) })
+            .then(async (response) => {
+              console.log("ROBVG_NODE_FETCH_HTTP=" + response.status);
+              const body = await response.json().catch(() => ({}));
+              console.log("ROBVG_NODE_FETCH_SUPABASE_INDEPENDENT=" + String(body.supabase_independent === true));
+              process.exitCode = response.status === 200 && body.ok === true ? 0 : 2;
+            })
+            .catch((error) => {
+              console.log("ROBVG_NODE_FETCH_ERROR=" + String(error && error.name || "Error") + ":" + String(error && error.message || error));
+              const cause = error && error.cause;
+              if (cause) console.log("ROBVG_NODE_FETCH_CAUSE=" + JSON.stringify({ code: cause.code, syscall: cause.syscall, hostname: cause.hostname }));
+              process.exitCode = 3;
+            });
+          '@
             [System.IO.File]::WriteAllText($nodeProbe, $nodeSource, ([System.Text.UTF8Encoding]::new($false)))
             & $node $nodeProbe
             Write-Output ('ROBVG_NODE_FETCH_EXIT=' + $LASTEXITCODE)
