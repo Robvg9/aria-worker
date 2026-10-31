@@ -4,12 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       confirm_public_deploy:
-        description: "Deploy a new, separate ARIA autonomy Worker with Durable Object storage"
-        type: boolean
-        required: true
-        default: false
-      confirm_telegram_test:
-        description: "Send one real test notification to the configured Telegram chat after deployment"
+        description: "Deploy the isolated ARIA coordinator, verify the global freeze, and send one Telegram test message"
         type: boolean
         required: true
         default: false
@@ -107,7 +102,6 @@ jobs:
           test "$code" = "423"
           echo "ARIA_AUTONOMY_LIVE_HEALTH_AUTH_AND_GLOBAL_FREEZE_PASS=true"
       - name: Send one explicitly confirmed Telegram delivery test
-        if: inputs.confirm_telegram_test == true
         env:
           ARIA_CONTROL_TOKEN: ${{ secrets.ARIA_AUTONOMY_CONTROL_TOKEN }}
         run: |
