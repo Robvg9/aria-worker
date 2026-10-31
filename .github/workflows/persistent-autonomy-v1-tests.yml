@@ -247,10 +247,10 @@ jobs:
           }
 
   windows-physical-frozen-worker-stop:
-    if: (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'feat/aria-package2-safe-frozen-worker-e2e-20261031') || (github.event_name == 'push' && github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, 'Run one safe frozen-worker start/stop probe on RobVG'))
+    if: (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'fix/package2-robvg-probe-diagnostics-main-20261031') || (github.event_name == 'push' && github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, 'Diagnose and harden frozen-worker probe on ROBVG'))
     needs: [contract-tests, windows-supervisor-syntax, live-security-readonly-check]
     runs-on: [self-hosted, Windows, X64]
-    timeout-minutes: 3
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
         with:
@@ -289,6 +289,74 @@ jobs:
           if ([version]($nodeVersion.TrimStart('v')) -lt [version]'20.0.0') {
             throw "Node 20+ required; found $nodeVersion"
           }
+
+          function Invoke-AriaProbeHttp {
+            param(
+              [Parameter(Mandatory = $true)][string]$Uri,
+              [Parameter(Mandatory = $true)][ValidateSet('GET', 'POST')][string]$Method,
+              [string]$Body
+            )
+            $request = [System.Net.HttpWebRequest]::Create($Uri)
+            $request.Method = $Method
+            $request.Timeout = 10000
+            $request.ReadWriteTimeout = 10000
+            $request.KeepAlive = $false
+            if ($Method -eq 'POST') {
+              $request.ContentType = 'application/json'
+              $request.Headers['Authorization'] = 'Bearer ' + $env:ARIA_AUTONOMY_WORKER_TOKEN
+              $bytes = [System.Text.Encoding]::UTF8.GetBytes($Body)
+              $request.ContentLength = $bytes.Length
+              $requestStream = $request.GetRequestStream()
+              try { $requestStream.Write($bytes, 0, $bytes.Length) }
+              finally { $requestStream.Dispose() }
+            }
+
+            $response = $null
+            try {
+              $response = $request.GetResponse()
+            }
+            catch [System.Net.WebException] {
+              $response = $_.Exception.Response
+              if (-not $response) {
+                throw "ARIA_PROBE_HTTP_NO_RESPONSE method=$Method uri=$Uri error=$($_.Exception.Message)"
+              }
+            }
+
+            try {
+              $reader = New-Object System.IO.StreamReader($response.GetResponseStream())
+              try { $responseBody = $reader.ReadToEnd() }
+              finally { $reader.Dispose() }
+              return [pscustomobject]@{
+                StatusCode = [int]$response.StatusCode
+                Body = $responseBody
+              }
+            }
+            finally {
+              if ($response) { $response.Close() }
+            }
+          }
+
+          $controlBase = 'https://aria-autonomy-coordinator.robvg9.workers.dev'
+          $healthProbe = Invoke-AriaProbeHttp -Uri ($controlBase + '/health') -Method GET
+          if ($healthProbe.StatusCode -ne 200) {
+            throw "ARIA_PROBE_HEALTH_STATUS=$($healthProbe.StatusCode)"
+          }
+          $healthData = $healthProbe.Body | ConvertFrom-Json
+          if ($healthData.ok -ne $true -or $healthData.supabase_independent -ne $true) {
+            throw 'ARIA_PROBE_HEALTH_CONTRACT_FAILED'
+          }
+          Write-Output 'ROBVG_COORDINATOR_HEALTH=PASS'
+
+          $claimBody = @{
+            worker_id = ('package2-frozen-precheck-' + $env:COMPUTERNAME)
+            capabilities = @()
+          } | ConvertTo-Json -Compress
+          $claimProbe = Invoke-AriaProbeHttp -Uri ($controlBase + '/api/worker/claim') -Method POST -Body $claimBody
+          if ($claimProbe.StatusCode -ne 423 -or $claimProbe.Body -notmatch 'mission_execution_paused') {
+            throw "ROBVG_CLAIM_PRECHECK_EXPECTED_423_ACTUAL_$($claimProbe.StatusCode)"
+          }
+          Write-Output 'ROBVG_CLAIM_PREFLIGHT_423=PASS'
+          Write-Output 'ROBVG_PREFLIGHT_CREATED_NO_LEASE=true'
 
           $oldLocalAppData = $env:LOCALAPPDATA
           $profileRoot = Join-Path $env:RUNNER_TEMP 'aria-package2-frozen-worker-profile'
@@ -351,6 +419,10 @@ jobs:
               throw "Refusing probe because the existing scheduled task is not Disabled (state=$($existingTask.State))."
             }
 
+            $logDirectory = Split-Path -Parent $logFile
+            New-Item -ItemType Directory -Force -Path $logDirectory | Out-Null
+            $supervisorStdout = Join-Path $logDirectory 'supervisor.stdout.log'
+            $supervisorStderr = Join-Path $logDirectory 'supervisor.stderr.log'
             $supervisorArguments = @(
               '-NoProfile',
               '-NonInteractive',
@@ -360,8 +432,8 @@ jobs:
               '-InstallDir', ('"' + $env:GITHUB_WORKSPACE + '"'),
               '-NodePath', ('"' + $node + '"')
             )
-            $supervisorProcess = Start-Process -FilePath $powershell -ArgumentList $supervisorArguments -PassThru -NoNewWindow
-            if (-not $supervisorProcess.WaitForExit(30000)) {
+            $supervisorProcess = Start-Process -FilePath $powershell -ArgumentList $supervisorArguments -PassThru -NoNewWindow -RedirectStandardOutput $supervisorStdout -RedirectStandardError $supervisorStderr
+            if (-not $supervisorProcess.WaitForExit(20000)) {
               function Stop-AriaProbeProcessTree {
                 param([Parameter(Mandatory = $true)][int]$ProcessId)
                 $children = @(Get-CimInstance Win32_Process -Filter "ParentProcessId = $ProcessId" -ErrorAction SilentlyContinue)
@@ -371,9 +443,29 @@ jobs:
                 Stop-Process -Id $ProcessId -Force -ErrorAction SilentlyContinue
               }
               Stop-AriaProbeProcessTree -ProcessId $supervisorProcess.Id
-              throw 'Worker supervisor did not stop within 30 seconds; its child process tree was terminated.'
+              Start-Sleep -Milliseconds 300
+              if (Test-Path -LiteralPath $logFile) {
+                Write-Output 'WORKER_SUPERVISOR_LOG_BEGIN'
+                Get-Content -LiteralPath $logFile -Tail 80
+                Write-Output 'WORKER_SUPERVISOR_LOG_END'
+              }
+              foreach ($diagnosticPath in @($supervisorStdout, $supervisorStderr)) {
+                if (Test-Path -LiteralPath $diagnosticPath) {
+                  Write-Output ('SUPERVISOR_DIAGNOSTIC_BEGIN=' + [System.IO.Path]::GetFileName($diagnosticPath))
+                  Get-Content -LiteralPath $diagnosticPath -Tail 80
+                  Write-Output ('SUPERVISOR_DIAGNOSTIC_END=' + [System.IO.Path]::GetFileName($diagnosticPath))
+                }
+              }
+              throw 'Worker supervisor did not stop within 20 seconds; child process tree was terminated after exporting diagnostics.'
             }
             if ($supervisorProcess.ExitCode -ne 0) {
+              foreach ($diagnosticPath in @($logFile, $supervisorStdout, $supervisorStderr)) {
+                if (Test-Path -LiteralPath $diagnosticPath) {
+                  Write-Output ('SUPERVISOR_DIAGNOSTIC_BEGIN=' + [System.IO.Path]::GetFileName($diagnosticPath))
+                  Get-Content -LiteralPath $diagnosticPath -Tail 80
+                  Write-Output ('SUPERVISOR_DIAGNOSTIC_END=' + [System.IO.Path]::GetFileName($diagnosticPath))
+                }
+              }
               throw "WINDOWS_FROZEN_WORKER_SUPERVISOR_EXIT=$($supervisorProcess.ExitCode)"
             }
 
@@ -403,7 +495,7 @@ jobs:
           }
 
   live-security-readonly-check:
-    if: (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.actor == github.repository_owner) || (github.event_name == 'push' && github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, 'Run one safe frozen-worker start/stop probe on RobVG'))
+    if: (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.actor == github.repository_owner) || (github.event_name == 'push' && github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, 'Diagnose and harden frozen-worker probe on ROBVG'))
     runs-on: ubuntu-latest
     timeout-minutes: 2
     env:
