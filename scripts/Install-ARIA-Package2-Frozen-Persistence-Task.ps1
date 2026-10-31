@@ -47,9 +47,13 @@ try {
     }
 
     if (-not $InstallDir) {
-        $InstallDir = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
+        $InstallDir = 'D:\Databank\aria-worker-package4'
     }
     $installRoot = (Resolve-Path -LiteralPath $InstallDir).Path.TrimEnd('\')
+    $expectedInstallRoot = [System.IO.Path]::GetFullPath('D:\Databank\aria-worker-package4').TrimEnd('\')
+    if (-not [string]::Equals($installRoot, $expectedInstallRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw 'InstallDir must be the stable D:\Databank\aria-worker-package4 checkout.'
+    }
     $workerSourcePath = Join-Path $installRoot 'cloudflare-autonomy\worker.mjs'
     $supervisorPath = Join-Path $installRoot 'scripts\Start-ARIA-Persistent-Worker.ps1'
     $supervisorPolicyPath = Join-Path $installRoot 'scripts\aria-worker-supervisor-policy-v1.ps1'
