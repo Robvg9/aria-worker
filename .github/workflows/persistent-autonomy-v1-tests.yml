@@ -308,13 +308,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${ github.event.pull_request.head.sha }
+          ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 1
       - name: Execute controlled LIVE missions through the physical Windows worker process
         shell: powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
         env:
-          ARIA_CONTROL_TOKEN: ${ secrets.ARIA_AUTONOMY_CONTROL_TOKEN }
-          ARIA_WORKER_TOKEN: ${ secrets.ARIA_AUTONOMY_WORKER_TOKEN }
+          ARIA_CONTROL_TOKEN: ${{ secrets.ARIA_AUTONOMY_CONTROL_TOKEN }}
+          ARIA_WORKER_TOKEN: ${{ secrets.ARIA_AUTONOMY_WORKER_TOKEN }}
         run: |
           $ErrorActionPreference = 'Stop'
           $base = 'https://aria-autonomy-coordinator.robvg9.workers.dev'
