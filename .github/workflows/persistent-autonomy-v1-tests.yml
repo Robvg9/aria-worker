@@ -602,10 +602,46 @@ jobs:
 
           $taskName = 'ARIA Persistent Windows Worker'
           $task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+          $allAriaTasks = @(Get-ScheduledTask -ErrorAction Stop | Where-Object { $_.TaskName -match 'ARIA|Persistent Worker' })
+          Write-Output ('ARIA_RELATED_TASK_COUNT=' + $allAriaTasks.Count)
+          foreach ($candidate in $allAriaTasks) {
+            Write-Output ('ARIA_RELATED_TASK=' + $candidate.TaskPath + $candidate.TaskName + ';STATE=' + [string]$candidate.State)
+          }
+
+          $stableRoot = 'D:\\Databank\\aria-worker-package4'
+          $stableSupervisor = Join-Path $stableRoot 'scripts\\Start-ARIA-Persistent-Worker.ps1'
+          $stableWorker = Join-Path $stableRoot 'scripts\\aria-persistent-windows-worker-v1.js'
+          $stablePolicy = Join-Path $stableRoot 'scripts\\aria-worker-supervisor-policy-v1.ps1'
+          $stableAdapter = Join-Path $stableRoot 'autonomy\\ollama-persistent-adapter-v1.js'
+          $stableGit = Join-Path $stableRoot '.git'
+          Write-Output ('STABLE_ARIA_ROOT_EXISTS=' + [string](Test-Path -LiteralPath $stableRoot -PathType Container))
+          Write-Output ('STABLE_SUPERVISOR_EXISTS=' + [string](Test-Path -LiteralPath $stableSupervisor -PathType Leaf))
+          Write-Output ('STABLE_WORKER_EXISTS=' + [string](Test-Path -LiteralPath $stableWorker -PathType Leaf))
+          Write-Output ('STABLE_POLICY_EXISTS=' + [string](Test-Path -LiteralPath $stablePolicy -PathType Leaf))
+          Write-Output ('STABLE_ADAPTER_EXISTS=' + [string](Test-Path -LiteralPath $stableAdapter -PathType Leaf))
+          Write-Output ('PREFERRED_NODE_EXISTS=' + [string](Test-Path -LiteralPath 'D:\\Databank\\node\\node.exe' -PathType Leaf))
+          if (Test-Path -LiteralPath $stableGit -PathType Container) {
+            $stableSha = (& git -C $stableRoot rev-parse HEAD 2>$null)
+            if ($LASTEXITCODE -eq 0) {
+              Write-Output ('STABLE_ARIA_GIT_SHA=' + ([string]$stableSha).Trim())
+            }
+          }
+
           if (-not $task) {
             Write-Output 'ARIA_WORKER_TASK_EXISTS=false'
-            $shells = @(Get-CimInstance Win32_Process -Filter "Name='explorer.exe'" -ErrorAction SilentlyContinue)
-            Write-Output ('INTERACTIVE_EXPLORER_COUNT=' + $shells.Count)
+            $shellOwners = @()
+            foreach ($process in @(Get-CimInstance Win32_Process -Filter "Name='explorer.exe'" -ErrorAction SilentlyContinue)) {
+              try {
+                $owner = Invoke-CimMethod -InputObject $process -MethodName GetOwner -ErrorAction Stop
+                if ($owner.ReturnValue -eq 0) {
+                  $shellOwners += ($owner.Domain + '\\' + $owner.User)
+                }
+              }
+              catch {}
+            }
+            $shellOwners = @($shellOwners | Select-Object -Unique)
+            Write-Output ('INTERACTIVE_EXPLORER_COUNT=' + $shellOwners.Count)
+            Write-Output ('INTERACTIVE_SHELL_OWNERS=' + ($shellOwners -join ';'))
             Write-Output 'TASK_INSPECTION_ONLY=true'
             exit 0
           }
