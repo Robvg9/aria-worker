@@ -7,6 +7,7 @@ on:
     # Do not publish the existing production PWA for isolated autonomy changes.
     # The dedicated coordinator has its own explicit deployment gate.
     paths-ignore:
+      - '.github/workflows/cloudflare-workers-inventory-readonly.yml'
       - '.github/workflows/aria-pwa-fast-deploy.yml'
       - '.github/workflows/aria-cloudflare-deploy.yml'
       - '.github/workflows/aria-autonomy-coordinator-deploy.yml'
