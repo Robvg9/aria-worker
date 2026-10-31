@@ -259,6 +259,7 @@ jobs:
             scripts/Start-ARIA-Persistent-Worker.ps1
             scripts/aria-worker-supervisor-policy-v1.ps1
             scripts/aria-persistent-windows-worker-v1.js
+            autonomy/persistent-worker-error-policy-v1.js
             tests/fixtures/aria-frozen-worker-probe-adapter.js
             cloudflare-autonomy/worker.mjs
           sparse-checkout-cone-mode: false
