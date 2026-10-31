@@ -573,6 +573,184 @@ jobs:
             Remove-Item -LiteralPath $workspace -Recurse -Force -ErrorAction SilentlyContinue
           }
 
+  windows-persistence-task-readonly-inventory:
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'chore/package2-inspection-20261031'
+    needs: [contract-tests, windows-supervisor-syntax, live-security-readonly-check]
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          sparse-checkout: |
+            scripts/Start-ARIA-Persistent-Worker.ps1
+            scripts/Protect-ARIA-Persistent-Worker-Config.ps1
+          sparse-checkout-cone-mode: false
+      - name: Inspect worker scheduled-task identity and DPAPI metadata without modifying it
+        shell: powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:COMPUTERNAME -ne 'ROBVG') {
+            throw "Refusing task inspection on unexpected host '$env:COMPUTERNAME'."
+          }
+
+          $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+          Write-Output ('ROBVG_INSPECTION_HOST=' + $env:COMPUTERNAME)
+          Write-Output ('RUNNER_IDENTITY=' + $identity.Name)
+          Write-Output ('RUNNER_SID=' + $identity.User.Value)
+          Write-Output ('RUNNER_LOCALAPPDATA=' + $env:LOCALAPPDATA)
+
+          $taskName = 'ARIA Persistent Windows Worker'
+          $task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+          $allAriaTasks = @(Get-ScheduledTask -ErrorAction Stop | Where-Object { $_.TaskName -match 'ARIA|Persistent Worker' })
+          Write-Output ('ARIA_RELATED_TASK_COUNT=' + $allAriaTasks.Count)
+          foreach ($candidate in $allAriaTasks) {
+            Write-Output ('ARIA_RELATED_TASK=' + $candidate.TaskPath + $candidate.TaskName + ';STATE=' + [string]$candidate.State)
+          }
+
+          $stableRoot = 'D:\\Databank\\aria-worker-package4'
+          $stableSupervisor = Join-Path $stableRoot 'scripts\\Start-ARIA-Persistent-Worker.ps1'
+          $stableWorker = Join-Path $stableRoot 'scripts\\aria-persistent-windows-worker-v1.js'
+          $stablePolicy = Join-Path $stableRoot 'scripts\\aria-worker-supervisor-policy-v1.ps1'
+          $stableAdapter = Join-Path $stableRoot 'autonomy\\ollama-persistent-adapter-v1.js'
+          $stableGit = Join-Path $stableRoot '.git'
+          Write-Output ('STABLE_ARIA_ROOT_EXISTS=' + [string](Test-Path -LiteralPath $stableRoot -PathType Container))
+          Write-Output ('STABLE_SUPERVISOR_EXISTS=' + [string](Test-Path -LiteralPath $stableSupervisor -PathType Leaf))
+          Write-Output ('STABLE_WORKER_EXISTS=' + [string](Test-Path -LiteralPath $stableWorker -PathType Leaf))
+          Write-Output ('STABLE_POLICY_EXISTS=' + [string](Test-Path -LiteralPath $stablePolicy -PathType Leaf))
+          Write-Output ('STABLE_ADAPTER_EXISTS=' + [string](Test-Path -LiteralPath $stableAdapter -PathType Leaf))
+          Write-Output ('PREFERRED_NODE_EXISTS=' + [string](Test-Path -LiteralPath 'D:\\Databank\\node\\node.exe' -PathType Leaf))
+          if (Test-Path -LiteralPath $stableGit -PathType Container) {
+            $safeDirectoryValue = $stableRoot.Replace('\\', '/')
+            $stableShaOutput = @(& git -c ("safe.directory=" + $safeDirectoryValue) -C $stableRoot rev-parse HEAD 2>&1)
+            $stableShaExit = $LASTEXITCODE
+            if ($stableShaExit -eq 0 -and $stableShaOutput.Count -gt 0) {
+              Write-Output ('STABLE_ARIA_GIT_SHA=' + ([string]$stableShaOutput[-1]).Trim())
+            }
+            else {
+              Write-Output ('STABLE_ARIA_GIT_SHA_STATUS=ERROR_' + $stableShaExit)
+            }
+
+            $stableStatusOutput = @(& git -c ("safe.directory=" + $safeDirectoryValue) -C $stableRoot status --short 2>&1)
+            $stableStatusExit = $LASTEXITCODE
+            if ($stableStatusExit -eq 0) {
+              $stableDirtyCount = @($stableStatusOutput | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) }).Count
+              Write-Output ('STABLE_ARIA_WORKTREE_DIRTY_COUNT=' + $stableDirtyCount)
+            }
+            else {
+              Write-Output ('STABLE_ARIA_WORKTREE_STATUS=ERROR_' + $stableStatusExit)
+            }
+          }
+
+          if (-not $task) {
+            Write-Output 'ARIA_WORKER_TASK_EXISTS=false'
+            $shellOwners = @()
+            foreach ($process in @(Get-CimInstance Win32_Process -Filter "Name='explorer.exe'" -ErrorAction SilentlyContinue)) {
+              try {
+                $owner = Invoke-CimMethod -InputObject $process -MethodName GetOwner -ErrorAction Stop
+                if ($owner.ReturnValue -eq 0) {
+                  $shellOwners += ($owner.Domain + '\\' + $owner.User)
+                }
+              }
+              catch {}
+            }
+            $shellOwners = @($shellOwners | Select-Object -Unique)
+            Write-Output ('INTERACTIVE_EXPLORER_COUNT=' + $shellOwners.Count)
+            Write-Output ('INTERACTIVE_SHELL_OWNERS=' + ($shellOwners -join ';'))
+            Write-Output 'TASK_INSPECTION_ONLY=true'
+            exit 0
+          }
+
+          Write-Output 'ARIA_WORKER_TASK_EXISTS=true'
+          Write-Output ('TASK_STATE=' + [string]$task.State)
+          Write-Output ('TASK_ENABLED=' + [string](-not $task.Settings.Enabled -eq $false))
+          Write-Output ('TASK_PRINCIPAL=' + [string]$task.Principal.UserId)
+          Write-Output ('TASK_LOGON_TYPE=' + [string]$task.Principal.LogonType)
+          Write-Output ('TASK_RUN_LEVEL=' + [string]$task.Principal.RunLevel)
+
+          $principalSid = $null
+          try {
+            $principalSid = (New-Object System.Security.Principal.NTAccount([string]$task.Principal.UserId)).Translate([System.Security.Principal.SecurityIdentifier]).Value
+          }
+          catch {
+            try {
+              $principalSid = (New-Object System.Security.Principal.SecurityIdentifier([string]$task.Principal.UserId)).Value
+            }
+            catch {
+              Write-Output 'TASK_PRINCIPAL_SID_RESOLUTION=FAILED'
+            }
+          }
+          if ($principalSid) {
+            Write-Output ('TASK_PRINCIPAL_SID=' + $principalSid)
+          }
+
+          $triggerLabels = @($task.Triggers | ForEach-Object {
+            $kind = [string]$_.CimClass.CimClassName
+            $userProperty = $_.PSObject.Properties['UserId']
+            if ($userProperty -and $userProperty.Value) {
+              $kind + ':' + [string]$userProperty.Value
+            }
+            else {
+              $kind
+            }
+          })
+          Write-Output ('TASK_TRIGGERS=' + ($triggerLabels -join ';'))
+
+          $actions = @($task.Actions)
+          $configPath = $null
+          foreach ($action in $actions) {
+            $arguments = [string]$action.Arguments
+            $match = [regex]::Match($arguments, '(?i)(?:^|\s)-ConfigPath\s+"([^"]+)"')
+            if ($match.Success) {
+              $configPath = $match.Groups[1].Value
+              break
+            }
+          }
+
+          if (-not $configPath) {
+            Write-Output 'TASK_CONFIGPATH_ARGUMENT=NOT_FOUND'
+            Write-Output 'TASK_DPAPI_CONFIG_EXISTS=false'
+          }
+          elseif (-not (Test-Path -LiteralPath $configPath -PathType Leaf)) {
+            Write-Output 'TASK_CONFIGPATH_ARGUMENT=FOUND'
+            Write-Output 'TASK_DPAPI_CONFIG_EXISTS=false'
+          }
+          else {
+            Write-Output 'TASK_CONFIGPATH_ARGUMENT=FOUND'
+            Write-Output 'TASK_DPAPI_CONFIG_EXISTS=true'
+            $config = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json -ErrorAction Stop
+            Write-Output ('TASK_CONFIG_FORMAT=' + [string]$config.format)
+            Write-Output ('TASK_CONFIG_PROTECTED_SID=' + [string]$config.protectedForSid)
+            if ($principalSid -and [string]$config.protectedForSid -eq $principalSid) {
+              Write-Output 'TASK_DPAPI_PRINCIPAL_MATCH=PASS'
+            }
+            else {
+              Write-Output 'TASK_DPAPI_PRINCIPAL_MATCH=FAIL'
+            }
+          }
+
+          $explorerOwners = @()
+          foreach ($process in @(Get-CimInstance Win32_Process -Filter "Name='explorer.exe'" -ErrorAction SilentlyContinue)) {
+            try {
+              $owner = Invoke-CimMethod -InputObject $process -MethodName GetOwner -ErrorAction Stop
+              if ($owner.ReturnValue -eq 0) {
+                $explorerOwners += ($owner.Domain + '\' + $owner.User)
+              }
+            }
+            catch {}
+          }
+          $explorerOwners = @($explorerOwners | Select-Object -Unique)
+          Write-Output ('INTERACTIVE_EXPLORER_COUNT=' + $explorerOwners.Count)
+          if ($principalSid -and $explorerOwners.Count -gt 0) {
+            $principalName = ([string]$task.Principal.UserId).ToLowerInvariant()
+            $shellMatch = @($explorerOwners | Where-Object { $_.ToLowerInvariant() -eq $principalName }).Count -gt 0
+            Write-Output ('TASK_PRINCIPAL_HAS_INTERACTIVE_SHELL=' + [string]$shellMatch)
+          }
+          else {
+            Write-Output 'TASK_PRINCIPAL_HAS_INTERACTIVE_SHELL=UNVERIFIED'
+          }
+
+          Write-Output 'TASK_INSPECTION_ONLY=true'
   live-security-readonly-check:
     if: (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.actor == github.repository_owner) || (github.event_name == 'push' && github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, 'Diagnose and harden frozen-worker probe on ROBVG'))
     runs-on: ubuntu-latest
