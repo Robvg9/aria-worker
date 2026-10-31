@@ -102,6 +102,14 @@ node scripts/aria-persistent-windows-worker-v1.js
 
 The PowerShell supervisor script `scripts/Start-ARIA-Persistent-Worker.ps1` loads an external private config and restarts the Node worker with bounded backoff. To start it automatically after sign-in/reboot, register that script with your approved Windows startup mechanism after the cloud URL and worker token are configured; this change does not register a persistent OS task by itself.
 
+Before any persistent start, run the mutation-free Windows preflight. It loads the same external config, checks the local Ollama model, checks coordinator `/health`, and probes the worker-auth boundary using GET only:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "D:\\path\\to\\aria-worker\\scripts\\Start-ARIA-Persistent-Worker.ps1" -ConfigPath "$env:LOCALAPPDATA\\ARIA\\worker.env" -InstallDir "D:\\path\\to\\aria-worker" -NodePath "D:\\Databank\\node\\node.exe" -PreflightOnly
+```
+
+Expected result: `ARIA_WINDOWS_PREFLIGHT_PASS=true`, local Ollama ready, coordinator health HTTP 200, worker route without a token HTTP 401, and the same GET with the correct worker token HTTP 405 (authenticated but method not allowed). The authenticated probe is deliberately GET-only: it never submits a claim body and cannot create a job or lease. It does not register a scheduled task, start the polling loop, create missions, or change coordinator state. Never paste the worker token into chat or commit the external config. The worker token must match the separately configured `ARIA_AUTONOMY_WORKER_TOKEN` secret; GitHub does not reveal an existing secret value, so if its original value is unavailable, stop and handle token rotation as a separate reviewed deployment step.
+
 The worker requires the configured Ollama model to be available locally. \`ARIA_WORKSPACE_ROOT\` is mandatory and is the only project tree it can read or modify. Writes and edits create backups under \`.aria-autonomy-backups\`. Credentials, \`.env\` files, \`.git\`, \`node_modules\`, and Supabase paths are excluded. Arbitrary shell commands, commits, pushes and deployments are not exposed by this adapter.
 
 If the worker is offline when a mission is submitted, the mission is saved in \`planning\` state first. It remains visible and the durable planning job is reused when the worker reconnects; no chat message such as “continue” is needed. The current webhook notification outbox is durable; push delivery still requires a configured HTTPS webhook.

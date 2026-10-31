@@ -10,11 +10,16 @@ param(
 
     [string]$TaskName = 'ARIA Persistent Windows Worker',
 
-    [switch]$InstallScheduledTask
+    [switch]$InstallScheduledTask,
+
+    [switch]$PreflightOnly
 )
 
 $ErrorActionPreference = 'Stop'
-$workerScript = Join-Path (Resolve-Path -LiteralPath $InstallDir).Path 'scripts\aria-persistent-windows-worker-v1.js'
+$installRoot = (Resolve-Path -LiteralPath $InstallDir).Path
+$workerScript = Join-Path $installRoot 'scripts\aria-persistent-windows-worker-v1.js'
+$preflightScript = Join-Path $installRoot 'scripts\aria-persistent-windows-worker-preflight-v1.js'
+$launcherScript = Join-Path $installRoot 'scripts\Start-ARIA-Persistent-Worker.ps1'
 $config = (Resolve-Path -LiteralPath $ConfigPath).Path
 $logDir = Join-Path $env:LOCALAPPDATA 'ARIA\logs'
 $logFile = Join-Path $logDir 'persistent-worker-supervisor.log'
@@ -34,10 +39,18 @@ $allowedKeys = @(
 if (-not (Test-Path -LiteralPath $workerScript -PathType Leaf)) {
     throw "Worker entrypoint not found: $workerScript"
 }
+if (-not (Test-Path -LiteralPath $launcherScript -PathType Leaf)) {
+    throw "Worker launcher not found: $launcherScript"
+}
+if ($PreflightOnly -and $InstallScheduledTask) {
+    throw 'PreflightOnly and InstallScheduledTask cannot be used together.'
+}
+if ($PreflightOnly -and -not (Test-Path -LiteralPath $preflightScript -PathType Leaf)) {
+    throw "Worker preflight entrypoint not found: $preflightScript"
+}
 if (-not (Test-Path -LiteralPath $config -PathType Leaf)) {
     throw "Worker configuration file not found: $config"
 }
-$installRoot = (Resolve-Path -LiteralPath $InstallDir).Path
 if ($config.StartsWith($installRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
     throw 'Keep the worker configuration outside the source checkout so secrets are not committed with code.'
 }
@@ -54,6 +67,12 @@ foreach ($line in Get-Content -LiteralPath $config) {
         $value = $value.Substring(1, $value.Length - 2)
     }
     [Environment]::SetEnvironmentVariable($key, $value, 'Process')
+}
+
+if ($PreflightOnly) {
+    & $NodePath $preflightScript
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    exit 0
 }
 
 if ($InstallScheduledTask) {
@@ -75,7 +94,9 @@ if ($InstallScheduledTask) {
     }
     $currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
     $hostExecutable = (Get-Process -Id $PID).Path
-    $arguments = '-NoProfile -ExecutionPolicy Bypass -File "' + $workerScript + '" -ConfigPath "' + $config + '" -InstallDir "' + $installRoot + '" -NodePath "' + $NodePath + '"'
+    # Launch this PowerShell supervisor, not the JavaScript entrypoint as a PowerShell script.
+    # The supervisor reloads the external config and starts Node with the configured environment.
+    $arguments = '-NoProfile -ExecutionPolicy Bypass -File "' + $launcherScript + '" -ConfigPath "' + $config + '" -InstallDir "' + $installRoot + '" -NodePath "' + $NodePath + '" -TaskName "' + $TaskName + '"'
     $action = New-ScheduledTaskAction -Execute $hostExecutable -Argument $arguments
     $trigger = New-ScheduledTaskTrigger -AtLogOn -User $currentUser
     $principal = New-ScheduledTaskPrincipal -UserId $currentUser -LogonType Interactive -RunLevel Limited

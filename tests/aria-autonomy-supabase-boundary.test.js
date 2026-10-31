@@ -11,6 +11,8 @@ const pwaDeploy = fs.readFileSync(path.join(root, '.github/workflows/aria-pwa-fa
 const supabaseDeploy = fs.readFileSync(path.join(root, '.github/workflows/supabase-canonical-deploy.yml'), 'utf8');
 const cloudWorker = fs.readFileSync(path.join(root, 'cloudflare-autonomy/worker.mjs'), 'utf8');
 const wrangler = fs.readFileSync(path.join(root, 'wrangler.aria-autonomy.toml'), 'utf8');
+const persistentWorkflow = fs.readFileSync(path.join(root, '.github/workflows/persistent-autonomy-v1-tests.yml'), 'utf8');
+const windowsLauncher = fs.readFileSync(path.join(root, 'scripts/Start-ARIA-Persistent-Worker.ps1'), 'utf8');
 
 assert.match(legacyWorkflow, /paths-ignore:/);
 assert.match(legacyWorkflow, /workflow_dispatch:/);
@@ -74,4 +76,13 @@ assert.doesNotMatch(isolatedDeploy, /SUPABASE_ACCESS_TOKEN|SUPABASE_PROJECT_REF|
 assert.doesNotMatch(cloudWorker, /SUPABASE_ACCESS_TOKEN|SUPABASE_PROJECT_REF|createSupabaseMissionRepository|supabase\.co/i);
 assert.match(wrangler, /class_name = "AriaMissionStore"/);
 assert.match(wrangler, /new_sqlite_classes = \["AriaMissionStore"\]/);
+assert.ok(windowsLauncher.includes("$launcherScript = Join-Path $installRoot 'scripts\\Start-ARIA-Persistent-Worker.ps1'"), 'scheduled task must point to the PowerShell supervisor');
+assert.ok(windowsLauncher.includes('-File "\' + $launcherScript + \'"'), 'scheduled task must launch the supervisor script');
+assert.ok(!windowsLauncher.includes('-File "\' + $workerScript + \'"'), 'scheduled task must not pass the JavaScript worker to PowerShell -File');
+assert.ok(windowsLauncher.includes('[switch]$PreflightOnly'), 'supervisor must expose a one-shot preflight mode');
+assert.ok(windowsLauncher.includes('& $NodePath $preflightScript'), 'preflight mode must invoke the read-only Node verifier');
+assert.ok(windowsLauncher.includes('PreflightOnly and InstallScheduledTask cannot be used together.'), 'preflight must not be combined with task installation');
+assert.ok(persistentWorkflow.includes('-File $supervisor') && persistentWorkflow.includes('-PreflightOnly'), 'RobVG physical job must run the actual PowerShell supervisor in preflight-only mode');
+assert.ok(persistentWorkflow.includes('sparse-checkout:') && persistentWorkflow.includes('scripts/aria-persistent-windows-worker-preflight-v1.js'), 'physical supervisor preflight must receive only the required source files');
+assert.doesNotMatch(persistentWorkflow, /& \$node \$supervisor/, 'PowerShell supervisor must never be passed to Node as a JavaScript entrypoint');
 process.stdout.write('aria-autonomy-supabase-boundary: all tests passed\n');
