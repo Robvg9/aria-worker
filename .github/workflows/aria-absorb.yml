@@ -38,6 +38,7 @@ on:
       - 'supabase/functions/**'
       - 'supabase/migrations/20261017*mission_job_authorization*'
       - 'autonomy/**'
+      - '!autonomy/PERSISTENT_AUTONOMY_V1.md'
       - 'rwht/pc-browser/**'
       - 'tests/pc-rwht-browser.test.js'
       - 'tests/mission-job-authorization-fence-contract.test.js'

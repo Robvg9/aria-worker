@@ -39,6 +39,7 @@ const autonomyOnlyPaths = [
   'cloudflare-autonomy/assets/index.html',
   'cloudflare-autonomy/worker.mjs',
   'scripts/Start-ARIA-Persistent-Worker.ps1',
+  'scripts/Protect-ARIA-Persistent-Worker-Config.ps1',
   'scripts/aria-persistent-autonomy-v1.js',
   'scripts/aria-persistent-coordinator-v1.js',
   'scripts/aria-persistent-windows-worker-v1.js',
@@ -101,4 +102,7 @@ for (const file of ['.github/workflows/aria-cloudflare-deploy.yml', '.github/wor
   assert.ok(!absorbPushPaths.includes("- '" + file + "'"), 'ABSORB live E2E must not run on administrative edits to ' + file);
 }
 assert.ok(!absorbPushPaths.includes("- '.github/workflows/aria-absorb.yml'"), 'editing the ABSORB workflow itself must not trigger production LIVE E2E');
+const absorbAutonomyDocsInclude = absorbPushPaths.indexOf("      - 'autonomy/**'");
+const absorbMissionDocsExclude = absorbPushPaths.indexOf("      - '!autonomy/PERSISTENT_AUTONOMY_V1.md'");
+assert.ok(absorbAutonomyDocsInclude >= 0 && absorbMissionDocsExclude > absorbAutonomyDocsInclude, 'updating the persistent autonomy guide must not trigger ABSORB production LIVE E2E');
 process.stdout.write('aria-autonomy-supabase-boundary: all tests passed\n');

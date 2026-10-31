@@ -15,8 +15,19 @@ const supervisorScriptPath = path.join(__dirname, '..', 'scripts', 'Start-ARIA-P
     assert.match(supervisorScript, /New-ScheduledTaskTrigger -AtLogOn -User \$currentUser/, 'worker must restart after interactive user logon');
     assert.match(supervisorScript, /New-ScheduledTaskPrincipal -UserId \$currentUser -LogonType Interactive -RunLevel Limited/, 'scheduled worker must run with limited privileges');
     assert.match(supervisorScript, /Register-ScheduledTask/);
-    assert.match(supervisorScript, /Start-ScheduledTask/);
+    assert.match(supervisorScript, /New-ScheduledTaskSettingsSet -Disable/, 'a newly registered task must be disabled');
+    assert.match(supervisorScript, /Disable-ScheduledTask/, 'the registered task must be explicitly disabled and verified');
+    assert.match(supervisorScript, /ARIA_WORKER_TASK_STATE=Disabled/);
+    assert.match(supervisorScript, /ARIA_WORKER_TASK_STARTED=false/);
+    assert.doesNotMatch(supervisorScript, /Start-ScheduledTask/, 'package 4 must never start the worker while it is being prepared');
+    assert.match(supervisorScript, /WorkerConfigIsDpapi/, 'persistent worker operations must require current-user DPAPI config');
     assert.match(supervisorScript, /configuration outside the source checkout/i, 'secrets must remain outside the source checkout');
+
+    const configProtector = await fs.readFile(path.join(__dirname, '..', 'scripts', 'Protect-ARIA-Persistent-Worker-Config.ps1'), 'utf8');
+    assert.match(configProtector, /Read-Host 'Enter the existing ARIA_AUTONOMY_WORKER_TOKEN' -AsSecureString/);
+    assert.match(configProtector, /ConvertFrom-SecureString -SecureString \$workerToken/);
+    assert.match(configProtector, /SetAccessRuleProtection\(\$true, \$false\)/);
+    assert.match(configProtector, /aria-worker-config-dpapi-v1/);
     assert.doesNotMatch(supervisorScript, /ARIA_WORKER_TOKEN\s*=\s*['"][^'"]{32,}['"]/, 'worker token must never be hard-coded into the supervisor');
     const bridge = createPersistentWorkerBridge({ directory, leaseMs: 10000 });
     const created = await bridge.enqueue({ mission_id: 'mission_test', task: { task_id: 'task_test', title: 'Run test' }, context: { goal: 'bridge test' } });

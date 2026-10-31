@@ -28,6 +28,7 @@ on:
       - 'scripts/aria-persistent-windows-worker-preflight-v1.js'
       - 'scripts/aria-persistent-windows-worker-preflight-v1.test.js'
       - 'scripts/Start-ARIA-Persistent-Worker.ps1'
+      - 'scripts/Protect-ARIA-Persistent-Worker-Config.ps1'
       - 'tests/persistent-control-plane-v1.test.js'
       - 'tests/persistent-http-server-v1.test.js'
       - 'tests/persistent-worker-bridge-v1.test.js'
@@ -77,15 +78,22 @@ jobs:
       - name: Parse Windows worker supervisor without executing it
         shell: pwsh
         run: |
-          $tokens = $null
-          $errors = $null
-          $path = Join-Path $PWD 'scripts/Start-ARIA-Persistent-Worker.ps1'
-          [System.Management.Automation.Language.Parser]::ParseFile($path, [ref]$tokens, [ref]$errors) | Out-Null
-          if ($errors.Count -gt 0) {
-            $errors | Format-List *
-            exit 1
+          $paths = @(
+            'scripts/Start-ARIA-Persistent-Worker.ps1',
+            'scripts/Protect-ARIA-Persistent-Worker-Config.ps1'
+          )
+          foreach ($relativePath in $paths) {
+            $tokens = $null
+            $errors = $null
+            $path = Join-Path $PWD $relativePath
+            [System.Management.Automation.Language.Parser]::ParseFile($path, [ref]$tokens, [ref]$errors) | Out-Null
+            if ($errors.Count -gt 0) {
+              Write-Output "POWERSHELL_PARSE_FAILED=$relativePath"
+              $errors | Format-List *
+              exit 1
+            }
           }
-          Write-Output 'WINDOWS_WORKER_SUPERVISOR_PARSE=PASS'
+          Write-Output 'WINDOWS_WORKER_SUPERVISOR_AND_CONFIG_PARSE=PASS'
 
   windows-physical-readonly-preflight:
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'feat/aria-windows-worker-preflight-20261031'
