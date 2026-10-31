@@ -1,5 +1,8 @@
 'use strict';
 
+// This independent coordinator must remain frozen until an explicit reviewed change.
+export const MISSION_EXECUTION_PAUSED = true;
+
 // Supabase-independent Cloudflare Worker coordinator.
 // Durable Object storage is the single source of truth; Windows workers connect outbound only.
 const ALLOWED_OPERATIONS = new Set([
@@ -88,7 +91,20 @@ export class AriaMissionStore {
     this.alarmMs = Math.max(5000, Number(env.ARIA_ALARM_INTERVAL_MS) || 15000);
   }
 
+  isMissionExecutionPaused() {
+    return MISSION_EXECUTION_PAUSED;
+  }
+
+  assertMissionExecutionEnabled() {
+    if (this.isMissionExecutionPaused()) throw new Error('mission_execution_paused');
+  }
+
+  pausedResponse() {
+    return error('mission_execution_paused', 423);
+  }
+
   async exclusive(fn) {
+    if (this.isMissionExecutionPaused()) return this.pausedResponse();
     const previous = this.lock;
     let release;
     this.lock = new Promise(resolve => { release = resolve; });
@@ -107,6 +123,7 @@ export class AriaMissionStore {
     const workerRoute = url.pathname === '/api/worker/claim' || /^\/api\/worker\/jobs\/[^/]+\/(heartbeat|complete|fail)$/.test(url.pathname);
     if (workerRoute) {
       if (!authorized(request, this.env.ARIA_WORKER_TOKEN)) return error('unauthorized_worker', 401);
+      if (method !== 'GET' && this.isMissionExecutionPaused()) return this.pausedResponse();
       if (method === 'POST' && url.pathname === '/api/worker/claim') return this.exclusive(() => this.claim(request));
       const match = url.pathname.match(/^\/api\/worker\/jobs\/([^/]+)\/(heartbeat|complete|fail)$/);
       if (method !== 'POST' || !match) return error('method_not_allowed', 405);
@@ -118,6 +135,7 @@ export class AriaMissionStore {
 
     if (!url.pathname.startsWith('/api/')) return error('not_found', 404);
     if (!authorized(request, this.env.ARIA_CONTROL_TOKEN)) return error('unauthorized', 401);
+    if (method !== 'GET' && this.isMissionExecutionPaused()) return this.pausedResponse();
 
     if (method === 'GET' && url.pathname === '/api/missions') {
       const records = await this.ctx.storage.list({ prefix: 'mission:' });
@@ -151,6 +169,7 @@ export class AriaMissionStore {
     return this.ctx.storage.get('mission:' + missionId);
   }
   async saveMission(mission, eventType, details = {}) {
+    this.assertMissionExecutionEnabled();
     mission.updated_at = nowIso();
     mission.progress_percent = progressOf(mission);
     mission.event_sequence = (mission.event_sequence || 0) + 1;
@@ -165,6 +184,7 @@ export class AriaMissionStore {
     });
   }
   async notify(event) {
+    this.assertMissionExecutionEnabled();
     const record = {
       notification_id: uuid('notification'),
       created_at: nowIso(),
@@ -180,6 +200,7 @@ export class AriaMissionStore {
     return record;
   }
   async deliverNotification(notificationId) {
+    this.assertMissionExecutionEnabled();
     const record = await this.ctx.storage.get('notification:' + notificationId);
     if (!record || !['pending', 'waiting_config'].includes(record.status)) return;
     let endpoint;
@@ -205,6 +226,7 @@ export class AriaMissionStore {
     await this.ctx.storage.put('notification:' + notificationId, record);
   }
   async scheduleAlarm() {
+    if (this.isMissionExecutionPaused()) return false;
     const missions = await this.ctx.storage.list({ prefix: 'mission:' });
     const hasActive = Array.from(missions.values()).some(m => ACTIVE_MISSION_STATES.has(m.status));
     const jobs = await this.ctx.storage.list({ prefix: 'job:' });
@@ -212,6 +234,7 @@ export class AriaMissionStore {
     if (hasActive || hasJobs) await this.ctx.storage.setAlarm(Date.now() + this.alarmMs);
   }
   async createJob(mission, operation, task, context = {}) {
+    this.assertMissionExecutionEnabled();
     const jobs = await this.ctx.storage.list({ prefix: 'job:' });
     const existing = Array.from(jobs.values()).find(job =>
       job.mission_id === mission.mission_id &&
@@ -248,6 +271,7 @@ export class AriaMissionStore {
     return job;
   }
   async createMission(request) {
+    this.assertMissionExecutionEnabled();
     let body;
     try { body = await request.json(); } catch (_) { return error('invalid_json', 400); }
     const goal = String(body.goal || '').trim();
@@ -283,6 +307,7 @@ export class AriaMissionStore {
   }
 
   async claim(request) {
+    this.assertMissionExecutionEnabled();
     let body;
     try { body = await request.json(); } catch (_) { return error('invalid_json', 400); }
     const workerId = String(body.worker_id || '').slice(0, 200);
@@ -309,6 +334,7 @@ export class AriaMissionStore {
   }
 
   async heartbeat(jobId, request) {
+    this.assertMissionExecutionEnabled();
     let body;
     try { body = await request.json(); } catch (_) { return error('invalid_json', 400); }
     const job = await this.ctx.storage.get('job:' + jobId);
@@ -322,6 +348,7 @@ export class AriaMissionStore {
   }
 
   async complete(jobId, request) {
+    this.assertMissionExecutionEnabled();
     let body;
     try { body = await request.json(); } catch (_) { return error('invalid_json', 400); }
     const job = await this.ctx.storage.get('job:' + jobId);
@@ -398,6 +425,7 @@ export class AriaMissionStore {
   }
 
   async failAfterResult(job, mission, reason) {
+    this.assertMissionExecutionEnabled();
     job.status = 'failed';
     job.last_error = reason;
     job.updated_at = nowIso();
@@ -412,6 +440,7 @@ export class AriaMissionStore {
   }
 
   async handleTaskFailure(job, mission, task, reason) {
+    this.assertMissionExecutionEnabled();
     task.last_error = reason.slice(0, 1000);
     mission.current_task_id = null;
     job.status = 'failed';
@@ -447,6 +476,7 @@ export class AriaMissionStore {
   }
 
   async fail(jobId, request) {
+    this.assertMissionExecutionEnabled();
     let body;
     try { body = await request.json(); } catch (_) { return error('invalid_json', 400); }
     const job = await this.ctx.storage.get('job:' + jobId);
@@ -473,6 +503,7 @@ export class AriaMissionStore {
   }
 
   async scheduleNext(mission) {
+    this.assertMissionExecutionEnabled();
     if (mission.status !== 'running') return;
     if (mission.current_task_id) {
       const current = mission.tasks.find(task => task.task_id === mission.current_task_id);
@@ -525,6 +556,7 @@ export class AriaMissionStore {
   }
 
   async decideApproval(approvalId, request) {
+    this.assertMissionExecutionEnabled();
     let body;
     try { body = await request.json(); } catch (_) { return error('invalid_json', 400); }
     if (!['approved', 'rejected'].includes(body.decision)) return error('approval_decision_invalid', 400);
@@ -555,6 +587,7 @@ export class AriaMissionStore {
   }
 
   async resume(missionId, request) {
+    this.assertMissionExecutionEnabled();
     const mission = await this.getMission(missionId);
     if (!mission) return error('mission_not_found', 404);
     if (mission.status !== 'waiting_human' || (mission.approval && mission.approval.status === 'pending')) return error('mission_not_resumable', 409);
@@ -580,6 +613,7 @@ export class AriaMissionStore {
   }
 
   async reconcile() {
+    this.assertMissionExecutionEnabled();
     const jobs = await this.ctx.storage.list({ prefix: 'job:' });
     for (const job of jobs.values()) {
       if (job.status === 'leased' && job.lease_until && Date.parse(job.lease_until) <= Date.now()) {
@@ -603,6 +637,7 @@ export class AriaMissionStore {
   }
 
   async alarm() {
+    if (this.isMissionExecutionPaused()) return;
     await this.exclusive(() => this.reconcile());
     const notices = await this.ctx.storage.list({ prefix: 'notification:' });
     const pending = Array.from(notices.values()).filter(item => item.status === 'pending').slice(0, 10);
