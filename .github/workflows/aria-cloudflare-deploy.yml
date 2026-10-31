@@ -8,6 +8,7 @@ on:
     # that pipeline deploys the existing ARIA Worker and also mutates Supabase.
     # Keep manual workflow_dispatch available for explicitly authorized releases.
     paths-ignore:
+      - '.github/workflows/cloudflare-workers-inventory-readonly.yml'
       - '.github/workflows/aria-cloudflare-deploy.yml'
       - '.github/workflows/aria-pwa-fast-deploy.yml'
       - '.github/workflows/supabase-canonical-deploy.yml'
