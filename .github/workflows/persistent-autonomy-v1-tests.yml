@@ -114,9 +114,9 @@ jobs:
           $global:Package4CiTestToken = $testToken
 
           try {
-            $scriptPath = Join-Path $env:GITHUB_WORKSPACE 'scripts\\Protect-ARIA-Persistent-Worker-Config.ps1'
+            $scriptPath = Join-Path $env:GITHUB_WORKSPACE 'scripts/Protect-ARIA-Persistent-Worker-Config.ps1'
             & $scriptPath -InstallDir $env:GITHUB_WORKSPACE -WorkspaceRoot $workspace -OllamaModel 'ci-test-model:latest'
-            $configPath = Join-Path $env:LOCALAPPDATA 'ARIA\\worker\\worker.config.json'
+            $configPath = Join-Path $env:LOCALAPPDATA 'ARIA/worker/worker.config.json'
             if (-not (Test-Path -LiteralPath $configPath -PathType Leaf)) {
               throw 'DPAPI config file was not created.'
             }
@@ -145,7 +145,8 @@ jobs:
 
             foreach ($protectedPath in @((Split-Path -Parent $configPath), $configPath)) {
               $acl = Get-Acl -LiteralPath $protectedPath
-              if ($acl.Owner -notmatch [regex]::Escape($sid)) {
+              $ownerSid = $acl.GetOwner([System.Security.Principal.SecurityIdentifier]).Value
+              if ($ownerSid -ne $sid) {
                 throw "Protected path owner does not match current SID: $protectedPath"
               }
               $rules = $acl.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier])
@@ -161,7 +162,7 @@ jobs:
             Write-Output 'WINDOWS_DPAPI_CURRENT_USER_ACL=PASS'
           }
           finally {
-            Remove-Item Function:\\Read-Host -ErrorAction SilentlyContinue
+            Remove-Item Function:\Read-Host -ErrorAction SilentlyContinue
             $global:Package4CiTestToken = $null
             $env:LOCALAPPDATA = $originalLocalAppData
             Remove-Item -LiteralPath $testRoot -Recurse -Force -ErrorAction SilentlyContinue
