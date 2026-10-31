@@ -532,9 +532,12 @@ jobs:
               throw 'Worker supervisor did not stop within 20 seconds; child process tree was terminated after exporting diagnostics.'
             }
             $supervisorProcess.Refresh()
+            if (-not $supervisorProcess.HasExited) {
+              throw 'Supervisor wait returned but the process is still active.'
+            }
+            Write-Output 'WINDOWS_SUPERVISOR_PROCESS_EXITED=true'
             $supervisorExitCode = $supervisorProcess.ExitCode
-            Write-Output ("WINDOWS_SUPERVISOR_EXIT_CODE={0}" -f $supervisorExitCode)
-            if ([int]$supervisorExitCode -ne 0) {
+            if ($null -ne $supervisorExitCode -and [int]$supervisorExitCode -ne 0) {
               foreach ($diagnosticPath in @($logFile, $supervisorStdout, $supervisorStderr)) {
                 if (Test-Path -LiteralPath $diagnosticPath) {
                   Write-Output ('SUPERVISOR_DIAGNOSTIC_BEGIN=' + [System.IO.Path]::GetFileName($diagnosticPath))
@@ -545,7 +548,7 @@ jobs:
               throw ("WINDOWS_FROZEN_WORKER_SUPERVISOR_EXIT={0}" -f $supervisorExitCode)
             }
 
-            $log = Get-Content -LiteralPath $logFile -Raw
+            $log = [System.IO.File]::ReadAllText($logFile).Replace([string][char]0, '')
             if (-not $log.Contains('ARIA_WINDOWS_WORKER_STOPPED=MISSION_EXECUTION_PAUSED')) {
               throw 'Worker did not report the expected frozen stop reason.'
             }
