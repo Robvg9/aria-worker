@@ -177,6 +177,12 @@ try {
     $nodeCommand = Get-Command node -ErrorAction Stop
     $nodePath = $nodeCommand.Source
     $originalLocalAppData = $env:LOCALAPPDATA
+    $originalPSModulePath = $env:PSModulePath
+    $windowsPowerShellModules = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\Modules'
+    if (-not (Test-Path -LiteralPath $windowsPowerShellModules -PathType Container)) {
+        throw "Windows PowerShell built-in module directory missing: $windowsPowerShellModules"
+    }
+    $env:PSModulePath = $windowsPowerShellModules + [IO.Path]::PathSeparator + $originalPSModulePath
     $env:LOCALAPPDATA = Join-Path $root 'isolated-profile'
     $taskName = 'ARIA-Worker-TaskHost-CI-' + [guid]::NewGuid().ToString('N')
     $workspace = Join-Path $root 'task-workspace'
@@ -295,6 +301,7 @@ try {
     finally {
         Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
         $env:LOCALAPPDATA = $originalLocalAppData
+        $env:PSModulePath = $originalPSModulePath
         $configToken = $null
         $configSecure.Dispose()
     }
