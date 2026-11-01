@@ -91,15 +91,15 @@ const windowsConsoleProbe = fs.readFileSync(path.join(root, 'scripts/aria-worker
 assert.ok(windowsLauncher.includes("$taskHostSource = Join-Path $installRoot 'scripts\\aria-worker-task-host.cs'"), 'task installer must compile the Windows no-console host');
 assert.ok(windowsLauncher.includes('/target:winexe'), 'task host must be compiled as a Windows GUI-subsystem executable');
 assert.ok(windowsLauncher.includes('New-ScheduledTaskAction -Execute $taskHostExecutable'), 'scheduled task must execute the GUI task host, not PowerShell directly');
-assert.ok(windowsLauncher.includes("--run " + "'"), 'scheduled task must use the host worker-run mode');
+assert.match(windowsLauncher, /\$arguments\s*=\s*'--run "/, 'scheduled task arguments must use the host worker-run mode');
 assert.ok(windowsLauncher.includes("InnerText = 'PT30S'"), 'scheduled task must include a logon startup delay');
 assert.ok(windowsTaskHost.includes('DETACHED_PROCESS'), 'host must launch the console worker in DETACHED_PROCESS mode');
 assert.ok(windowsTaskHost.includes('ProtectedData.Unprotect'), 'host must decrypt the current-user DPAPI config');
 assert.ok(windowsTaskHost.includes('DataProtectionScope.CurrentUser'), 'host must scope DPAPI to the current user');
 assert.ok(windowsTaskHost.includes('CREATE_UNICODE_ENVIRONMENT'), 'host must create a Unicode environment block for Node');
 assert.ok(windowsConsoleProbe.includes('GetConsoleWindow'), 'console child probe must check the actual console handle');
-assert.ok(!windowsLauncher.includes('-File "' + " + "' + $launcherScript + '" + "), 'scheduled task must no longer launch the PowerShell supervisor directly');
-assert.ok(!windowsLauncher.includes('-File "' + " + "' + $workerScript + '" + "), 'scheduled task must not pass the JavaScript worker to PowerShell -File');
+assert.doesNotMatch(windowsLauncher, /\$arguments\s*=\s*'-NoProfile -ExecutionPolicy Bypass -File "/, 'scheduled task must no longer launch the PowerShell supervisor directly');
+assert.doesNotMatch(windowsLauncher, /\$arguments\s*=\s*'-NoProfile -ExecutionPolicy Bypass -File "[^"]*aria-persistent-windows-worker-v1\.js/, 'scheduled task must not pass the JavaScript worker to PowerShell -File');
 assert.ok(windowsLauncher.includes('[switch]$PreflightOnly'), 'supervisor must expose a one-shot preflight mode');
 assert.ok(windowsLauncher.includes('& $NodePath $preflightScript'), 'preflight mode must invoke the read-only Node verifier');
 assert.ok(windowsLauncher.includes('PreflightOnly and InstallScheduledTask cannot be used together.'), 'preflight must not be combined with task installation');
