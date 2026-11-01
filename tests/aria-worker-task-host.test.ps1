@@ -212,8 +212,17 @@ try {
         $configJson = $null
         $configDocument = $null
 
-        & $launcher -ConfigPath $configPath -InstallDir $repoRoot -NodePath $nodePath -TaskName $taskName -InstallScheduledTask
-        if ($LASTEXITCODE -ne 0) { throw "Launcher task install returned $LASTEXITCODE." }
+        $powershellExe = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+        $launcherArgs = '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' +
+            $launcher + '" -ConfigPath "' + $configPath +
+            '" -InstallDir "' + $repoRoot +
+            '" -NodePath "' + $nodePath +
+            '" -TaskName "' + $taskName + '" -InstallScheduledTask'
+
+        $installProcess = Start-Process -FilePath $powershellExe -ArgumentList $launcherArgs -PassThru -Wait
+        if ($installProcess.ExitCode -ne 0) {
+            throw "Launcher task install returned $($installProcess.ExitCode)."
+        }
 
         $task = Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
         $taskRegistered = $true
@@ -238,9 +247,27 @@ try {
         if ($null -eq $delay -or $delay.InnerText -ne 'PT30S') {
             throw 'Disposable task does not preserve the 30-second logon delay.'
         }
-        if ($null -eq $userNode -or [string]$userNode.InnerText -notmatch '^(ROBVG\\|[^\\]+\\)?[^\\]+
-) {
-            throw 'Disposable task logon trigger is not user-specific.'
+        if ($null -eq $userNode) {
+            throw 'Disposable task logon trigger has no UserId.'
+        }
+
+        $triggerName = [string]$userNode.InnerText
+        $triggerAccount = if ($triggerName -notmatch '\\' -and $triggerName -notmatch '^S-1-') {
+            "$env:COMPUTERNAME\$triggerName"
+        } else { $triggerName }
+
+        $triggerSid = $null
+        try {
+            $triggerSid = (New-Object System.Security.Principal.NTAccount($triggerAccount)).Translate(
+                [System.Security.Principal.SecurityIdentifier]
+            ).Value
+        }
+        catch {
+            try { $triggerSid = (New-Object System.Security.Principal.SecurityIdentifier($triggerName)).Value } catch {}
+        }
+
+        if ($triggerSid -ne $identity.User.Value) {
+            throw 'Disposable task trigger SID does not match the DPAPI CurrentUser SID.'
         }
 
         $principalName = [string]$task.Principal.UserId
@@ -262,9 +289,7 @@ try {
         Write-Output 'TASK_HOST_DPAPI_CONFIG_FORMAT=PASS'
     }
     finally {
-        if ($taskRegistered) {
-            Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
-        }
+        Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
         $env:LOCALAPPDATA = $originalLocalAppData
         $configToken = $null
         $configSecure.Dispose()
