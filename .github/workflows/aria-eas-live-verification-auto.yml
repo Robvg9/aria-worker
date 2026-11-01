@@ -1,9 +1,8 @@
 name: ARIA EAS Live Verification Auto
 
+# Dispatch this workflow manually: it starts a cloud EAS build and can consume
+# the project's monthly build allowance. Never spend build quota on unrelated pushes.
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
 
 permissions:
