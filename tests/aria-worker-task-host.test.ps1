@@ -219,9 +219,13 @@ try {
             '" -NodePath "' + $nodePath +
             '" -TaskName "' + $taskName + '" -InstallScheduledTask'
 
-        $installProcess = Start-Process -FilePath $powershellExe -ArgumentList $launcherArgs -PassThru -Wait
+        $installStdOut = Join-Path $root 'launcher-install.stdout.log'
+        $installStdErr = Join-Path $root 'launcher-install.stderr.log'
+        $installProcess = Start-Process -FilePath $powershellExe -ArgumentList $launcherArgs -PassThru -Wait -RedirectStandardOutput $installStdOut -RedirectStandardError $installStdErr
         if ($installProcess.ExitCode -ne 0) {
-            throw "Launcher task install returned $($installProcess.ExitCode)."
+            $stdoutText = if (Test-Path $installStdOut) { Get-Content -LiteralPath $installStdOut -Raw } else { '' }
+            $stderrText = if (Test-Path $installStdErr) { Get-Content -LiteralPath $installStdErr -Raw } else { '' }
+            throw "Launcher task install returned $($installProcess.ExitCode). STDOUT=$stdoutText STDERR=$stderrText"
         }
 
         $task = Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
