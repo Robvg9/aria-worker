@@ -130,7 +130,64 @@ if(typeof _fault==="string"&&_eref.startsWith("live-resilience-inject:")){
     metadata:{runtime:"aria-execution-runtime-v1",adapter_id:"mistral_chat_completions",provider_id:"mistral",route_type:"direct",attempt:1,canonical_write:false,memory_authority:"none"}
   });
 }
-if(route.provider_id==="google")return directGemini(route,input);if(route.provider_id==="xai")return xaiResponses(route,input);if(route.provider_id==="mistral")return mistralChat(route,input);if(route.provider_id!=="openrouter")return out({status:"blocked",reason:"adapter_unavailable"});if(route.capability!=="text_generation")return out({status:"blocked",reason:"capability_missing"});if(route.account_id!=="acct_openrouter_primary")return out({status:"blocked",reason:"route_not_selectable"});const freeOpenRouterModels=new Set([
+async function dashscopeChat(route:any,input:any){
+  if(route.capability!=="text_generation")return out({status:"blocked",reason:"capability_missing"});
+  if(route.account_id!=="acct_dashscope_primary")return out({status:"blocked",reason:"route_not_selectable"});
+  if(route.model_id!=="alibaba_dashscope/qwen3.8-max")return out({status:"blocked",reason:"model_not_verified"});
+  const raw=await secret("dashscope/qwen_primary");
+  if(!raw)return out({status:"failed",error:{code:"credential_unavailable",message:"dashscope credential unavailable"}});
+  let credential:any;
+  try{credential=JSON.parse(raw)}catch{return out({status:"failed",error:{code:"credential_unavailable",message:"dashscope credential format invalid"}})}
+  if(typeof credential?.api_key!=="string"||credential.api_key.length<12||
+     typeof credential?.workspace_id!=="string"||!/^[A-Za-z0-9-]{6,80}$/.test(credential.workspace_id)||
+     credential.region!=="ap-southeast-1"){
+    return out({status:"failed",error:{code:"credential_unavailable",message:"dashscope credential fields invalid"}});
+  }
+  if(credential.free_quota_only!==true)return out({status:"blocked",reason:"free_quota_only_not_confirmed"});
+  const quotaExpires=Date.parse(String(credential.free_quota_expires_at||""));
+  if(!Number.isFinite(quotaExpires)||quotaExpires<=Date.now())return out({status:"blocked",reason:"free_quota_expired_or_unknown"});
+  const p=input?.payload??{};
+  const messages=Array.isArray(p.messages)&&p.messages.length?p.messages:(typeof p.prompt==="string"&&p.prompt.length?[{role:"user",content:p.prompt}]:null);
+  if(!messages)return out({status:"blocked",reason:"input_missing"});
+  const requested=Number.isFinite(Number(p.max_tokens))?Number(p.max_tokens):1024;
+  const body:any={model:"qwen3.8-max",messages,max_tokens:Math.max(1,Math.min(Math.floor(requested),2048))};
+  if(typeof p.temperature==="number")body.temperature=Math.max(0,Math.min(2,p.temperature));
+  if(typeof p.top_p==="number")body.top_p=Math.max(0,Math.min(1,p.top_p));
+  const endpoint=`https://${credential.workspace_id}.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1/chat/completions`;
+  const controller=new AbortController();const timeout=setTimeout(()=>controller.abort(),20000);
+  let res:Response;
+  try{
+    res=await fetch(endpoint,{method:"POST",headers:{Authorization:`Bearer ${credential.api_key}`,"Content-Type":"application/json"},body:JSON.stringify(body),signal:controller.signal});
+  }catch(error){
+    return out({status:"failed",error:{code:error instanceof Error&&error.name==="AbortError"?"transport_timeout":"transport_error",message:error instanceof Error&&error.name==="AbortError"?"provider request timed out":"transport failure"}});
+  }finally{clearTimeout(timeout)}
+  const json=await res.json().catch(()=>null);
+  const providerCode=String(json?.code||json?.error?.code||"");
+  const providerMessage=sanitize(json?.message||json?.error?.message||`provider returned HTTP ${res.status}`);
+  const rateLimit={
+    limit_requests:res.headers.get("x-ratelimit-limit-requests"),
+    remaining_requests:res.headers.get("x-ratelimit-remaining-requests"),
+    reset_requests:res.headers.get("x-ratelimit-reset-requests"),
+    limit_tokens:res.headers.get("x-ratelimit-limit-tokens"),
+    remaining_tokens:res.headers.get("x-ratelimit-remaining-tokens"),
+    reset_tokens:res.headers.get("x-ratelimit-reset-tokens"),
+    retry_after:res.headers.get("retry-after")
+  };
+  if(!res.ok){
+    const failureCode=providerCode==="AllocationQuota.FreeTierOnly"?"quota_exhausted":res.status===429?"rate_limit":"provider_error";
+    return out({status:"failed",error:{code:failureCode,message:providerMessage,provider_status:res.status,provider_code:providerCode||null},metadata:{provider_id:"alibaba_dashscope",adapter_id:"dashscope_openai_compatible",region:"ap-southeast-1",free_quota_guard:"free_quota_only",rate_limit:rateLimit}});
+  }
+  const choice=json?.choices?.[0];const content=choice?.message?.content;
+  if(typeof content!=="string"||!content.trim())return out({status:"failed",error:{code:"invalid_response",message:"no text content in provider response"}});
+  const usage=json?.usage??{};
+  return out({
+    status:"succeeded",
+    response:{modality:"text",content,provider_response_id:typeof json?.id==="string"?json.id:null,finish_reason:typeof choice?.finish_reason==="string"?choice.finish_reason:null,provider_model:typeof json?.model==="string"?json.model:route.model_id},
+    usage:{status:"reported",prompt_tokens:typeof usage.prompt_tokens==="number"?usage.prompt_tokens:null,completion_tokens:typeof usage.completion_tokens==="number"?usage.completion_tokens:null,total_tokens:typeof usage.total_tokens==="number"?usage.total_tokens:null},
+    metadata:{runtime:"aria-execution-runtime-v1",adapter_id:"dashscope_openai_compatible",provider_id:"alibaba_dashscope",route_type:"direct",attempt:1,canonical_write:false,memory_authority:"none",region:"ap-southeast-1",free_quota_guard:"free_quota_only",free_quota_expires_at:new Date(quotaExpires).toISOString(),rate_limit:rateLimit}
+  });
+}
+if(route.provider_id==="google")return directGemini(route,input);if(route.provider_id==="xai")return xaiResponses(route,input);if(route.provider_id==="mistral")return mistralChat(route,input);if(route.provider_id==="alibaba_dashscope")return dashscopeChat(route,input);if(route.provider_id!=="openrouter")return out({status:"blocked",reason:"adapter_unavailable"});if(route.capability!=="text_generation")return out({status:"blocked",reason:"capability_missing"});if(route.account_id!=="acct_openrouter_primary")return out({status:"blocked",reason:"route_not_selectable"});const freeOpenRouterModels=new Set([
 "nvidia/nemotron-3-ultra-550b-a55b:free",
 "poolside/laguna-s-2.1:free",
 "inclusionai/ling-3.0-flash-fin:free",
