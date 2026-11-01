@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'supabase/migrations/20261101070000_aria_activation_reconciliation_guards_v1.sql'
+      - 'supabase/migrations/20261101161000_aria_no_goal_mission_admission_lane_guard_v1.sql'
       - 'tests/sql/aria-activation-reconciliation-fixture.sql'
       - 'tests/sql/aria-activation-reconciliation.integration.sql'
       - '.github/workflows/aria-activation-reconciliation-sql.yml'

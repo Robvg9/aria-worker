@@ -253,6 +253,20 @@ test('legacy mission and execution endpoints stay frozen before parsing or dispa
   assert.ok(supervisorGate < supervisor.indexOf('fetch(CANONICAL', supervisorHandler), 'supervisor must pause before canonical fan-out');
 });
 
+
+test('standalone no-goal mission claims require explicit execution-lane provenance', () => {
+  const migration = read('supabase/migrations/20261101161000_aria_no_goal_mission_admission_lane_guard_v1.sql');
+  const integration = read('tests/sql/aria-activation-reconciliation.integration.sql');
+  assert.ok(migration.includes('g.goal_id is not null'), 'goal-linked missions retain their existing governed admission branch');
+  assert.ok(migration.includes("m.metadata->>'execution_lane'"), 'standalone mission must carry an explicit execution lane');
+  assert.ok(migration.includes("m.metadata->>'goal_source'"), 'standalone mission may use the established goal_source lane contract');
+  assert.ok(integration.includes('mission-no-goal-unclassified'), 'PG17 must prove unclassified no-goal missions are rejected');
+  assert.ok(integration.includes('mission-no-goal-source-only'), 'PG17 must prove generic source metadata is not a lane');
+  assert.ok(integration.includes('mission-no-goal-user-lane'), 'PG17 must preserve explicit user lane admission');
+  assert.ok(integration.includes('mission-no-goal-test-lane'), 'PG17 must preserve explicitly dispatched test lane admission');
+  assert.ok(integration.includes('mission-no-goal-human-gate-lane'), 'PG17 must preserve separately gated Human Gate lane admission');
+});
+
 console.log('ARIA no-mission-reactivation contract tests registered');
 
 test('canonical activation reconciliation guards exhausted goals and goal queue records', () => {

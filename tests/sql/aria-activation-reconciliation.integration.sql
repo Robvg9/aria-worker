@@ -1,6 +1,7 @@
 -- Behavioral integration tests for 20261101070000_aria_activation_reconciliation_guards_v1.sql.
 -- Run only against the synthetic PostgreSQL fixture, never against production.
 \set ON_ERROR_STOP on
+\i supabase/migrations/20261101161000_aria_no_goal_mission_admission_lane_guard_v1.sql
 
 -- Exercise the actual AFTER UPDATE trigger wired to the migrated trigger function.
 CREATE TRIGGER fixture_mission_to_goal_verification
@@ -187,5 +188,40 @@ BEGIN
   IF bad_count <> 0 THEN RAISE EXCEPTION 'FAIL: queued/running child of a paused mission was not demoted'; END IF;
 END;
 $$;
+
+
+-- Standalone missions without an autonomy goal must carry an explicit execution lane.
+-- A source label by itself is not sufficient to make an old queued task auto-runnable.
+INSERT INTO aria_internal.mission_state (mission_id, goal, status, metadata)
+VALUES
+  ('mission-no-goal-unclassified', 'Synthetic no-goal mission with no lane', 'queued', '{}'::jsonb),
+  ('mission-no-goal-source-only', 'Synthetic no-goal mission with source but no lane', 'queued',
+    '{"source":"battlecruiser_step4_rwht_windows_readonly_batch_v1"}'::jsonb),
+  ('mission-no-goal-user-lane', 'Synthetic no-goal mission with explicit user lane', 'queued',
+    '{"execution_lane":"user"}'::jsonb),
+  ('mission-no-goal-test-lane', 'Synthetic no-goal test mission with explicit lane', 'queued',
+    '{"execution_lane":"test"}'::jsonb),
+  ('mission-no-goal-human-gate-lane', 'Synthetic no-goal Human Gate mission with explicit lane', 'queued',
+    '{"goal_source":"human_gate_e2e"}'::jsonb);
+
+DO $lane_guard$
+BEGIN
+  IF aria_internal.aria_mission_claim_eligible('mission-no-goal-unclassified') THEN
+    RAISE EXCEPTION 'FAIL: no-goal mission without an explicit lane remained claimable';
+  END IF;
+  IF aria_internal.aria_mission_claim_eligible('mission-no-goal-source-only') THEN
+    RAISE EXCEPTION 'FAIL: source label alone incorrectly authorized a no-goal mission';
+  END IF;
+  IF NOT aria_internal.aria_mission_claim_eligible('mission-no-goal-user-lane') THEN
+    RAISE EXCEPTION 'FAIL: explicit user lane was rejected for a no-goal mission';
+  END IF;
+  IF NOT aria_internal.aria_mission_claim_eligible('mission-no-goal-test-lane') THEN
+    RAISE EXCEPTION 'FAIL: explicit test lane should remain eligible for its separately gated test worker';
+  END IF;
+  IF NOT aria_internal.aria_mission_claim_eligible('mission-no-goal-human-gate-lane') THEN
+    RAISE EXCEPTION 'FAIL: explicit Human Gate lane should remain available to its separately gated workflow';
+  END IF;
+END;
+$lane_guard$;
 
 SELECT 'ARIA_ACTIVATION_RECONCILIATION_POSTGRES_INTEGRATION_PASS' AS result;
