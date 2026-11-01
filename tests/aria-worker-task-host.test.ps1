@@ -170,6 +170,106 @@ try {
         $secure.Dispose()
     }
 
+    # Install a disposable disabled Scheduled Task using the real launcher.
+    # This exercises task XML ordering, LogonTrigger.Delay, principal SID, and WinExe action.
+    $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+    $fixture = Join-Path $repoRoot 'tests\fixtures\aria-frozen-worker-probe-adapter.js'
+    $nodeCommand = Get-Command node -ErrorAction Stop
+    $nodePath = $nodeCommand.Source
+    $originalLocalAppData = $env:LOCALAPPDATA
+    $env:LOCALAPPDATA = Join-Path $root 'isolated-profile'
+    $taskName = 'ARIA-Worker-TaskHost-CI-' + [guid]::NewGuid().ToString('N')
+    $workspace = Join-Path $root 'task-workspace'
+    $configDirectory = Join-Path $env:LOCALAPPDATA 'ARIA\worker'
+    $configPath = Join-Path $configDirectory 'ci-worker.config.json'
+    $launcher = Join-Path $repoRoot 'scripts\Start-ARIA-Persistent-Worker.ps1'
+    $taskRegistered = $false
+    $configToken = 'aria-task-install-test-' + [guid]::NewGuid().ToString('N') + '-token'
+    $configSecure = ConvertTo-SecureString -String $configToken -AsPlainText -Force
+
+    try {
+        New-Item -ItemType Directory -Path $workspace -Force | Out-Null
+        New-Item -ItemType Directory -Path $configDirectory -Force | Out-Null
+
+        $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+        $configDocument = [ordered]@{
+            format = 'aria-worker-config-dpapi-v1'
+            protectedForSid = $identity.User.Value
+            createdAtUtc = [DateTime]::UtcNow.ToString('o')
+            workerTokenDpapi = (ConvertFrom-SecureString -SecureString $configSecure)
+            values = [ordered]@{
+                ARIA_CONTROL_URL = 'https://aria-autonomy-coordinator.robvg9.workers.dev'
+                ARIA_AUTONOMY_ADAPTER = (Resolve-Path -LiteralPath $fixture).Path
+                ARIA_WORKSPACE_ROOT = $workspace
+                ARIA_WORKER_ID = 'aria-task-host-ci-fixture'
+                ARIA_WORKER_POLL_MS = '1000'
+                ARIA_WORKER_HEARTBEAT_MS = '15000'
+            }
+        }
+
+        $configJson = $configDocument | ConvertTo-Json -Depth 6
+        [System.IO.File]::WriteAllText($configPath, $configJson, ([System.Text.UTF8Encoding]::new($false)))
+        $configJson = $null
+        $configDocument = $null
+
+        & $launcher -ConfigPath $configPath -InstallDir $repoRoot -NodePath $nodePath -TaskName $taskName -InstallScheduledTask
+        if ($LASTEXITCODE -ne 0) { throw "Launcher task install returned $LASTEXITCODE." }
+
+        $task = Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
+        $taskRegistered = $true
+        if ($task.State -ne 'Disabled') {
+            throw "Disposable task was not left Disabled (state=$($task.State))."
+        }
+
+        $action = $task.Actions | Select-Object -First 1
+        $expectedHost = Join-Path $env:LOCALAPPDATA 'ARIA\worker\aria-worker-task-host.exe'
+        if ([string]$action.Execute -ne $expectedHost) {
+            throw "Task action does not use the GUI task host: $($action.Execute)"
+        }
+        if ([string]$action.Arguments -notmatch '^\s*--run\s+') {
+            throw 'Task action does not use the detached worker mode.'
+        }
+
+        [xml]$taskXml = Export-ScheduledTask -TaskName $taskName
+        $trigger = $taskXml.SelectSingleNode("//*[local-name()='LogonTrigger']")
+        $delay = if ($null -ne $trigger) { $trigger.SelectSingleNode("./*[local-name()='Delay']") } else { $null }
+        $userNode = if ($null -ne $trigger) { $trigger.SelectSingleNode("./*[local-name()='UserId']") } else { $null }
+
+        if ($null -eq $delay -or $delay.InnerText -ne 'PT30S') {
+            throw 'Disposable task does not preserve the 30-second logon delay.'
+        }
+        if ($null -eq $userNode -or [string]$userNode.InnerText -notmatch '^(ROBVG\\|[^\\]+\\)?[^\\]+
+) {
+            throw 'Disposable task logon trigger is not user-specific.'
+        }
+
+        $principalName = [string]$task.Principal.UserId
+        $principalAccount = if ($principalName -notmatch '\\' -and $principalName -notmatch '^S-1-') {
+            "$env:COMPUTERNAME\$principalName"
+        } else { $principalName }
+        $principalSid = (New-Object System.Security.Principal.NTAccount($principalAccount)).Translate(
+            [System.Security.Principal.SecurityIdentifier]
+        ).Value
+
+        if ($principalSid -ne $identity.User.Value) {
+            throw 'Disposable task principal SID does not match DPAPI CurrentUser SID.'
+        }
+
+        Write-Output 'TASK_INSTALL_GUI_HOST_ACTION=PASS'
+        Write-Output 'TASK_INSTALL_LOGON_DELAY_PT30S=PASS'
+        Write-Output 'TASK_INSTALL_PRINCIPAL_SID=PASS'
+        Write-Output 'TASK_INSTALL_DISABLED_BY_DEFAULT=PASS'
+        Write-Output 'TASK_HOST_DPAPI_CONFIG_FORMAT=PASS'
+    }
+    finally {
+        if ($taskRegistered) {
+            Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
+        }
+        $env:LOCALAPPDATA = $originalLocalAppData
+        $configToken = $null
+        $configSecure.Dispose()
+    }
+
     Write-Output 'TASK_HOST_DETACHED_PROCESS_CONTRACT=PASS'
 }
 finally {
