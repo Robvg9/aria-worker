@@ -8,12 +8,12 @@ const root = path.resolve(__dirname, '..');
 const app = fs.readFileSync(path.join(root, 'pwa', 'src', 'App.tsx'), 'utf8');
 const runner = fs.readFileSync(path.join(root, 'rwht', 'pc-browser', 'rwht-persistence-recovery-e2e.mjs'), 'utf8');
 const workflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'persistence-recovery-rwht-authenticated.yml'), 'utf8');
-const triggerStart = workflow.indexOf('\\non:');
-const permissionsStart = workflow.indexOf('\\npermissions:');
+const triggerStart = workflow.indexOf('on:');
+const permissionsStart = workflow.indexOf('permissions:');
 assert.ok(triggerStart >= 0 && permissionsStart > triggerStart, 'Persistence + Recovery must expose a bounded workflow trigger');
 const trigger = workflow.slice(triggerStart, permissionsStart);
 assert.ok(trigger.includes('workflow_dispatch:'), 'Persistence + Recovery remains available for deliberate manual certification');
-assert.ok(!trigger.includes('push:') && !trigger.includes('pull_request:'), 'Persistence + Recovery must not auto-run a production write E2E');
+assert.ok(!/^\\s+(push|pull_request):/m.test(trigger), 'Persistence + Recovery must not auto-run a production write E2E');
 assert.ok(workflow.includes('Wait for exact-SHA deployments + PWA LIVE build'), 'Manual persistence certification must retain its exact-SHA deployment barrier');
 
 for (const fragment of [
