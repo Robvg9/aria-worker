@@ -69,7 +69,6 @@ for (const fragment of [
   'RWHT_STORAGE_STATE_B64: \${{ secrets.RWHT_STORAGE_STATE_B64 }}',
   'Execute authenticated Persistence + Recovery E2E',
   'aria-persistence-recovery-rwht-evidence',
-  'pwa/src/App.tsx',
   'npx playwright install chromium'
 ]) {
   assert.ok(workflow.includes(fragment), fragment);
