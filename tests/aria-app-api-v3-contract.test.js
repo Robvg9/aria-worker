@@ -231,7 +231,15 @@ assertContains(appApi,'verification_invalidated: true','correction response must
 assertContains(pwa,'CIERRE ANTERIOR INVALIDADO: no se ejecutaron todas las herramientas requeridas.','Meditación IA must explain why a tool-based false success was invalidated');
 console.log('CHAT DIAGNOSTICS + REQUIRED TOOL EVIDENCE CONTRACT: PASS');
 
-assertContains(persistenceWorkflow,"'supabase/functions/aria-app-api-v3/**'","persistence/recovery E2E must trigger for API-only releases so exact-SHA predecessor gates cannot wait forever");
+const persistenceTriggerStart = persistenceWorkflow.indexOf('\non:');
+const persistencePermissionsStart = persistenceWorkflow.indexOf('\npermissions:');
+assert.ok(persistenceTriggerStart >= 0 && persistencePermissionsStart > persistenceTriggerStart,
+  'persistence/recovery must expose a bounded workflow trigger');
+const persistenceTrigger = persistenceWorkflow.slice(persistenceTriggerStart, persistencePermissionsStart);
+assert.ok(persistenceTrigger.includes('workflow_dispatch:'),
+  'persistence/recovery must remain manually dispatchable for approved LIVE certification');
+assert.ok(!persistenceTrigger.includes('push:') && !persistenceTrigger.includes('pull_request:'),
+  'persistence/recovery E2E must not automatically write authenticated production conversations');
 if(persistenceWorkflow.includes('LIVE_GATE_PREDECESSORS: "ARIA PWA Steps 7-8 LIVE Certification"')) {
   throw new Error('persistence/recovery cannot wait for PWA Steps 7-8 because that gate requires persistence/recovery first');
 }
