@@ -129,7 +129,7 @@ function normalizeResponse(json) {
 
 function sanitizeProviderMessage(value) {
   return String(value || 'provider request failed')
-    .replace(/Bearer\\s+[^\\s"'<>]+/gi, 'Bearer [REDACTED]')
+    .replace(/Bearer\s+[^\s"'<>]+/gi, 'Bearer [REDACTED]')
     .replace(/sk-[A-Za-z0-9_-]{12,}/g, '[REDACTED]')
     .slice(0, 240);
 }
