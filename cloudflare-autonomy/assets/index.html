@@ -48,7 +48,9 @@
  function esc(v){return String(v==null?'':v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
  function token(){return tokenInput.value.trim();}
  async function api(url,options){
-  const response=await fetch(url,Object.assign({headers:{'Authorization':'Bearer '+token(),'Content-Type':'application/json'}},options||{}));
+  const requestOptions=options||{};
+  const headers=Object.assign({'Authorization':'Bearer '+token(),'Content-Type':'application/json'},requestOptions.headers||{});
+  const response=await fetch(url,Object.assign({},requestOptions,{headers}));
   const body=await response.json().catch(()=>({error:'invalid_response'}));
   if(!response.ok)throw new Error(body.error||('HTTP '+response.status));
   return body;
@@ -86,7 +88,31 @@
  }
  $('connect').addEventListener('click',()=>{sessionStorage.setItem('aria-control-token',token());refresh();});
  $('refresh').addEventListener('click',refresh);
- $('missionForm').addEventListener('submit',async e=>{e.preventDefault();if(!token())return $('error').textContent='Introduce el token primero.';const b=$('submitMission');b.disabled=true;try{await api('/api/missions',{method:'POST',body:JSON.stringify({goal:$('goal').value})});$('goal').value='';await refresh();}catch(err){$('error').textContent=err.message;}finally{b.disabled=false;}});
+ let pendingMissionRequest=null;
+ $('missionForm').addEventListener('submit',async e=>{
+  e.preventDefault();
+  if(!token())return $('error').textContent='Introduce el token primero.';
+  const goal=$('goal').value.trim();
+  const b=$('submitMission');
+  if(!pendingMissionRequest||pendingMissionRequest.goal!==goal){
+   pendingMissionRequest={goal,key:crypto.randomUUID()};
+  }
+  b.disabled=true;
+  try{
+   await api('/api/missions',{
+    method:'POST',
+    headers:{'Idempotency-Key':pendingMissionRequest.key},
+    body:JSON.stringify({goal})
+   });
+   $('goal').value='';
+   pendingMissionRequest=null;
+   await refresh();
+  }catch(err){
+   $('error').textContent=err.message;
+  }finally{
+   b.disabled=false;
+  }
+ });
  $('missions').addEventListener('click',async e=>{
   const b=e.target.closest('button');if(!b)return;
   try{
