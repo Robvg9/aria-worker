@@ -137,14 +137,14 @@ internal static class AriaWorkerTaskHost
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                 "ARIA", "logs", "persistent-worker-supervisor.log");
 
-            if (args == null || args.Length != 4 ||
+            if (args == null || args.Length != 5 ||
                 !String.Equals(args[0], "--run", StringComparison.Ordinal))
             {
                 WriteLog("HOST_ERROR Invalid arguments. Expected --run <config> <installDir> <nodePath> <taskName>.");
                 return 64;
             }
 
-            return RunWorker(args[1], args[2], args[3], args[4 - 0]);
+            return RunWorker(args[1], args[2], args[3], args[4]);
         }
         catch (Exception exception)
         {
