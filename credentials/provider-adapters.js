@@ -111,6 +111,44 @@ function createMistralApiAdapter({ credentialConfigured = false } = {}) {
   });
 }
 
+function createDashScopeApiAdapter({ credentialConfigured = false, freeQuotaOnlyConfirmed = false, quotaExpiresAt = null } = {}) {
+  const expiry = Date.parse(quotaExpiresAt);
+  const expiryValid = Number.isFinite(expiry) && expiry > Date.now();
+  return Object.freeze({
+    provider: 'alibaba_dashscope',
+    capabilities: ['dashscope_api_key', 'text_generation', 'health', 'free_quota_only'],
+    bootstrap: () => ({
+      human_gate: !(credentialConfigured && freeQuotaOnlyConfirmed && expiryValid),
+      steps: [
+        'activate Alibaba Cloud Model Studio in Singapore and choose an International model with a visible free quota',
+        'enable Free Quota Only for that exact model and wait until the console shows it enabled',
+        'create a general-purpose Model Studio API key and note the Singapore Workspace ID',
+        'store JSON {api_key,workspace_id,region,free_quota_only:true,free_quota_expires_at} only in the ARIA secret store'
+      ]
+    }),
+    async provision() {
+      if (!credentialConfigured) return { status: 'human_gate', reason: 'dashscope_workspace_key_and_free_quota_guard_required' };
+      if (!freeQuotaOnlyConfirmed) return { status: 'human_gate', reason: 'dashscope_free_quota_only_not_confirmed' };
+      if (!expiryValid) return { status: 'unavailable', reason: 'dashscope_free_quota_expired' };
+      return {
+        status: 'configured',
+        secret_ref: 'secret://dashscope/qwen_primary',
+        expires_at: null,
+        free_quota_expires_at: new Date(expiry).toISOString()
+      };
+    },
+    async renew() {
+      return { status: 'unavailable', reason: 'dashscope_free_quota_and_key_require_provider_revalidation' };
+    },
+    async health() {
+      return {
+        ok: Boolean(credentialConfigured && freeQuotaOnlyConfirmed && expiryValid),
+        state: credentialConfigured && freeQuotaOnlyConfirmed && expiryValid ? 'healthy' : 'bootstrap_required'
+      };
+    }
+  });
+}
+
 function createGoogleGeminiApiAdapter({ credentialConfigured = false } = {}) {
   return Object.freeze({
     provider: 'google',
@@ -167,5 +205,6 @@ module.exports = {
   createSupabaseOAuthAdapter,
   createGoogleGeminiApiAdapter,
   createMistralApiAdapter,
+  createDashScopeApiAdapter,
   createNvidiaNimApiAdapter
 };
