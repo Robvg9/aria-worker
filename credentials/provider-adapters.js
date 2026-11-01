@@ -86,6 +86,32 @@ function createSupabaseOAuthAdapter({ clientConfigured = false } = {}) {
   });
 }
 
+function createGroqApiAdapter({ credentialConfigured = false } = {}) {
+  return Object.freeze({
+    provider: 'groq',
+    capabilities: ['groq_api_key', 'text_generation', 'health'],
+    bootstrap: () => ({
+      human_gate: !credentialConfigured,
+      steps: [
+        'create a Groq API key while keeping the account on the Free plan',
+        'store GROQ_API_KEY only in the approved ARIA secret store',
+        'bind secret://groq/groq_primary to the Groq direct route',
+        'verify a fresh LIVE completion and capture account-specific rate-limit headers'
+      ]
+    }),
+    async provision() {
+      if (!credentialConfigured) return { status: 'human_gate', reason: 'groq_api_key_required' };
+      return { status: 'configured', secret_ref: 'secret://groq/groq_primary', expires_at: null };
+    },
+    async renew() {
+      return { status: 'unavailable', reason: 'groq_api_key_rotation_requires_provider_operation' };
+    },
+    async health() {
+      return { ok: Boolean(credentialConfigured), state: credentialConfigured ? 'healthy' : 'bootstrap_required' };
+    }
+  });
+}
+
 function createMistralApiAdapter({ credentialConfigured = false } = {}) {
   return Object.freeze({
     provider: 'mistral',
@@ -167,5 +193,6 @@ module.exports = {
   createSupabaseOAuthAdapter,
   createGoogleGeminiApiAdapter,
   createMistralApiAdapter,
+  createGroqApiAdapter,
   createNvidiaNimApiAdapter
 };
