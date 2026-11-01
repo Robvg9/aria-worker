@@ -244,8 +244,8 @@ if(persistenceWorkflow.includes('LIVE_GATE_PREDECESSORS: "ARIA PWA Steps 7-8 LIV
   throw new Error('persistence/recovery cannot wait for PWA Steps 7-8 because that gate requires persistence/recovery first');
 }
 assertContains(persistenceWorkflow,'Wait for exact-SHA deployments + PWA LIVE build','persistence/recovery must keep its direct exact-SHA deployment barrier');
-assertContains(persistenceWorkflow,".github/workflows/aria-meditation-webpush-production-e2e.yml","persistence predecessor must trigger when Web Push successor workflow changes");
-assertContains(persistenceWorkflow,".github/workflows/aria-pwa-steps-7-8-live.yml","persistence predecessor must trigger when PWA certification successor workflow changes");
+assert.ok(persistenceWorkflow.includes("workflow_dispatch:"),"persistence/recovery remains available for deliberate manual certification");
+assert.ok(!persistenceTrigger.includes("push:") && !persistenceTrigger.includes("pull_request:"),"manual-only persistence predecessor must not auto-trigger its Web Push/PWA successors");
 console.log('EXACT-SHA PREDECESSOR/SUCCESSOR TRIGGER GRAPH CONTRACT: PASS');
 console.log('PERSISTENCE RELEASE GATE ACYCLICITY CONTRACT: PASS');
 
