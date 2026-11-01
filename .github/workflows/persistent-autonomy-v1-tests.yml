@@ -759,6 +759,248 @@ jobs:
           }
 
           Write-Output 'TASK_INSPECTION_ONLY=true'
+  windows-physical-detached-host-probe:
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'fix/package2-windows-no-console-worker-host-20261031'
+    needs: [contract-tests, windows-supervisor-syntax, live-security-readonly-check]
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    env:
+      ARIA_AUTONOMY_WORKER_TOKEN: ${{ secrets.ARIA_AUTONOMY_WORKER_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          sparse-checkout: |
+            scripts/aria-worker-task-host.cs
+            scripts/aria-worker-console-probe.cs
+            scripts/aria-persistent-windows-worker-v1.js
+            autonomy/persistent-worker-error-policy-v1.js
+            tests/fixtures/aria-frozen-worker-probe-adapter.js
+            cloudflare-autonomy/worker.mjs
+          sparse-checkout-cone-mode: false
+      - name: Run the detached GUI host physically on ROBVG with a frozen fixture
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:COMPUTERNAME -ne 'ROBVG') {
+            throw "Refusing physical host probe on '$env:COMPUTERNAME'; expected ROBVG. No child process was started."
+          }
+
+          $workerSource = Get-Content -LiteralPath (Join-Path $env:GITHUB_WORKSPACE 'cloudflare-autonomy/worker.mjs') -Raw
+          if ($workerSource -notmatch 'MISSION_EXECUTION_PAUSED\s*=\s*true') {
+            throw 'MISSION_EXECUTION_PAUSED is not hard-locked in this checkout.'
+          }
+          if ([string]::IsNullOrWhiteSpace($env:ARIA_AUTONOMY_WORKER_TOKEN) -or $env:ARIA_AUTONOMY_WORKER_TOKEN.Length -lt 32) {
+            throw 'ARIA_AUTONOMY_WORKER_TOKEN is missing or invalid.'
+          }
+
+          $node = 'D:\Databank\node\node.exe'
+          if (-not (Test-Path -LiteralPath $node -PathType Leaf)) {
+            $node = (Get-Command node -ErrorAction Stop).Source
+          }
+          $nodeVersion = (& $node --version).Trim()
+          if ([version]($nodeVersion.TrimStart('v')) -lt [version]'20.0.0') {
+            throw "Node 20+ required; found $nodeVersion"
+          }
+
+          function Invoke-AriaFrozenHttp {
+            param(
+              [Parameter(Mandatory=$true)][string]$Uri,
+              [Parameter(Mandatory=$true)][ValidateSet('GET','POST')][string]$Method,
+              [string]$Body
+            )
+            $request = [System.Net.HttpWebRequest]::Create($Uri)
+            $request.Method = $Method
+            $request.Timeout = 15000
+            $request.ReadWriteTimeout = 15000
+            $request.KeepAlive = $false
+            if ($Method -eq 'POST') {
+              $request.ContentType = 'application/json'
+              $request.Headers['Authorization'] = 'Bearer ' + $env:ARIA_AUTONOMY_WORKER_TOKEN
+              $bytes = [System.Text.Encoding]::UTF8.GetBytes($Body)
+              $request.ContentLength = $bytes.Length
+              $stream = $request.GetRequestStream()
+              try { $stream.Write($bytes,0,$bytes.Length) } finally { $stream.Dispose() }
+            }
+            $response = $null
+            try { $response = $request.GetResponse() }
+            catch [System.Net.WebException] {
+              $response = $_.Exception.Response
+              if (-not $response) { throw "ARIA_FROZEN_HTTP_NO_RESPONSE method=$Method error=$($_.Exception.Message)" }
+            }
+            try {
+              $reader = New-Object System.IO.StreamReader($response.GetResponseStream())
+              try { $bodyText = $reader.ReadToEnd() } finally { $reader.Dispose() }
+              return [pscustomobject]@{ StatusCode=[int]$response.StatusCode; Body=$bodyText }
+            }
+            finally { if ($response) { $response.Close() } }
+          }
+
+          $base = 'https://aria-autonomy-coordinator.robvg9.workers.dev'
+          $health = Invoke-AriaFrozenHttp -Uri ($base + '/health') -Method GET
+          if ($health.StatusCode -ne 200) { throw "ROBVG_COORDINATOR_HEALTH_HTTP=$($health.StatusCode)" }
+          $healthJson = $health.Body | ConvertFrom-Json
+          if ($healthJson.ok -ne $true -or $healthJson.supabase_independent -ne $true) {
+            throw 'ROBVG_COORDINATOR_HEALTH_CONTRACT=FAIL'
+          }
+          Write-Output 'ROBVG_COORDINATOR_HEALTH=PASS'
+
+          $preflightBody = @{
+            worker_id = 'package2-detached-host-preflight-ROBVG'
+            capabilities = @()
+          } | ConvertTo-Json -Compress
+          $preflight = Invoke-AriaFrozenHttp -Uri ($base + '/api/worker/claim') -Method POST -Body $preflightBody
+          if ($preflight.StatusCode -ne 423 -or $preflight.Body -notmatch 'mission_execution_paused') {
+            throw "ROBVG_CLAIM_PREFLIGHT_EXPECTED_423_ACTUAL_$($preflight.StatusCode)"
+          }
+          Write-Output 'ROBVG_CLAIM_PREFLIGHT_423=PASS'
+          Write-Output 'ROBVG_PREFLIGHT_NO_LEASE=PASS'
+
+          $compilerCandidates = @(
+            (Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'),
+            (Join-Path $env:WINDIR 'Microsoft.NET\Framework\v4.0.30319\csc.exe')
+          )
+          $compiler = $compilerCandidates | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
+          if (-not $compiler) { throw 'No .NET Framework C# compiler found on ROBVG.' }
+
+          $hostSource = Join-Path $env:GITHUB_WORKSPACE 'scripts\aria-worker-task-host.cs'
+          $probeSource = Join-Path $env:GITHUB_WORKSPACE 'scripts\aria-worker-console-probe.cs'
+          $fixture = Join-Path $env:GITHUB_WORKSPACE 'tests\fixtures\aria-frozen-worker-probe-adapter.js'
+          foreach ($path in @($hostSource,$probeSource,$fixture,$node)) {
+            if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "Required file missing: $path" }
+          }
+
+          $root = Join-Path $env:RUNNER_TEMP ('aria-detached-host-robvg-' + [guid]::NewGuid().ToString('N'))
+          $workspace = Join-Path $root 'workspace'
+          $hostExe = Join-Path $root 'aria-worker-task-host.exe'
+          $probeExe = Join-Path $root 'aria-console-probe.exe'
+          $selfTestLog = Join-Path $root 'host-selftest.log'
+          $detachedTestLog = Join-Path $root 'detached-child-selftest.log'
+          $configPath = Join-Path $root 'worker.config.json'
+          $taskName = 'ARIA-Package2-DetachedHost-Probe'
+          $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+          $secureToken = ConvertTo-SecureString -String $env:ARIA_AUTONOMY_WORKER_TOKEN -AsPlainText -Force
+          $localAppData = [System.Environment]::GetFolderPath([System.Environment+SpecialFolder]::LocalApplicationData)
+          $supervisorLog = Join-Path $localAppData 'ARIA\logs\persistent-worker-supervisor.log'
+          $baselineBytes = if (Test-Path -LiteralPath $supervisorLog) { (Get-Item -LiteralPath $supervisorLog).Length } else { 0 }
+          $baselineChars = if (Test-Path -LiteralPath $supervisorLog) { [System.IO.File]::ReadAllText($supervisorLog).Length } else { 0 }
+          New-Item -ItemType Directory -Path $root,$workspace -Force | Out-Null
+
+          try {
+            & $compiler /nologo /reference:System.Security.dll /reference:System.Web.Extensions.dll /target:winexe /platform:anycpu /optimize+ ("/out:" + $hostExe) $hostSource
+            if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $hostExe)) {
+              throw "ROBVG_TASK_HOST_COMPILE_EXIT=$LASTEXITCODE"
+            }
+            & $compiler /nologo /target:exe /platform:anycpu /optimize+ ("/out:" + $probeExe) $probeSource
+            if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $probeExe)) {
+              throw "ROBVG_CONSOLE_PROBE_COMPILE_EXIT=$LASTEXITCODE"
+            }
+            Write-Output 'ROBVG_TASK_HOST_COMPILE=PASS'
+
+            $detached = Start-Process -FilePath $hostExe -ArgumentList ('--self-test-detach "' + $probeExe + '" "' + $detachedTestLog + '"') -WorkingDirectory $root -PassThru -Wait
+            if ($detached.ExitCode -ne 0 -or -not (Test-Path -LiteralPath $detachedTestLog)) {
+              $details = if (Test-Path -LiteralPath $detachedTestLog) { Get-Content -LiteralPath $detachedTestLog -Raw } else { 'no log' }
+              throw "ROBVG_DETACHED_PROCESS_SELFTEST_FAILED exit=$($detached.ExitCode) details=$details"
+            }
+            $detachedContent = Get-Content -LiteralPath $detachedTestLog -Raw
+            foreach ($marker in @('SELFTEST_HOST_CONSOLE=NONE','DETACHED_CHILD_CONSOLE=NONE','SELFTEST_DETACHED_CHILD_EXIT_CODE=0','SELFTEST_RESULT=PASS')) {
+              if (-not $detachedContent.Contains($marker)) { throw "ROBVG_DETACHED_PROCESS_MARKER_MISSING=$marker" }
+            }
+            Write-Output 'ROBVG_HOST_CONSOLE=NONE_PASS'
+            Write-Output 'ROBVG_CHILD_DETACHED_CONSOLE=NONE_PASS'
+
+            $document = [ordered]@{
+              format = 'aria-worker-config-dpapi-v1'
+              protectedForSid = $identity.User.Value
+              createdAtUtc = [DateTime]::UtcNow.ToString('o')
+              workerTokenDpapi = (ConvertFrom-SecureString -SecureString $secureToken)
+              values = [ordered]@{
+                ARIA_CONTROL_URL = $base
+                ARIA_AUTONOMY_ADAPTER = $fixture
+                ARIA_WORKSPACE_ROOT = $workspace
+                ARIA_WORKER_ID = 'package2-detached-host-ROBVG'
+                ARIA_WORKER_POLL_MS = '1000'
+                ARIA_WORKER_HEARTBEAT_MS = '15000'
+              }
+            }
+            $json = $document | ConvertTo-Json -Depth 6
+            [System.IO.File]::WriteAllText($configPath,$json,([System.Text.UTF8Encoding]::new($false)))
+            $json = $null
+            $document = $null
+
+            $configTest = Start-Process -FilePath $hostExe -ArgumentList ('--self-test-config "' + $configPath + '" "' + $selfTestLog + '"') -WorkingDirectory $root -PassThru -Wait
+            if ($configTest.ExitCode -ne 0 -or -not (Test-Path -LiteralPath $selfTestLog)) {
+              $details = if (Test-Path -LiteralPath $selfTestLog) { Get-Content -LiteralPath $selfTestLog -Raw } else { 'no log' }
+              throw "ROBVG_DPAPI_CONFIG_SELFTEST_FAILED exit=$($configTest.ExitCode) details=$details"
+            }
+            $configContent = Get-Content -LiteralPath $selfTestLog -Raw
+            if (-not $configContent.Contains('SELFTEST_CONFIG_DPAPI=PASS') -or
+                -not $configContent.Contains('SELFTEST_CONFIG_TOKEN_LOGGED=NO')) {
+              throw 'ROBVG_DPAPI_CONFIG_SELFTEST=FAIL'
+            }
+            Write-Output 'ROBVG_DPAPI_CURRENT_USER_CONFIG=PASS'
+
+            $arguments = '--run "' + $configPath + '" "' + $env:GITHUB_WORKSPACE + '" "' + $node + '" "' + $taskName + '"'
+            $hostProcess = Start-Process -FilePath $hostExe -ArgumentList $arguments -WorkingDirectory $env:GITHUB_WORKSPACE -PassThru
+            if (-not $hostProcess.WaitForExit(30000)) {
+              $logText = if (Test-Path -LiteralPath $supervisorLog) { [System.IO.File]::ReadAllText($supervisorLog) } else { '' }
+              $logDelta = if ($logText.Length -gt $baselineChars) { $logText.Substring($baselineChars) } else { $logText }
+              $pidMatch = [regex]::Match($logDelta,'DETACHED_CHILD_CREATED PID=(\d+)')
+              if ($pidMatch.Success) {
+                Stop-Process -Id ([int]$pidMatch.Groups[1].Value) -Force -ErrorAction SilentlyContinue
+              }
+              Stop-Process -Id $hostProcess.Id -Force -ErrorAction SilentlyContinue
+              throw 'ROBVG_DETACHED_WORKER_HOST_TIMEOUT=30000MS; orphan child cleanup attempted.'
+            }
+            $hostProcess.Refresh()
+            if ($hostProcess.ExitCode -ne 0) {
+              $logText = if (Test-Path -LiteralPath $supervisorLog) { [System.IO.File]::ReadAllText($supervisorLog) } else { '' }
+              $logDelta = if ($logText.Length -gt $baselineChars) { $logText.Substring($baselineChars) } else { $logText }
+              throw "ROBVG_DETACHED_WORKER_HOST_EXIT=$($hostProcess.ExitCode); log=$logDelta"
+            }
+
+            $logText = if (Test-Path -LiteralPath $supervisorLog) { [System.IO.File]::ReadAllText($supervisorLog) } else { '' }
+            $logDelta = if ($logText.Length -gt $baselineChars) { $logText.Substring($baselineChars) } else { $logText }
+            foreach ($marker in @(
+              'HOST_CONSOLE=NONE',
+              'HOST_LAUNCH_MODE=DETACHED_PROCESS',
+              'DPAPI_CURRENT_USER_CONFIG=PASS',
+              'WORKER_ID=package2-detached-host-ROBVG',
+              'ARIA_WINDOWS_WORKER_STOPPED=MISSION_EXECUTION_PAUSED',
+              'Worker exited cleanly with code 0; supervisor stopping without restart.'
+            )) {
+              if (-not $logDelta.Contains($marker)) {
+                throw "ROBVG_DETACHED_WORKER_MARKER_MISSING=$marker"
+              }
+            }
+
+            if ($logDelta -match 'Claimed job|Claimed .*mission|Worker launch error') {
+              throw 'Unexpected claim/mission or worker launch error appeared in the detached host log.'
+            }
+            Write-Output 'ROBVG_DETACHED_WORKER_STARTED=PASS'
+            Write-Output 'ROBVG_DETACHED_WORKER_FROZEN_STOP_423=PASS'
+            Write-Output 'ROBVG_DETACHED_SUPERVISOR_EXIT_0_NO_RESTART=PASS'
+
+            $pidMatch = [regex]::Match($logDelta,'DETACHED_CHILD_CREATED PID=(\d+)')
+            if ($pidMatch.Success -and (Get-Process -Id ([int]$pidMatch.Groups[1].Value) -ErrorAction SilentlyContinue)) {
+              throw 'ROBVG_DETACHED_NODE_PROCESS_STILL_RUNNING'
+            }
+            Write-Output 'ROBVG_DETACHED_CHILD_CLEANUP=PASS'
+          }
+          finally {
+            $secureToken.Dispose()
+            Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
+            if (Test-Path -LiteralPath $supervisorLog) {
+              $stream = [System.IO.File]::Open($supervisorLog,[System.IO.FileMode]::Open,[System.IO.FileAccess]::ReadWrite,[System.IO.FileShare]::ReadWrite)
+              try {
+                if ($stream.Length -gt $baselineBytes) { $stream.SetLength($baselineBytes) }
+              }
+              finally { $stream.Dispose() }
+            }
+          }
+
+          Write-Output 'ROBVG_PHYSICAL_DETACHED_HOST_PROBE=PASS'
+
   live-security-readonly-check:
     if: (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.actor == github.repository_owner) || (github.event_name == 'push' && github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, 'Diagnose and harden frozen-worker probe on ROBVG'))
     runs-on: ubuntu-latest
