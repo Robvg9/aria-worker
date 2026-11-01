@@ -190,8 +190,8 @@ for (const [workflowName, workflow] of [
   ['Persistence + Recovery RWHT', persistenceRecoveryWorkflow],
   ['Production Web Push E2E', webPushGateTriggerWorkflow],
 ]) {
-  const triggerStart = workflow.indexOf('\\non:');
-  const permissionsStart = workflow.indexOf('\\npermissions:');
+  const triggerStart = workflow.indexOf('\non:');
+  const permissionsStart = workflow.indexOf('\npermissions:');
   assert.ok(triggerStart >= 0 && permissionsStart > triggerStart, `${workflowName} must have a bounded trigger block`);
   const trigger = workflow.slice(triggerStart, permissionsStart);
   assert.ok(trigger.includes('workflow_dispatch:'), `${workflowName} must remain manually dispatchable`);
