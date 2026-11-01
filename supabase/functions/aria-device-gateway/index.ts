@@ -109,7 +109,7 @@ async function androidAutonomousDecision(b:any,d:any){
     supabase.schema('aria_internal').from('capability_matrix')
       .select('model_id,status,verified_at').eq('capability_id','text_generation').eq('status','verified'),
     supabase.schema('aria_internal').from('account_registry')
-      .select('account_id,provider_id,status,enabled,models')
+      .select('account_id,provider_id,status,enabled,models,credential_ref,secret_present')
       .in('provider_id',['google','alibaba_dashscope','openrouter']).eq('status','available').eq('enabled',true)
   ]);
   if(candidatesRes.error)throw new Error(candidatesRes.error.message);
@@ -148,6 +148,8 @@ async function androidAutonomousDecision(b:any,d:any){
     if(!modelId||!isFree(m)||!verified.has(modelId))return null;
     const account=(acctRes.data||[]).find((a:any)=>{
       if(a.provider_id!==m.provider_id)return false;
+      if(m.provider_id==='alibaba_dashscope' &&
+         (a.credential_ref!=='secret://dashscope/qwen_primary'||a.secret_present!==true))return false;
       if(Array.isArray(a.models)&&a.models.includes(modelId))return true;
       // Certified Google Direct may be bound at account level without explicit models[] entry.
       if(m.provider_id==='google' && modelId.endsWith('-direct') && verified.has(modelId))return true;
@@ -629,6 +631,28 @@ async function mission5ModelProbe(b:any,d:any){
   if(!route)throw new Error('model_not_allowed_for_mission5_probe');
   if(risk!=='READ')throw new Error('mission5_model_probe_read_only');
   if(!prompt||!prompt.includes('M5_MODEL_E2E_OK'))throw new Error('mission5_model_probe_prompt_contract');
+  if(route.provider_id==='alibaba_dashscope'){
+    const [modelRes,accountRes,capabilityRes,credentialRes]=await Promise.all([
+      supabase.schema('aria_internal').from('model_registry').select('model_id,provider_id,status,enabled,metadata')
+        .eq('model_id',modelId).eq('provider_id','alibaba_dashscope').maybeSingle(),
+      supabase.schema('aria_internal').from('account_registry').select('account_id,provider_id,status,enabled,models,credential_ref,secret_present')
+        .eq('account_id',route.account_id).eq('provider_id','alibaba_dashscope').maybeSingle(),
+      supabase.schema('aria_internal').from('capability_matrix').select('model_id,status')
+        .eq('model_id',modelId).eq('capability_id','text_generation').eq('status','verified').maybeSingle(),
+      supabase.schema('aria_internal').from('credential_registry').select('credential_name,status')
+        .eq('provider','alibaba_dashscope').eq('credential_name','dashscope/qwen_primary').eq('status','active').maybeSingle()
+    ]);
+    if(modelRes.error||accountRes.error||capabilityRes.error||credentialRes.error)throw new Error('dashscope_live_registry_read_failed');
+    const model=modelRes.data,account=accountRes.data,capability=capabilityRes.data,credential=credentialRes.data;
+    const expiry=Date.parse(String(model?.metadata?.free_quota_expires_at||''));
+    if(!model||model.status!=='available'||model.enabled!==true||model.metadata?.free_quota_only!==true||!Number.isFinite(expiry)||expiry<=Date.now())
+      throw new Error('dashscope_model_or_free_quota_not_live_verified');
+    if(!account||account.status!=='available'||account.enabled!==true||account.secret_present!==true||
+       account.credential_ref!=='secret://dashscope/qwen_primary'||!Array.isArray(account.models)||!account.models.includes(modelId))
+      throw new Error('dashscope_account_or_credential_not_live_verified');
+    if(!capability||capability.status!=='verified'||!credential||credential.status!=='active')
+      throw new Error('dashscope_capability_or_credential_not_live_verified');
+  }
   if(!RUNTIME_SECRET)throw new Error('meditation_runtime_secret_missing');
   const controller=new AbortController();
   const timer=setTimeout(()=>controller.abort(),30000);
