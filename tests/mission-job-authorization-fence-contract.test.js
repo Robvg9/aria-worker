@@ -127,10 +127,14 @@ const webPushGatePolicy = require(path.join(__dirname, '..', 'scripts', 'ci', 'a
 const webPushWorkflow = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'aria-meditation-webpush-production-e2e.yml'), 'utf8');
 const absorbWorkflow = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'aria-absorb.yml'), 'utf8');
 
-// The predecessor policy must match GitHub's actual Web Push push-path filter.
-for (const triggerPath of webPushGatePolicy.WEB_PUSH_TRIGGER_PATHS) {
-  assert.ok(webPushWorkflow.includes(`'${triggerPath}'`), `Web Push predecessor policy must mirror workflow path filter ${triggerPath}`);
-}
+// Web Push is deliberately manual-only. ABSORB still uses this path policy to decide
+// whether an explicitly dispatched release certification must wait for the Web Push gate.
+assert.ok(webPushWorkflow.includes('workflow_dispatch:'), 'Web Push must remain manually dispatchable');
+assert.ok(!webPushWorkflow.includes('  push:'), 'Web Push must not auto-run on production pushes');
+assert.ok(webPushGatePolicy.WEB_PUSH_TRIGGER_PATHS.includes('rwht/pc-browser/rwht-meditation-pwa-e2e.mjs'),
+  'ABSORB predecessor policy must retain the canonical Web Push runner path');
+assert.ok(webPushGatePolicy.WEB_PUSH_TRIGGER_PATHS.includes('worker.js'),
+  'ABSORB predecessor policy must retain Worker-only release coverage');
 
 const gatewayOnlyPush = {
   commits: [{
