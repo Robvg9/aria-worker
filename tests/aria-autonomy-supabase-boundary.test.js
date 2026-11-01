@@ -96,7 +96,7 @@ assert.ok(windowsLauncher.includes("InnerText = 'PT30S'"), 'scheduled task must 
 assert.ok(windowsTaskHost.includes('DETACHED_PROCESS'), 'host must launch the console worker in DETACHED_PROCESS mode');
 assert.ok(windowsTaskHost.includes('ProtectedData.Unprotect'), 'host must decrypt the current-user DPAPI config');
 assert.ok(windowsTaskHost.includes('DataProtectionScope.CurrentUser'), 'host must scope DPAPI to the current user');
-assert.ok(windowsTaskHost.includes('CREATE_UNICODE_ENVIRONMENT'), 'host must create a Unicode environment block for Node');
+assert.ok(windowsTaskHost.includes('CreateUnicodeEnvironment'), 'host must create a Unicode environment block for Node');
 assert.ok(windowsConsoleProbe.includes('GetConsoleWindow'), 'console child probe must check the actual console handle');
 assert.doesNotMatch(windowsLauncher, /\$arguments\s*=\s*'-NoProfile -ExecutionPolicy Bypass -File "/, 'scheduled task must no longer launch the PowerShell supervisor directly');
 assert.doesNotMatch(windowsLauncher, /\$arguments\s*=\s*'-NoProfile -ExecutionPolicy Bypass -File "[^"]*aria-persistent-windows-worker-v1\.js/, 'scheduled task must not pass the JavaScript worker to PowerShell -File');
