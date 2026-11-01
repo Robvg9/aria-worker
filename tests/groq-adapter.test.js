@@ -1,6 +1,7 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+const { ADAPTERS } = require('../execution/lookup');
 const {
   descriptor,
   buildMessages,
@@ -8,6 +9,7 @@ const {
   normalizeResponse,
   normalizeUsage,
   execute,
+  sanitizeProviderMessage,
   ENDPOINT
 } = require('../execution/adapters/groq');
 
@@ -18,6 +20,7 @@ const {
   assert.deepEqual(buildMessages({ prompt: 'hello' }), [{ role: 'user', content: 'hello' }]);
   assert.deepEqual(buildMessages({ messages: [{ role: 'user', content: 'hello' }] }), [{ role: 'user', content: 'hello' }]);
   assert.equal(buildMessages({}), null);
+  assert.equal(sanitizeProviderMessage('Authorization: Bearer super-secret-token'), 'Authorization: Bearer [REDACTED]');
 
   const route = {
     provider_id: 'groq',
@@ -27,6 +30,7 @@ const {
     capability: 'text_generation',
     route_type: 'direct'
   };
+  assert.equal(buildRequest(route, {}), null);
   assert.deepEqual(buildRequest(route, {
     payload: { prompt: 'test', max_completion_tokens: 64, temperature: 0.2, top_p: 0.8 }
   }), {
@@ -78,6 +82,7 @@ const {
   assert.equal(JSON.parse(sent.options.body).model, 'openai/gpt-oss-120b');
   assert.equal(JSON.stringify(success).includes(syntheticKey), false);
   assert.equal(success.response.content, 'world');
+  assert.equal(ADAPTERS.groq, require('../execution/adapters/groq'));
 
   const limited = await execute({
     route,
