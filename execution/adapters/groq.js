@@ -37,7 +37,7 @@ function buildRequest(route, input) {
   const payload = input && input.payload;
   const model = upstreamModel(route);
   const messages = buildMessages(payload);
-  if (!model || !messages) return null;
+  if (!payload || typeof payload !== 'object' || !model || !messages) return null;
 
   const body = { model, messages };
   const completionTokens = typeof payload.max_completion_tokens === 'number'
@@ -88,7 +88,7 @@ function normalizeResponse(json) {
 
 function sanitizeProviderMessage(value) {
   return String(value || 'provider request failed')
-    .replace(/Bearer\\s+[^\\s"'<>]+/gi, 'Bearer [REDACTED]')
+    .replace(/Bearer\s+[^\s"'<>]+/gi, 'Bearer [REDACTED]')
     .replace(/gsk_[A-Za-z0-9_-]{12,}/g, '[REDACTED]')
     .slice(0, 300);
 }
