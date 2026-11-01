@@ -170,6 +170,7 @@ if ($InstallScheduledTask) {
     $currentIdentity = [System.Security.Principal.WindowsIdentity]::GetCurrent()
     $currentUser = $currentIdentity.Name
     $taskHostSource = Join-Path $installRoot 'scripts\aria-worker-task-host.cs'
+    $consoleProbeSource = Join-Path $installRoot 'scripts\aria-worker-console-probe.cs'
     $taskHostDirectory = Join-Path $env:LOCALAPPDATA 'ARIA\worker'
     $taskHostExecutable = Join-Path $taskHostDirectory 'aria-worker-task-host.exe'
     $taskHostTemporary = $taskHostExecutable + '.tmp.exe'
@@ -182,49 +183,67 @@ if ($InstallScheduledTask) {
     if (-not (Test-Path -LiteralPath $taskHostSource -PathType Leaf)) {
         throw "Console-less worker task host source not found: $taskHostSource"
     }
+    if (-not (Test-Path -LiteralPath $consoleProbeSource -PathType Leaf)) {
+        throw "Detached console probe source not found: $consoleProbeSource"
+    }
     if (-not $taskHostCompiler) {
         throw 'The .NET Framework C# compiler is required to build the Windows GUI task host.'
+    }
+
+    $resolvedNodePath = $NodePath
+    if (-not (Test-Path -LiteralPath $resolvedNodePath -PathType Leaf)) {
+        $nodeCommand = Get-Command -Name $NodePath -ErrorAction Stop
+        $resolvedNodePath = $nodeCommand.Source
+    }
+    if (-not (Test-Path -LiteralPath $resolvedNodePath -PathType Leaf)) {
+        throw "Node executable was not found: $NodePath"
     }
 
     New-Item -ItemType Directory -Path $taskHostDirectory -Force | Out-Null
     New-Item -ItemType Directory -Path $logDir -Force | Out-Null
     Remove-Item -LiteralPath $taskHostTemporary -Force -ErrorAction SilentlyContinue
 
-    & $taskHostCompiler /nologo /target:winexe /platform:anycpu /optimize+ ("/out:" + $taskHostTemporary) $taskHostSource
+    & $taskHostCompiler /nologo /reference:System.Security.dll /reference:System.Web.Extensions.dll /target:winexe /platform:anycpu /optimize+ ("/out:" + $taskHostTemporary) $taskHostSource
     if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $taskHostTemporary -PathType Leaf)) {
         Remove-Item -LiteralPath $taskHostTemporary -Force -ErrorAction SilentlyContinue
         throw "Windows no-console task host compilation failed (exit=$LASTEXITCODE)."
     }
 
+    $consoleProbeTemporary = Join-Path $env:TEMP ('aria-worker-console-probe-' + [guid]::NewGuid().ToString('N') + '.exe')
     $selfTestLog = Join-Path $env:TEMP ('aria-worker-task-host-selftest-' + [guid]::NewGuid().ToString('N') + '.log')
     try {
-        $selfTest = Start-Process -FilePath $taskHostTemporary -ArgumentList ('--self-test "' + $selfTestLog + '"') -WorkingDirectory $installRoot -Wait -PassThru
+        & $taskHostCompiler /nologo /target:exe /platform:anycpu /optimize+ ("/out:" + $consoleProbeTemporary) $consoleProbeSource
+        if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $consoleProbeTemporary -PathType Leaf)) {
+            throw "Detached console probe compilation failed (exit=$LASTEXITCODE)."
+        }
+
+        $selfTest = Start-Process -FilePath $taskHostTemporary -ArgumentList ('--self-test-detach "' + $consoleProbeTemporary + '" "' + $selfTestLog + '"') -WorkingDirectory $installRoot -Wait -PassThru
         if ($selfTest.ExitCode -ne 0 -or -not (Test-Path -LiteralPath $selfTestLog -PathType Leaf)) {
             $details = if (Test-Path -LiteralPath $selfTestLog) { Get-Content -LiteralPath $selfTestLog -Raw } else { 'self-test log was not created' }
-            throw "Windows no-console task host self-test failed (exit=$($selfTest.ExitCode)): $details"
+            throw "Windows DETACHED_PROCESS self-test failed (exit=$($selfTest.ExitCode)): $details"
         }
         $selfTestContent = Get-Content -LiteralPath $selfTestLog -Raw
-        foreach ($marker in @('SELFTEST_HOST_CONSOLE=NONE', 'CHILD_CONSOLE=NONE', 'SELFTEST_CHILD_EXIT_CODE=0', 'SELFTEST_RESULT=PASS')) {
+        foreach ($marker in @('SELFTEST_HOST_CONSOLE=NONE', 'DETACHED_CHILD_CONSOLE=NONE', 'SELFTEST_DETACHED_CHILD_EXIT_CODE=0', 'SELFTEST_RESULT=PASS')) {
             if (-not $selfTestContent.Contains($marker)) {
-                throw "Windows no-console task host self-test is missing marker: $marker"
+                throw "Windows DETACHED_PROCESS self-test is missing marker: $marker"
             }
         }
     }
     finally {
+        Remove-Item -LiteralPath $consoleProbeTemporary -Force -ErrorAction SilentlyContinue
         Remove-Item -LiteralPath $selfTestLog -Force -ErrorAction SilentlyContinue
     }
 
     Move-Item -LiteralPath $taskHostTemporary -Destination $taskHostExecutable -Force
 
-    $powershellExecutable = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
-    $arguments = '--run "' + $powershellExecutable + '" "' + $launcherScript + '" "' + $config + '" "' + $installRoot + '" "' + $NodePath + '" "' + $TaskName + '"'
+    $arguments = '--run "' + $config + '" "' + $installRoot + '" "' + $resolvedNodePath + '" "' + $TaskName + '"'
     $action = New-ScheduledTaskAction -Execute $taskHostExecutable -Argument $arguments -WorkingDirectory $installRoot
     $trigger = New-ScheduledTaskTrigger -AtLogOn -User $currentUser
     $principal = New-ScheduledTaskPrincipal -UserId $currentUser -LogonType Interactive -RunLevel Limited
     $settings = New-ScheduledTaskSettingsSet -Disable -ExecutionTimeLimit ([TimeSpan]::Zero) -RestartCount 5 -RestartInterval (New-TimeSpan -Minutes 1) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
 
     try {
-        Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Description 'Disabled ARIA worker task; console-less WinExe host; enable only after separate human authorization.' | Out-Null
+        Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Description 'Disabled ARIA worker task; WinExe plus DETACHED_PROCESS; enable only after separate human authorization.' | Out-Null
 
         [xml]$taskXml = Export-ScheduledTask -TaskName $TaskName -ErrorAction Stop
         $logonTrigger = $taskXml.SelectSingleNode("//*[local-name()='LogonTrigger']")
@@ -253,12 +272,11 @@ if ($InstallScheduledTask) {
         Register-ScheduledTask -TaskName $TaskName -Xml $taskXml.OuterXml -Force | Out-Null
 
         $registeredTask = Get-ScheduledTask -TaskName $TaskName -ErrorAction Stop
-        $registeredTaskInfo = Get-ScheduledTaskInfo -TaskName $TaskName -ErrorAction Stop
         [xml]$verifiedTaskXml = Export-ScheduledTask -TaskName $TaskName -ErrorAction Stop
         $verifiedTrigger = $verifiedTaskXml.SelectSingleNode("//*[local-name()='LogonTrigger']")
         $verifiedDelayNode = if ($null -ne $verifiedTrigger) { $verifiedTrigger.SelectSingleNode("./*[local-name()='Delay']") } else { $null }
         $verifiedAction = $registeredTask.Actions | Select-Object -First 1
-        $expectedPrincipal = $currentIdentity.User.Value
+        $expectedPrincipalSid = $currentIdentity.User.Value
         $principalName = [string]$registeredTask.Principal.UserId
         $principalSid = $null
         try {
@@ -272,7 +290,7 @@ if ($InstallScheduledTask) {
         if ([string]$registeredTask.State -ne 'Disabled') {
             throw 'Scheduled task state could not be verified as Disabled.'
         }
-        if ($principalSid -ne $expectedPrincipal) {
+        if ($principalSid -ne $expectedPrincipalSid) {
             throw 'Scheduled task principal SID does not match the DPAPI current-user SID.'
         }
         if ([string]$registeredTask.Principal.LogonType -ne 'Interactive') {
@@ -284,10 +302,8 @@ if ($InstallScheduledTask) {
         if ([string]$verifiedAction.Execute -ne $taskHostExecutable) {
             throw 'Scheduled task action does not point to the compiled Windows GUI task host.'
         }
-        if ([string]$registeredTaskInfo.LastTaskResult -ne '267011') {
-            # 0x41303 = task has not yet run; a new task can also report 0.
-            # This field is informational only and is never used as an installation gate.
-            Write-Verbose ('New scheduled task LastTaskResult=' + $registeredTaskInfo.LastTaskResult)
+        if ([string]$verifiedAction.Arguments -notmatch '^\s*--run\s+') {
+            throw 'Scheduled task action is missing the worker host run mode.'
         }
     }
     catch {
