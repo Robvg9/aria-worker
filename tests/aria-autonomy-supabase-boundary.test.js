@@ -72,15 +72,15 @@ for (const file of autonomyOnlyPaths) {
   assert.ok(legacyWorkflow.includes("- '" + file + "'") || (file.startsWith('cloudflare-autonomy/') && legacyWorkflow.includes("'cloudflare-autonomy/**'")), 'legacy production deploy must ignore ' + file);
 }
 assert.doesNotMatch(legacyWorkflow, /SUPABASE_ACCESS_TOKEN|SUPABASE_PROJECT_REF|supabase secrets set|supabase --version/i, 'legacy Cloudflare deployment must not read Supabase credentials or mutate Supabase secrets');
-assert.match(legacyWorkflow, /secrets\.ARIA_RUNTIME_SHARED_SECRET/, 'Cloudflare deployment must still use the GitHub Actions canonical runtime secret');
-assert.doesNotMatch(legacyWorkflow, /functions\\/v1\\/aria-canonical-runtime-v1|aria-mission-runner-v22|x-aria-trigger:\\s*scheduler/i, 'legacy deployment must not POST to the canonical mission runtime');
-assert.match(secretSyncWorkflow, /^on:\\s*\\n\\s+workflow_dispatch:/m, 'Supabase secret sync must be workflow_dispatch-only');
-assert.doesNotMatch(secretSyncWorkflow, /^\\s+(push|pull_request|schedule):/m, 'Supabase secret sync must not have automatic triggers');
-assert.match(secretSyncWorkflow, /confirm_supabase_sync:[\\s\\S]*?default: false/, 'Supabase secret sync must require an explicit opt-in defaulting to false');
-assert.match(secretSyncWorkflow, /if: inputs\\.confirm_supabase_sync == true/, 'Supabase secret sync job must be blocked unless explicitly confirmed');
-assert.match(secretSyncWorkflow, /supabase secrets set "ARIA_RUNTIME_SHARED_SECRET=\\$ARIA_RUNTIME_SHARED_SECRET"/, 'dedicated sync workflow must source the canonical GitHub Actions secret');
-assert.match(secretSyncWorkflow, /environment: production/, 'dedicated sync workflow must use the production environment gate');
-assert.doesNotMatch(secretSyncWorkflow, /wrangler deploy|aria-canonical-runtime-v1|aria-mission-runner-v22|x-aria-trigger/i, 'secret sync workflow must not deploy a Worker or invoke mission execution');
+assert.ok(legacyWorkflow.includes('secrets.ARIA_RUNTIME_SHARED_SECRET'), 'Cloudflare deployment must still use the GitHub Actions canonical runtime secret');
+assert.ok(!legacyWorkflow.includes('functions/v1/aria-canonical-runtime-v1') && !legacyWorkflow.includes('aria-mission-runner-v22') && !legacyWorkflow.includes('x-aria-trigger: scheduler'), 'legacy deployment must not POST to the canonical mission runtime');
+assert.ok(secretSyncWorkflow.includes('on:\n  workflow_dispatch:'), 'Supabase secret sync must be workflow_dispatch-only');
+assert.ok(!secretSyncWorkflow.includes('\n  push:') && !secretSyncWorkflow.includes('\n  pull_request:') && !secretSyncWorkflow.includes('\n  schedule:'), 'Supabase secret sync must not have automatic triggers');
+assert.ok(secretSyncWorkflow.includes('default: false'), 'Supabase secret sync must require an explicit opt-in defaulting to false');
+assert.ok(secretSyncWorkflow.includes('if: inputs.confirm_supabase_sync == true'), 'Supabase secret sync job must be blocked unless explicitly confirmed');
+assert.ok(secretSyncWorkflow.includes('supabase secrets set "ARIA_RUNTIME_SHARED_SECRET=$ARIA_RUNTIME_SHARED_SECRET"'), 'dedicated sync workflow must source the canonical GitHub Actions secret');
+assert.ok(secretSyncWorkflow.includes('environment: production'), 'dedicated sync workflow must use the production environment gate');
+assert.ok(!secretSyncWorkflow.includes('wrangler deploy') && !secretSyncWorkflow.includes('aria-canonical-runtime-v1') && !secretSyncWorkflow.includes('aria-mission-runner-v22') && !secretSyncWorkflow.includes('x-aria-trigger'), 'secret sync workflow must not deploy a Worker or invoke mission execution');
 assert.match(pwaDeploy, /paths-ignore:/, 'production PWA deploy must have a safety path filter');
 for (const file of autonomyOnlyPaths) {
   assert.ok(pwaDeploy.includes("- '" + file + "'") || (file.startsWith('cloudflare-autonomy/') && pwaDeploy.includes("'cloudflare-autonomy/**'")), 'production PWA deploy must ignore ' + file);
