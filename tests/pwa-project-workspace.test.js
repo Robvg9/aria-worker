@@ -136,8 +136,8 @@ for (const [name, workflow] of [
   assert.ok(!trigger.includes('push:') && !trigger.includes('pull_request:'), name + ' must not auto-run a production-mutating E2E');
 }
 for (const [name, workflow] of [['Capabilities RWHT', capabilitiesRwhtWorkflow]]) {
-  assert.match(workflow, /- 'worker\\.js'/, name + ' remains an automatic same-SHA gate for Worker-only releases');
-  assert.match(workflow, /- 'wrangler\\.toml'/, name + ' remains an automatic same-SHA gate for Workers asset configuration changes');
+  assert.ok(workflow.includes("- 'worker.js'"), name + ' remains an automatic same-SHA gate for Worker-only releases');
+  assert.ok(workflow.includes("- 'wrangler.toml'"), name + ' remains an automatic same-SHA gate for Workers asset configuration changes');
 }
 assert.match(worker,/cache-control':'no-store'/, 'Legacy CuevaCoin preview redirect must not be cached as the static reference');
 assert.doesNotMatch(project,/id:'cuevacoin'.*project-preview\/cuevacoin\//, 'CuevaCoin must not use ARTIA screenshot/reference source as its main preview');
