@@ -442,9 +442,67 @@ export class AriaMissionStore {
     try { body = await request.json(); } catch (_) { return error('invalid_json', 400); }
     const goal = String(body.goal || '').trim();
     if (!goal || goal.length > 10000) return error('goal_required_or_too_long', 400);
-    const policy = body.policy && typeof body.policy === 'object' ? body.policy : {};
+    const policyInput = body.policy && typeof body.policy === 'object' ? body.policy : {};
+    const metadata = body.metadata && typeof body.metadata === 'object' ? clone(body.metadata) : {};
+    const policy = {
+      max_risk: parseRisk(policyInput.max_risk || 'medium'),
+      require_human_approval: policyInput.require_human_approval !== false,
+      allow_background: true,
+      max_steps: Math.max(1, Math.min(50, Number(policyInput.max_steps) || 20))
+    };
+
+    // Idempotency-Key is scoped to mission creation. Reserve the mission ID
+    // before writing the mission so a retry can recover the same ID even if
+    // the first request is interrupted between durable writes.
+    let missionId = uuid('mission');
+    const rawIdempotencyKey = request.headers.get('idempotency-key');
+    if (rawIdempotencyKey !== null) {
+      const idempotencyKey = rawIdempotencyKey.trim();
+      if (!/^[A-Za-z0-9._:-]{8,160}$/.test(idempotencyKey)) {
+        return error('idempotency_key_invalid', 400);
+      }
+      const storageKey = 'idempotency:mission:' + idempotencyKey;
+      const fingerprint = JSON.stringify({ goal, metadata, policy });
+      const priorRecord = await this.ctx.storage.get(storageKey);
+      if (priorRecord) {
+        if (priorRecord.request_fingerprint !== fingerprint) {
+          return error('idempotency_key_conflict', 409);
+        }
+        missionId = String(priorRecord.mission_id || '');
+        if (!/^mission_[A-Za-z0-9_-]{1,160}$/.test(missionId)) {
+          return error('idempotency_record_invalid', 500);
+        }
+        const priorMission = await this.getMission(missionId);
+        if (priorMission) {
+          if (priorMission.status === 'planning') {
+            const jobs = await this.ctx.storage.list({ prefix: 'job:' });
+            const hasPlanJob = Array.from(jobs.values()).some(job =>
+              job.mission_id === missionId &&
+              (job.operation === 'mission.plan' || job.operation === 'mission.replan')
+            );
+            if (!hasPlanJob) {
+              await this.createJob(
+                priorMission,
+                priorMission.plan_kind === 'replan' ? 'mission.replan' : 'mission.plan',
+                null,
+                { reason: 'idempotent_create_recovery' }
+              );
+            }
+          }
+          await this.scheduleAlarm();
+          return json({ mission: priorMission, idempotent_replay: true }, 200);
+        }
+      } else {
+        await this.ctx.storage.put(storageKey, {
+          mission_id: missionId,
+          request_fingerprint: fingerprint,
+          created_at: nowIso()
+        });
+      }
+    }
+
     const mission = {
-      mission_id: uuid('mission'),
+      mission_id: missionId,
       goal,
       status: 'planning',
       tasks: [],
@@ -455,13 +513,8 @@ export class AriaMissionStore {
       event_sequence: 0,
       plan_kind: 'plan',
       replans: 0,
-      metadata: body.metadata && typeof body.metadata === 'object' ? clone(body.metadata) : {},
-      policy: {
-        max_risk: parseRisk(policy.max_risk || 'medium'),
-        require_human_approval: policy.require_human_approval !== false,
-        allow_background: true,
-        max_steps: Math.max(1, Math.min(50, Number(policy.max_steps) || 20))
-      },
+      metadata,
+      policy,
       approval: null,
       verification: null,
       last_error: null
