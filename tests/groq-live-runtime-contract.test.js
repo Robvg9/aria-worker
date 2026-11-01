@@ -21,7 +21,7 @@ assert.match(execution, /https:\/\/api\.groq\.com\/openai\/v1\/chat\/completions
 assert.match(execution, /max_completion_tokens:Math\.max\(1,Math\.min\(Math\.floor\(requested\),2048\)\)/);
 assert.match(execution, /x-ratelimit-remaining-requests/);
 assert.match(execution, /if\(route\.provider_id==="groq"\)return groqChat\(route,input\)/);
-assert.match(execution, /gsk_\[A-Za-z0-9_-\]\{12,\}/);
+assert.ok(execution.includes('gsk_[A-Za-z0-9_-]{12,}'));
 
 assert.equal((gateway.match(/\.in\('provider_id',\['google','groq','openrouter'\]\)/g) || []).length, 2);
 assert.match(gateway, /'groq\/openai\/gpt-oss-120b'/);
