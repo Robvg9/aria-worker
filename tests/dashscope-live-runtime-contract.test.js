@@ -26,7 +26,7 @@ assert.ok(execution.includes('https://${credential.workspace_id}.ap-southeast-1.
 assert.ok(execution.includes('max_tokens:Math.max(1,Math.min(Math.floor(requested),2048))'));
 assert.ok(execution.includes('providerCode==="AllocationQuota.FreeTierOnly"?"quota_exhausted"'));
 
-assert.equal((gateway.match(/\.in\('provider_id',\['google','alibaba_dashscope','openrouter'\]\)/g) || []).length, 2);
+assert.equal((gateway.match(/\.in\('provider_id',\['google','alibaba_dashscope','openrouter'\]\)/g) || []).length, 3);
 assert.ok(gateway.includes("'alibaba_dashscope/qwen3.8-max'"));
 assert.ok(gateway.includes("m?.metadata?.free_quota_only===true"));
 assert.ok(gateway.includes("m?.metadata?.free_quota_expires_at"));
