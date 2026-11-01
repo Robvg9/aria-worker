@@ -16,7 +16,8 @@ const supervisorScriptPath = path.join(__dirname, '..', 'scripts', 'Start-ARIA-P
     assert.match(supervisorScript, /New-ScheduledTaskPrincipal -UserId \$currentUser -LogonType Interactive -RunLevel Limited/, 'scheduled worker must run with limited privileges');
     assert.match(supervisorScript, /Register-ScheduledTask/);
     assert.match(supervisorScript, /New-ScheduledTaskSettingsSet -Disable/, 'a newly registered task must be disabled');
-    assert.match(supervisorScript, /Disable-ScheduledTask/, 'the registered task must be explicitly disabled and verified');
+    assert.match(supervisorScript, /\$enabledNode\.InnerText = 'false'/, 'the exported task XML must explicitly disable the registered task');
+    assert.match(supervisorScript, /\[string\]\$registeredTask\.State -ne 'Disabled'/, 'the installed task state must be verified as Disabled');
     assert.match(supervisorScript, /ARIA_WORKER_TASK_STATE=Disabled/);
     assert.match(supervisorScript, /ARIA_WORKER_TASK_STARTED=false/);
     assert.doesNotMatch(supervisorScript, /Start-ScheduledTask/, 'package 4 must never start the worker while it is being prepared');
