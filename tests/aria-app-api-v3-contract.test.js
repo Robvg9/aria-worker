@@ -253,8 +253,10 @@ assert.match(cloudflareDeployWorkflow,/push:\s*\n\s*branches:\s*\[main\]/,"Worke
 assert.doesNotMatch(cloudflareDeployWorkflow,/push:\s*\n\s*branches:\s*\[main\]\s*\n\s*paths:/,"Worker deploy must not path-filter away unrelated main SHAs required by Exact-SHA certification");
 assert.match(pwaDeployWorkflow,/push:\s*\n\s*branches:\s*\[main\]/,"PWA deploy must run on each main SHA required by Exact-SHA certification");
 assert.doesNotMatch(pwaDeployWorkflow,/push:\s*\n\s*branches:\s*\[main\]\s*\n\s*paths:/,"PWA deploy must not path-filter away unrelated main SHAs required by Exact-SHA certification");
-assertContains(webpushWorkflow,".github/workflows/persistence-recovery-rwht-authenticated.yml","Web Push E2E must re-run when its required exact-SHA persistence predecessor changes");
-assertContains(pwaCertificationWorkflow,".github/workflows/persistence-recovery-rwht-authenticated.yml","PWA Steps 7-8 must re-run when its required exact-SHA persistence predecessor changes");
+assert.ok(webpushWorkflow.includes("workflow_dispatch:"),"Web Push E2E remains available for deliberate manual certification");
+assert.ok(pwaCertificationWorkflow.includes("workflow_dispatch:"),"PWA Steps 7-8 remain available for deliberate manual certification");
+assertContains(webpushWorkflow,"Wait for both exact-SHA production deploys","manual Web Push E2E must retain the exact-SHA deployment barrier");
+assertContains(pwaCertificationWorkflow,"Wait for both exact-SHA production deploys","manual PWA Steps 7-8 must retain the exact-SHA deployment barrier");
 console.log('EXACT-SHA PERSISTENCE SUCCESSOR TRIGGER CONTRACT: PASS');
 assertContains(appApi,'latestVerificationByMission','completion notification reconciliation must retain the latest verification event and its proof payload');
 assertContains(appApi,'statusByMission.get(missionId)==="succeeded"','completed notifications must be hidden once their mission is no longer succeeded');
