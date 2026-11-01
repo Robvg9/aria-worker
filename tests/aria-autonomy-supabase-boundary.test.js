@@ -6,6 +6,7 @@ const path = require('node:path');
 
 const root = path.resolve(__dirname, '..');
 const legacyWorkflow = fs.readFileSync(path.join(root, '.github/workflows/aria-cloudflare-deploy.yml'), 'utf8');
+const secretSyncWorkflow = fs.readFileSync(path.join(root, '.github/workflows/aria-runtime-secret-sync.yml'), 'utf8');
 const isolatedDeploy = fs.readFileSync(path.join(root, '.github/workflows/aria-autonomy-coordinator-deploy.yml'), 'utf8');
 const pwaDeploy = fs.readFileSync(path.join(root, '.github/workflows/aria-pwa-fast-deploy.yml'), 'utf8');
 const supabaseDeploy = fs.readFileSync(path.join(root, '.github/workflows/supabase-canonical-deploy.yml'), 'utf8');
@@ -24,6 +25,7 @@ const autonomyOnlyPaths = [
   '.github/workflows/aria-pwa-fast-deploy.yml',
   '.github/workflows/supabase-canonical-deploy.yml',
   '.github/workflows/persistent-autonomy-v1-tests.yml',
+  '.github/workflows/aria-runtime-secret-sync.yml',
   '.github/workflows/aria-npm-test.yml',
   'Dockerfile.aria-coordinator',
   'autonomy/PERSISTENT_AUTONOMY_V1.md',
@@ -69,7 +71,16 @@ const autonomyOnlyPaths = [
 for (const file of autonomyOnlyPaths) {
   assert.ok(legacyWorkflow.includes("- '" + file + "'") || (file.startsWith('cloudflare-autonomy/') && legacyWorkflow.includes("'cloudflare-autonomy/**'")), 'legacy production deploy must ignore ' + file);
 }
-assert.ok(legacyWorkflow.includes('SUPABASE_ACCESS_TOKEN'), 'legacy workflow remains explicitly identifiable as Supabase-coupled');
+assert.doesNotMatch(legacyWorkflow, /SUPABASE_ACCESS_TOKEN|SUPABASE_PROJECT_REF|supabase secrets set|supabase --version/i, 'legacy Cloudflare deployment must not read Supabase credentials or mutate Supabase secrets');
+assert.ok(legacyWorkflow.includes('secrets.ARIA_RUNTIME_SHARED_SECRET'), 'Cloudflare deployment must still use the GitHub Actions canonical runtime secret');
+assert.ok(!legacyWorkflow.includes('functions/v1/aria-canonical-runtime-v1') && !legacyWorkflow.includes('aria-mission-runner-v22') && !legacyWorkflow.includes('x-aria-trigger: scheduler'), 'legacy deployment must not POST to the canonical mission runtime');
+assert.ok(secretSyncWorkflow.includes('on:\n  workflow_dispatch:'), 'Supabase secret sync must be workflow_dispatch-only');
+assert.ok(!secretSyncWorkflow.includes('\n  push:') && !secretSyncWorkflow.includes('\n  pull_request:') && !secretSyncWorkflow.includes('\n  schedule:'), 'Supabase secret sync must not have automatic triggers');
+assert.ok(secretSyncWorkflow.includes('default: false'), 'Supabase secret sync must require an explicit opt-in defaulting to false');
+assert.ok(secretSyncWorkflow.includes('if: inputs.confirm_supabase_sync == true'), 'Supabase secret sync job must be blocked unless explicitly confirmed');
+assert.ok(secretSyncWorkflow.includes('supabase secrets set "ARIA_RUNTIME_SHARED_SECRET=$ARIA_RUNTIME_SHARED_SECRET"'), 'dedicated sync workflow must source the canonical GitHub Actions secret');
+assert.ok(secretSyncWorkflow.includes('environment: production'), 'dedicated sync workflow must use the production environment gate');
+assert.ok(!secretSyncWorkflow.includes('wrangler deploy') && !secretSyncWorkflow.includes('aria-canonical-runtime-v1') && !secretSyncWorkflow.includes('aria-mission-runner-v22') && !secretSyncWorkflow.includes('x-aria-trigger'), 'secret sync workflow must not deploy a Worker or invoke mission execution');
 assert.match(pwaDeploy, /paths-ignore:/, 'production PWA deploy must have a safety path filter');
 for (const file of autonomyOnlyPaths) {
   assert.ok(pwaDeploy.includes("- '" + file + "'") || (file.startsWith('cloudflare-autonomy/') && pwaDeploy.includes("'cloudflare-autonomy/**'")), 'production PWA deploy must ignore ' + file);
