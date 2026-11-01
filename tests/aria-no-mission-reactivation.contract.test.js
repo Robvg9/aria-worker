@@ -287,3 +287,30 @@ test('production Human Gate E2E and EAS cloud builds are manual-only', () => {
   assert.ok(humanGate.includes('PROTECTED_ACTION_OK'),
     'test still includes the controlled protected-action verification');
 });
+
+test('authenticated production write E2Es and physical certification are manual-only', () => {
+  const manualOnlyPaths = [
+    '.github/workflows/chat-rwht-authenticated.yml',
+    '.github/workflows/persistence-recovery-rwht-authenticated.yml',
+    '.github/workflows/aria-pwa-steps-7-8-live.yml',
+    '.github/workflows/aria-meditation-webpush-production-e2e.yml',
+  ];
+  for (const file of manualOnlyPaths) {
+    const source = read(file);
+    const triggerStart = source.indexOf('\\non:');
+    const permissionsStart = source.indexOf('\\npermissions:');
+    assert.ok(triggerStart >= 0 && permissionsStart > triggerStart, file + ' must have a bounded trigger block');
+    const trigger = source.slice(triggerStart, permissionsStart);
+    assert.ok(trigger.includes('workflow_dispatch:'), file + ' must remain manually dispatchable');
+    assert.ok(!trigger.includes('push:'), file + ' must not start live tests on a push');
+    assert.ok(!trigger.includes('pull_request:'), file + ' must not run production E2E on PRs');
+  }
+
+  const absorb = read('.github/workflows/aria-absorb.yml');
+  assert.ok(absorb.includes("live-e2e:\\n    if: github.event_name == 'workflow_dispatch'"),
+    'ABSORB live E2E must be explicit/manual while its contracts remain automatic');
+
+  const pc = read('.github/workflows/pc-rwht.yml');
+  assert.ok(pc.includes("live-pwa:\\n    if: github.event_name == 'workflow_dispatch'"),
+    'PC RWHT full LIVE PWA audit must be explicit/manual while contract job remains automatic');
+});
