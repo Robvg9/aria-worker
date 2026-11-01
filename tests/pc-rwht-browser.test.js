@@ -190,8 +190,13 @@ for (const [workflowName, workflow] of [
   ['Persistence + Recovery RWHT', persistenceRecoveryWorkflow],
   ['Production Web Push E2E', webPushGateTriggerWorkflow],
 ]) {
-  assert.ok(workflow.includes("'rwht/pc-browser/rwht-pc-browser.mjs'"), `${workflowName} must trigger when the full PC RWHT harness changes`);
-  assert.ok(workflow.includes("'tests/pc-rwht-browser.test.js'"), `${workflowName} must trigger when the PC RWHT contract changes`);
+  const triggerStart = workflow.indexOf('\\non:');
+  const permissionsStart = workflow.indexOf('\\npermissions:');
+  assert.ok(triggerStart >= 0 && permissionsStart > triggerStart, `${workflowName} must have a bounded trigger block`);
+  const trigger = workflow.slice(triggerStart, permissionsStart);
+  assert.ok(trigger.includes('workflow_dispatch:'), `${workflowName} must remain manually dispatchable`);
+  assert.ok(!trigger.includes('push:'), `${workflowName} must not run automatically on deployments`);
+  assert.ok(!trigger.includes('pull_request:'), `${workflowName} must not run on PR validation`);
 }
 assert.match(pwaIndex, /aria-test-catalog-version/);
 assert.match(pwaIndex, /content='__ARIA_TEST_CATALOG_VERSION__'/);
