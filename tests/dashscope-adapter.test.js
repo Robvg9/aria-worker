@@ -32,6 +32,7 @@ const credential = JSON.stringify({
   assert.deepEqual(buildMessages({ prompt: 'hello' }), [{ role: 'user', content: 'hello' }]);
   assert.equal(buildMessages({}), null);
   assert.equal(validateCredential(credential, Date.parse('2026-11-01T00:00:00Z')).ok, true);
+  assert.equal(require('../execution/adapters/dashscope').sanitizeProviderMessage('Authorization: Bearer abcdefghijklmnop'), 'Authorization: Bearer [REDACTED]');
   assert.equal(validateCredential(JSON.stringify({ ...JSON.parse(credential), free_quota_only: false })).reason, 'free_quota_only_not_confirmed');
   assert.equal(validateCredential(JSON.stringify({ ...JSON.parse(credential), free_quota_expires_at: '2020-01-01T00:00:00Z' }), Date.parse('2026-11-01T00:00:00Z')).reason, 'free_quota_expired_or_unknown');
 
