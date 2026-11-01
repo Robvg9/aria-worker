@@ -133,6 +133,13 @@ internal static class AriaWorkerTaskHost
                 return RunDpapiSelfTest(args[1], args[2]);
             }
 
+            if (args != null && args.Length == 3 &&
+                String.Equals(args[0], "--self-test-config", StringComparison.Ordinal))
+            {
+                LogPath = args[2];
+                return RunConfigSelfTest(args[1]);
+            }
+
             LogPath = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                 "ARIA", "logs", "persistent-worker-supervisor.log");
@@ -202,6 +209,26 @@ internal static class AriaWorkerTaskHost
         }
 
         WriteLog("SELFTEST_RESULT=PASS");
+        return 0;
+    }
+
+    private static int RunConfigSelfTest(string configPath)
+    {
+        EnsureLogDirectory();
+        Dictionary<string, string> environment = BuildWorkerEnvironment(configPath);
+        string token = environment.ContainsKey("ARIA_WORKER_TOKEN")
+            ? environment["ARIA_WORKER_TOKEN"] : null;
+
+        if (String.IsNullOrEmpty(token) || token.Length < 32)
+        {
+            WriteLog("SELFTEST_CONFIG_DPAPI=FAIL");
+            return 15;
+        }
+
+        environment["ARIA_WORKER_TOKEN"] = null;
+        token = null;
+        WriteLog("SELFTEST_CONFIG_DPAPI=PASS");
+        WriteLog("SELFTEST_CONFIG_TOKEN_LOGGED=NO");
         return 0;
     }
 
