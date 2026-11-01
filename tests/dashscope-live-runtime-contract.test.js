@@ -34,6 +34,9 @@ assert.ok(gateway.includes("const providerOrder:Record<string,number>={google:0,
 assert.ok(gateway.includes("'alibaba_dashscope/qwen3.8-max':{provider_id:'alibaba_dashscope',account_id:'acct_dashscope_primary'}"));
 assert.ok(gateway.includes("a.credential_ref!=='secret://dashscope/qwen_primary'||a.secret_present!==true"));
 assert.ok(gateway.includes("supabase.schema('aria_internal').from('model_registry')"));
+assert.ok(gateway.includes("supabase.schema('aria_internal').from('provider_registry')"));
+assert.ok(gateway.includes("provider.status!=='available'||provider.enabled!==true||provider.integration_status!=='connected'"));
+assert.ok(gateway.includes("dashscope_provider_not_live_verified"));
 assert.ok(gateway.includes("supabase.schema('aria_internal').from('capability_matrix')"));
 assert.ok(gateway.includes("supabase.schema('aria_internal').from('credential_registry')"));
 assert.ok(gateway.includes("dashscope_model_or_free_quota_not_live_verified"));
