@@ -84,7 +84,7 @@ console.log('MISSION 6 ROUTER V2 GATEWAY CONTRACT: PASS');
     'individual and parallel gateway execution pass both payload and outer HTTP status');
   ok((gatewaySource.match(/m6GovernFallback\(selected,routes/g) || []).length === 2,
     'individual and parallel fallback governance use the currently failing route');
-  ok((gatewaySource.match(/payload\?\.status==='succeeded'&&response\.ok/g) || []).length === 2,
+  ok((gatewaySource.match(/if\(payload\?\.status==='succeeded'&&response\.ok\)/g) || []).length === 2,
     'non-2xx responses cannot be accepted as successful executions');
   console.log('MISSION 6 ROUTER V2 FALLBACK GOVERNANCE:', count + ' assertions PASS');
 })().catch((error) => {
