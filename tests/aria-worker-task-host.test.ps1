@@ -119,6 +119,51 @@ try {
 
         Write-Output 'TASK_HOST_DPAPI_CURRENT_USER_ROUNDTRIP=PASS'
         Write-Output 'TASK_HOST_DPAPI_PLAINTEXT_NOT_LOGGED=PASS'
+
+        # Exercise the exact JSON config contract used by the Windows worker installer.
+        $workspace = Join-Path $root 'workspace'
+        New-Item -ItemType Directory -Path $workspace -Force | Out-Null
+        $fixture = Join-Path $PSScriptRoot '..\tests\fixtures\aria-frozen-worker-probe-adapter.js'
+        if (-not (Test-Path -LiteralPath $fixture -PathType Leaf)) {
+            throw "Frozen adapter fixture missing: $fixture"
+        }
+
+        $sid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+        $configPath = Join-Path $root 'worker.config.json'
+        $document = [ordered]@{
+            format = 'aria-worker-config-dpapi-v1'
+            protectedForSid = $sid
+            createdAtUtc = [DateTime]::UtcNow.ToString('o')
+            workerTokenDpapi = $encrypted
+            values = [ordered]@{
+                ARIA_CONTROL_URL = 'https://aria-autonomy-coordinator.robvg9.workers.dev'
+                ARIA_AUTONOMY_ADAPTER = (Resolve-Path -LiteralPath $fixture).Path
+                ARIA_WORKSPACE_ROOT = $workspace
+                ARIA_WORKER_ID = 'aria-task-host-ci-safe-fixture'
+                ARIA_WORKER_POLL_MS = '1000'
+                ARIA_WORKER_HEARTBEAT_MS = '15000'
+            }
+        }
+
+        $json = $document | ConvertTo-Json -Depth 6
+        [System.IO.File]::WriteAllText($configPath, $json, ([System.Text.UTF8Encoding]::new($false)))
+        $configArgs = '--self-test-config "' + $configPath + '" "' + $dpapiLog + '"'
+        $configProcess = Start-Process -FilePath $hostExe -ArgumentList $configArgs -PassThru -Wait
+
+        if ($configProcess.ExitCode -ne 0) {
+            Get-Content -LiteralPath $dpapiLog
+            throw "DPAPI config host self-test failed with exit code $($configProcess.ExitCode)."
+        }
+
+        $configContent = Get-Content -LiteralPath $dpapiLog -Raw
+        if (-not $configContent.Contains('SELFTEST_CONFIG_DPAPI=PASS') -or
+            -not $configContent.Contains('SELFTEST_CONFIG_TOKEN_LOGGED=NO') -or
+            $configContent.Contains($testToken)) {
+            Get-Content -LiteralPath $dpapiLog
+            throw 'DPAPI config test did not pass or token appeared in output.'
+        }
+
+        Write-Output 'TASK_HOST_DPAPI_CONFIG_FORMAT=PASS'
     }
     finally {
         $testToken = $null
