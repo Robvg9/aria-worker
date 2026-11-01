@@ -105,12 +105,12 @@ async function androidAutonomousDecision(b:any,d:any){
   const [candidatesRes,capsRes,acctRes]=await Promise.all([
     supabase.schema('aria_internal').from('model_registry')
       .select('model_id,provider_id,status,enabled,pricing,metadata,interface_type')
-      .in('provider_id',['google','openrouter']).eq('status','available').eq('enabled',true),
+      .in('provider_id',['google','groq','openrouter']).eq('status','available').eq('enabled',true),
     supabase.schema('aria_internal').from('capability_matrix')
       .select('model_id,status,verified_at').eq('capability_id','text_generation').eq('status','verified'),
     supabase.schema('aria_internal').from('account_registry')
       .select('account_id,provider_id,status,enabled,models')
-      .in('provider_id',['google','openrouter']).eq('status','available').eq('enabled',true)
+      .in('provider_id',['google','groq','openrouter']).eq('status','available').eq('enabled',true)
   ]);
   if(candidatesRes.error)throw new Error(candidatesRes.error.message);
   if(capsRes.error)throw new Error(capsRes.error.message);
@@ -119,6 +119,7 @@ async function androidAutonomousDecision(b:any,d:any){
   // Only LIVE-verified routes. Do not list models absent from model_registry / capability_matrix.
   const preferredModels=[
     'google/gemini-3.5-flash-lite-direct',
+    'groq/openai/gpt-oss-120b',
     'nex-agi/nex-n2.5-mini:free',
     'nvidia/nemotron-3.5-lightning:free'
   ];
@@ -211,8 +212,9 @@ async function androidAutonomousDecision(b:any,d:any){
 
   const attempts=[];
   // OpenRouter free routing is preferred because it has a verified physical Android E2E path.
+  const providerOrder:Record<string,number>={google:0,groq:1,openrouter:2};
   const orderedRoutes=[...routes].sort((a:any,b:any)=>{
-    const ao=a.provider_id==='openrouter'?0:1, bo=b.provider_id==='openrouter'?0:1;
+    const ao=providerOrder[a.provider_id]??99, bo=providerOrder[b.provider_id]??99;
     return ao-bo || preference(a.model_id)-preference(b.model_id);
   });
   const parseLine=(raw:string)=>{
@@ -602,6 +604,7 @@ async function mission5ModelProbe(b:any,d:any){
   // Invented model IDs (3.5-flash-direct, 3.6+, 3.7+, 3.8+) produced unauthorized / provider_error.
   const allowed={
     'google/gemini-3.5-flash-lite-direct':{provider_id:'google',account_id:'acct_google_gemini_free'},
+    'groq/openai/gpt-oss-120b':{provider_id:'groq',account_id:'acct_groq_primary'},
     'nvidia/nemotron-3.5-lightning:free':{provider_id:'openrouter',account_id:'acct_openrouter_primary'},
     'nex-agi/nex-n2.5-mini:free':{provider_id:'openrouter',account_id:'acct_openrouter_primary'},
     'deepseek/deepseek-v4-flash-0731:free':{provider_id:'openrouter',account_id:'acct_openrouter_primary'},
