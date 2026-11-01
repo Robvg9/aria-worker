@@ -231,13 +231,21 @@ assertContains(appApi,'verification_invalidated: true','correction response must
 assertContains(pwa,'CIERRE ANTERIOR INVALIDADO: no se ejecutaron todas las herramientas requeridas.','Meditación IA must explain why a tool-based false success was invalidated');
 console.log('CHAT DIAGNOSTICS + REQUIRED TOOL EVIDENCE CONTRACT: PASS');
 
-assertContains(persistenceWorkflow,"'supabase/functions/aria-app-api-v3/**'","persistence/recovery E2E must trigger for API-only releases so exact-SHA predecessor gates cannot wait forever");
+const persistenceTriggerStart = persistenceWorkflow.indexOf('\non:');
+const persistencePermissionsStart = persistenceWorkflow.indexOf('\npermissions:');
+assert.ok(persistenceTriggerStart >= 0 && persistencePermissionsStart > persistenceTriggerStart,
+  'persistence/recovery must expose a bounded workflow trigger');
+const persistenceTrigger = persistenceWorkflow.slice(persistenceTriggerStart, persistencePermissionsStart);
+assert.ok(persistenceTrigger.includes('workflow_dispatch:'),
+  'persistence/recovery must remain manually dispatchable for approved LIVE certification');
+assert.ok(!persistenceTrigger.includes('push:') && !persistenceTrigger.includes('pull_request:'),
+  'persistence/recovery E2E must not automatically write authenticated production conversations');
 if(persistenceWorkflow.includes('LIVE_GATE_PREDECESSORS: "ARIA PWA Steps 7-8 LIVE Certification"')) {
   throw new Error('persistence/recovery cannot wait for PWA Steps 7-8 because that gate requires persistence/recovery first');
 }
 assertContains(persistenceWorkflow,'Wait for exact-SHA deployments + PWA LIVE build','persistence/recovery must keep its direct exact-SHA deployment barrier');
-assertContains(persistenceWorkflow,".github/workflows/aria-meditation-webpush-production-e2e.yml","persistence predecessor must trigger when Web Push successor workflow changes");
-assertContains(persistenceWorkflow,".github/workflows/aria-pwa-steps-7-8-live.yml","persistence predecessor must trigger when PWA certification successor workflow changes");
+assert.ok(persistenceWorkflow.includes("workflow_dispatch:"),"persistence/recovery remains available for deliberate manual certification");
+assert.ok(!persistenceTrigger.includes("push:") && !persistenceTrigger.includes("pull_request:"),"manual-only persistence predecessor must not auto-trigger its Web Push/PWA successors");
 console.log('EXACT-SHA PREDECESSOR/SUCCESSOR TRIGGER GRAPH CONTRACT: PASS');
 console.log('PERSISTENCE RELEASE GATE ACYCLICITY CONTRACT: PASS');
 
@@ -245,8 +253,10 @@ assert.match(cloudflareDeployWorkflow,/push:\s*\n\s*branches:\s*\[main\]/,"Worke
 assert.doesNotMatch(cloudflareDeployWorkflow,/push:\s*\n\s*branches:\s*\[main\]\s*\n\s*paths:/,"Worker deploy must not path-filter away unrelated main SHAs required by Exact-SHA certification");
 assert.match(pwaDeployWorkflow,/push:\s*\n\s*branches:\s*\[main\]/,"PWA deploy must run on each main SHA required by Exact-SHA certification");
 assert.doesNotMatch(pwaDeployWorkflow,/push:\s*\n\s*branches:\s*\[main\]\s*\n\s*paths:/,"PWA deploy must not path-filter away unrelated main SHAs required by Exact-SHA certification");
-assertContains(webpushWorkflow,".github/workflows/persistence-recovery-rwht-authenticated.yml","Web Push E2E must re-run when its required exact-SHA persistence predecessor changes");
-assertContains(pwaCertificationWorkflow,".github/workflows/persistence-recovery-rwht-authenticated.yml","PWA Steps 7-8 must re-run when its required exact-SHA persistence predecessor changes");
+assert.ok(webpushWorkflow.includes("workflow_dispatch:"),"Web Push E2E remains available for deliberate manual certification");
+assert.ok(pwaCertificationWorkflow.includes("workflow_dispatch:"),"PWA Steps 7-8 remain available for deliberate manual certification");
+assertContains(webpushWorkflow,"Wait for both exact-SHA production deploys","manual Web Push E2E must retain the exact-SHA deployment barrier");
+assertContains(pwaCertificationWorkflow,"Wait for both exact-SHA production deploys","manual PWA Steps 7-8 must retain the exact-SHA deployment barrier");
 console.log('EXACT-SHA PERSISTENCE SUCCESSOR TRIGGER CONTRACT: PASS');
 assertContains(appApi,'latestVerificationByMission','completion notification reconciliation must retain the latest verification event and its proof payload');
 assertContains(appApi,'statusByMission.get(missionId)==="succeeded"','completed notifications must be hidden once their mission is no longer succeeded');

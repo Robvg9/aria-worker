@@ -1,36 +1,8 @@
 name: ARIA Persistence + Recovery Browser RWHT Authenticated
 
+# Persistence E2E writes to real authenticated conversations; dispatch it only for an approved LIVE certification.
+# Live authenticated/production E2E is intentionally manual-only.
 on:
-  push:
-    branches: [main]
-    paths:
-      # App API changes can affect auth/session hydration and must have a same-SHA persistence predecessor for Web Push.
-      - 'supabase/functions/aria-app-api-v3/**'
-      - 'supabase/functions/aria-planner-v11/**'
-      - 'supabase/functions/aria-mission-runner-v22/**'
-      - 'supabase/functions/_shared/physical-execution-contract.mjs'
-      - 'pwa/src/App.tsx'
-      - 'pwa/index.html'
-      - 'pwa/src/testCatalog.ts'
-      - 'pwa/src/index.css'
-      - 'worker.js'
-      - 'rwht/pc-browser/rwht-persistence-recovery-e2e.mjs'
-      - 'tests/pwa-persistence-recovery-v1.test.js'
-      - 'tests/pwa-auth-proxy-contract.test.js'
-      # Keep this same-SHA predecessor active when the PC audit harness changes.
-      - 'rwht/pc-browser/rwht-pc-browser.mjs'
-      - 'tests/pc-rwht-browser.test.js'
-      - '.github/workflows/persistence-recovery-rwht-authenticated.yml'
-      - '.github/workflows/supabase-canonical-deploy.yml'
-      - '.github/workflows/e2e-human-gate-safe-autonomy.yml'
-      - '.github/workflows/pc-rwht.yml'
-      # The predecessor must re-run whenever the Web Push E2E runner changes; Web Push waits on this exact-SHA gate.
-      - 'rwht/pc-browser/rwht-meditation-pwa-e2e.mjs'
-      # The predecessor must re-run when either same-SHA successor gate definition changes.
-      - '.github/workflows/aria-meditation-webpush-production-e2e.yml'
-      - '.github/workflows/aria-pwa-steps-7-8-live.yml'
-      - 'pwa/src/.rwht-persistence-recovery-trigger.ts'
-      - 'pwa/ARIA-PC-RWHT-RELEASE-MARKER.md'
   workflow_dispatch:
 
 permissions:

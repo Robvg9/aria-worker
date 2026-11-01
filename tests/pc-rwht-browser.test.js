@@ -190,8 +190,13 @@ for (const [workflowName, workflow] of [
   ['Persistence + Recovery RWHT', persistenceRecoveryWorkflow],
   ['Production Web Push E2E', webPushGateTriggerWorkflow],
 ]) {
-  assert.ok(workflow.includes("'rwht/pc-browser/rwht-pc-browser.mjs'"), `${workflowName} must trigger when the full PC RWHT harness changes`);
-  assert.ok(workflow.includes("'tests/pc-rwht-browser.test.js'"), `${workflowName} must trigger when the PC RWHT contract changes`);
+  const triggerStart = workflow.indexOf('\non:');
+  const permissionsStart = workflow.indexOf('\npermissions:');
+  assert.ok(triggerStart >= 0 && permissionsStart > triggerStart, `${workflowName} must have a bounded trigger block`);
+  const trigger = workflow.slice(triggerStart, permissionsStart);
+  assert.ok(trigger.includes('workflow_dispatch:'), `${workflowName} must remain manually dispatchable`);
+  assert.ok(!trigger.includes('push:'), `${workflowName} must not run automatically on deployments`);
+  assert.ok(!trigger.includes('pull_request:'), `${workflowName} must not run on PR validation`);
 }
 assert.match(pwaIndex, /aria-test-catalog-version/);
 assert.match(pwaIndex, /content='__ARIA_TEST_CATALOG_VERSION__'/);
@@ -238,7 +243,7 @@ const pcWorkflow = fs.readFileSync(
 );
 assert.equal((pcWorkflow.match(/'supabase\/functions\/aria-app-api-v3\/\*\*'/g) || []).length, 2,
   'PC Browser RWHT must run on push and PR changes to the canonical App API');
-assert.equal(pcWorkflow.split("'worker.js'").length - 1, 2, 'Full PC RWHT must trigger for worker-only release changes on both PR and main pushes');
+assert.equal(pcWorkflow.split("'worker.js'").length - 1, 2, 'PC RWHT contract must track worker-only release changes on both PR and main pushes');
 assert.equal(pcWorkflow.split("'wrangler.toml'").length - 1, 2, 'Full PC RWHT must trigger for Wrangler config changes on both PR and main pushes');
 assert.equal(pcWorkflow.split("'.github/workflows/aria-cloudflare-deploy.yml'").length - 1, 2, 'Full PC RWHT must trigger for Worker deploy changes on both PR and main pushes');
 assert.equal(pcWorkflow.split("'.github/workflows/aria-pwa-fast-deploy.yml'").length - 1, 2, 'Full PC RWHT must trigger for PWA fast deploy changes on both PR and main pushes');
@@ -246,43 +251,60 @@ assert.equal(pcWorkflow.split("'.github/workflows/aria-scheduler-transport-deplo
 assert.match(pcWorkflow, /LIVE_GATE_PREDECESSORS: "ARIA ABSORB Contract and LIVE E2E;ARIA Chat Browser RWHT Authenticated;ARIA Capabilities Browser RWHT Authenticated;ARIA PWA Steps 7-8 LIVE Certification;ARIA npm test;ARIA Autonomous Windows Qwen3;All For One Forensic Audit"/,
   'Full PC RWHT may certify only after every exact-SHA predecessor, including Steps 7-8, succeeds');
 const steps78WorkflowTriggers = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'aria-pwa-steps-7-8-live.yml'), 'utf8');
-assert.ok(steps78WorkflowTriggers.includes("'.github/workflows/pc-rwht.yml'"),
-  'Steps 7-8 certification must rerun when the PC certification workflow graph changes');
-assert.ok(steps78WorkflowTriggers.includes("'rwht/pc-browser/rwht-pc-browser.mjs'"),
-  'Steps 7-8 must rerun when the PC RWHT execution harness changes');
-assert.ok(steps78WorkflowTriggers.includes("'tests/pc-rwht-browser.test.js'"),
-  'Steps 7-8 must rerun when the PC RWHT contract changes');
+const steps78TriggerStart = steps78WorkflowTriggers.indexOf('\non:');
+const steps78PermissionsStart = steps78WorkflowTriggers.indexOf('\npermissions:');
+assert.ok(steps78TriggerStart >= 0 && steps78PermissionsStart > steps78TriggerStart,
+  'Steps 7-8 must expose a bounded workflow trigger');
+const steps78Trigger = steps78WorkflowTriggers.slice(steps78TriggerStart, steps78PermissionsStart);
+assert.ok(steps78Trigger.includes('workflow_dispatch:'),
+  'Steps 7-8 LIVE certification must remain manually dispatchable');
+assert.ok(!steps78Trigger.includes('push:') && !steps78Trigger.includes('pull_request:'),
+  'Steps 7-8 production conversation E2E must not run automatically');
+
 for (const workflowPath of [
-  '.github/workflows/aria-meditation-webpush-production-e2e.yml',
   '.github/workflows/capabilities-rwht-authenticated.yml',
-  '.github/workflows/chat-rwht-authenticated.yml',
-  '.github/workflows/persistence-recovery-rwht-authenticated.yml',
   '.github/workflows/responsive-ux-rwht-authenticated.yml',
   '.github/workflows/settings-rwht-authenticated.yml',
 ]) {
   const workflow = fs.readFileSync(path.join(__dirname, '..', workflowPath), 'utf8');
   assert.ok(workflow.includes("'.github/workflows/pc-rwht.yml'"),
-    workflowPath + ' must rerun on PC RWHT exact-SHA gate changes');
+    workflowPath + ' must rerun on PC RWHT contract graph changes');
 }
 const physicalExecutionReleasePaths = [
   'supabase/functions/aria-planner-v11/**',
   'supabase/functions/aria-mission-runner-v22/**',
   'supabase/functions/_shared/physical-execution-contract.mjs',
 ];
-const physicalExecutionSameShaGates = [
+const physicalExecutionAutomaticSameShaGates = [
   '.github/workflows/pc-rwht.yml',
-  '.github/workflows/aria-pwa-steps-7-8-live.yml',
-  '.github/workflows/chat-rwht-authenticated.yml',
   '.github/workflows/capabilities-rwht-authenticated.yml',
-  '.github/workflows/persistence-recovery-rwht-authenticated.yml',
-  '.github/workflows/aria-meditation-webpush-production-e2e.yml',
 ];
-for (const workflowPath of physicalExecutionSameShaGates) {
+for (const workflowPath of physicalExecutionAutomaticSameShaGates) {
   const workflow = fs.readFileSync(path.join(__dirname, '..', workflowPath), 'utf8');
   for (const releasePath of physicalExecutionReleasePaths) {
     assert.ok(workflow.includes("'" + releasePath + "'"),
-      workflowPath + ' must trigger same-SHA certification when the physical mission execution guard changes: ' + releasePath);
+      workflowPath + ' must trigger automatic contract/read-only gate changes when the physical mission execution guard changes: ' + releasePath);
   }
+}
+const physicalExecutionManualSameShaGates = [
+  '.github/workflows/aria-pwa-steps-7-8-live.yml',
+  '.github/workflows/chat-rwht-authenticated.yml',
+  '.github/workflows/persistence-recovery-rwht-authenticated.yml',
+  '.github/workflows/aria-meditation-webpush-production-e2e.yml',
+];
+for (const workflowPath of physicalExecutionManualSameShaGates) {
+  const workflow = fs.readFileSync(path.join(__dirname, '..', workflowPath), 'utf8');
+  const triggerStart = workflow.indexOf('\non:');
+  const permissionsStart = workflow.indexOf('\npermissions:');
+  assert.ok(triggerStart >= 0 && permissionsStart > triggerStart,
+    workflowPath + ' must expose a bounded manual trigger');
+  const trigger = workflow.slice(triggerStart, permissionsStart);
+  assert.ok(trigger.includes('workflow_dispatch:'),
+    workflowPath + ' must remain manually dispatchable for deliberate LIVE certification');
+  assert.ok(!trigger.includes('push:') && !trigger.includes('pull_request:'),
+    workflowPath + ' must not launch a production-mutating E2E automatically');
+  assert.ok(workflow.includes('wait-for-aria-exact-sha-deploys.sh'),
+    workflowPath + ' must retain the exact-SHA deployment barrier when manually dispatched');
 }
 assert.equal((pcWorkflow.match(/'supabase\/functions\/aria-planner-v11\/\*\*'/g) || []).length, 2, 'PC RWHT must trigger the physical planner on both pull_request and main push');
 assert.equal((pcWorkflow.match(/'supabase\/functions\/aria-mission-runner-v22\/\*\*'/g) || []).length, 2, 'PC RWHT must trigger the canonical mission runner on both pull_request and main push');

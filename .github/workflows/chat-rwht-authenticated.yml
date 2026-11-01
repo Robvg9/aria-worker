@@ -1,66 +1,8 @@
 name: ARIA Chat Browser RWHT Authenticated
 
+# Chat E2E writes persistent messages; do not trigger it on routine pushes or PRs.
+# Live authenticated/production E2E is intentionally manual-only.
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - 'pwa/**'
-      # Worker-only releases still change the versioned PWA shell and must participate in same-SHA certification.
-      - 'worker.js'
-      - 'wrangler.toml'
-      - '.github/workflows/aria-cloudflare-deploy.yml'
-      - '.github/workflows/aria-pwa-fast-deploy.yml'
-      - '.github/workflows/aria-scheduler-transport-deploy.yml'
-      - 'supabase/functions/aria-app-api-v3/**'
-      - 'supabase/functions/aria-planner-v11/**'
-      - 'supabase/functions/aria-mission-runner-v22/**'
-      - 'supabase/functions/_shared/physical-execution-contract.mjs'
-      - 'rwht/pc-browser/rwht-chat-e2e.mjs'
-      - 'tests/pc-rwht-browser.test.js'
-      - 'rwht/pc-browser/rwht-meditation-pwa-e2e.mjs'
-      - 'tests/meditation-web-push.test.js'
-      - '.github/workflows/chat-rwht-authenticated.yml'
-      - '.github/workflows/capabilities-rwht-authenticated.yml'
-      - '.github/workflows/e2e-human-gate-safe-autonomy.yml'
-      - '.github/workflows/supabase-canonical-deploy.yml'
-      - '.github/workflows/responsive-ux-rwht-authenticated.yml'
-      - '.github/workflows/aria-pwa-steps-7-8-live.yml'
-      - '.github/workflows/pc-rwht.yml'
-      - 'supabase/migrations/20261017*mission_job_authorization*'
-      - 'tests/mission-job-authorization-fence-contract.test.js'
-      - 'tests/sql/mission-job-authorization-fence-fixture.sql'
-      - 'tests/sql/mission-job-authorization-fence.integration.sql'
-      - 'tests/sql/mission-job-authorization-fence-race-setup.sql'
-      - 'tests/sql/mission-job-authorization-fence-race-start.sql'
-      - 'tests/sql/mission-job-authorization-fence-race-block.sql'
-      - '.github/workflows/mission-job-authorization-fence.yml'
-  pull_request:
-    paths:
-      - 'pwa/**'
-      - 'supabase/functions/aria-app-api-v3/**'
-      - 'supabase/functions/aria-planner-v11/**'
-      - 'supabase/functions/aria-mission-runner-v22/**'
-      - 'supabase/functions/_shared/physical-execution-contract.mjs'
-      - 'rwht/pc-browser/rwht-chat-e2e.mjs'
-      - 'tests/pc-rwht-browser.test.js'
-      - 'rwht/pc-browser/rwht-meditation-pwa-e2e.mjs'
-      - 'tests/meditation-web-push.test.js'
-      - '.github/workflows/chat-rwht-authenticated.yml'
-      - '.github/workflows/capabilities-rwht-authenticated.yml'
-      - '.github/workflows/e2e-human-gate-safe-autonomy.yml'
-      - '.github/workflows/supabase-canonical-deploy.yml'
-      - '.github/workflows/responsive-ux-rwht-authenticated.yml'
-      - '.github/workflows/aria-pwa-steps-7-8-live.yml'
-      - '.github/workflows/pc-rwht.yml'
-      - 'supabase/migrations/20261017*mission_job_authorization*'
-      - 'tests/mission-job-authorization-fence-contract.test.js'
-      - 'tests/sql/mission-job-authorization-fence-fixture.sql'
-      - 'tests/sql/mission-job-authorization-fence.integration.sql'
-      - 'tests/sql/mission-job-authorization-fence-race-setup.sql'
-      - 'tests/sql/mission-job-authorization-fence-race-start.sql'
-      - 'tests/sql/mission-job-authorization-fence-race-block.sql'
-      - '.github/workflows/mission-job-authorization-fence.yml'
   workflow_dispatch:
 
 permissions:

@@ -125,15 +125,20 @@ assert.match(schedulerDeployWorkflow,/location: https:\/\/cuevacoin\.robvg9\.wor
 assert.doesNotMatch(schedulerDeployWorkflow,/x-aria-preview-source: aria-static-reference/, 'scheduler deploy smoke must not expect the retired static CuevaCoin preview');
 for (const [name, workflow] of [
   ['Chat RWHT', chatRwhtWorkflow],
-  ['Capabilities RWHT', capabilitiesRwhtWorkflow],
   ['Production Web Push', webPushWorkflow],
+  ['PWA Steps 7-8', steps78Workflow],
 ]) {
-  assert.match(workflow, /- 'worker\.js'/, name + ' must rerun for Worker-only release SHAs');
-  assert.match(workflow, /- 'wrangler\.toml'/, name + ' must rerun for Workers asset configuration changes');
-  assert.match(workflow, /- '\.github\/workflows\/aria-scheduler-transport-deploy\.yml'/, name + ' must rerun when the Worker release smoke/transport gate changes');
+  const triggerStart = workflow.indexOf('\non:');
+  const permissionsStart = workflow.indexOf('\npermissions:');
+  assert.ok(triggerStart >= 0 && permissionsStart > triggerStart, name + ' must have a bounded trigger block');
+  const trigger = workflow.slice(triggerStart, permissionsStart);
+  assert.ok(trigger.includes('workflow_dispatch:'), name + ' must remain available for deliberate manual certification');
+  assert.ok(!trigger.includes('push:') && !trigger.includes('pull_request:'), name + ' must not auto-run a production-mutating E2E');
 }
-assert.match(steps78Workflow, /- '\.github\/workflows\/aria-meditation-webpush-production-e2e\.yml'/, 'Steps 7-8 must recertify when its Web Push predecessor contract changes');
-assert.match(steps78Workflow, /- '\.github\/workflows\/aria-scheduler-transport-deploy\.yml'/, 'Steps 7-8 must recertify when the Worker release smoke/transport gate changes');
+for (const [name, workflow] of [['Capabilities RWHT', capabilitiesRwhtWorkflow]]) {
+  assert.ok(workflow.includes("- 'worker.js'"), name + ' remains an automatic same-SHA gate for Worker-only releases');
+  assert.ok(workflow.includes("- 'wrangler.toml'"), name + ' remains an automatic same-SHA gate for Workers asset configuration changes');
+}
 assert.match(worker,/cache-control':'no-store'/, 'Legacy CuevaCoin preview redirect must not be cached as the static reference');
 assert.doesNotMatch(project,/id:'cuevacoin'.*project-preview\/cuevacoin\//, 'CuevaCoin must not use ARTIA screenshot/reference source as its main preview');
 assert.match(project,/Abrir CuevaCoin LIVE/, 'ARTIA and project overview must offer the real PWA in a top-level tab for independent login');

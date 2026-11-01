@@ -4,11 +4,10 @@ const fs = require('node:fs');
 
 const WEB_PUSH_WORKFLOW_NAME = 'ARIA Meditation IA — Production Web Push E2E';
 
-// Keep this policy aligned with on.push.paths in
-// .github/workflows/aria-meditation-webpush-production-e2e.yml.
-// ABSORB covers additional changes (such as aria-device-gateway) that do not
-// affect Web Push. Those releases must not wait 30 minutes for a workflow that
-// GitHub correctly did not trigger.
+// The Web Push workflow is manual-only to prevent production writes during routine CI.
+// ABSORB uses this path policy only after an explicit dispatch to determine whether
+// the exact-SHA Web Push certification is a required predecessor for the selected release.
+// ABSORB covers additional changes (such as aria-device-gateway) that do not affect Web Push.
 const WEB_PUSH_TRIGGER_PATHS = Object.freeze([
   'rwht/pc-browser/rwht-meditation-pwa-e2e.mjs',
   'rwht/pc-browser/rwht-pc-browser.mjs',
