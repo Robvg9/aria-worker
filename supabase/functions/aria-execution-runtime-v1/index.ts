@@ -8,7 +8,7 @@ const bearer=(r:Request)=>{const h=r.headers.get("authorization")??"";return h.s
 const eq=(a:string,b:string)=>{const x=new TextEncoder().encode(a),y=new TextEncoder().encode(b);if(x.length!==y.length)return false;let d=0;for(let i=0;i<x.length;i++)d|=x[i]^y[i];return d===0};
 async function auth(r:Request){const b=bearer(r);if(b&&SECRET&&eq(b,SECRET))return true;const t=r.headers.get("x-aria-autonomy-token");if(!t)return false;const {data,error}=await sb.rpc("aria_autonomy_cron_authorize",{p_token:t});return !error&&data===true}
 async function secret(name:string){const {data,error}=await sb.rpc("read_aria_credential_secret",{p_name:name});if(error||typeof data!=="string"||!data)return null;return data}
-const sanitize=(m:unknown)=>String(m??"error").replace(/Bearer\s+[A-Za-z0-9._-]+/g,"[redacted]").replace(/\bsk-[A-Za-z0-9_-]{8,}\b/g,"[redacted]").replace(/AIza[A-Za-z0-9_-]{20,}/g,"[redacted]").replace(/\bor-v1-[A-Za-z0-9_-]{8,}\b/g,"[redacted]").replace(/\bxai-[A-Za-z0-9_-]{8,}\b/g,"[redacted]");
+const sanitize=(m:unknown)=>String(m??"error").replace(/Bearer\s+[A-Za-z0-9._-]+/g,"[redacted]").replace(/\bsk-[A-Za-z0-9_-]{8,}\b/g,"[redacted]").replace(/AIza[A-Za-z0-9_-]{20,}/g,"[redacted]").replace(/\bor-v1-[A-Za-z0-9_-]{8,}\b/g,"[redacted]").replace(/\bxai-[A-Za-z0-9_-]{8,}\b/g,"[redacted]").replace(/\\bgsk_[A-Za-z0-9_-]{12,}\\b/g,"[redacted]");
 async function directGemini(route:any,input:any){
   if(route.capability!=="text_generation")return out({status:"blocked",reason:"capability_missing"});
   if(route.account_id!=="acct_google_gemini_free")return out({status:"blocked",reason:"route_not_selectable"});
@@ -130,7 +130,55 @@ if(typeof _fault==="string"&&_eref.startsWith("live-resilience-inject:")){
     metadata:{runtime:"aria-execution-runtime-v1",adapter_id:"mistral_chat_completions",provider_id:"mistral",route_type:"direct",attempt:1,canonical_write:false,memory_authority:"none"}
   });
 }
-if(route.provider_id==="google")return directGemini(route,input);if(route.provider_id==="xai")return xaiResponses(route,input);if(route.provider_id==="mistral")return mistralChat(route,input);if(route.provider_id!=="openrouter")return out({status:"blocked",reason:"adapter_unavailable"});if(route.capability!=="text_generation")return out({status:"blocked",reason:"capability_missing"});if(route.account_id!=="acct_openrouter_primary")return out({status:"blocked",reason:"route_not_selectable"});const freeOpenRouterModels=new Set([
+async function groqChat(route:any,input:any){
+  if(route.capability!=="text_generation")return out({status:"blocked",reason:"capability_missing"});
+  if(route.account_id!=="acct_groq_primary")return out({status:"blocked",reason:"route_not_selectable"});
+  if(route.model_id!=="groq/openai/gpt-oss-120b")return out({status:"blocked",reason:"model_not_verified"});
+  const sec=await secret("groq/groq_primary");
+  if(!sec)return out({status:"failed",error:{code:"credential_unavailable",message:"groq credential unavailable"}});
+  const p=input?.payload??{};
+  const messages=Array.isArray(p.messages)&&p.messages.length?p.messages:(typeof p.prompt==="string"&&p.prompt.length?[{role:"user",content:p.prompt}]:null);
+  if(!messages)return out({status:"blocked",reason:"input_missing"});
+  const requested=Number.isFinite(Number(p.max_completion_tokens))?Number(p.max_completion_tokens):(Number.isFinite(Number(p.max_tokens))?Number(p.max_tokens):1200);
+  const body:any={model:"openai/gpt-oss-120b",messages,max_completion_tokens:Math.max(1,Math.min(Math.floor(requested),2048)),reasoning_effort:"low"};
+  if(typeof p.top_p==="number")body.top_p=Math.max(0,Math.min(1,p.top_p));
+  const controller=new AbortController();
+  const timer=setTimeout(()=>controller.abort(),20000);
+  let res:Response;
+  try{
+    res=await fetch("https://api.groq.com/openai/v1/chat/completions",{
+      method:"POST",
+      headers:{Authorization:`Bearer ${sec}`,"Content-Type":"application/json"},
+      body:JSON.stringify(body),
+      signal:controller.signal
+    });
+  }catch(error){
+    return out({status:"failed",error:{code:error instanceof Error&&error.name==="AbortError"?"transport_timeout":"transport_error",message:error instanceof Error&&error.name==="AbortError"?"provider request timed out":"transport failure"}});
+  }finally{clearTimeout(timer)}
+  const json=await res.json().catch(()=>null);
+  if(!res.ok)return out({status:"failed",error:{code:"provider_error",message:sanitize(json?.error?.message||`provider returned HTTP ${res.status}`),provider_status:res.status}});
+  const choice=json?.choices?.[0];
+  const content=choice?.message?.content;
+  const text=typeof content==="string"?content:Array.isArray(content)?content.filter((x:any)=>typeof x?.text==="string").map((x:any)=>x.text).join(""):"";
+  if(!text)return out({status:"failed",error:{code:"invalid_response",message:"no text content in provider response"}});
+  const usage=json?.usage??{};
+  const rateLimit={
+    limit_requests:res.headers.get("x-ratelimit-limit-requests"),
+    remaining_requests:res.headers.get("x-ratelimit-remaining-requests"),
+    reset_requests:res.headers.get("x-ratelimit-reset-requests"),
+    limit_tokens:res.headers.get("x-ratelimit-limit-tokens"),
+    remaining_tokens:res.headers.get("x-ratelimit-remaining-tokens"),
+    reset_tokens:res.headers.get("x-ratelimit-reset-tokens"),
+    retry_after:res.headers.get("retry-after")
+  };
+  return out({
+    status:"succeeded",
+    response:{modality:"text",content:text,provider_response_id:typeof json?.id==="string"?json.id:null,finish_reason:typeof choice?.finish_reason==="string"?choice.finish_reason:null,provider_model:typeof json?.model==="string"?json.model:route.model_id},
+    usage:{status:"reported",prompt_tokens:usage.prompt_tokens??null,completion_tokens:usage.completion_tokens??null,total_tokens:usage.total_tokens??null},
+    metadata:{runtime:"aria-execution-runtime-v1",adapter_id:"groq_chat_completions",provider_id:"groq",route_type:"direct",attempt:1,canonical_write:false,memory_authority:"none",rate_limit:rateLimit}
+  });
+}
+if(route.provider_id==="google")return directGemini(route,input);if(route.provider_id==="groq")return groqChat(route,input);if(route.provider_id==="xai")return xaiResponses(route,input);if(route.provider_id==="mistral")return mistralChat(route,input);if(route.provider_id!=="openrouter")return out({status:"blocked",reason:"adapter_unavailable"});if(route.capability!=="text_generation")return out({status:"blocked",reason:"capability_missing"});if(route.account_id!=="acct_openrouter_primary")return out({status:"blocked",reason:"route_not_selectable"});const freeOpenRouterModels=new Set([
 "nvidia/nemotron-3-ultra-550b-a55b:free",
 "poolside/laguna-s-2.1:free",
 "inclusionai/ling-3.0-flash-fin:free",
