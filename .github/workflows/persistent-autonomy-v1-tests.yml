@@ -779,7 +779,7 @@ jobs:
             cloudflare-autonomy/worker.mjs
           sparse-checkout-cone-mode: false
       - name: Run the detached GUI host physically on ROBVG with a frozen fixture
-        shell: powershell
+        shell: powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
         run: |
           $ErrorActionPreference = 'Stop'
           if ($env:COMPUTERNAME -ne 'ROBVG') {
