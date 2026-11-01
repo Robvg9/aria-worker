@@ -254,3 +254,17 @@ test('legacy mission and execution endpoints stay frozen before parsing or dispa
 });
 
 console.log('ARIA no-mission-reactivation contract tests registered');
+
+test('canonical activation reconciliation guards exhausted goals and goal queue records', () => {
+  const migration = read('supabase/migrations/20261101070000_aria_activation_reconciliation_guards_v1.sql');
+  assert.ok(migration.includes('coalesce(g.attempts,0) < coalesce(g.max_attempts,3)'), 'database claim eligibility must enforce max_attempts');
+  assert.ok(migration.includes("q.item_type='mission'"), 'queue reconciliation must preserve mission item support');
+  assert.ok(migration.includes("q.item_type='goal'"), 'queue reconciliation must support goal item references');
+  assert.ok(migration.includes('q.resolved_mission_id'), 'goal queue rows must prefer their pinned mission');
+  assert.ok(migration.includes('g.last_mission_id'), 'goal queue rows must fall back to the latest linked mission');
+  assert.ok(migration.includes('latest_mission_status=NEW.status'), 'goal status must separately expose the latest mission state');
+  assert.ok(migration.includes('latest_mission_recovery_status'), 'goal status must expose recovery state without marking waiting as completed');
+  assert.ok(migration.includes('verify_objective_fulfilled_v9'), 'successful missions must still pass semantic objective verification');
+  assert.ok(migration.includes('FAILED_OBJECTIVE_VERIFICATION'), 'failed verification must remain non-complete');
+  assert.ok(migration.includes('GRANT EXECUTE ON FUNCTION aria_internal.reconcile_meditation_queue_v2() TO service_role'));
+});
