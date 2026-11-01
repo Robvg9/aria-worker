@@ -2621,6 +2621,33 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "how": "Comprueba el contrato de request/response, autenticación Bearer, normalización de uso y no filtrado de secretos del adaptador Mistral Direct.",
     "capabilities": "Valida que Mistral quede conectado al Execution Engine sin inventar cuentas, cuotas o rutas seleccionables."
   },
+  {
+    "id": "dashscope-adapter",
+    "file": "tests/dashscope-adapter.test.js",
+    "title": "Alibaba DashScope Qwen Direct Adapter",
+    "category": "Multi-IA / proveedores",
+    "includedInNpmTest": true,
+    "how": "Comprueba el endpoint regional, formato OpenAI-compatible, uso, autenticación y el bloqueo automático si Free Quota Only no está confirmado o ha caducado.",
+    "capabilities": "Prepara una ruta Qwen directa con política fail-closed de cuota sin crear cuentas ni evidencias LIVE ficticias."
+  },
+  {
+    "id": "dashscope-credential-adapter",
+    "file": "tests/dashscope-credential-adapter.test.js",
+    "title": "DashScope Free Quota Credential Gate",
+    "category": "Seguridad / gobierno",
+    "includedInNpmTest": true,
+    "how": "Comprueba el Human Gate de API key, Workspace ID, Free Quota Only y fecha de expiración.",
+    "capabilities": "Evita habilitar una cuenta de DashScope cuando la protección de coste cero no esté confirmada."
+  },
+  {
+    "id": "dashscope-live-runtime-contract",
+    "file": "tests/dashscope-live-runtime-contract.test.js",
+    "title": "DashScope LIVE Runtime Safety Contract",
+    "category": "Multi-IA / proveedores",
+    "includedInNpmTest": true,
+    "how": "Comprueba el handler Edge, la selección exclusiva de ruta/cuenta/modelo, el probe LIVE con nonce de un uso y el freeze de misión.",
+    "capabilities": "Asegura que no haya ejecución antes de autorización, que la cuota gratuita tenga guardia y que la clave nunca aparezca en logs."
+  },
 
   {
     "id": "ecc-operator",
