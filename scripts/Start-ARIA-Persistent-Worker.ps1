@@ -211,6 +211,7 @@ if ($InstallScheduledTask) {
 
     $consoleProbeTemporary = Join-Path $env:TEMP ('aria-worker-console-probe-' + [guid]::NewGuid().ToString('N') + '.exe')
     $selfTestLog = Join-Path $env:TEMP ('aria-worker-task-host-selftest-' + [guid]::NewGuid().ToString('N') + '.log')
+    $configSelfTestLog = Join-Path $env:TEMP ('aria-worker-task-host-config-selftest-' + [guid]::NewGuid().ToString('N') + '.log')
     try {
         & $taskHostCompiler /nologo /target:exe /platform:anycpu /optimize+ ("/out:" + $consoleProbeTemporary) $consoleProbeSource
         if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $consoleProbeTemporary -PathType Leaf)) {
@@ -228,10 +229,22 @@ if ($InstallScheduledTask) {
                 throw "Windows DETACHED_PROCESS self-test is missing marker: $marker"
             }
         }
+
+        $configSelfTest = Start-Process -FilePath $taskHostTemporary -ArgumentList ('--self-test-config "' + $config + '" "' + $configSelfTestLog + '"') -WorkingDirectory $installRoot -Wait -PassThru
+        if ($configSelfTest.ExitCode -ne 0 -or -not (Test-Path -LiteralPath $configSelfTestLog -PathType Leaf)) {
+            $details = if (Test-Path -LiteralPath $configSelfTestLog) { Get-Content -LiteralPath $configSelfTestLog -Raw } else { 'DPAPI config self-test log was not created' }
+            throw "Task host DPAPI CurrentUser config self-test failed (exit=$($configSelfTest.ExitCode)): $details"
+        }
+        $configSelfTestContent = Get-Content -LiteralPath $configSelfTestLog -Raw
+        if (-not $configSelfTestContent.Contains('SELFTEST_CONFIG_DPAPI=PASS') -or
+            -not $configSelfTestContent.Contains('SELFTEST_CONFIG_TOKEN_LOGGED=NO')) {
+            throw 'Task host DPAPI config self-test did not confirm a safe successful decrypt.'
+        }
     }
     finally {
         Remove-Item -LiteralPath $consoleProbeTemporary -Force -ErrorAction SilentlyContinue
         Remove-Item -LiteralPath $selfTestLog -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $configSelfTestLog -Force -ErrorAction SilentlyContinue
     }
 
     Move-Item -LiteralPath $taskHostTemporary -Destination $taskHostExecutable -Force
