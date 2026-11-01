@@ -268,3 +268,22 @@ test('canonical activation reconciliation guards exhausted goals and goal queue 
   assert.ok(migration.includes('FAILED_OBJECTIVE_VERIFICATION'), 'failed verification must remain non-complete');
   assert.ok(migration.includes('GRANT EXECUTE ON FUNCTION aria_internal.reconcile_meditation_queue_v2() TO service_role'));
 });
+
+test('production Human Gate E2E and EAS cloud builds are manual-only', () => {
+  const eas = read('.github/workflows/aria-eas-live-verification-auto.yml');
+  const easTrigger = eas.slice(eas.indexOf('\non:'), eas.indexOf('\npermissions:'));
+  assert.match(easTrigger, /workflow_dispatch:/, 'EAS live build must remain manually dispatchable');
+  assert.doesNotMatch(easTrigger, /\\n\\s+(?:push|pull_request):/, 'EAS build must not start on every main push or PR');
+  assert.match(eas, /EAS API.*dispatch|workflows\\/dispatch|Dispatch Android workflow/i,
+    'EAS workflow must retain an explicit cloud build dispatch');
+
+  const humanGate = read('.github/workflows/e2e-human-gate-safe-autonomy.yml');
+  const humanGateTrigger = humanGate.slice(humanGate.indexOf('\non:'), humanGate.indexOf('\npermissions:'));
+  assert.match(humanGateTrigger, /workflow_dispatch:/, 'production Human Gate test must remain manually dispatchable');
+  assert.doesNotMatch(humanGateTrigger, /\\n\\s+(?:push|pull_request):/,
+    'production Human Gate E2E must not create fixtures on ordinary deployments');
+  assert.match(humanGate, /INSERT INTO aria_internal\\.mission_state/,
+    'test is production-data mutating and must remain explicitly gated');
+  assert.match(humanGate, /PROTECTED_ACTION_OK/,
+    'test still includes the controlled protected-action verification');
+});
