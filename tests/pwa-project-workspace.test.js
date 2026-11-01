@@ -128,8 +128,8 @@ for (const [name, workflow] of [
   ['Production Web Push', webPushWorkflow],
   ['PWA Steps 7-8', steps78Workflow],
 ]) {
-  const triggerStart = workflow.indexOf('\\non:');
-  const permissionsStart = workflow.indexOf('\\npermissions:');
+  const triggerStart = workflow.indexOf('\non:');
+  const permissionsStart = workflow.indexOf('\npermissions:');
   assert.ok(triggerStart >= 0 && permissionsStart > triggerStart, name + ' must have a bounded trigger block');
   const trigger = workflow.slice(triggerStart, permissionsStart);
   assert.ok(trigger.includes('workflow_dispatch:'), name + ' must remain available for deliberate manual certification');
