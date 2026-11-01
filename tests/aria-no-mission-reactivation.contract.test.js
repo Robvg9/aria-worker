@@ -297,8 +297,8 @@ test('authenticated production write E2Es and physical certification are manual-
   ];
   for (const file of manualOnlyPaths) {
     const source = read(file);
-    const triggerStart = source.indexOf('\\non:');
-    const permissionsStart = source.indexOf('\\npermissions:');
+    const triggerStart = source.indexOf('\non:');
+    const permissionsStart = source.indexOf('\npermissions:');
     assert.ok(triggerStart >= 0 && permissionsStart > triggerStart, file + ' must have a bounded trigger block');
     const trigger = source.slice(triggerStart, permissionsStart);
     assert.ok(trigger.includes('workflow_dispatch:'), file + ' must remain manually dispatchable');
@@ -307,10 +307,10 @@ test('authenticated production write E2Es and physical certification are manual-
   }
 
   const absorb = read('.github/workflows/aria-absorb.yml');
-  assert.ok(absorb.includes("live-e2e:\\n    if: github.event_name == 'workflow_dispatch'"),
+  assert.ok(absorb.includes("live-e2e:\n    if: github.event_name == 'workflow_dispatch'"),
     'ABSORB live E2E must be explicit/manual while its contracts remain automatic');
 
   const pc = read('.github/workflows/pc-rwht.yml');
-  assert.ok(pc.includes("live-pwa:\\n    if: github.event_name == 'workflow_dispatch'"),
+  assert.ok(pc.includes("live-pwa:\n    if: github.event_name == 'workflow_dispatch'"),
     'PC RWHT full LIVE PWA audit must be explicit/manual while contract job remains automatic');
 });
