@@ -1,29 +1,43 @@
 $ErrorActionPreference = 'Stop'
 
-$source = Join-Path $PSScriptRoot '..\scripts\aria-worker-task-host.cs'
+$hostSource = Join-Path $PSScriptRoot '..\scripts\aria-worker-task-host.cs'
+$probeSource = Join-Path $PSScriptRoot '..\scripts\aria-worker-console-probe.cs'
 $root = Join-Path $env:RUNNER_TEMP ('aria-task-host-test-' + [guid]::NewGuid().ToString('N'))
-$exe = Join-Path $root 'aria-worker-task-host.exe'
-$log = Join-Path $root 'self-test.log'
+$hostExe = Join-Path $root 'aria-worker-task-host.exe'
+$probeExe = Join-Path $root 'aria-console-probe.exe'
+$detachLog = Join-Path $root 'detached-process-self-test.log'
+$dpapiLog = Join-Path $root 'dpapi-self-test.log'
+
 $compilerCandidates = @(
     (Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'),
     (Join-Path $env:WINDIR 'Microsoft.NET\Framework\v4.0.30319\csc.exe')
 )
-$compiler = $compilerCandidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+$compiler = $compilerCandidates |
+    Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } |
+    Select-Object -First 1
 
 if (-not $compiler) { throw 'No .NET Framework C# compiler was found.' }
-if (-not (Test-Path -LiteralPath $source)) { throw "Task host source missing: $source" }
+foreach ($source in @($hostSource, $probeSource)) {
+    if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
+        throw "Task host test source missing: $source"
+    }
+}
 
 New-Item -ItemType Directory -Path $root -Force | Out-Null
 
 try {
-    & $compiler /nologo /target:winexe /platform:anycpu /optimize+ ("/out:" + $exe) $source
-    if ($LASTEXITCODE -ne 0) {
+    & $compiler /nologo /reference:System.Security.dll /reference:System.Web.Extensions.dll /target:winexe /platform:anycpu /optimize+ ("/out:" + $hostExe) $hostSource
+    if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $hostExe)) {
         throw "Task host compilation failed with exit code $LASTEXITCODE."
     }
-    if (-not (Test-Path -LiteralPath $exe)) { throw 'Compiled task host executable was not created.' }
+
+    & $compiler /nologo /target:exe /platform:anycpu /optimize+ ("/out:" + $probeExe) $probeSource
+    if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $probeExe)) {
+        throw "Console probe compilation failed with exit code $LASTEXITCODE."
+    }
 
     # Verify PE OptionalHeader.Subsystem == IMAGE_SUBSYSTEM_WINDOWS_GUI (2).
-    $stream = [System.IO.File]::OpenRead($exe)
+    $stream = [System.IO.File]::OpenRead($hostExe)
     try {
         $reader = New-Object System.IO.BinaryReader($stream)
         $stream.Position = 0x3c
@@ -42,31 +56,76 @@ try {
     }
     Write-Output 'TASK_HOST_PE_SUBSYSTEM=WINDOWS_GUI_PASS'
 
-    $process = Start-Process -FilePath $exe -ArgumentList ('--self-test "' + $log + '"') -PassThru -Wait
+    # Verify that the GUI host has no console and its console-subsystem child is
+    # created with DETACHED_PROCESS (not CREATE_NO_WINDOW).
+    $detachArgs = '--self-test-detach "' + $probeExe + '" "' + $detachLog + '"'
+    $detachProcess = Start-Process -FilePath $hostExe -ArgumentList $detachArgs -PassThru -Wait
 
-    if ($process.ExitCode -ne 0) {
-        if (Test-Path $log) { Get-Content -LiteralPath $log }
-        throw "Task host no-console self-test failed: exit $($process.ExitCode)."
+    if ($detachProcess.ExitCode -ne 0) {
+        if (Test-Path -LiteralPath $detachLog) { Get-Content -LiteralPath $detachLog }
+        throw "DETACHED_PROCESS self-test failed with exit code $($detachProcess.ExitCode)."
     }
 
-    if (-not (Test-Path -LiteralPath $log)) { throw 'Task host self-test did not create its log.' }
-
-    $content = Get-Content -LiteralPath $log -Raw
+    $detachContent = Get-Content -LiteralPath $detachLog -Raw
     foreach ($marker in @(
         'SELFTEST_HOST_CONSOLE=NONE',
-        'CHILD_CONSOLE=NONE',
-        'SELFTEST_CHILD_EXIT_CODE=0',
+        'DETACHED_CHILD_CONSOLE=NONE',
+        'SELFTEST_DETACHED_CHILD_EXIT_CODE=0',
         'SELFTEST_RESULT=PASS'
     )) {
-        if (-not $content.Contains($marker)) {
-            Get-Content -LiteralPath $log
-            throw "Task host self-test missing marker: $marker"
+        if (-not $detachContent.Contains($marker)) {
+            Get-Content -LiteralPath $detachLog
+            throw "DETACHED_PROCESS test missing marker: $marker"
         }
     }
 
     Write-Output 'TASK_HOST_PROCESS_CONSOLE=NONE_PASS'
-    Write-Output 'TASK_HOST_CHILD_POWERSHELL_CONSOLE=NONE_PASS'
-    Write-Output 'TASK_HOST_NO_CONSOLE_SELFTEST=PASS'
+    Write-Output 'TASK_HOST_DETACHED_CONSOLE_CHILD=PASS'
+
+    # Verify compatibility with ConvertFrom-SecureString DPAPI output.
+    $testToken = 'aria-task-host-dpapi-ci-' + [guid]::NewGuid().ToString('N') + '-token'
+    $secure = ConvertTo-SecureString -String $testToken -AsPlainText -Force
+
+    try {
+        $encrypted = ConvertFrom-SecureString -SecureString $secure
+        $sha = [System.Security.Cryptography.SHA256]::Create()
+        try {
+            $hashBytes = $sha.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($testToken))
+            $expectedHash = [BitConverter]::ToString($hashBytes).Replace('-', '').ToLowerInvariant()
+            [Array]::Clear($hashBytes, 0, $hashBytes.Length)
+        }
+        finally {
+            $sha.Dispose()
+        }
+
+        $dpapiArgs = '--self-test-dpapi "' + $encrypted + '" "' + $expectedHash + '" "' + $dpapiLog + '"'
+        $dpapiProcess = Start-Process -FilePath $hostExe -ArgumentList $dpapiArgs -PassThru -Wait
+
+        if ($dpapiProcess.ExitCode -ne 0) {
+            if (Test-Path -LiteralPath $dpapiLog) { Get-Content -LiteralPath $dpapiLog }
+            throw "DPAPI host round-trip self-test failed with exit code $($dpapiProcess.ExitCode)."
+        }
+
+        $dpapiContent = Get-Content -LiteralPath $dpapiLog -Raw
+        if (-not $dpapiContent.Contains('SELFTEST_DPAPI_ROUNDTRIP=PASS') -or
+            -not $dpapiContent.Contains('SELFTEST_DPAPI_PLAINTEXT_LOGGED=NO')) {
+            Get-Content -LiteralPath $dpapiLog
+            throw 'DPAPI host test did not report a safe successful round-trip.'
+        }
+
+        if ($dpapiContent.Contains($testToken)) {
+            throw 'DPAPI self-test log unexpectedly contains plaintext test token.'
+        }
+
+        Write-Output 'TASK_HOST_DPAPI_CURRENT_USER_ROUNDTRIP=PASS'
+        Write-Output 'TASK_HOST_DPAPI_PLAINTEXT_NOT_LOGGED=PASS'
+    }
+    finally {
+        $testToken = $null
+        $secure.Dispose()
+    }
+
+    Write-Output 'TASK_HOST_DETACHED_PROCESS_CONTRACT=PASS'
 }
 finally {
     Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
