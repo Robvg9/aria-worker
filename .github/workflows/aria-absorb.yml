@@ -90,8 +90,9 @@ jobs:
   # hits the shared production API and can consume its latency budget alongside other
   # LIVE gates. Keep the contracts/build required on PR; run this E2E only on push
   # or workflow_dispatch, where the exact deployed build can be certified.
+  # This authenticated LIVE E2E can create/reconcile production test data; run it only by explicit dispatch.
   live-e2e:
-    if: github.event_name != 'pull_request'
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
