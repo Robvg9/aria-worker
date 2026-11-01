@@ -2621,6 +2621,24 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "how": "Comprueba el contrato de request/response, autenticación Bearer, normalización de uso y no filtrado de secretos del adaptador Mistral Direct.",
     "capabilities": "Valida que Mistral quede conectado al Execution Engine sin inventar cuentas, cuotas o rutas seleccionables."
   },
+  {
+    "id": "groq-adapter",
+    "file": "tests/groq-adapter.test.js",
+    "title": "Groq Direct Provider Adapter",
+    "category": "Multi-IA / proveedores",
+    "includedInNpmTest": true,
+    "how": "Comprueba el contrato OpenAI-compatible de Groq, autenticación Bearer, normalización de uso, respuesta 429 y redacción de secretos.",
+    "capabilities": "Valida el adaptador Groq sin afirmar disponibilidad LIVE ni habilitar una ruta sin cuenta, credencial y cuota verificadas."
+  },
+  {
+    "id": "groq-credential-adapter",
+    "file": "tests/groq-credential-adapter.test.js",
+    "title": "Groq Credential Bootstrap Gate",
+    "category": "Seguridad / gobierno",
+    "includedInNpmTest": true,
+    "how": "Comprueba que el alta de credencial Groq permanezca en Human Gate hasta confirmar una API key y que solo se publique una referencia secret://.",
+    "capabilities": "Evita exponer claves y evita presentar un proveedor sin credencial validada como disponible."
+  },
 
   {
     "id": "ecc-operator",
