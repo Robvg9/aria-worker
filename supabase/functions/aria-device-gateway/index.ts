@@ -102,7 +102,7 @@ async function androidAutonomousDecision(b:any,d:any){
   const isSafeNode=(n:any)=>Boolean(n&&n.visible!==false&&n.enabled!==false);
   const fallbackAction={action:'navigate',url:'https://aria.robvg9.workers.dev/pwa/'};
 
-  const [candidatesRes,capsRes,acctRes]=await Promise.all([
+  const [candidatesRes,capsRes,acctRes,providerRes]=await Promise.all([
     supabase.schema('aria_internal').from('model_registry')
       .select('model_id,provider_id,status,enabled,pricing,metadata,interface_type')
       .in('provider_id',['google','alibaba_dashscope','openrouter']).eq('status','available').eq('enabled',true),
@@ -110,11 +110,16 @@ async function androidAutonomousDecision(b:any,d:any){
       .select('model_id,status,verified_at').eq('capability_id','text_generation').eq('status','verified'),
     supabase.schema('aria_internal').from('account_registry')
       .select('account_id,provider_id,status,enabled,models,credential_ref,secret_present')
-      .in('provider_id',['google','alibaba_dashscope','openrouter']).eq('status','available').eq('enabled',true)
+      .in('provider_id',['google','alibaba_dashscope','openrouter']).eq('status','available').eq('enabled',true),
+    supabase.schema('aria_internal').from('provider_registry')
+      .select('provider_id,status,enabled,integration_status')
+      .in('provider_id',['google','alibaba_dashscope','openrouter'])
   ]);
   if(candidatesRes.error)throw new Error(candidatesRes.error.message);
   if(capsRes.error)throw new Error(capsRes.error.message);
   if(acctRes.error)throw new Error(acctRes.error.message);
+  if(providerRes.error)throw new Error(providerRes.error.message);
+  const providers=new Map((providerRes.data||[]).map((x:any)=>[String(x.provider_id),x]));
   const verified=new Set((capsRes.data||[]).map((x:any)=>String(x.model_id)));
   // Only LIVE-verified routes. Do not list models absent from model_registry / capability_matrix.
   const preferredModels=[
@@ -145,7 +150,9 @@ async function androidAutonomousDecision(b:any,d:any){
   };
   const routes=(candidatesRes.data||[]).map((m:any)=>{
     const modelId=String(m.model_id||'');
+    const provider=providers.get(String(m.provider_id));
     if(!modelId||!isFree(m)||!verified.has(modelId))return null;
+    if(!provider||provider.status!=='available'||provider.enabled!==true||provider.integration_status!=='connected')return null;
     const account=(acctRes.data||[]).find((a:any)=>{
       if(a.provider_id!==m.provider_id)return false;
       if(m.provider_id==='alibaba_dashscope' &&
@@ -632,7 +639,9 @@ async function mission5ModelProbe(b:any,d:any){
   if(risk!=='READ')throw new Error('mission5_model_probe_read_only');
   if(!prompt||!prompt.includes('M5_MODEL_E2E_OK'))throw new Error('mission5_model_probe_prompt_contract');
   if(route.provider_id==='alibaba_dashscope'){
-    const [modelRes,accountRes,capabilityRes,credentialRes]=await Promise.all([
+    const [providerRes,modelRes,accountRes,capabilityRes,credentialRes]=await Promise.all([
+      supabase.schema('aria_internal').from('provider_registry').select('provider_id,status,enabled,integration_status')
+        .eq('provider_id','alibaba_dashscope').maybeSingle(),
       supabase.schema('aria_internal').from('model_registry').select('model_id,provider_id,status,enabled,metadata')
         .eq('model_id',modelId).eq('provider_id','alibaba_dashscope').maybeSingle(),
       supabase.schema('aria_internal').from('account_registry').select('account_id,provider_id,status,enabled,models,credential_ref,secret_present')
@@ -642,9 +651,11 @@ async function mission5ModelProbe(b:any,d:any){
       supabase.schema('aria_internal').from('credential_registry').select('credential_name,status')
         .eq('provider','alibaba_dashscope').eq('credential_name','dashscope/qwen_primary').eq('status','active').maybeSingle()
     ]);
-    if(modelRes.error||accountRes.error||capabilityRes.error||credentialRes.error)throw new Error('dashscope_live_registry_read_failed');
-    const model=modelRes.data,account=accountRes.data,capability=capabilityRes.data,credential=credentialRes.data;
+    if(providerRes.error||modelRes.error||accountRes.error||capabilityRes.error||credentialRes.error)throw new Error('dashscope_live_registry_read_failed');
+    const provider=providerRes.data,model=modelRes.data,account=accountRes.data,capability=capabilityRes.data,credential=credentialRes.data;
     const expiry=Date.parse(String(model?.metadata?.free_quota_expires_at||''));
+    if(!provider||provider.status!=='available'||provider.enabled!==true||provider.integration_status!=='connected')
+      throw new Error('dashscope_provider_not_live_verified');
     if(!model||model.status!=='available'||model.enabled!==true||model.metadata?.free_quota_only!==true||!Number.isFinite(expiry)||expiry<=Date.now())
       throw new Error('dashscope_model_or_free_quota_not_live_verified');
     if(!account||account.status!=='available'||account.enabled!==true||account.secret_present!==true||
