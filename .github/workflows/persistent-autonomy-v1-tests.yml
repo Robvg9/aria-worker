@@ -6,6 +6,9 @@ on:
       - main
     paths:
       - '.github/workflows/persistent-autonomy-v1-tests.yml'
+      - 'scripts/Start-ARIA-Persistent-Worker.ps1'
+      - 'scripts/aria-worker-task-host.cs'
+      - 'tests/aria-worker-task-host.test.ps1'
       - 'tests/fixtures/aria-frozen-worker-probe-adapter.js'
   pull_request:
     branches:
@@ -36,6 +39,8 @@ on:
       - 'scripts/aria-persistent-windows-worker-preflight-v1.js'
       - 'scripts/aria-persistent-windows-worker-preflight-v1.test.js'
       - 'scripts/Start-ARIA-Persistent-Worker.ps1'
+      - 'scripts/aria-worker-task-host.cs'
+      - 'tests/aria-worker-task-host.test.ps1'
       - 'scripts/aria-worker-supervisor-policy-v1.ps1'
       - 'tests/persistent-worker-supervisor-policy-v1.test.ps1'
       - 'tests/fixtures/aria-frozen-worker-probe-adapter.js'
@@ -87,7 +92,7 @@ jobs:
 
   windows-supervisor-syntax:
     runs-on: windows-latest
-    timeout-minutes: 3
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
       - name: Parse Windows worker supervisor without executing it
@@ -111,6 +116,7 @@ jobs:
           }
           Write-Output 'WINDOWS_WORKER_SUPERVISOR_AND_CONFIG_PARSE=PASS'
           & (Join-Path $PWD 'tests/persistent-worker-supervisor-policy-v1.test.ps1')
+          & (Join-Path $PWD 'tests/aria-worker-task-host.test.ps1')
 
       - name: Exercise DPAPI config creation and ACLs with a disposable test token
         shell: pwsh
