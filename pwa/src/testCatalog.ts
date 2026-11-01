@@ -2639,6 +2639,15 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "how": "Comprueba que el alta de credencial Groq permanezca en Human Gate hasta confirmar una API key y que solo se publique una referencia secret://.",
     "capabilities": "Evita exponer claves y evita presentar un proveedor sin credencial validada como disponible."
   },
+  {
+    "id": "groq-live-runtime-contract",
+    "file": "tests/groq-live-runtime-contract.test.js",
+    "title": "Groq LIVE Runtime Safety Contract",
+    "category": "Multi-IA / proveedores",
+    "includedInNpmTest": true,
+    "how": "Comprueba el handler Deno de Groq, el descubrimiento gobernado desde el gateway y el probe LIVE con nonce de un solo uso.",
+    "capabilities": "Asegura límites de uso, cabeceras de cuota, rechazo de secretos expuestos y conservación del freeze de ejecución."
+  },
 
   {
     "id": "ecc-operator",
