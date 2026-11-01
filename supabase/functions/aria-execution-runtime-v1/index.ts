@@ -8,7 +8,7 @@ const bearer=(r:Request)=>{const h=r.headers.get("authorization")??"";return h.s
 const eq=(a:string,b:string)=>{const x=new TextEncoder().encode(a),y=new TextEncoder().encode(b);if(x.length!==y.length)return false;let d=0;for(let i=0;i<x.length;i++)d|=x[i]^y[i];return d===0};
 async function auth(r:Request){const b=bearer(r);if(b&&SECRET&&eq(b,SECRET))return true;const t=r.headers.get("x-aria-autonomy-token");if(!t)return false;const {data,error}=await sb.rpc("aria_autonomy_cron_authorize",{p_token:t});return !error&&data===true}
 async function secret(name:string){const {data,error}=await sb.rpc("read_aria_credential_secret",{p_name:name});if(error||typeof data!=="string"||!data)return null;return data}
-const sanitize=(m:unknown)=>String(m??"error").replace(/Bearer\s+[A-Za-z0-9._-]+/g,"[redacted]").replace(/\bsk-[A-Za-z0-9_-]{8,}\b/g,"[redacted]").replace(/AIza[A-Za-z0-9_-]{20,}/g,"[redacted]").replace(/\bor-v1-[A-Za-z0-9_-]{8,}\b/g,"[redacted]").replace(/\bxai-[A-Za-z0-9_-]{8,}\b/g,"[redacted]").replace(/\\bgsk_[A-Za-z0-9_-]{12,}\\b/g,"[redacted]");
+const sanitize=(m:unknown)=>String(m??"error").replace(/Bearer\s+[A-Za-z0-9._-]+/g,"[redacted]").replace(/\bsk-[A-Za-z0-9_-]{8,}\b/g,"[redacted]").replace(/AIza[A-Za-z0-9_-]{20,}/g,"[redacted]").replace(/\bor-v1-[A-Za-z0-9_-]{8,}\b/g,"[redacted]").replace(/\bxai-[A-Za-z0-9_-]{8,}\b/g,"[redacted]").replace(/\bgsk_[A-Za-z0-9_-]{12,}\b/g,"[redacted]");
 async function directGemini(route:any,input:any){
   if(route.capability!=="text_generation")return out({status:"blocked",reason:"capability_missing"});
   if(route.account_id!=="acct_google_gemini_free")return out({status:"blocked",reason:"route_not_selectable"});
