@@ -13,7 +13,8 @@ const storage = fs.readFileSync(path.join(
   root,
   'supabase/functions/aria-app-api-v3/voice-command-storage.ts'
 ), 'utf8');
-const router = fs.readFileSync(path.join(root, 'voice-v4/command-router.js'), 'utf8');
+const router = fs.readFileSync(path.join(root, 'supabase/functions/_shared/voice-command-router.mjs'), 'utf8');
+const verifier = fs.readFileSync(path.join(root, 'supabase/functions/_shared/voice-owner-session-verifier.mjs'), 'utf8');
 const deviceGateway = fs.readFileSync(path.join(root, 'supabase/functions/aria-device-gateway/index.ts'), 'utf8');
 
 assert.match(migration, /CREATE TABLE IF NOT EXISTS aria_internal[.]voice_owner_session_nonces/);
@@ -104,6 +105,8 @@ assert.doesNotMatch(executableStorage, /execution_jobs|enqueue_execution_job_gat
   'service adapters must not queue missions or store voice/private key material');
 
 assert.match(router, /source_device_id/);
+assert.match(verifier, /export \\{/);
+assert.match(verifier, /createOwnerSessionVerifier/);
 assert.match(router, /deviceId: request[.]source_device_id/);
 assert.match(router, /sourceDeviceId: request[.]source_device_id/);
 assert.match(router, /authenticatedOwnerId/);
