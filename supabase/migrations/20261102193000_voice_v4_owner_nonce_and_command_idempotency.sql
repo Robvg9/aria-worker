@@ -167,3 +167,204 @@ GRANT EXECUTE ON FUNCTION aria_internal.claim_voice_command_idempotency(uuid,tex
   TO service_role;
 
 COMMIT;
+
+
+-- Public key registry: the private Ed25519 key stays in the device OS keystore.
+-- A row is usable only while the paired device is online and reports the
+-- explicit audio.wake_word capability.
+CREATE TABLE IF NOT EXISTS aria_internal.voice_trusted_device_keys (
+  owner_user_id uuid NOT NULL,
+  device_id text NOT NULL REFERENCES aria_internal.device_registry(device_id) ON DELETE CASCADE,
+  public_key_id text NOT NULL,
+  public_key_ed25519 text NOT NULL,
+  public_key_fingerprint text NOT NULL,
+  security text NOT NULL DEFAULT 'trusted' CHECK (security IN ('trusted','restricted','blocked')),
+  enabled boolean NOT NULL DEFAULT true,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  revoked_at timestamptz,
+  last_registered_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT voice_trusted_device_keys_pk PRIMARY KEY (owner_user_id, device_id),
+  CONSTRAINT voice_trusted_device_keys_id_format CHECK (
+    length(public_key_id) BETWEEN 8 AND 128
+    AND public_key_id ~ '^[A-Za-z0-9._:-]+$'
+  ),
+  CONSTRAINT voice_trusted_device_keys_public_key_format CHECK (
+    length(public_key_ed25519) = 43
+    AND public_key_ed25519 ~ '^[A-Za-z0-9_-]+$'
+  ),
+  CONSTRAINT voice_trusted_device_keys_fingerprint_format CHECK (
+    length(public_key_fingerprint) = 64
+    AND public_key_fingerprint ~ '^[a-f0-9]+$'
+  )
+);
+
+CREATE INDEX IF NOT EXISTS voice_trusted_device_keys_device_idx
+  ON aria_internal.voice_trusted_device_keys (device_id, enabled, security);
+
+COMMENT ON TABLE aria_internal.voice_trusted_device_keys IS
+  'Owner-authorized Ed25519 public keys for signed ARIA Voice V4 requests. Private keys remain in Android Keystore / Windows DPAPI; this table stores public keys only.';
+
+CREATE OR REPLACE FUNCTION aria_internal.register_voice_trusted_device_key(
+  p_owner_user_id uuid,
+  p_device_id text,
+  p_device_token text,
+  p_public_key_id text,
+  p_public_key_ed25519 text
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = aria_internal, pg_catalog
+AS $$
+DECLARE
+  v_token_hash text;
+  v_public_key_bytes bytea;
+  v_fingerprint text;
+  v_device aria_internal.device_registry%ROWTYPE;
+  v_result jsonb;
+BEGIN
+  IF p_owner_user_id IS NULL
+     OR p_device_id IS NULL OR length(p_device_id) NOT BETWEEN 8 AND 160
+     OR p_device_token IS NULL OR length(p_device_token) < 32
+     OR p_public_key_id IS NULL OR length(p_public_key_id) NOT BETWEEN 8 AND 128
+     OR p_public_key_id !~ '^[A-Za-z0-9._:-]+$'
+     OR p_public_key_ed25519 IS NULL OR length(p_public_key_ed25519) <> 43
+     OR p_public_key_ed25519 !~ '^[A-Za-z0-9_-]+$' THEN
+    RAISE EXCEPTION 'invalid voice device key registration';
+  END IF;
+
+  v_token_hash := encode(extensions.digest(p_device_token, 'sha256'), 'hex');
+  v_public_key_bytes := decode(
+    translate(p_public_key_ed25519, '-_', '+/')
+      || repeat('=', (4 - (length(p_public_key_ed25519) % 4)) % 4),
+    'base64'
+  );
+  IF length(v_public_key_bytes) <> 32 THEN
+    RAISE EXCEPTION 'invalid Ed25519 public key length';
+  END IF;
+  v_fingerprint := encode(extensions.digest(v_public_key_bytes, 'sha256'), 'hex');
+
+  SELECT * INTO v_device
+  FROM aria_internal.device_registry
+  WHERE device_id = p_device_id
+    AND token_hash = v_token_hash
+    AND status = 'online'
+    AND capabilities @> '["audio.wake_word"]'::jsonb
+    AND last_seen_at >= now() - interval '90 seconds'
+  FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'voice device is not paired, online, or wake-word capable';
+  END IF;
+
+  INSERT INTO aria_internal.voice_trusted_device_keys (
+    owner_user_id, device_id, public_key_id, public_key_ed25519,
+    public_key_fingerprint, security, enabled, revoked_at,
+    created_at, updated_at, last_registered_at
+  ) VALUES (
+    p_owner_user_id, p_device_id, p_public_key_id, p_public_key_ed25519,
+    v_fingerprint, 'trusted', true, NULL,
+    now(), now(), now()
+  )
+  ON CONFLICT (owner_user_id, device_id) DO UPDATE
+  SET public_key_id = EXCLUDED.public_key_id,
+      public_key_ed25519 = EXCLUDED.public_key_ed25519,
+      public_key_fingerprint = EXCLUDED.public_key_fingerprint,
+      security = 'trusted',
+      enabled = true,
+      revoked_at = NULL,
+      updated_at = now(),
+      last_registered_at = now();
+
+  SELECT jsonb_build_object(
+    'owner_id', owner_user_id,
+    'device_id', device_id,
+    'public_key_id', public_key_id,
+    'public_key_fingerprint', public_key_fingerprint,
+    'security', security,
+    'enabled', enabled,
+    'registered_at', last_registered_at
+  ) INTO v_result
+  FROM aria_internal.voice_trusted_device_keys
+  WHERE owner_user_id = p_owner_user_id AND device_id = p_device_id;
+
+  RETURN v_result;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION aria_internal.resolve_voice_trusted_device_key(
+  p_owner_user_id uuid,
+  p_device_id text
+)
+RETURNS jsonb
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = aria_internal, pg_catalog
+AS $$
+  SELECT jsonb_build_object(
+    'owner_id', v.owner_user_id,
+    'device_id', v.device_id,
+    'public_key_id', v.public_key_id,
+    'public_key', v.public_key_ed25519,
+    'public_key_fingerprint', v.public_key_fingerprint,
+    'security', v.security,
+    'enabled', v.enabled,
+    'health', 'healthy',
+    'last_seen_at', d.last_seen_at
+  )
+  FROM aria_internal.voice_trusted_device_keys v
+  JOIN aria_internal.device_registry d ON d.device_id = v.device_id
+  WHERE v.owner_user_id = p_owner_user_id
+    AND v.device_id = p_device_id
+    AND v.enabled = true
+    AND v.security = 'trusted'
+    AND v.revoked_at IS NULL
+    AND d.status = 'online'
+    AND d.capabilities @> '["audio.wake_word"]'::jsonb
+    AND d.last_seen_at >= now() - interval '90 seconds'
+  LIMIT 1;
+$$;
+
+CREATE OR REPLACE FUNCTION aria_internal.revoke_voice_trusted_device_key(
+  p_owner_user_id uuid,
+  p_device_id text
+)
+RETURNS boolean
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = aria_internal, pg_catalog
+AS $$
+DECLARE
+  affected integer;
+BEGIN
+  IF p_owner_user_id IS NULL OR p_device_id IS NULL THEN
+    RAISE EXCEPTION 'owner and device are required';
+  END IF;
+  UPDATE aria_internal.voice_trusted_device_keys
+  SET enabled = false,
+      security = 'blocked',
+      revoked_at = coalesce(revoked_at, now()),
+      updated_at = now()
+  WHERE owner_user_id = p_owner_user_id
+    AND device_id = p_device_id
+    AND enabled = true;
+  GET DIAGNOSTICS affected = ROW_COUNT;
+  RETURN affected = 1;
+END;
+$$;
+
+REVOKE ALL ON TABLE aria_internal.voice_trusted_device_keys FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION aria_internal.register_voice_trusted_device_key(uuid,text,text,text,text)
+  FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION aria_internal.resolve_voice_trusted_device_key(uuid,text)
+  FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION aria_internal.revoke_voice_trusted_device_key(uuid,text)
+  FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION aria_internal.register_voice_trusted_device_key(uuid,text,text,text,text)
+  TO service_role;
+GRANT EXECUTE ON FUNCTION aria_internal.resolve_voice_trusted_device_key(uuid,text)
+  TO service_role;
+GRANT EXECUTE ON FUNCTION aria_internal.revoke_voice_trusted_device_key(uuid,text)
+  TO service_role;
