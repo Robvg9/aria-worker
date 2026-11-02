@@ -63,12 +63,20 @@ expires_at = (now + dt.timedelta(minutes=10)).isoformat(timespec="seconds").repl
 
 
 def supabase_sql(query, allow_write=False):
-    # Current Supabase CLI requires explicit consent for hosted SQL writes.
-    # Read paths stay read-only; only this harness's reviewed INSERT/UPDATE
-    # and the one Human Gate approval RPC receive --yes.
-    mode_flag = "--yes" if allow_write else "--read-only"
+    # Supabase CLI db query has no --read-only flag. Keep read-mode safe by
+    # accepting exactly one SELECT statement; only the reviewed INSERT/UPDATE
+    # and the Human Gate approval RPC may use --yes.
+    args = ["supabase", "db", "query", "--linked", query]
+    if allow_write:
+        args.append("--yes")
+    else:
+        statement = query.strip()
+        if statement.endswith(";"):
+            statement = statement[:-1].rstrip()
+        if not re.match(r"(?is)^SELECT\b", statement) or ";" in statement:
+            fail("read-only SQL must be a single SELECT statement")
     proc = subprocess.run(
-        ["supabase", "db", "query", "--linked", query, mode_flag],
+        args,
         text=True,
         capture_output=True,
         check=False,
