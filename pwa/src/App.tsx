@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ProjectWorkspace } from './ProjectWorkspace';
 import { PrivateVault } from './PrivateVault';
 import { VoiceInputButton } from './VoiceInputButton';
+import { HandsFreeVoiceControl } from './HandsFreeVoiceControl';
 import { isVoiceMissionAffirmative, isVoiceMissionNegative, speakAssistantText, stopAssistantSpeech } from './voiceOutput';
 import { mergeRestoredChatMessages } from './chatHistory';
 import { missionActivityLabel, missionGoalPreview, missionHumanTitle, missionListLabel } from './missionPresentation';
@@ -2160,6 +2161,7 @@ function Chat({
   const [messages, setMessages] = useState<Message[]>(cachedChat?.messages ?? []);
   const [text, setText] = useState('');
   const [voiceMode, setVoiceMode] = useState(readVoiceModePreference);
+  const [handsFreeActive, setHandsFreeActive] = useState(false);
   const voiceModeRef = useRef(voiceMode);
   voiceModeRef.current = voiceMode;
   const [sending, setSending] = useState(false);
@@ -2443,9 +2445,9 @@ function Chat({
     }
   }
 
-  async function confirmPendingMission() {
+  async function confirmPendingMission(): Promise<boolean> {
     const pending = pendingMissionConfirmation;
-    if (!pending || sending) return;
+    if (!pending || sending) return false;
     chatMutationVersionRef.current += 1;
     setSending(true);
     setError('');
@@ -2473,19 +2475,50 @@ function Chat({
       setConversationId(typeof d?.conversationId === 'string' ? d.conversationId : pending.conversationId || conversationId);
       setPendingMissionConfirmation(null);
       if (d?.mission?.mission_id) void trackMission(String(d.mission.mission_id));
+      return true;
     } catch (x) {
-      setError(x instanceof Error ? x.message : 'No se pudo confirmar la misión.');
+      const detail = x instanceof Error ? x.message : String(x ?? '');
+      const paused = /mission_execution_paused|execution_enabled.?false/i.test(detail);
+      const response = paused
+        ? 'La ejecución de misiones está pausada. Puedo conversar contigo y preparar el trabajo, pero no iniciar ni ejecutar misiones hasta que se reactive el sistema.'
+        : 'No pude confirmar la misión. La solicitud no se inició; revisa el estado del chat antes de volver a intentarlo.';
+      setError(response);
+      setMessages(m => [...m, { id: crypto.randomUUID(), role: 'aria', text: response }]);
+      setPendingMissionConfirmation(null);
+      if (voiceModeRef.current) speakAssistantText(response);
+      return false;
     } finally {
       setSending(false);
       window.setTimeout(() => chatInputRef.current?.focus(), 0);
     }
   }
 
-  function dismissPendingMission() {
+  function dismissPendingMission(): boolean {
     setPendingMissionConfirmation(null);
     const response = 'Entendido. No iniciaré una misión. Seguimos conversando normalmente.';
     setMessages(m => [...m, { id: crypto.randomUUID(), role: 'aria', text: response }]);
     if (voiceModeRef.current) speakAssistantText(response);
+    return true;
+  }
+
+  function handleVoiceTranscript(transcript: string): Promise<boolean> | boolean | void {
+    if (voiceModeRef.current) {
+      if (pendingMissionConfirmation) {
+        if (isVoiceMissionAffirmative(transcript)) return confirmPendingMission();
+        if (isVoiceMissionNegative(transcript)) return Promise.resolve(dismissPendingMission());
+        const clarification = 'No reconocí una confirmación clara. Di «sí, comenzar la misión» para aprobarla o «no, solo conversar» para cancelarla.';
+        setMessages(current => [...current, { id: crypto.randomUUID(), role: 'aria', text: clarification }]);
+        speakAssistantText(clarification);
+        return true;
+      }
+      return send(transcript);
+    }
+    setText(previous => previous.trim() ? previous.replace(/\\s+$/, '') + ' ' + transcript : transcript);
+  }
+
+  function handlePushToTalkTranscript(transcript: string): void | Promise<boolean> {
+    const result = handleVoiceTranscript(transcript);
+    return result instanceof Promise ? result : undefined;
   }
 
   async function trackMission(id: string) {
@@ -2649,7 +2682,8 @@ function Chat({
                 >
                   {voiceMode ? '🔊 Modo voz activo' : '🔈 Activar modo voz'}
                 </button>
-                {voiceMode && <small className='voiceModePrivacyNote'>El navegador puede procesar el audio para transcribirlo; ARIA recibe el texto. El micrófono solo se activa al pulsar Hablar.</small>}
+                {voiceMode && <small className='voiceModePrivacyNote'>El micrófono solo se activa por acción explícita: pulsa Hablar o inicia Manos libres. La escucha continua se limita a esta pestaña visible.</small>}
+                {voiceMode && <HandsFreeVoiceControl onTranscript={handleVoiceTranscript} onEnabledChange={setHandsFreeActive} disabled={sending} />}
               </div>
               <div ref={chatWindowRef} className='chatWindow' data-testid='chat-window' aria-live='polite' aria-atomic='false'>
                 {messages.length
@@ -2699,29 +2733,11 @@ function Chat({
                   onAudio={setAudioFile}
                   buttonLabel={voiceMode ? '🎙️ Hablar' : '🎙️ Audio'}
                   listeningLabel='■ Detener'
-                  disabled={sending}
-                  onTranscript={transcript => {
-                    if (voiceMode) {
-                      if (pendingMissionConfirmation) {
-                        if (isVoiceMissionAffirmative(transcript)) {
-                          return confirmPendingMission();
-                        }
-                        if (isVoiceMissionNegative(transcript)) {
-                          dismissPendingMission();
-                          return;
-                        }
-                        const clarification = 'No reconocí una confirmación clara. Di «sí, comenzar la misión» para aprobarla o «no, solo conversar» para cancelarla.';
-                        setMessages(current => [...current, { id: crypto.randomUUID(), role: 'aria', text: clarification }]);
-                        speakAssistantText(clarification);
-                        return;
-                      }
-                      return send(transcript);
-                    }
-                    setText(previous => previous.trim() ? previous.replace(/\s+$/, '') + ' ' + transcript : transcript);
-                  }}
+                  disabled={sending || handsFreeActive}
+                  onTranscript={handlePushToTalkTranscript}
                 />
                 <button className='send' aria-label={sending ? 'Enviando mensaje' : 'Enviar mensaje'} disabled={sending || (!text.trim() && !file && !audioFile)} onClick={send}>{sending ? '…' : '↑'}</button>
-                <div className='composerStatus' aria-live='polite'>{sending ? ('Procesando… ' + formatProcessingTime(processingElapsedMs)) : error ? 'Error · revisa el mensaje' : voiceMode ? 'Modo voz · pulsa Hablar y luego Detener' : lastProcessingMs != null ? ('Último procesamiento · ' + formatProcessingTime(lastProcessingMs)) : 'Listo para enviar'}</div>
+                <div className='composerStatus' aria-live='polite'>{sending ? ('Procesando… ' + formatProcessingTime(processingElapsedMs)) : error ? 'Error · revisa el mensaje' : handsFreeActive ? 'Manos libres activo · di «ARIA» para hablar' : voiceMode ? 'Modo voz · pulsa Hablar o inicia Manos libres' : lastProcessingMs != null ? ('Último procesamiento · ' + formatProcessingTime(lastProcessingMs)) : 'Listo para enviar'}</div>
               </div>
             </section>
           </section>
