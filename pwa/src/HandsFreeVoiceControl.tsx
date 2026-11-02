@@ -10,6 +10,8 @@ type RecognitionLike = {
   maxAlternatives: number;
   onresult: ((event: any) => void) | null;
   onerror: ((event: any) => void) | null;
+  onstart: (() => void) | null;
+  onnomatch: ((event: any) => void) | null;
   onend: (() => void) | null;
   start: () => void;
   stop?: () => void;
@@ -46,6 +48,8 @@ export function HandsFreeVoiceControl({
   const disposedRef = useRef(false);
   const disabledRef = useRef(disabled);
   const cursorRef = useRef(0);
+  const finalResultSeenRef = useRef(false);
+  const interimResultSeenRef = useRef(false);
   const wakeArmedRef = useRef(false);
   const transcriptBufferRef = useRef('');
   const restartTimerRef = useRef<number | null>(null);
@@ -246,16 +250,32 @@ export function HandsFreeVoiceControl({
       recognition.interimResults = true;
       recognition.maxAlternatives = 1;
       cursorRef.current = 0;
+      finalResultSeenRef.current = false;
+      interimResultSeenRef.current = false;
+      recognition.onstart = () => {
+        recordDiagnostic('recognition_started', { language: 'es-PR' });
+      };
+      recognition.onnomatch = () => {
+        recordDiagnostic('no_match');
+      };
       recognition.onresult = (event: any) => {
         const results = event?.results;
         if (!results) return;
         const start = Math.max(cursorRef.current, Math.max(0, Number(event?.resultIndex) || 0));
         for (let index = start; index < results.length; index += 1) {
           const item = results[index];
-          if (!item?.isFinal) continue;
+          const phrase = String(item?.[0]?.transcript || '');
+          if (!item?.isFinal) {
+            if (phrase && !interimResultSeenRef.current) {
+              interimResultSeenRef.current = true;
+              recordDiagnostic('interim_result', { chars: phrase.length });
+            }
+            continue;
+          }
           cursorRef.current = index + 1;
+          finalResultSeenRef.current = true;
           restartDelayRef.current = 350;
-          handleFinalPhrase(String(item?.[0]?.transcript || ''));
+          handleFinalPhrase(phrase);
         }
       };
       recognition.onerror = (event: any) => {
@@ -276,6 +296,7 @@ export function HandsFreeVoiceControl({
         if (code === 'network') setStatus('El servicio de reconocimiento perdió la conexión; intentaré recuperarlo.');
       };
       recognition.onend = () => {
+        if (!finalResultSeenRef.current) recordDiagnostic('no_final_result');
         recordDiagnostic('recognition_end');
         if (recognitionRef.current === recognition) recognitionRef.current = null;
         restartDelayRef.current = Math.min(2600, Math.max(350, restartDelayRef.current * 1.6));
@@ -283,7 +304,6 @@ export function HandsFreeVoiceControl({
       };
       recognitionRef.current = recognition;
       recognition.start();
-      recordDiagnostic('recognition_started', { language: 'es-PR' });
       setStatus(wakeArmedRef.current ? 'Te escucho…' : 'Escuchando. Di «ARIA» para hablar conmigo.');
     } catch (error: any) {
       recordDiagnostic('recognition_start_failed', { error: String(error?.name || 'unknown') });
