@@ -80,6 +80,12 @@ function request(overrides = {}) {
   const duplicate = await fx.router.route(request({ request_id: 'req-voice-0002' }));
   assert.equal(duplicate.status, 'duplicate');
   assert.equal(fx.calls.action.length, 1, 'idempotency must prevent a second device action');
+  const crossDeviceDuplicate = await fx.router.route(request({
+    request_id: 'req-voice-0003',
+    device_id: 'device-lacueva'
+  }));
+  assert.equal(crossDeviceDuplicate.status, 'duplicate', 'shared idempotency must prevent the same voice command on a second device');
+  assert.equal(fx.calls.action.length, 1);
 
   const readFx = fixture();
   const read = await readFx.router.route(request({
@@ -94,6 +100,19 @@ function request(overrides = {}) {
   assert.equal(Object.hasOwn(read.result, 'token'), false, 'sensitive adapter fields must not escape');
   assert.equal(readFx.calls.read.length, 1);
   assert.equal(readFx.calls.auth[0].options.requireSpeaker, false);
+
+  const globalReadFx = fixture();
+  const globalRead = await globalReadFx.router.route(request({
+    lane: LANES.READ,
+    operation: 'aria.status',
+    device_id: undefined,
+    params: {},
+    owner_session: { valid: true, speakerVerified: false }
+  }));
+  assert.equal(globalRead.status, 'succeeded');
+  assert.equal(globalRead.executed, false);
+  assert.equal(globalReadFx.calls.read[0].device, null, 'global ARIA status must not guess a device');
+  assert.equal(globalReadFx.calls.capability[0].deviceId, null);
 
   const blockedMission = await fx.router.route(request({
     lane: LANES.MISSION_EXECUTE,
