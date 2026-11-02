@@ -69,4 +69,7 @@ const supabaseLink=liveScript.indexOf('["supabase", "link"',probeMain);
 const routePreflightCall=liveScript.indexOf("route_preflight()",probeMain);
 check(probeMain>=0&&supabaseLink>probeMain&&routePreflightCall>supabaseLink,"Supabase is linked before registry preflight in main");
 check(workflowSource.includes("python3 -m py_compile"),"workflow compiles the live probe before any request");
+check(liveScript.includes('mode_flag = "--yes" if allow_write else "--read-only"'),"remote SQL uses explicit read-only or affirmative CLI consent");
+check(liveScript.includes("supabase_sql(insert, allow_write=True)"),"mission INSERT requires explicit CLI consent");
+check(liveScript.includes("allow_write=True)"),"Human Gate approval and scope revocation require explicit CLI consent");
 console.log("Mission Wonder 2 Gate 3 supervised scope contract: PASS");
