@@ -61,9 +61,9 @@ assert.match(app, /isVoiceMissionNegative\(transcript\)/, 'spoken cancellation m
 assert.match(app, /No reconocí una confirmación clara/, 'ambiguous speech must stay in the pending confirmation flow instead of being sent as a new command');
 assert.match(app, /void send\(transcript\)/, 'voice mode must submit the final recognized transcript automatically');
 assert.match(voice, /autoSubmit = false/, 'voice input must preserve manual review mode outside voice conversation');
-assert.match(voice, /Transcripción recibida\\. Procesando voz/, 'automatic voice mode must announce voice processing');
+assert.ok(voice.includes('Transcripción recibida. Procesando voz'), 'automatic voice mode must announce voice processing');
 assert.match(voice, /disabled = false/, 'voice input must support a busy-state guard');
-assert.match(app, /disabled=\\{sending\\}/, 'chat must prevent overlapping voice submissions');
+assert.ok(app.includes('disabled={sending}'), 'chat must prevent overlapping voice submissions');
 assert.match(css, /\.voiceModeToggle/, 'PWA must expose the voice mode control');
 assert.match(app, /voiceModePrivacyNote/, 'PWA must disclose that the browser may process audio for recognition');
 
