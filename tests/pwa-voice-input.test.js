@@ -59,6 +59,10 @@ assert.match(app, /<HandsFreeVoiceControl onTranscript=\{handleVoiceTranscript\}
 assert.match(app, /disabled=\{sending \|\| handsFreeActive\}/, 'push-to-talk must be disabled while hands-free recognition is active');
 assert.match(handsFree, /recognition\.continuous = true/, 'hands-free mode must continuously recognize speech while enabled');
 assert.match(handsFree, /recognition\.interimResults = true/, 'hands-free mode must consume partial recognition events');
+assert.match(handsFree, /recognition\.onstart/, 'diagnostics must observe the actual recognizer start event');
+assert.match(handsFree, /recognition\.onnomatch/, 'diagnostics must observe browser no-match outcomes');
+assert.match(handsFree, /recordDiagnostic\('interim_result'/, 'diagnostics must record partial-result availability without storing the phrase');
+assert.match(handsFree, /recordDiagnostic\('no_final_result'/, 'diagnostics must explicitly record sessions with no final transcript');
 assert.match(handsFree, /recognition\.lang = 'es-PR'/, 'hands-free mode must use Puerto Rican Spanish recognition');
 assert.match(handsFree, /extractWakeWordRemainder/, 'hands-free mode must require the ARIA wake phrase before capturing a command');
 assert.match(handsFree, /appendVoiceDiagnostic/, 'hands-free voice must retain local diagnostics for browser and recognition failures');
@@ -123,6 +127,9 @@ assert.match(app, /voiceModePrivacyNote/, 'PWA must disclose that the browser ma
   assert.equal(Object.hasOwn(diagnosticResult.record.details, 'transcript'), false, 'raw recognized speech must never be retained');
   assert.equal(JSON.stringify(voiceDiagnostics.readVoiceDiagnostics({ storage: diagnosticStorage })).includes('PRIVATE WORDS'), false);
   assert.equal(voiceDiagnostics.appendVoiceDiagnostic('unknown_event', {}, { storage: diagnosticStorage }).persisted, false, 'unknown diagnostic events must be rejected');
+  assert.equal(voiceDiagnostics.appendVoiceDiagnostic('interim_result', { chars: 14 }, { storage: diagnosticStorage }).persisted, true, 'interim result metadata must be supported');
+  assert.equal(voiceDiagnostics.appendVoiceDiagnostic('no_final_result', {}, { storage: diagnosticStorage }).persisted, true, 'missing final recognition results must be observable');
+  assert.equal(voiceDiagnostics.appendVoiceDiagnostic('no_match', {}, { storage: diagnosticStorage }).persisted, true, 'browser no-match outcomes must be observable');
   for (let i = 0; i < 65; i += 1) {
     voiceDiagnostics.appendVoiceDiagnostic('recognition_end', {}, { storage: diagnosticStorage, now: 1793644447000 + i });
   }
