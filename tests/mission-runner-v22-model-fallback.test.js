@@ -115,6 +115,9 @@ console.log("mission runner required connector evidence anti-false-success contr
   check(!governance.m22QuotaAllowsModelRoute([{ ...availableQuota, model_id: null }], expected), "account-wide ambiguous quota excluded");
   check(!governance.m22QuotaAllowsModelRoute([availableQuota, { ...availableQuota }], expected), "duplicate quota rows fail closed");
   check(!governance.m22QuotaAllowsModelRoute([{ ...availableQuota, usage_requests: 50 }], expected), "request-exhausted quota excluded");
+  check(!governance.m22QuotaAllowsModelRoute([{ ...availableQuota, usage_requests: null }], expected), "unknown usage with a configured limit fails closed");
+  check(!governance.m22QuotaAllowsModelRoute([{ ...availableQuota, limits_requests: 0, usage_requests: 0 }], expected), "zero request limit excludes route");
+  check(!governance.m22QuotaAllowsModelRoute([{ ...availableQuota, usage_requests: -1 }], expected), "negative usage counter excludes route");
   check(!governance.m22QuotaAllowsModelRoute([{ ...availableQuota, limits_tokens_total: 100, usage_tokens_total: 100 }], expected), "token-exhausted quota excluded");
   check(governance.m22ClassifyModelFallbackFailure(402, 429, null, "quota exhausted") === "quota_exhausted", "outer HTTP 402 wins over nested 429");
   check(governance.m22ClassifyModelFallbackFailure(429, 402, null, "rate limited") === "rate_limit", "outer HTTP 429 wins over nested 402");

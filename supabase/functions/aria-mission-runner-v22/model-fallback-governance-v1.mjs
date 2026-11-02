@@ -40,8 +40,12 @@ export function m22QuotaAllowsModelRoute(rows, expected) {
   for (const [limitField, usageField] of counters) {
     const limit = numericLimit(quota[limitField]);
     if (Number.isNaN(limit)) return false;
-    if (limit === null || limit === 0) continue;
-    const usage = Number(quota[usageField]);
+    if (limit === null) continue;
+    const rawUsage = quota[usageField];
+    // If a provider declares a capacity but its usage counter is missing,
+    // treat the quota state as unknown instead of assuming zero usage.
+    if (rawUsage === null || rawUsage === undefined || rawUsage === "") return false;
+    const usage = Number(rawUsage);
     if (!Number.isFinite(usage) || usage < 0 || usage >= limit) return false;
   }
   return true;
