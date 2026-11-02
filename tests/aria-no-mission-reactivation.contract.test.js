@@ -269,7 +269,7 @@ test('legacy mission and execution endpoints stay frozen before parsing or dispa
   assert.ok(execution.includes('"google/gemini-3.5-flash-direct":"gemini-3.5-flash"'), 'execution provider contract must remain intact');
   assert.ok(executionBodyRead > executionHandler && executionPause > executionBodyRead, 'execution runtime must parse only to inspect the exact scoped mission after authentication');
   assert.ok(executionScopeValidator > executionPause && executionDenied > executionScopeValidator, 'execution runtime must deny every non-allowlisted request with 423');
-  assert.ok(execution.includes('await isCloudflarePlanPreviewRequest(r,SECRET)'), 'the sole extra execution exception must require the derived read-only plan-preview token');
+  assert.ok(execution.includes('await isCloudflarePlanPreviewRequest(r,PLAN_BRIDGE_SECRET)'), 'the sole extra execution exception must require the derived read-only plan-preview token from the dedicated bridge secret');
   assert.ok(execution.includes('policy?.read_only===true') && execution.includes('policy?.tool_use===false'), 'the scoped plan-preview exception must remain read-only and tool-free');
   assert.ok(execution.includes('route?.model_id==="nvidia/nemotron-3.5-lightning:free"'), 'the scoped plan-preview exception must remain pinned to the verified free model');
   assert.ok(execution.includes('const MISSION_EXECUTION_PAUSED = true;'), 'execution runtime global pause must remain true');
