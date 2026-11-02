@@ -206,7 +206,7 @@ assert.match(pwaViteConfig, /TEST_CATALOG_VERSION/);
 assert.match(pwaViteConfig, /testCatalogTotal/);
 assert.match(pwaViteConfig, /aria-test-catalog-metadata/);
 assert.match(pwaTestCatalog, /export const TEST_CATALOG_VERSION = '2026-11-02-voice-v4-command-lanes-v1'/);
-assert.equal([...pwaTestCatalog.matchAll(/"file": "tests\//g)].length, 337);
+assert.equal([...pwaTestCatalog.matchAll(/"file": "tests\//g)].length, 339);
 assert.match(projectsRwhtWorkflow, /export const TEST_CATALOG_VERSION/);
 assert.match(projectsRwhtWorkflow, /grep -c '"file": "tests\//);
 assert.match(projectsRwhtWorkflow, /PROJECTS_CANONICAL_TEST_CATALOG_LIVE_OK/);
