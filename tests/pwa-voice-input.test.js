@@ -63,7 +63,8 @@ assert.match(handsFree, /recognition\.lang = 'es-PR'/, 'hands-free mode must use
 assert.match(handsFree, /extractWakeWordRemainder/, 'hands-free mode must require the ARIA wake phrase before capturing a command');
 assert.match(handsFree, /appendVoiceDiagnostic/, 'hands-free voice must retain local diagnostics for browser and recognition failures');
 assert.match(handsFree, /recordDiagnostic\('restart_scheduled'/, 'diagnostics must record automatic recognizer restart attempts');
-assert.match(handsFree, /No guarda audio ni transcripciones/, 'voice diagnostics must explicitly avoid storing audio and recognized speech');
+assert.match(handsFree, /No guarda audio, palabras reconocidas/, 'voice diagnostics must explicitly avoid storing audio and recognized speech');
+assert.match(handsFree, /no guarda audio ni transcripciones/i, 'foreground-only privacy notice must explain that diagnostic logs contain no audio or transcripts');
 assert.match(handsFree, /Copiar diagnóstico/, 'the user must be able to export local voice diagnostics without granting audio access');
 assert.match(handsFree, /SILENCE_TO_SEND_MS = 1650/, 'hands-free mode must submit after a bounded pause in speech');
 assert.match(handsFree, /document\.addEventListener\('visibilitychange'/, 'hands-free listening must pause when the PWA is backgrounded');
