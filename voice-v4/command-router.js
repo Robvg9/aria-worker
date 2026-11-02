@@ -76,12 +76,41 @@ function normalizeHost(value) {
   return host;
 }
 
-function sanitizeActionResult(result, deviceId, operation) {
+function sanitizeActionResult(result, deviceId, operation, config = {}) {
   if (!isPlainObject(result)) return { status: 'succeeded', device_id: deviceId, operation };
   const safe = { status: 'succeeded', device_id: deviceId, operation };
+  const allowedApps = config.allowedApps instanceof Set ? config.allowedApps : new Set();
+  const allowedUrlHosts = config.allowedUrlHosts instanceof Set ? config.allowedUrlHosts : new Set();
+
   for (const key of SAFE_RESULT_FIELDS) {
     if (key === 'device_id' || key === 'operation') continue;
     const value = result[key];
+
+    if (key === 'app_id') {
+      if (typeof value === 'string' && allowedApps.has(value)) safe.app_id = value;
+      continue;
+    }
+
+    if (key === 'url') {
+      if (typeof value !== 'string' || value.length > 2048) continue;
+      try {
+        const parsed = new URL(value);
+        if (parsed.protocol !== 'https:' || parsed.username || parsed.password) continue;
+        const hostAllowed = [...allowedUrlHosts].some(host =>
+          parsed.hostname === host || parsed.hostname.endsWith('.' + host)
+        );
+        if (!hostAllowed) continue;
+        // Never reflect bearer tokens, OAuth codes, or state values from an adapter.
+        parsed.search = '';
+        parsed.hash = '';
+        const clean = parsed.toString();
+        if (clean.length <= 160) safe.url = clean;
+      } catch {
+        // Malformed adapter URLs are intentionally omitted.
+      }
+      continue;
+    }
+
     if (typeof value === 'string' && value.length <= 160) safe[key] = value;
     else if (typeof value === 'boolean' || (typeof value === 'number' && Number.isFinite(value))) safe[key] = value;
   }
@@ -300,7 +329,7 @@ function createVoiceCommandRouter({
     if (isRead) {
       try {
         const result = await readStatus({ device, operation: request.operation, requestId: request.request_id });
-        return { status: 'succeeded', executed: false, result: sanitizeActionResult(result, device?.device_id || null, request.operation) };
+        return { status: 'succeeded', executed: false, result: sanitizeActionResult(result, device?.device_id || null, request.operation, config) };
       } catch {
         return { status: 'failed', reason: 'read_status_failed', executed: false };
       }
@@ -316,7 +345,7 @@ function createVoiceCommandRouter({
         ownerId: auth.ownerId
       });
       if (!result || result.ok !== true) return { status: 'failed', reason: 'device_action_failed', executed: false };
-      return { status: 'succeeded', executed: true, result: sanitizeActionResult(result, device.device_id, request.operation) };
+      return { status: 'succeeded', executed: true, result: sanitizeActionResult(result, device.device_id, request.operation, config) };
     } catch {
       return { status: 'failed', reason: 'device_action_failed', executed: false };
     }
