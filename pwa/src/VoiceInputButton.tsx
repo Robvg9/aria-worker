@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 
 type VoiceInputButtonProps = {
-  onTranscript: (transcript: string) => void;
+  onTranscript: (transcript: string) => void | Promise<unknown>;
   onAudio?: (audio: File) => void;
   captureAudio?: boolean;
   autoSubmit?: boolean;
@@ -90,11 +90,20 @@ export function VoiceInputButton({
     if (session.audioFile) onAudioRef.current?.(session.audioFile);
     const transcript = session.transcript.trim();
     if (transcript) {
-      onTranscriptRef.current(transcript);
-      if (session.audioFile) setNotice('Audio adjuntado y transcripción insertada. Revisa el texto y pulsa Enviar.');
-      else if (autoSubmit) setNotice('Transcripción recibida. Procesando voz…');
-      else if (session.audioError) setNotice('Transcripción insertada; no se pudo adjuntar el audio: ' + session.audioError);
-      else setNotice('Transcripción insertada. Revísala y envíala.');
+      if (autoSubmit) {
+        setNotice('Transcripción recibida. ARIA está preparando tu respuesta…');
+        Promise.resolve()
+          .then(() => onTranscriptRef.current(transcript))
+          .then(result => setNotice(result === false
+            ? 'ARIA no pudo completar la respuesta. Revisa el error del chat.'
+            : 'Respuesta recibida. Puedes hablar de nuevo.'))
+          .catch(() => setNotice('No se pudo completar la respuesta. Revisa el error del chat.'));
+      } else {
+        onTranscriptRef.current(transcript);
+        if (session.audioFile) setNotice('Audio adjuntado y transcripción insertada. Revisa el texto y pulsa Enviar.');
+        else if (session.audioError) setNotice('Transcripción insertada; no se pudo adjuntar el audio: ' + session.audioError);
+        else setNotice('Transcripción insertada. Revísala y envíala.');
+      }
     } else if (session.audioFile) {
       setNotice('Audio adjuntado, pero no se obtuvo la transcripción automática. Añade contexto y envíalo.');
     } else {
