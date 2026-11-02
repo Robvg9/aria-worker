@@ -2513,7 +2513,7 @@ function Chat({
       }
       return send(transcript);
     }
-    setText(previous => previous.trim() ? previous.replace(/\\s+$/, '') + ' ' + transcript : transcript);
+    setText(previous => previous.trim() ? previous.replace(/\s+$/, '') + ' ' + transcript : transcript);
   }
 
   function handlePushToTalkTranscript(transcript: string): void | Promise<boolean> {
