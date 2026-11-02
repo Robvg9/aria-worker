@@ -108,7 +108,7 @@ async function readJson(response, expectedStatus = 200) {
     "}",
     "module.exports = Object.freeze({",
     "  supabaseIndependent: true,",
-    "  localInference: false,",,
+    "  localInference: false,",
     "  capabilities: Object.freeze(['mission.plan', 'workspace', 'mission.verify']),",
     "  async health() { return { ok: true, local_inference: false, adapter: 'isolated-package3-fixture' }; },",
     "  async plan(goal) {",
