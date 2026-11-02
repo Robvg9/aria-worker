@@ -8,6 +8,7 @@ function fixture(overrides = {}) {
   const claimed = new Set();
   let clock = 1793644447000;
   const router = createVoiceCommandRouter({
+    authenticatedOwnerId: 'owner-1',
     now: () => clock,
     verifyOwnerSession: async (session, options) => {
       calls.auth.push({ session, options });
@@ -76,6 +77,7 @@ function request(overrides = {}) {
   assert.equal(fx.calls.action.length, 1);
   assert.equal(fx.calls.claim.length, 1);
   assert.equal(fx.calls.auth[0].options.requireSpeaker, true);
+  assert.equal(fx.calls.auth[0].options.expectedOwnerId, 'owner-1');
 
   const duplicate = await fx.router.route(request({ request_id: 'req-voice-0002' }));
   assert.equal(duplicate.status, 'duplicate');
