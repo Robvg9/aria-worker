@@ -614,11 +614,11 @@ jobs:
           # Never read or decrypt workerTokenDpapi under the service identity.
           $interactiveProfile = 'C:\Users\robvg'
           $interactiveConfig = Join-Path $interactiveProfile 'AppData\Local\ARIA\worker\worker.config.json'
-          $profile = Get-CimInstance Win32_UserProfile -ErrorAction SilentlyContinue |
+          $interactiveProfileInfo = Get-CimInstance Win32_UserProfile -ErrorAction SilentlyContinue |
             Where-Object { $_.LocalPath -ieq $interactiveProfile } | Select-Object -First 1
           Write-Output ('ROBVG_INTERACTIVE_PROFILE_EXISTS=' + [string](Test-Path -LiteralPath $interactiveProfile -PathType Container))
-          Write-Output ('ROBVG_INTERACTIVE_PROFILE_SID=' + [string]$profile.SID)
-          Write-Output ('ROBVG_INTERACTIVE_PROFILE_LOADED=' + [string]$profile.Loaded)
+          Write-Output ('ROBVG_INTERACTIVE_PROFILE_SID=' + [string]$interactiveProfileInfo.SID)
+          Write-Output ('ROBVG_INTERACTIVE_PROFILE_LOADED=' + [string]$interactiveProfileInfo.Loaded)
           try {
             if (Test-Path -LiteralPath $interactiveConfig -PathType Leaf) {
               $configAcl = Get-Acl -LiteralPath $interactiveConfig -ErrorAction Stop
@@ -628,7 +628,7 @@ jobs:
               Write-Output ('ROBVG_INTERACTIVE_DPAPI_CONFIG_OWNER_SID=' + $configOwnerSid)
               Write-Output ('ROBVG_INTERACTIVE_DPAPI_CONFIG_ACL_RULE_COUNT=' + $configRules.Count)
               Write-Output ('ROBVG_INTERACTIVE_DPAPI_CONFIG_ACL_SIDS=' + (($configRules | ForEach-Object { $_.IdentityReference.Value + ':' + [string]$_.AccessControlType + ':' + [string]$_.FileSystemRights }) -join ';'))
-              if ($profile -and $configOwnerSid -eq $profile.SID) {
+              if ($interactiveProfileInfo -and $configOwnerSid -eq $interactiveProfileInfo.SID) {
                 Write-Output 'ROBVG_INTERACTIVE_DPAPI_CONFIG_OWNER_MATCH=PASS'
               }
               else {
