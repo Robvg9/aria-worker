@@ -76,6 +76,7 @@ async function runWindowsVoiceCommand(command) {
     adapters: { setBrightness: setWindowsVoiceBrightness, openApp: openWindowsVoiceApp, openUrl: openWindowsVoiceUrl }
   });
 }
+// Direct voice-device commands use their own short-lived queue; mission jobs remain separate.
 async function claimAndExecuteVoiceCommand() {
   try {
     const body = await api('/v1/voice/commands/claim', { method: 'POST', body: JSON.stringify({ device_id: DEVICE_ID }), timeoutMs: 8000 });
