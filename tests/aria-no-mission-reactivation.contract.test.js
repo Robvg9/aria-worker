@@ -29,18 +29,24 @@ test('canonical runtime is fail-closed before reading or forwarding a mission re
   assert.ok(handler >= 0 && gate > handler && bodyRead > gate, 'pause gate must run before request forwarding');
 });
 
-test('mission runner is fail-closed before stale recovery, hard-block reopening, and claims', () => {
+test('mission runner preserves the global freeze and allows only the pre-approved one-mission Gate 3 scope', () => {
   const source = read('supabase/functions/aria-mission-runner-v22/index.ts');
   const handler = source.indexOf('Deno.serve(async (request) => {');
-  const gate = source.indexOf('if (MISSION_EXECUTION_PAUSED)', handler);
   const bodyRead = source.indexOf('const body = await request.json()', handler);
+  const gate = source.indexOf('if (MISSION_EXECUTION_PAUSED)', handler);
+  const scopedValidator = source.indexOf('m22MissionWonder2ScopedProbeAllowed', handler);
+  const denied = source.indexOf('if (!gate3ScopedProbeAllowed) return out(', handler);
   const recover = source.indexOf('aria_autonomy_recover_stale_missions', handler);
   const reopen = source.indexOf('aria_reopen_recoverable_hard_blocks', handler);
-  const claim = source.indexOf('aria_mission_claim_next_lease', handler);
-  assert.ok(handler >= 0 && gate > handler, 'runner gate must be inside the authenticated entrypoint');
-  for (const [name, index] of Object.entries({ bodyRead, recover, reopen, claim })) {
-    assert.ok(index > gate, 'runner gate must precede ' + name);
-  }
+  const claimById = source.indexOf('aria_mission_claim_by_id_lease', handler);
+  const claimNext = source.indexOf('aria_mission_claim_next_lease', handler);
+  assert.ok(handler >= 0 && bodyRead > handler && gate > bodyRead, 'runner must parse only after authentication, then check the pause');
+  assert.ok(scopedValidator > gate && denied > scopedValidator && recover > denied && reopen > denied && claimById > denied && claimNext > denied,
+    'scope validator and fail-closed response must precede every recovery and claim path');
+  assert.ok(source.includes('const MISSION_EXECUTION_PAUSED = true;'), 'runner global pause must remain true');
+  const recoveryGuard = source.indexOf('if (!gate3ScopedProbeAllowed) {', denied);
+  assert.ok(recoveryGuard > denied && recoveryGuard < recover, 'scoped probe must skip global stale recovery');
+  assert.ok(source.indexOf('if (!gate3ScopedProbeAllowed) {', recover) < reopen, 'scoped probe must skip hard-block reopening');
 });
 
 test('supervisor does not fan out while paused or call the undeployed repair endpoint', () => {
@@ -215,7 +221,6 @@ test('legacy mission and execution endpoints stay frozen before parsing or dispa
     'aria-autonomy-supervisor-v8',
     'aria-autonomy-supervisor-v9',
     'aria-autonomy-supervisor-v10',
-    'aria-execution-runtime-v1',
     'aria-agent-runtime-v1',
   ];
   for (const slug of frozenFunctions) {
@@ -242,8 +247,15 @@ test('legacy mission and execution endpoints stay frozen before parsing or dispa
   assert.ok(agent.indexOf('MISSION_EXECUTION_PAUSED', agent.indexOf('Deno.serve')) < agent.indexOf('await r.json()', agent.indexOf('Deno.serve')), 'agent delegate must pause before reading the request');
 
   const execution = read('supabase/functions/aria-execution-runtime-v1/index.ts');
+  const executionHandler = execution.indexOf('Deno.serve');
+  const executionBodyRead = execution.indexOf('await r.json()', executionHandler);
+  const executionPause = execution.indexOf('if(MISSION_EXECUTION_PAUSED)', executionHandler);
+  const executionScopeValidator = execution.indexOf('m22MissionWonder2ScopedProbeAllowed', executionHandler);
+  const executionDenied = execution.indexOf('if(!gate3ScopedProbeAllowed)return out', executionHandler);
   assert.ok(execution.includes('"google/gemini-3.5-flash-direct":"gemini-3.5-flash"'), 'execution provider contract must remain intact');
-  assert.ok(execution.indexOf('MISSION_EXECUTION_PAUSED', execution.indexOf('Deno.serve')) < execution.indexOf('await r.json()', execution.indexOf('Deno.serve')), 'execution runtime must pause before reading the request');
+  assert.ok(executionBodyRead > executionHandler && executionPause > executionBodyRead, 'execution runtime must parse only to inspect the exact scoped mission after authentication');
+  assert.ok(executionScopeValidator > executionPause && executionDenied > executionScopeValidator, 'execution runtime must deny every non-allowlisted request with 423');
+  assert.ok(execution.includes('const MISSION_EXECUTION_PAUSED = true;'), 'execution runtime global pause must remain true');
 
   const supervisor = read('supabase/functions/aria-autonomy-supervisor-v10/index.ts');
   assert.match(supervisor, /aria-autonomy-supervisor-v5/, 'legacy supervisor must preserve its canonical route contract');
