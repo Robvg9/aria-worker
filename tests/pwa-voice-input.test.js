@@ -61,6 +61,9 @@ assert.match(handsFree, /recognition\.continuous = true/, 'hands-free mode must 
 assert.match(handsFree, /recognition\.interimResults = true/, 'hands-free mode must consume partial recognition events');
 assert.match(handsFree, /recognition\.lang = 'es-PR'/, 'hands-free mode must use Puerto Rican Spanish recognition');
 assert.match(handsFree, /extractWakeWordRemainder/, 'hands-free mode must require the ARIA wake phrase before capturing a command');
+assert.match(handsFree, /appendVoiceDiagnostic/, 'hands-free voice must retain local diagnostics for browser and recognition failures');
+assert.match(handsFree, /No guarda audio ni transcripciones/, 'voice diagnostics must explicitly avoid storing audio and recognized speech');
+assert.match(handsFree, /Copiar diagnóstico/, 'the user must be able to export local voice diagnostics without granting audio access');
 assert.match(handsFree, /SILENCE_TO_SEND_MS = 1650/, 'hands-free mode must submit after a bounded pause in speech');
 assert.match(handsFree, /document\.addEventListener\('visibilitychange'/, 'hands-free listening must pause when the PWA is backgrounded');
 assert.match(handsFree, /window\.addEventListener\('pagehide'/, 'hands-free listening must stop when the PWA is closed or navigated away');
@@ -91,9 +94,45 @@ assert.match(app, /voiceModePrivacyNote/, 'PWA must disclose that the browser ma
 (async () => {
   const voiceOutput = await import(pathToFileURL(path.join(root, 'pwa/src/voiceOutput.js')).href);
   const wakeWord = await import(pathToFileURL(path.join(root, 'pwa/src/voiceWakeWord.js')).href);
+  const voiceDiagnostics = await import(pathToFileURL(path.join(root, 'pwa/src/voiceDiagnostics.js')).href);
+  const diagnosticStorage = {
+    value: null,
+    getItem(key) { return key === 'aria_voice_diagnostics_v1' ? this.value : null; },
+    setItem(key, value) { if (key === 'aria_voice_diagnostics_v1') this.value = value; },
+    removeItem(key) { if (key === 'aria_voice_diagnostics_v1') this.value = null; }
+  };
+  const diagnosticResult = voiceDiagnostics.appendVoiceDiagnostic('wake_match', {
+    phrase_chars: 21,
+    command_chars: 12,
+    wake_matched: true,
+    transcript: 'PRIVATE WORDS MUST NOT BE STORED'
+  }, {
+    storage: diagnosticStorage,
+    window: { SpeechRecognition: function FakeRecognition() {} },
+    navigator: { permissions: { query() {} }, mediaDevices: { getUserMedia() {} } },
+    document: { hidden: false },
+    secureContext: true,
+    now: 1793644447000
+  });
+  assert.equal(diagnosticResult.persisted, true, 'voice diagnostics must persist metadata locally');
+  assert.equal(diagnosticResult.record.environment.recognition_api, 'standard');
+  assert.equal(diagnosticResult.record.environment.secure_context, true);
+  assert.equal(diagnosticResult.record.environment.page_visible, true);
+  assert.equal(Object.hasOwn(diagnosticResult.record.details, 'transcript'), false, 'raw recognized speech must never be retained');
+  assert.equal(JSON.stringify(voiceDiagnostics.readVoiceDiagnostics({ storage: diagnosticStorage })).includes('PRIVATE WORDS'), false);
+  assert.equal(voiceDiagnostics.appendVoiceDiagnostic('unknown_event', {}, { storage: diagnosticStorage }).persisted, false, 'unknown diagnostic events must be rejected');
+  for (let i = 0; i < 65; i += 1) {
+    voiceDiagnostics.appendVoiceDiagnostic('recognition_end', {}, { storage: diagnosticStorage, now: 1793644447000 + i });
+  }
+  assert.equal(voiceDiagnostics.readVoiceDiagnostics({ storage: diagnosticStorage }).length, 60, 'diagnostic retention must be bounded');
+  assert.equal(voiceDiagnostics.clearVoiceDiagnostics({ storage: diagnosticStorage }), true);
+  assert.equal(voiceDiagnostics.readVoiceDiagnostics({ storage: diagnosticStorage }).length, 0);
   assert.equal(wakeWord.extractWakeWordRemainder('Oye ARIA, ¿cómo estás?'), 'como estas');
   assert.equal(wakeWord.extractWakeWordRemainder('ARIA'), '');
   assert.equal(wakeWord.extractWakeWordRemainder('Hablame de economia'), null, 'incidental speech must not activate hands-free mode');
+  assert.equal(wakeWord.extractWakeWordRemainder('Malaria, abre el navegador'), null, 'the word Malaria must not be accepted as the ARIA wake word');
+  assert.equal(wakeWord.extractWakeWordRemainder('María, abre el navegador'), null, 'the name María must not be accepted as the ARIA wake word');
+  assert.equal(wakeWord.extractWakeWordRemainder('Área, abre el navegador'), null, 'the word área must not be accepted as the ARIA wake word');
   assert.equal(wakeWord.extractWakeWordRemainder('Hey ARIA, deja de escuchar'), 'deja de escuchar');
   assert.equal(wakeWord.classifyHandsFreeCommand('deja de escuchar'), 'stop-listening');
   assert.equal(wakeWord.classifyHandsFreeCommand('apaga el micrófono'), 'stop-listening');
