@@ -76,6 +76,8 @@ const {
     version: 'v1',
     allow_mutations: true,
     allowed_operations: ['workspace.write'],
+    // Declares write intent so Cloudflare forces the human-approval policy.
+    tasks: [{ operation: 'workspace.write' }],
     workspace_context: { approved_scope: 'temporary proof file only' }
   };
   const writePrompt = buildCloudflareWorkspacePrompt('Write a bounded proof file', writeRequest);
@@ -96,6 +98,9 @@ const {
   assert.throws(() => buildCloudflareWorkspacePrompt('mutation without authorization', {
     version: 'v1', allowed_operations: ['workspace.write']
   }), /workspace_mutations_not_explicitly_allowed/);
+  assert.throws(() => buildCloudflareWorkspacePrompt('mutation without explicit declaration', {
+    version: 'v1', allow_mutations: true, allowed_operations: ['workspace.write']
+  }), /workspace_mutation_intent_hint_required/);
   assert.throws(() => buildCloudflareWorkspacePlan('path escape', readRequest, JSON.stringify({
     tasks: [{ task_id: 'bad', operation: 'workspace.read', payload: { path: '../secrets.txt' } }]
   })), /workspace_path_policy_blocked/);
