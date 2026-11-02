@@ -63,6 +63,12 @@ export function validateCloudflareWorkspaceRequest(request) {
   if (!allowMutations && allowed.some(operation => operation === 'workspace.write' || operation === 'workspace.edit')) {
     throw new Error('workspace_mutations_not_explicitly_allowed');
   }
+  if (allowMutations && allowed.some(operation => operation === 'workspace.write' || operation === 'workspace.edit')) {
+    const mutationIntentDeclared = Array.isArray(request.tasks) && request.tasks.some(task =>
+      task && ['workspace.write', 'workspace.edit'].includes(String(task.operation || ''))
+    );
+    if (!mutationIntentDeclared) throw new Error('workspace_mutation_intent_hint_required');
+  }
   const context = request.workspace_context && typeof request.workspace_context === 'object' && !Array.isArray(request.workspace_context)
     ? request.workspace_context
     : {};
