@@ -38,6 +38,8 @@ check(!m22Gate3RouteAllowed({...google,status:"blocked"}),"non-selected route de
 const runnerSource=await readFile(new URL("../supabase/functions/aria-mission-runner-v22/index.ts",import.meta.url),"utf8");
 const executionSource=await readFile(new URL("../supabase/functions/aria-execution-runtime-v1/index.ts",import.meta.url),"utf8");
 check(runnerSource.includes("const MISSION_EXECUTION_PAUSED = true"),"runner global pause remains true");
+check(runnerSource.includes("const raw = JSON.stringify(canonicalGateStep(step));"),"existing Human Gate hashing remains unchanged for all executor types");
+check(runnerSource.includes("return m22Gate3HumanGateActionHash(step)") === false,"scoped probe does not replace the general Human Gate hash implementation");
 check(executionSource.includes("const MISSION_EXECUTION_PAUSED = true"),"execution runtime global pause remains true");
 check(runnerSource.includes("if (!gate3ScopedProbeAllowed)"),"runner denies every other mission");
 check(executionSource.includes("if(!gate3ScopedProbeAllowed)return out"),"execution runtime denies every other request");
