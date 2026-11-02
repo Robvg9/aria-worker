@@ -333,9 +333,11 @@ function createVoiceCommandRouter({
     let claimed;
     try {
       claimed = await idempotencyStore.claim({
+        ownerId: config.ownerId,
         key: request.idempotency_key,
         requestId: request.request_id,
         deviceId: globalRead ? null : request.device_id,
+        operation: request.operation,
         expiresAt: request.expires_at
       });
     } catch {
