@@ -43,7 +43,21 @@ export function m22MissionWonder2ScopedProbeAllowed(mission, step, actionHash, n
   // execution grant immediately before calling the model executor. Compare all
   // action fields against the persisted plan, then verify that transformed grant
   // is bound to this exact approved gate.
-  const comparableStep = { ...step, authorization: plannedAuthorization };
+  const runtimeInput = step?.input && typeof step.input === "object" && !Array.isArray(step.input)
+    ? { ...step.input }
+    : {};
+  const hasAttemptMetadata = Object.prototype.hasOwnProperty.call(runtimeInput, "__aria_attempt");
+  const hasDependencyMetadata = Object.prototype.hasOwnProperty.call(runtimeInput, "dependency_results");
+  if (hasAttemptMetadata !== hasDependencyMetadata) return false;
+  if (hasAttemptMetadata) {
+    // The runner decorates the persisted plan with these two execution-only
+    // fields before invoking the model executor. The one-step probe has no
+    // dependencies and is non-retryable, so only attempt 1 + [] are permitted.
+    if (runtimeInput.__aria_attempt !== 1 || !Array.isArray(runtimeInput.dependency_results) || runtimeInput.dependency_results.length !== 0) return false;
+    delete runtimeInput.__aria_attempt;
+    delete runtimeInput.dependency_results;
+  }
+  const comparableStep = { ...step, authorization: plannedAuthorization, input: runtimeInput };
   if (JSON.stringify(canonicalStep(plannedStep)) !== JSON.stringify(canonicalStep(comparableStep))) return false;
   const persistedAuthorization = JSON.stringify(normalize(suppliedAuthorization)) === JSON.stringify(normalize(plannedAuthorization));
   const executionAuthorization =
