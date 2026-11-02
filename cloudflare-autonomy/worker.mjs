@@ -937,7 +937,9 @@ export class AriaMissionStore {
           goal: String(goal || ''),
           context: { cloudflare_workspace_request: workspaceRequest }
         }),
-        redirect: 'error',
+        // Keep redirects visible so the bridge reports a safe HTTP status instead of a generic TypeError.
+        // Never follow a redirect with the producer credential.
+        redirect: 'manual',
         signal: AbortSignal.timeout(20000)
       });
     } catch (cause) {
@@ -963,6 +965,9 @@ export class AriaMissionStore {
         status: 503,
         reason: 'remote_plan_producer_unreachable_' + safeName + safeCode
       };
+    }
+    if (response.status >= 300 && response.status < 400) {
+      return { ok: false, status: 503, reason: 'remote_plan_producer_redirect_' + response.status };
     }
     const payload = await response.json().catch(() => null);
     if (!response.ok) {
