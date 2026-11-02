@@ -62,9 +62,13 @@ issued_at = now.isoformat(timespec="seconds").replace("+00:00", "Z")
 expires_at = (now + dt.timedelta(minutes=10)).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
-def supabase_sql(query):
+def supabase_sql(query, allow_write=False):
+    # Current Supabase CLI requires explicit consent for hosted SQL writes.
+    # Read paths stay read-only; only this harness's reviewed INSERT/UPDATE
+    # and the one Human Gate approval RPC receive --yes.
+    mode_flag = "--yes" if allow_write else "--read-only"
     proc = subprocess.run(
-        ["supabase", "db", "query", "--linked", query],
+        ["supabase", "db", "query", "--linked", query, mode_flag],
         text=True,
         capture_output=True,
         check=False,
@@ -78,8 +82,8 @@ def supabase_sql(query):
     return output
 
 
-def check_sql(query, marker, label):
-    output = supabase_sql(query)
+def check_sql(query, marker, label, allow_write=False):
+    output = supabase_sql(query, allow_write=allow_write)
     if marker not in output:
         print(label + "_OUTPUT=" + output[-5000:])
         fail(label + " did not return its PASS marker")
@@ -273,7 +277,7 @@ def create_and_approve_mission():
     # CLI connection drops, the finally block must still revoke this mission.
     global mission_created
     mission_created = True
-    supabase_sql(insert)
+    supabase_sql(insert, allow_write=True)
     print("ONE_STEP_MISSION_CREATED=PASS")
 
     approve = f"""
@@ -286,7 +290,7 @@ def create_and_approve_mission():
       ELSE 'GATE3_HUMAN_GATE_APPROVAL_FAIL'
     END;
     """
-    check_sql(approve, "GATE3_HUMAN_GATE_APPROVAL_PASS", "GATE3_HUMAN_GATE")
+    check_sql(approve, "GATE3_HUMAN_GATE_APPROVAL_PASS", "GATE3_HUMAN_GATE", allow_write=True)
     verify = f"""
     SELECT CASE WHEN status='queued'
       AND checkpoint->'human_gate'->>'status'='approved'
@@ -341,7 +345,7 @@ def revoke_scope():
      WHERE mission_id={q(MISSION_ID)}
      RETURNING mission_id;
     """
-    output = supabase_sql(query)
+    output = supabase_sql(query, allow_write=True)
     if MISSION_ID not in output:
         # The INSERT may have failed before committing; no scoped authority exists.
         print("GATE3_SCOPE_REVOKE_NO_ROW=PASS")
