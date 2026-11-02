@@ -4,7 +4,7 @@ import { m22Gate3HumanGateActionHash, m22Gate3RouteAllowed, m22MissionWonder2Sco
 import { parseOpenRouterFreeDailyQuota, extractProviderUsage, parseQuotaReservation } from "./quota-accounting-v1.mjs";
 import { isCloudflarePlanPreviewRequest } from "../_shared/cloudflare-plan-preview-auth-v1.mjs";
 const MISSION_EXECUTION_PAUSED = true;
-const URL=Deno.env.get("SUPABASE_URL")!;const KEY=Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;const SECRET=Deno.env.get("ARIA_RUNTIME_SHARED_SECRET")??"";const GOOGLE_API_KEY=Deno.env.get("GOOGLE_API_KEY")??"";
+const URL=Deno.env.get("SUPABASE_URL")!;const KEY=Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;const SECRET=Deno.env.get("ARIA_RUNTIME_SHARED_SECRET")??"";const PLAN_BRIDGE_SECRET=Deno.env.get("ARIA_PLAN_PRODUCER_SHARED_SECRET")??"";const GOOGLE_API_KEY=Deno.env.get("GOOGLE_API_KEY")??"";
 const sb=createClient(URL,KEY,{auth:{persistSession:false,autoRefreshToken:false}});
 const out=(b:unknown,s=200)=>new Response(JSON.stringify(b),{status:s,headers:{"content-type":"application/json","cache-control":"no-store"}});
 const bearer=(r:Request)=>{const h=r.headers.get("authorization")??"";return h.startsWith("Bearer ")?h.slice(7):null};
@@ -202,7 +202,7 @@ if(MISSION_EXECUTION_PAUSED){
     const prompt=String(body?.input?.payload?.prompt||"");
     const requestId=String(body?.request_id||"");
     cloudflarePlanPreviewAllowed=
-      await isCloudflarePlanPreviewRequest(r,SECRET) &&
+      await isCloudflarePlanPreviewRequest(r,PLAN_BRIDGE_SECRET) &&
       body?.execution_version==="1" &&
       requestId.startsWith("aria-cloudflare-plan-preview-v1:") &&
       body?.task_id==="cloudflare_workspace_plan_preview" &&
