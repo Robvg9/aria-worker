@@ -1,6 +1,7 @@
 'use strict';
 
 // Windows-side outbound-only worker. It never opens an inbound port.
+const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { classifyClaimError } = require('../autonomy/persistent-worker-error-policy-v1');
@@ -9,6 +10,9 @@ const baseUrl = String(process.env.ARIA_CONTROL_URL || '').replace(/\/+$/, '');
 const token = process.env.ARIA_WORKER_TOKEN || '';
 const adapterPath = process.env.ARIA_AUTONOMY_ADAPTER;
 const workerId = process.env.ARIA_WORKER_ID || (os.hostname() + '-' + process.pid);
+const package3ProbeId = String(process.env.ARIA_PACKAGE3_SCOPE_PROBE_ID || '');
+const package3ScopeToken = String(process.env.ARIA_PACKAGE3_SCOPE_TOKEN || '');
+const package3LeaseEvidenceDir = String(process.env.ARIA_PACKAGE3_LEASE_EVIDENCE_DIR || '');
 const pollMs = Math.max(500, Number(process.env.ARIA_WORKER_POLL_MS || 2000));
 const heartbeatMs = Math.max(5000, Number(process.env.ARIA_WORKER_HEARTBEAT_MS || 15000));
 let stopping = false;
@@ -21,12 +25,41 @@ function validateConfig() {
   }
   if (token.length < 32) throw new Error('ARIA_WORKER_TOKEN must contain at least 32 characters.');
   if (!adapterPath) throw new Error('Set ARIA_AUTONOMY_ADAPTER to an approved local adapter module.');
+  if (Boolean(package3ProbeId) !== Boolean(package3ScopeToken) ||
+      (package3ProbeId && package3ScopeToken.length < 32)) {
+    throw new Error('Package 3 probe ID and scope token must be supplied together.');
+  }
+}
+
+function persistPackage3LeaseEvidence(job) {
+  if (!package3LeaseEvidenceDir || !package3ProbeId || !job || !job.lease_token) return;
+  const safeName = value => String(value || '').replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 180);
+  fs.mkdirSync(package3LeaseEvidenceDir, { recursive: true });
+  const file = path.join(
+    package3LeaseEvidenceDir,
+    safeName(workerId) + '__' + safeName(job.job_id) + '.json'
+  );
+  // Temporary runner-only evidence used to prove that an old lease is fenced.
+  // This directory is excluded from uploaded artifacts and removed by the E2E harness.
+  fs.writeFileSync(file, JSON.stringify({
+    probe_id: package3ProbeId,
+    worker_id: workerId,
+    job_id: job.job_id,
+    lease_token: job.lease_token,
+    lease_until: job.lease_until,
+    attempts: job.attempts
+  }), { encoding: 'utf8', mode: 0o600 });
 }
 
 async function request(route, body) {
+  const headers = { authorization: 'Bearer ' + token, 'content-type': 'application/json' };
+  if (package3ProbeId && package3ScopeToken) {
+    headers['x-aria-package3-probe-id'] = package3ProbeId;
+    headers['x-aria-package3-scope-token'] = package3ScopeToken;
+  }
   const response = await fetch(baseUrl + route, {
     method: 'POST',
-    headers: { authorization: 'Bearer ' + token, 'content-type': 'application/json' },
+    headers,
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(15000)
   });
@@ -79,6 +112,7 @@ async function main() {
       continue;
     }
 
+    persistPackage3LeaseEvidence(job);
     process.stdout.write('Claimed ' + job.job_id + ' for mission ' + job.mission_id + '\n');
     let heartbeatBusy = false;
     const heartbeatTimer = setInterval(async () => {
