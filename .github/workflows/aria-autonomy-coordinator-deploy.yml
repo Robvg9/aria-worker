@@ -98,7 +98,7 @@ jobs:
           tmp_env="$(mktemp)"
           trap 'rm -f "$tmp_env"' EXIT
           umask 077
-          printf 'ARIA_PLAN_PRODUCER_SHARED_SECRET=%s\\n' "$ARIA_PLAN_PRODUCER_SHARED_SECRET" > "$tmp_env"
+          printf 'ARIA_PLAN_PRODUCER_SHARED_SECRET=%s\n' "$ARIA_PLAN_PRODUCER_SHARED_SECRET" > "$tmp_env"
           supabase secrets set --project-ref "$SUPABASE_PROJECT_REF" --env-file "$tmp_env" --yes
           rm -f "$tmp_env"
           echo "ARIA_PLAN_BRIDGE_SECRET_SYNC_PASS=true"
