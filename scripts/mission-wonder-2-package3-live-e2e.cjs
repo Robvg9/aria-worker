@@ -252,6 +252,21 @@ function spawnWorker({ workerId, root, adapterPath, leaseEvidenceDir, probeId, s
     assert.equal(frozenClaim.data.error, 'mission_execution_paused');
     evidence.checks.global_freeze_preflight = 'PASS';
 
+    // Prove the exact one-shot route is reachable while the global freeze is
+    // active, without creating a scope or mission: invalid confirmation must
+    // be rejected by the route's own validator (400), not by the generic freeze (423).
+    const scopedRouteGuard = await api('/api/package3/probe/start', {
+      method: 'POST',
+      body: {
+        confirm: 'INTENTIONALLY_INVALID_PACKAGE3_CONFIRMATION',
+        probe_id: PROBE_ID,
+        scope_token: crypto.randomBytes(48).toString('base64url')
+      },
+      expectedStatus: 400
+    });
+    assert.equal(scopedRouteGuard.data.error, 'explicit_package3_probe_confirmation_required');
+    evidence.checks.scoped_probe_route_reached_while_global_freeze_active = 'PASS';
+
     const unauthorized = await api('/api/package3/probe/start', {
       method: 'POST',
       token: '',
