@@ -38,6 +38,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           ARIA_CONTROL_TOKEN: ${{ secrets.ARIA_AUTONOMY_CONTROL_TOKEN }}
           ARIA_WORKER_TOKEN: ${{ secrets.ARIA_AUTONOMY_WORKER_TOKEN }}
+          ARIA_RUNTIME_SHARED_SECRET: ${{ secrets.ARIA_RUNTIME_SHARED_SECRET }}
           ARIA_NOTIFICATION_WEBHOOK_URL: ${{ secrets.ARIA_AUTONOMY_NOTIFICATION_WEBHOOK_URL }}
           ARIA_NOTIFICATION_TOKEN: ${{ secrets.ARIA_AUTONOMY_NOTIFICATION_TOKEN }}
         run: |
@@ -46,6 +47,7 @@ jobs:
           test -n "$CLOUDFLARE_ACCOUNT_ID"
           test "${#ARIA_CONTROL_TOKEN}" -ge 32
           test "${#ARIA_WORKER_TOKEN}" -ge 32
+          test "${#ARIA_RUNTIME_SHARED_SECRET}" -ge 32
           test "$ARIA_CONTROL_TOKEN" != "$ARIA_WORKER_TOKEN"
           if test -n "$ARIA_NOTIFICATION_WEBHOOK_URL"; then
             case "$ARIA_NOTIFICATION_WEBHOOK_URL" in https://*) ;; *) echo "Notification webhook must use HTTPS"; exit 1 ;; esac
@@ -59,16 +61,23 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           ARIA_CONTROL_TOKEN: ${{ secrets.ARIA_AUTONOMY_CONTROL_TOKEN }}
           ARIA_WORKER_TOKEN: ${{ secrets.ARIA_AUTONOMY_WORKER_TOKEN }}
+          ARIA_RUNTIME_SHARED_SECRET: ${{ secrets.ARIA_RUNTIME_SHARED_SECRET }}
           ARIA_NOTIFICATION_WEBHOOK_URL: ${{ secrets.ARIA_AUTONOMY_NOTIFICATION_WEBHOOK_URL }}
           ARIA_NOTIFICATION_TOKEN: ${{ secrets.ARIA_AUTONOMY_NOTIFICATION_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
+          trap 'rm -f .aria-autonomy-secrets.json' EXIT
           python - <<'PY'
-          import json, os
+          import hashlib, hmac, json, os
+          root_secret = os.environ["ARIA_RUNTIME_SHARED_SECRET"]
+          if len(root_secret) < 32:
+              raise SystemExit("ARIA_RUNTIME_SHARED_SECRET_INVALID")
+          derived = hmac.new(root_secret.encode("utf-8"), b"aria-cloudflare-plan-producer:v1", hashlib.sha256).hexdigest()
           payload = {
               "ARIA_CONTROL_TOKEN": os.environ["ARIA_CONTROL_TOKEN"],
               "ARIA_WORKER_TOKEN": os.environ["ARIA_WORKER_TOKEN"],
+              "ARIA_PLAN_PRODUCER_TOKEN": derived,
           }
           for key in ("ARIA_NOTIFICATION_WEBHOOK_URL", "ARIA_NOTIFICATION_TOKEN"):
               if os.environ.get(key):
@@ -76,16 +85,21 @@ jobs:
           with open(".aria-autonomy-secrets.json", "w", encoding="utf-8") as handle:
               json.dump(payload, handle)
           PY
-          trap 'rm -f .aria-autonomy-secrets.json' EXIT
           wrangler deploy --config wrangler.aria-autonomy.toml --secrets-file .aria-autonomy-secrets.json
           echo "ARIA_AUTONOMY_CLOUDFLARE_DEPLOY_COMMAND_COMPLETED=true"
-      - name: Verify live health and auth boundary
+      - name: Verify live health, auth, frozen scope and canonical plan bridge
         env:
           ARIA_CONTROL_TOKEN: ${{ secrets.ARIA_AUTONOMY_CONTROL_TOKEN }}
           ARIA_WORKER_TOKEN: ${{ secrets.ARIA_AUTONOMY_WORKER_TOKEN }}
+          ARIA_RUNTIME_SHARED_SECRET: ${{ secrets.ARIA_RUNTIME_SHARED_SECRET }}
         run: |
           set -euo pipefail
           base="https://aria-autonomy-coordinator.robvg9.workers.dev"
+          PLAN_PRODUCER_TOKEN="$(python - <<'PY'
+          import hashlib, hmac, os
+          print(hmac.new(os.environ["ARIA_RUNTIME_SHARED_SECRET"].encode("utf-8"), b"aria-cloudflare-plan-producer:v1", hashlib.sha256).hexdigest())
+          PY
+          )"
           health="$(curl --fail --silent --show-error --max-time 15 "$base/health")"
           HEALTH="$health" python - <<'PY'
           import json, os
@@ -106,6 +120,41 @@ jobs:
           code="$(curl --silent --show-error --max-time 15 -o /tmp/aria-autonomy-claim-paused.json -w '%{http_code}' -X POST "$base/api/worker/claim" -H "Authorization: Bearer $ARIA_WORKER_TOKEN" -H 'content-type: application/json' --data-binary '{')"
           test "$code" = "423"
           echo "ARIA_AUTONOMY_LIVE_HEALTH_AUTH_AND_GLOBAL_FREEZE_PASS=true"
+          preview_file="$RUNNER_TEMP/aria-workspace-plan-preview.json"
+          preview_code="$(curl --silent --show-error --max-time 25 -o "$preview_file" -w '%{http_code}' \
+            -X POST "$base/api/plan-preview" \
+            -H "Authorization: Bearer $ARIA_CONTROL_TOKEN" \
+            -H 'content-type: application/json' \
+            --data '{"goal":"Read-only verification of the canonical workspace plan bridge","cloudflare_workspace_request":{"version":"v1","allowed_operations":["git.status"],"workspace_context":{"root":"workspace"}}}')"
+          test "$preview_code" = "200"
+          PREVIEW_FILE="$preview_file" python - <<'PY'
+          import json, os
+          with open(os.environ["PREVIEW_FILE"], encoding="utf-8") as handle:
+              data = json.load(handle)
+          assert data.get("ok") is True
+          assert data.get("source") == "supabase:aria-planner-v11"
+          assert data.get("durable_state_mutated") is False
+          model = data.get("model") or {}
+          assert model.get("provider_id") == "openrouter"
+          assert model.get("account_id") == "acct_openrouter_primary"
+          assert model.get("model_id") == "nvidia/nemotron-3.5-lightning:free"
+          assert model.get("executor") == "aria-execution-runtime-v1"
+          tasks = data.get("tasks") or []
+          assert len(tasks) == 1
+          assert tasks[0].get("operation") == "git.status"
+          print("ARIA_CANONICAL_REMOTE_PLAN_PREVIEW_PASS=true")
+          PY
+          control_plan_code="$(curl --silent --show-error --max-time 15 -o "$RUNNER_TEMP/aria-plan-control-denied.json" -w '%{http_code}' \
+            -X POST "$base/api/missions/frozen-producer-auth-probe/plan" \
+            -H "Authorization: Bearer $ARIA_CONTROL_TOKEN" \
+            -H 'content-type: application/json' --data '{"tasks":[]}')"
+          test "$control_plan_code" = "401"
+          producer_plan_code="$(curl --silent --show-error --max-time 15 -o "$RUNNER_TEMP/aria-plan-freeze-probe.json" -w '%{http_code}' \
+            -X POST "$base/api/missions/frozen-producer-auth-probe/plan" \
+            -H "Authorization: Bearer $PLAN_PRODUCER_TOKEN" \
+            -H 'content-type: application/json' --data '{"tasks":[]}')"
+          test "$producer_plan_code" = "423"
+          echo "ARIA_REMOTE_PLAN_PRODUCER_AUTH_AND_GLOBAL_FREEZE_PASS=true"
       - name: Send one explicitly confirmed Telegram delivery test
         if: inputs.send_telegram_test == true
         env:

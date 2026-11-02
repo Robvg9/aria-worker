@@ -142,7 +142,7 @@ jobs:
 
           try {
             $scriptPath = Join-Path $env:GITHUB_WORKSPACE 'scripts/Protect-ARIA-Persistent-Worker-Config.ps1'
-            & $scriptPath -InstallDir $env:GITHUB_WORKSPACE -WorkspaceRoot $workspace -OllamaModel 'ci-test-model:latest'
+            & $scriptPath -InstallDir $env:GITHUB_WORKSPACE -WorkspaceRoot $workspace
             $configPath = Join-Path $env:LOCALAPPDATA 'ARIA/worker/worker.config.json'
             if (-not (Test-Path -LiteralPath $configPath -PathType Leaf)) {
               throw 'DPAPI config file was not created.'
@@ -1041,7 +1041,9 @@ jobs:
           code="$(curl --silent --show-error --max-time 15 -o /dev/null -w '%{http_code}' "$base/api/worker/claim" -H "Authorization: Bearer $ARIA_CONTROL_TOKEN")"
           test "$code" = '401'
           code="$(curl --silent --show-error --max-time 15 -o /dev/null -w '%{http_code}' "$base/api/worker/claim" -H "Authorization: Bearer $ARIA_WORKER_TOKEN")"
-          test "$code" = '405'
+          # The worker endpoint intentionally fails closed during the global freeze,
+          # including GET requests. A valid worker token must not bypass the 423 pause.
+          test "$code" = '423'
           echo 'ARIA_LIVE_CONTROL_AUTH=PASS'
           echo 'ARIA_LIVE_WORKER_AUTH=PASS'
           echo 'ARIA_LIVE_CROSS_TOKEN_REJECTION=PASS'

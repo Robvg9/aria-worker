@@ -11,6 +11,7 @@ const { spawn } = require('node:child_process');
 
 const CONTROL_TOKEN = 'package3-isolated-control-token'.padEnd(48, 'c');
 const WORKER_TOKEN = 'package3-isolated-worker-token'.padEnd(48, 'w');
+const PLAN_PRODUCER_TOKEN = 'package3-isolated-derived-plan-producer-token'.padEnd(64, 'p');
 const CONTENT = 'Mission Wonder 2 Package 3 — isolated artifact — v1\n';
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -108,21 +109,10 @@ async function readJson(response, expectedStatus = 200) {
     "}",
     "module.exports = Object.freeze({",
     "  supabaseIndependent: true,",
-    "  capabilities: Object.freeze(['workspace']),",
-    "  async health() { return { ok: true, model: 'isolated-package3-fixture' }; },",
-    "  async plan(goal) {",
-    "    if (!String(goal).includes('package 3 isolated E2E')) throw new Error('unexpected_mission_goal');",
-    "    return [{",
-    "      task_id: 'write-proof-artifact',",
-    "      title: 'Create isolated proof artifact',",
-    "      operation: 'workspace.write',",
-    "      payload: { relative_path: 'package3-proof.txt', content },",
-    "      risk: 'medium',",
-    "      idempotent: true,",
-    "      max_attempts: 3,",
-    "      depends_on: []",
-    "    }];",
-    "  },",
+    "  localInference: false,",
+    "  capabilities: Object.freeze(['workspace.write', 'mission.verify']),",
+    "  async health() { return { ok: true, local_inference: false, adapter: 'isolated-package3-fixture' }; },",
+    "  // The plan is submitted by the authenticated remote planner in the test harness.",,
     "  async executeTask(task) {",
     "    if (!task || task.operation !== 'workspace.write') throw new Error('unexpected_task_operation');",
     "    if (task.payload.relative_path !== 'package3-proof.txt' || task.payload.content !== content) {",
@@ -174,6 +164,7 @@ async function readJson(response, expectedStatus = 200) {
   const env = {
     ARIA_CONTROL_TOKEN: CONTROL_TOKEN,
     ARIA_WORKER_TOKEN: WORKER_TOKEN,
+    ARIA_PLAN_PRODUCER_TOKEN: PLAN_PRODUCER_TOKEN,
     ARIA_WORKER_LEASE_MS: '60000',
     ARIA_ALARM_INTERVAL_MS: '5000'
   };
@@ -279,6 +270,23 @@ async function readJson(response, expectedStatus = 200) {
     const missionId = createdPayload.mission.mission_id;
     assert.match(missionId, /^mission_/);
     assert.equal(createdPayload.mission.status, 'planning');
+    const remotePlanResponse = await api('/api/missions/' + encodeURIComponent(missionId) + '/plan', {
+      method: 'POST',
+      token: PLAN_PRODUCER_TOKEN,
+      body: { tasks: [{
+        task_id: 'write-proof-artifact',
+        title: 'Create isolated proof artifact',
+        operation: 'workspace.write',
+        payload: { relative_path: 'package3-proof.txt', content: CONTENT },
+        risk: 'medium',
+        idempotent: true,
+        max_attempts: 3,
+        depends_on: []
+      }] }
+    });
+    const remotePlanPayload = await readJson(remotePlanResponse, 201);
+    assert.equal(remotePlanPayload.mission.status, 'running');
+    assert.equal(remotePlanPayload.mission.tasks[0].task_id, 'write-proof-artifact');
 
     // Simulate a Durable Object instance recreation before the first worker run.
     activeStore = new IsolatedMissionStore(state, env);
@@ -302,7 +310,11 @@ async function readJson(response, expectedStatus = 200) {
     let missions = await storage.list({ prefix: 'mission:' });
     let jobs = await storage.list({ prefix: 'job:' });
     assert.equal(missions.size, 1, 'idempotent create replay must not duplicate a mission');
-    assert.equal(jobs.size, 1, 'idempotent create replay must not duplicate the plan job');
+    assert.equal(jobs.size, 2, 'idempotent replay plus remote handoff must retain exactly one planner and one execution job');
+    const originalPlannerJob = Array.from(jobs.values()).find(job => job.operation === 'mission.plan');
+    assert.ok(originalPlannerJob, 'the original planner job must remain auditable');
+    assert.equal(originalPlannerJob.status, 'cancelled', 'remote plan handoff must cancel the obsolete local planner job');
+    assert.equal(Array.from(jobs.values()).filter(job => job.operation === 'task.execute').length, 1);
 
     workerBefore = startWorker('package3-worker-before-restart');
     await waitUntil(() => fsSync.existsSync(firstSignal), 'first_worker_task_execution_started');
@@ -381,14 +393,16 @@ async function readJson(response, expectedStatus = 200) {
     assert.equal(jobs.size, 3, 'exactly one plan, one task, and one verification job must exist');
     const jobValues = Array.from(jobs.values());
     assert.deepEqual(jobValues.map(job => job.operation).sort(), ['mission.plan', 'mission.verify', 'task.execute']);
-    assert.ok(jobValues.every(job => job.status === 'completed'));
+    assert.equal(jobValues.find(job => job.operation === 'mission.plan').status, 'cancelled',
+      'the local planner job must remain cancelled after remote planning');
+    assert.ok(jobValues.filter(job => job.operation !== 'mission.plan').every(job => job.status === 'completed'));
     assert.equal(jobValues.find(job => job.operation === 'task.execute').attempts, 2);
 
     missions = await storage.list({ prefix: 'mission:' });
     assert.equal(missions.size, 1);
     const events = await storage.list({ prefix: 'event:' + missionId + ':' });
     const eventValues = Array.from(events.values());
-    for (const eventType of ['mission_created', 'mission_planned', 'task_started', 'task_succeeded', 'mission_verified_complete']) {
+    for (const eventType of ['mission_created', 'mission_plan_submitted', 'task_started', 'task_succeeded', 'mission_verified_complete']) {
       assert.equal(eventValues.filter(event => event.type === eventType).length, 1, 'duplicate event: ' + eventType);
     }
     assert.equal(eventValues.length, 5, 'mission lifecycle must have one deterministic event per completed phase');

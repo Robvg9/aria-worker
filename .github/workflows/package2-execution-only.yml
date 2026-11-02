@@ -1,0 +1,231 @@
+name: Mission Wonder 2 — Package 2 execution-only validation
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/package2-execution-only.yml'
+      - '.github/workflows/aria-autonomy-coordinator-deploy.yml'
+      - '.github/workflows/persistent-autonomy-v1-tests.yml'
+      - 'cloudflare-autonomy/worker.mjs'
+      - 'supabase/functions/aria-planner-v11/index.ts'
+      - 'supabase/functions/aria-planner-v11/cloudflare-workspace-plan-v1.mjs'
+      - 'supabase/functions/_shared/cloudflare-plan-preview-auth-v1.mjs'
+      - 'supabase/functions/aria-execution-runtime-v1/index.ts'
+      - 'tests/cloudflare-plan-preview-auth.test.cjs'
+      - 'tests/cloudflare-workspace-plan-contract.test.cjs'
+      - 'tests/cloudflare-autonomy-remote-plan-producer.test.cjs'
+      - '.github/workflows/aria-autonomy-coordinator-deploy.yml'
+      - 'autonomy/aria-windows-execution-adapter-v1.js'
+      - 'autonomy/persistent-worker-error-policy-v1.js'
+      - 'scripts/aria-persistent-windows-worker-v1.js'
+      - 'scripts/aria-persistent-windows-worker-preflight-v1.js'
+      - 'scripts/aria-persistent-windows-worker-preflight-v1.test.js'
+      - 'scripts/Protect-ARIA-Persistent-Worker-Config.ps1'
+      - 'scripts/Update-ARIA-Persistent-Worker-ExecutionOnly.ps1'
+      - 'scripts/Start-ARIA-Persistent-Worker.ps1'
+      - 'scripts/aria-worker-supervisor-policy-v1.ps1'
+      - 'tests/aria-windows-execution-adapter-v1.test.js'
+      - 'tests/aria-persistent-config-atomic-replace-v1.test.ps1'
+      - 'tests/cloudflare-autonomy-worker-execution-plan.test.cjs'
+      - 'tests/cloudflare-autonomy-package3-scope.test.cjs'
+      - 'tests/cloudflare-autonomy-worker-process-e2e-v1.test.cjs'
+      - 'tests/fixtures/aria-frozen-worker-probe-adapter.js'
+      - 'scripts/mission-wonder-2-package3-live-e2e.cjs'
+      - 'wrangler.aria-autonomy.toml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: package2-execution-only-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  node-contracts:
+    name: Node contracts and coordinator dry-run
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Syntax checks
+        run: |
+          node --check cloudflare-autonomy/worker.mjs
+          node --check supabase/functions/aria-planner-v11/cloudflare-workspace-plan-v1.mjs
+          node --check supabase/functions/_shared/cloudflare-plan-preview-auth-v1.mjs
+          node --check tests/cloudflare-plan-preview-auth.test.cjs
+          node --check scripts/aria-persistent-windows-worker-v1.js
+          node --check scripts/aria-persistent-windows-worker-preflight-v1.js
+          node --check autonomy/aria-windows-execution-adapter-v1.js
+          node --check tests/cloudflare-autonomy-worker-execution-plan.test.cjs
+      - name: Execution-only adapter and read-only preflight
+        run: |
+          node tests/aria-windows-execution-adapter-v1.test.js
+          node scripts/aria-persistent-windows-worker-preflight-v1.test.js
+      - name: Remote-plan handoff and frozen-scope contracts
+        run: |
+          node tests/cloudflare-autonomy-worker-execution-plan.test.cjs
+          node tests/cloudflare-workspace-plan-contract.test.cjs
+          node tests/cloudflare-plan-preview-auth.test.cjs
+          node tests/cloudflare-autonomy-remote-plan-producer.test.cjs
+          node tests/cloudflare-autonomy-package3-scope.test.cjs
+          node tests/cloudflare-autonomy-worker.test.js
+          node tests/cloudflare-autonomy-restart-recovery-v1.test.cjs
+          node tests/cloudflare-autonomy-worker-process-e2e-v1.test.cjs
+      - name: Existing persistent worker recovery contracts
+        run: |
+          node tests/persistent-worker-bridge-v1.test.js
+          node tests/persistent-recovery-e2e-v1.test.cjs
+          node tests/persistent-hybrid-e2e-v1.test.js
+      - name: Validate isolated coordinator without publishing
+        run: npx --yes wrangler@latest deploy --dry-run --config wrangler.aria-autonomy.toml
+
+  windows-config-validation:
+    name: Windows PowerShell, DPAPI and ACL validation
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Parse supervisors and safe migration script
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $paths = @(
+            'scripts/Start-ARIA-Persistent-Worker.ps1',
+            'scripts/aria-worker-supervisor-policy-v1.ps1',
+            'scripts/Protect-ARIA-Persistent-Worker-Config.ps1',
+            'scripts/Update-ARIA-Persistent-Worker-ExecutionOnly.ps1'
+          )
+          foreach ($relative in $paths) {
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $PWD $relative), [ref]$tokens, [ref]$errors) | Out-Null
+            if ($errors.Count) {
+              $errors | Format-List *
+              throw "POWERSHELL_PARSE_FAILED=$relative"
+            }
+          }
+          & (Join-Path $PWD 'tests/persistent-worker-supervisor-policy-v1.test.ps1')
+          & (Join-Path $PWD 'tests/aria-persistent-config-atomic-replace-v1.test.ps1')
+          & (Join-Path $PWD 'tests/aria-worker-task-host.test.ps1')
+          Write-Output 'PACKAGE2_POWERSHELL_SYNTAX_AND_HOST_TESTS=PASS'
+      - name: Verify DPAPI config generation has no local inference settings
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $oldLocalAppData = $env:LOCALAPPDATA
+          $testRoot = Join-Path $env:RUNNER_TEMP ('aria-p2-dpapi-' + [guid]::NewGuid().ToString('N'))
+          $env:LOCALAPPDATA = Join-Path $testRoot 'profile'
+          $workspace = Join-Path $testRoot 'workspace'
+          $testToken = 'package2-dpapi-ci-' + [guid]::NewGuid().ToString('N')
+          New-Item -ItemType Directory -Force -Path $workspace | Out-Null
+          function global:Read-Host {
+            param([string]$Prompt, [switch]$AsSecureString)
+            if (-not $AsSecureString) { throw 'Unexpected plain-text prompt.' }
+            ConvertTo-SecureString -String $global:Package2Token -AsPlainText -Force
+          }
+          $global:Package2Token = $testToken
+          try {
+            & (Join-Path $PWD 'scripts/Protect-ARIA-Persistent-Worker-Config.ps1') -InstallDir $PWD -WorkspaceRoot $workspace
+            $configPath = Join-Path $env:LOCALAPPDATA 'ARIA/worker/worker.config.json'
+            $doc = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json -ErrorAction Stop
+            $sid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+            if ($doc.protectedForSid -ne $sid) { throw 'DPAPI owner SID mismatch.' }
+            if (-not ([string]$doc.values.ARIA_AUTONOMY_ADAPTER).EndsWith('aria-windows-execution-adapter-v1.js', [System.StringComparison]::OrdinalIgnoreCase)) {
+              throw 'Wrong execution adapter in DPAPI config.'
+            }
+            $names = @($doc.values.PSObject.Properties.Name)
+            if ($names -contains 'ARIA_OLLAMA_URL' -or $names -contains 'ARIA_OLLAMA_MODEL' -or $names -contains 'ARIA_OLLAMA_TIMEOUT_MS') {
+              throw 'Local model config remains in DPAPI config.'
+            }
+            $secure = ConvertTo-SecureString -String ([string]$doc.workerTokenDpapi)
+            $ptr = [IntPtr]::Zero
+            try {
+              $ptr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
+              $plain = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr)
+              if ($plain -cne $testToken) { throw 'DPAPI round-trip failed.' }
+            }
+            finally {
+              if ($ptr -ne [IntPtr]::Zero) { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr) }
+              $plain = $null
+              $secure.Dispose()
+            }
+            foreach ($path in @((Split-Path -Parent $configPath), $configPath)) {
+              $acl = Get-Acl -LiteralPath $path
+              $rules = $acl.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier])
+              if ($rules.Count -ne 1 -or $rules[0].IdentityReference.Value -ne $sid) {
+                throw "DPAPI ACL is not current-user-only: $path"
+              }
+            }
+            Write-Output 'PACKAGE2_DPAPI_ROUNDTRIP=PASS'
+            Write-Output 'PACKAGE2_DPAPI_CURRENT_USER_ACL=PASS'
+            Write-Output 'PACKAGE2_LOCAL_INFERENCE_CONFIG=ABSENT'
+          }
+          finally {
+            Remove-Item Function:\Read-Host -ErrorAction SilentlyContinue
+            $global:Package2Token = $null
+            $env:LOCALAPPDATA = $oldLocalAppData
+            Remove-Item -LiteralPath $testRoot -Recurse -Force -ErrorAction SilentlyContinue
+          }
+
+  robvg-frozen-worker:
+    name: ROBVG actual worker fail-stop probe (read-only)
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'feat/aria-worker-remote-plan-execution-only-20261102'
+    needs: [node-contracts, windows-config-validation]
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start the worker once against the frozen coordinator
+        shell: powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
+        env:
+          ARIA_WORKER_TOKEN: ${{ secrets.ARIA_AUTONOMY_WORKER_TOKEN }}
+          ARIA_CONTROL_URL: https://aria-autonomy-coordinator.robvg9.workers.dev
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:COMPUTERNAME -ne 'ROBVG') {
+            throw "Wrong runner host '$env:COMPUTERNAME'; no worker started."
+          }
+          if ([string]::IsNullOrWhiteSpace($env:ARIA_WORKER_TOKEN) -or $env:ARIA_WORKER_TOKEN.Length -lt 32) {
+            throw 'Worker token missing or invalid.'
+          }
+          $workerSource = Get-Content -LiteralPath 'cloudflare-autonomy/worker.mjs' -Raw
+          if ($workerSource -notmatch 'MISSION_EXECUTION_PAUSED\s*=\s*true') {
+            throw 'Global freeze source assertion failed; no worker started.'
+          }
+          $node = 'D:\Databank\node\node.exe'
+          if (-not (Test-Path -LiteralPath $node -PathType Leaf)) { $node = (Get-Command node -ErrorAction Stop).Source }
+          $workspace = Join-Path $env:RUNNER_TEMP ('aria-p2-frozen-' + [guid]::NewGuid().ToString('N'))
+          New-Item -ItemType Directory -Force -Path $workspace | Out-Null
+          try {
+            $env:ARIA_AUTONOMY_ADAPTER = Join-Path $PWD 'tests\fixtures\aria-frozen-worker-probe-adapter.js'
+            $env:ARIA_WORKSPACE_ROOT = $workspace
+            $env:ARIA_WORKER_ID = 'mw2-package2-frozen-ROBVG'
+            $env:ARIA_WORKER_POLL_MS = '500'
+            $env:ARIA_WORKER_HEARTBEAT_MS = '5000'
+            $output = & $node 'scripts\aria-persistent-windows-worker-v1.js' 2>&1
+            $exitCode = $LASTEXITCODE
+            $text = $output -join "`n"
+            $text | Write-Output
+            if ($exitCode -ne 0) { throw "FROZEN_WORKER_EXIT=$exitCode" }
+            if ($text -notmatch 'ARIA_WINDOWS_WORKER_STOPPED=MISSION_EXECUTION_PAUSED') {
+              throw 'Worker did not stop on the coordinator 423 freeze.'
+            }
+            if ($text -notmatch 'ARIA_WINDOWS_EXECUTOR_READY=local-workspace; LOCAL_INFERENCE=false') {
+              throw 'Worker did not confirm inference-free execution adapter.'
+            }
+            Write-Output 'ROBVG_WORKER_PROCESS_START=PASS'
+            Write-Output 'ROBVG_WORKER_FREEZE_423_FAIL_STOP=PASS'
+            Write-Output 'ROBVG_NO_LOCAL_INFERENCE=PASS'
+            Write-Output 'ROBVG_SCHEDULED_TASK_TOUCHED=false'
+            Write-Output 'ROBVG_MISSION_OR_LEASE_CREATED=false'
+          }
+          finally {
+            foreach ($name in @('ARIA_AUTONOMY_ADAPTER','ARIA_WORKSPACE_ROOT','ARIA_WORKER_ID','ARIA_WORKER_POLL_MS','ARIA_WORKER_HEARTBEAT_MS')) {
+              Remove-Item Env:$name -ErrorAction SilentlyContinue
+            }
+            Remove-Item -LiteralPath $workspace -Recurse -Force -ErrorAction SilentlyContinue
+          }

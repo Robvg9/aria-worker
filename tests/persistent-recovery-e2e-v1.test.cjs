@@ -288,16 +288,9 @@ async function testActualWorkerProcessAgainstEphemeralCoordinator() {
 module.exports = {
   createAdapter: ({ workspaceRoot }) => ({
     supabaseIndependent: true,
-    capabilities: ['ollama', 'workspace'],
-    health: async () => ({ ok: true, model: 'package5-fixture-model' }),
-    plan: async () => [{
-      task_id: 'worker-process-read',
-      title: 'Read a disposable fixture',
-      operation: 'workspace.read',
-      payload: { path: 'fixture.txt' },
-      risk: 'low',
-      idempotent: true
-    }],
+    localInference: false,
+    capabilities: ['workspace.read', 'mission.verify'],
+    health: async () => ({ ok: true, local_inference: false, adapter: 'package5-fixture' }),
     executeTask: async task => ({
       passed: true,
       evidence: {
@@ -321,7 +314,15 @@ module.exports = {
     const bridge = createPersistentWorkerBridge({ directory, leaseMs: 10000 });
     const autonomy = createPersistentAutonomy({
       store,
-      plan: createWorkerBackedPlanner({ bridge, timeoutMs: 12000, pollMs: 25 }),
+      // Planning is supplied remotely; the local worker receives execution jobs only.
+      plan: async () => [{
+        task_id: 'worker-process-read',
+        title: 'Read a disposable fixture',
+        operation: 'workspace.read',
+        payload: { path: 'fixture.txt' },
+        risk: 'low',
+        idempotent: true
+      }],
       executeTask: createWorkerBackedExecutor({ bridge, timeoutMs: 12000, pollMs: 25 }),
       verifyCompletion: createWorkerBackedVerifier({ bridge, timeoutMs: 12000, pollMs: 25 }),
       notify: async () => {},
@@ -353,7 +354,6 @@ module.exports = {
           ARIA_WORKER_TOKEN: WORKER_TOKEN,
           ARIA_AUTONOMY_ADAPTER: adapterPath,
           ARIA_WORKSPACE_ROOT: workspace,
-          ARIA_OLLAMA_MODEL: 'package5-fixture-model',
           ARIA_WORKER_POLL_MS: '25',
           ARIA_WORKER_HEARTBEAT_MS: '5000'
         },
@@ -400,9 +400,11 @@ async function testActualWorkerStopsOnCoordinatorFreezeWithoutPollingAgain() {
 module.exports = {
   createAdapter: () => ({
     supabaseIndependent: true,
-    capabilities: ['ollama', 'workspace'],
-    health: async () => ({ ok: true, model: 'package5-freeze-fixture' }),
-    executeTask: async () => ({ passed: true, evidence: { unexpected_execution: true } })
+    localInference: false,
+    capabilities: [],
+    health: async () => ({ ok: true, local_inference: false, adapter: 'package5-freeze-fixture' }),
+    executeTask: async () => ({ passed: true, evidence: { unexpected_execution: true } }),
+    verifyCompletion: async () => ({ passed: false })
   })
 };
 `, 'utf8');
@@ -434,7 +436,6 @@ module.exports = {
           ARIA_WORKER_TOKEN: WORKER_TOKEN,
           ARIA_AUTONOMY_ADAPTER: adapterPath,
           ARIA_WORKSPACE_ROOT: directory,
-          ARIA_OLLAMA_MODEL: 'package5-freeze-fixture',
           ARIA_WORKER_POLL_MS: '25',
           ARIA_WORKER_HEARTBEAT_MS: '5000'
         },

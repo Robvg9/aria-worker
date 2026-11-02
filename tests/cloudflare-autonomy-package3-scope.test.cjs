@@ -145,7 +145,7 @@ async function payload(response) {
     token: WORKER_TOKEN,
     probeId,
     scopeToken: SCOPE_TOKEN,
-    body: { worker_id: beforeWorker, capabilities: ['workspace'] }
+    body: { worker_id: beforeWorker, capabilities: ['mission.plan', 'workspace', 'mission.verify'] }
   });
   assert.equal(planClaimResponse.status, 200);
   const planJob = (await payload(planClaimResponse)).job;
@@ -187,7 +187,7 @@ async function payload(response) {
     token: WORKER_TOKEN,
     probeId,
     scopeToken: SCOPE_TOKEN,
-    body: { worker_id: beforeWorker, capabilities: ['workspace'] }
+    body: { worker_id: beforeWorker, capabilities: ['mission.plan', 'workspace', 'mission.verify'] }
   });
   assert.equal(firstTaskClaimResponse.status, 200);
   const firstTaskJob = (await payload(firstTaskClaimResponse)).job;
@@ -206,7 +206,7 @@ async function payload(response) {
     token: WORKER_TOKEN,
     probeId,
     scopeToken: SCOPE_TOKEN,
-    body: { worker_id: afterWorker, capabilities: ['workspace'] }
+    body: { worker_id: afterWorker, capabilities: ['mission.plan', 'workspace', 'mission.verify'] }
   });
   assert.equal(recoveredClaimResponse.status, 200);
   const recoveredTaskJob = (await payload(recoveredClaimResponse)).job;
@@ -256,7 +256,7 @@ async function payload(response) {
     token: WORKER_TOKEN,
     probeId,
     scopeToken: SCOPE_TOKEN,
-    body: { worker_id: afterWorker, capabilities: ['workspace'] }
+    body: { worker_id: afterWorker, capabilities: ['mission.plan', 'workspace', 'mission.verify'] }
   });
   assert.equal(verifyClaimResponse.status, 200);
   const verifyJob = (await payload(verifyClaimResponse)).job;

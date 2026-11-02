@@ -74,18 +74,23 @@ async function main() {
   let adapter = require(path.resolve(adapterPath));
   if (typeof adapter.createAdapter === 'function' && adapter.supabaseIndependent !== true) {
     adapter = adapter.createAdapter({
-      workspaceRoot: process.env.ARIA_WORKSPACE_ROOT,
-      ollamaUrl: process.env.ARIA_OLLAMA_URL,
-      model: process.env.ARIA_OLLAMA_MODEL
+      workspaceRoot: process.env.ARIA_WORKSPACE_ROOT
     });
   }
-  if (adapter.supabaseIndependent !== true || typeof adapter.executeTask !== 'function') {
-    throw new Error('Worker adapter must export supabaseIndependent: true and executeTask(task, mission, context).');
+  if (adapter.supabaseIndependent !== true ||
+      adapter.localInference !== false ||
+      typeof adapter.plan === 'function' ||
+      typeof adapter.replan === 'function' ||
+      typeof adapter.executeTask !== 'function' ||
+      typeof adapter.verifyCompletion !== 'function') {
+    throw new Error('Worker adapter must be Supabase-independent, execution-only (localInference:false), expose no planner, and provide executeTask + verifyCompletion.');
   }
   if (typeof adapter.health === 'function') {
     const health = await adapter.health();
-    if (!health || health.ok !== true) throw new Error('Worker adapter health check failed: local model unavailable.');
-    process.stdout.write('Local model ready: ' + (health.model || 'configured') + '\n');
+    if (!health || health.ok !== true || health.local_inference !== false) {
+      throw new Error('Worker adapter health check failed or local inference is enabled.');
+    }
+    process.stdout.write('ARIA_WINDOWS_EXECUTOR_READY=local-workspace; LOCAL_INFERENCE=false\n');
   }
   process.stdout.write('ARIA Windows worker started: ' + workerId + '\n');
   process.stdout.write('Coordinator: ' + baseUrl + '\n');

@@ -4,6 +4,8 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { hasExplicitBattleCruiserGitHubWriteIntent } from "../_shared/battlecruiser-github-write-intent.mjs";
 import { explicitPhysicalExecutionRequirement, validatePhysicalExecutionPlan } from "../_shared/physical-execution-contract.mjs";
+import { buildCloudflareWorkspacePlan, isCloudflarePlanProducerRequest } from "./cloudflare-workspace-plan-v1.mjs";
+import { deriveCloudflarePlanPreviewToken } from "../_shared/cloudflare-plan-preview-auth-v1.mjs";
 const URL=Deno.env.get("SUPABASE_URL")!, KEY=Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, SECRET=Deno.env.get("ARIA_RUNTIME_SHARED_SECRET")!;
 const ROOT=createClient(URL,KEY,{auth:{persistSession:false,autoRefreshToken:false,autoRefreshSession:false}});
 const EAS_PROJECT_ID="1b23b091-f7b6-4dc2-b328-c8e5ec07de57"; const db=ROOT.schema("aria_internal");
@@ -859,7 +861,7 @@ async function androidAutonomousPlan(goal:string,context:any){
   const targetPackage=typeof context?.target_package==='string'&&context.target_package.trim()?context.target_package.trim():(pkgMatch?pkgMatch[1]:'com.android.chrome');
   const urlMatch=String(goal).match(/https?:\/\/[^\s)]+/i);
   const startUrl=typeof context?.start_url==='string'&&context.start_url.trim()?context.start_url.trim():(urlMatch?urlMatch[0].replace(/[.,;]+$/,''):null);
-  const parsedHost=startUrl?((()=>{try{return new URL(startUrl).hostname}catch{return null}})()):null;
+  const parsedHost=startUrl?((()=>{try{return new globalThis.URL(startUrl).hostname}catch{return null}})()):null;
   const allowedHosts=Array.isArray(context?.allowed_hosts)?context.allowed_hosts.map(String).filter(Boolean).slice(0,12):(parsedHost?[parsedHost]:['aria.robvg9.workers.dev']);
   const startApp=!/^com\.android\.chrome$|^com\.chrome\.|^org\.mozilla\.|^com\.brave\./i.test(targetPackage);
   const maxSteps=Math.max(3,Math.min(12,Number(context?.max_steps||8)));
@@ -1460,7 +1462,110 @@ function cuevacoinStep6Plan(goal: string) {
   };
 }
 
-Deno.serve(async r=>{if(r.method!=="POST")return out({error:"method_not_allowed"},405);if(!(await auth(r)))return out({error:"unauthorized"},401);const b=await r.json().catch(()=>({}));const goal=typeof b.goal==="string"?b.goal.trim():"";let context=b.context&&typeof b.context==="object"&&!Array.isArray(b.context)?{...b.context}:{};if(!goal)return out({error:"goal_required"},400);
+async function generateCloudflareWorkspacePlan(goal:string,workspaceRequest:any){
+  let prompt:string;
+  try{
+    prompt=buildCloudflareWorkspacePrompt(goal,workspaceRequest);
+  }catch(error){
+    return {ok:false,status:422,reason:String(error instanceof Error?error.message:error).slice(0,180)};
+  }
+  const freeModelId="nvidia/nemotron-3.5-lightning:free";
+  const routes=await modelRoutes();
+  const route=routes.find((candidate:any)=>
+    candidate?.provider_id==="openrouter" &&
+    candidate?.account_id==="acct_openrouter_primary" &&
+    candidate?.model_id===freeModelId &&
+    candidate?.capability_status==="verified"
+  );
+  if(!route)return {ok:false,status:503,reason:"verified_free_plan_model_unavailable"};
+  let previewToken:string;
+  try{
+    previewToken=await deriveCloudflarePlanPreviewToken(SECRET);
+  }catch{
+    return {ok:false,status:503,reason:"plan_preview_auth_unavailable"};
+  }
+  let response:Response;
+  try{
+    response=await fetch(`${URL}/functions/v1/aria-execution-runtime-v1`,{
+      method:"POST",
+      headers:{
+        "content-type":"application/json",
+        authorization:`Bearer ${SECRET}`,
+        "x-aria-plan-preview-token":previewToken
+      },
+      body:JSON.stringify({
+        execution_version:"1",
+        request_id:"aria-cloudflare-plan-preview-v1:"+crypto.randomUUID(),
+        task_id:"cloudflare_workspace_plan_preview",
+        capability:"text_generation",
+        selected_route:{
+          status:"selected",
+          provider_id:route.provider_id,
+          account_id:route.account_id,
+          model_id:route.model_id,
+          capability:"text_generation"
+        },
+        authorization:{status:"approved",risk_class:"READ",evidence_ref:"aria-cloudflare-plan-preview-v1"},
+        input:{payload:{prompt,max_tokens:700,temperature:0}},
+        policy:{aria_cloudflare_plan_preview:true,read_only:true,tool_use:false},
+        metadata:{purpose:"aria-cloudflare-plan-preview-v1"}
+      }),
+      redirect:"error",
+      signal:AbortSignal.timeout(25000)
+    });
+  }catch{
+    return {ok:false,status:503,reason:"canonical_model_executor_unreachable"};
+  }
+  const payload=await response.json().catch(()=>null);
+  if(!response.ok||payload?.status!=="succeeded"||typeof payload?.response?.content!=="string"){
+    const reason=String(payload?.error?.code||payload?.reason||"canonical_model_execution_rejected").slice(0,180);
+    return {ok:false,status:response.status||503,reason};
+  }
+  try{
+    const plan=buildCloudflareWorkspacePlan(goal,workspaceRequest,payload.response.content);
+    return {
+      ok:true,
+      plan,
+      model:{
+        provider_id:route.provider_id,
+        account_id:route.account_id,
+        model_id:route.model_id,
+        executor:"aria-execution-runtime-v1"
+      }
+    };
+  }catch(error){
+    return {ok:false,status:422,reason:String(error instanceof Error?error.message:error).slice(0,180)};
+  }
+}
+
+Deno.serve(async r=>{
+  // The derived Cloudflare producer credential is accepted only on this exact
+  // structured workspace-plan contract. It does not authorize normal planner routes.
+  if(r.headers.has("x-aria-plan-producer")){
+    if(!(await isCloudflarePlanProducerRequest(r,SECRET)))return out({error:"unauthorized_plan_producer"},401);
+    if(r.method!=="POST")return out({error:"method_not_allowed"},405);
+    const pathname=new globalThis.URL(r.url).pathname.replace(/\\/+$/,"");
+    if(!pathname.endsWith("/functions/v1/aria-planner-v11"))return out({error:"not_found"},404);
+    const producerBody=await r.json().catch(()=>null);
+    const producerGoal=typeof producerBody?.goal==="string"?producerBody.goal.trim():"";
+    const producerContext=producerBody?.context&&typeof producerBody.context==="object"&&!Array.isArray(producerBody.context)?producerBody.context:{};
+    if(!producerGoal)return out({error:"goal_required"},400);
+    const produced=await generateCloudflareWorkspacePlan(producerGoal,producerContext.cloudflare_workspace_request);
+    if(!produced.ok){
+      return out({error:"cloudflare_workspace_plan_unavailable",reason:produced.reason},produced.status||503);
+    }
+    return out({
+      ok:true,
+      plan:{goal:produced.plan.goal,tasks:produced.plan.tasks},
+      planner_version:produced.plan.planner_version,
+      contract_version:produced.plan.contract_version,
+      requires_human_approval_for_mutations:produced.plan.requires_human_approval_for_mutations,
+      model:produced.model
+    });
+  }
+  if(r.method!=="POST")return out({error:"method_not_allowed"},405);
+  if(!(await auth(r)))return out({error:"unauthorized"},401);
+  const b=await r.json().catch(()=>({}));const goal=typeof b.goal==="string"?b.goal.trim():"";let context=b.context&&typeof b.context==="object"&&!Array.isArray(b.context)?{...b.context}:{};if(!goal)return out({error:"goal_required"},400);
 const earlyPhysicalMetadata=context?.mission_planner_contract || context?.metadata?.mission_planner_contract || context;
 const earlyPhysicalRequirement=explicitPhysicalExecutionRequirement({goal,metadata:earlyPhysicalMetadata});
 if(earlyPhysicalRequirement.required){

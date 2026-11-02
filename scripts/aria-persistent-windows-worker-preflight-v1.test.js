@@ -7,32 +7,28 @@ const workerToken = 'worker-token-never-print-this-value-0123456789';
 const baseEnv = Object.freeze({
   ARIA_CONTROL_URL: 'https://aria-autonomy-coordinator.robvg9.workers.dev',
   ARIA_WORKER_TOKEN: workerToken,
-  ARIA_AUTONOMY_ADAPTER: 'C:\\aria\\autonomy\\ollama-persistent-adapter-v1.js',
-  ARIA_WORKSPACE_ROOT: 'D:\\Databank\\aria-preflight-workspace',
-  ARIA_OLLAMA_URL: 'http://127.0.0.1:11434',
-  ARIA_OLLAMA_MODEL: 'qwen3:4b'
+  ARIA_AUTONOMY_ADAPTER: 'D:\\Databank\\aria-worker-package4\\autonomy\\aria-windows-execution-adapter-v1.js',
+  ARIA_WORKSPACE_ROOT: 'D:\\Databank\\aria-worker-package4'
 });
 
 function adapterLoader() {
   return {
     createAdapter(options) {
       assert.equal(options.workspaceRoot, baseEnv.ARIA_WORKSPACE_ROOT);
-      assert.equal(options.ollamaUrl, baseEnv.ARIA_OLLAMA_URL);
-      assert.equal(options.model, baseEnv.ARIA_OLLAMA_MODEL);
+      assert.deepEqual(Object.keys(options), ['workspaceRoot']);
       return {
         supabaseIndependent: true,
-        model: options.model,
-        health: async () => ({ ok: true, model: options.model }),
-        plan: async () => [],
-        replan: async () => [],
-        executeTask: async () => ({ passed: true }),
+        localInference: false,
+        capabilities: ['workspace.write', 'mission.verify'],
+        health: async () => ({ ok: true, local_inference: false }),
+        executeTask: async () => ({ passed: true, evidence: { created: true } }),
         verifyCompletion: async () => ({ passed: true })
       };
     }
   };
 }
 
-async function testReadOnlyPreflightPasses() {
+async function testReadOnlyPreflightPassesWithoutLocalModel() {
   const requests = [];
   const fetchImpl = async (url, options) => {
     requests.push({ url: String(url), ...options });
@@ -43,15 +39,18 @@ async function testReadOnlyPreflightPasses() {
         supabase_independent: true
       }), { status: 200 });
     }
-    if (!options.headers || !options.headers.authorization) return new Response('{"error":"unauthorized_worker"}', { status: 401 });
+    if (!options.headers || !options.headers.authorization) {
+      return new Response('{"error":"unauthorized_worker"}', { status: 401 });
+    }
     assert.equal(options.headers.authorization, 'Bearer ' + workerToken);
     return new Response('{"error":"method_not_allowed"}', { status: 405 });
   };
 
   const result = await runPreflight({ env: baseEnv, fetchImpl, adapterLoader });
   assert.equal(result.ok, true);
-  assert.equal(result.model, 'qwen3:4b');
-  assert.deepEqual(Object.values(result.checks), ['pass', 'pass', 'pass', 'pass']);
+  assert.equal(result.local_inference, false);
+  assert.equal(result.adapter, 'aria-windows-execution-v1');
+  assert.deepEqual(Object.values(result.checks), ['pass', 'pass', 'pass', 'pass', 'pass']);
   assert.equal(requests.length, 3);
   assert.deepEqual(requests.map(request => request.method), ['GET', 'GET', 'GET']);
   assert.ok(requests.every(request => request.redirect === 'error'));
@@ -60,6 +59,7 @@ async function testReadOnlyPreflightPasses() {
   assert.equal(requests[1].headers.authorization, undefined);
   assert.equal(requests[2].headers.authorization, 'Bearer ' + workerToken);
   assert.ok(!JSON.stringify(result).includes(workerToken), 'preflight output must not contain the worker token');
+  assert.ok(!JSON.stringify(result).toLowerCase().includes('ollama'));
 }
 
 async function testRejectsInsecureOrCredentialBearingUrlsBeforeNetwork() {
@@ -88,7 +88,7 @@ async function testRejectsInvalidHealthContract() {
     () => runPreflight({ env: baseEnv, fetchImpl, adapterLoader }),
     /coordinator_health_contract_invalid/
   );
-  assert.equal(calls, 1, 'preflight must stop before worker-auth probes when health is invalid');
+  assert.equal(calls, 1);
 }
 
 async function testRejectsInvalidWorkerTokenWithoutMutation() {
@@ -110,14 +110,13 @@ async function testRejectsInvalidWorkerTokenWithoutMutation() {
   assert.equal(calls, 3);
 }
 
-async function testRequiresReadyLocalModel() {
+async function testRejectsAnyLocalInferenceAdapterBeforeNetwork() {
   let calls = 0;
-  const notReadyAdapterLoader = () => ({
+  const localModelLoader = () => ({
     createAdapter: () => ({
       supabaseIndependent: true,
-      health: async () => ({ ok: false, model: 'qwen3:4b' }),
-      plan: async () => [],
-      replan: async () => [],
+      localInference: true,
+      health: async () => ({ ok: true, local_inference: true }),
       executeTask: async () => ({ passed: true }),
       verifyCompletion: async () => ({ passed: true })
     })
@@ -126,21 +125,21 @@ async function testRequiresReadyLocalModel() {
     () => runPreflight({
       env: baseEnv,
       fetchImpl: async () => { calls += 1; return new Response('{}', { status: 200 }); },
-      adapterLoader: notReadyAdapterLoader
+      adapterLoader: localModelLoader
     }),
-    /ollama_local_model_not_ready/
+    /worker_adapter_must_be_execution_only_without_local_inference/
   );
-  assert.equal(calls, 0, 'do not contact the coordinator when the local model is not ready');
+  assert.equal(calls, 0, 'local inference adapter must be rejected before any network request');
 }
 
 (async () => {
-  await testReadOnlyPreflightPasses();
+  await testReadOnlyPreflightPassesWithoutLocalModel();
   await testRejectsInsecureOrCredentialBearingUrlsBeforeNetwork();
   await testRejectsShortTokenBeforeNetwork();
   await testRejectsInvalidHealthContract();
   await testRejectsInvalidWorkerTokenWithoutMutation();
-  await testRequiresReadyLocalModel();
-  process.stdout.write('persistent-worker-preflight-v1: all tests passed\n');
+  await testRejectsAnyLocalInferenceAdapterBeforeNetwork();
+  process.stdout.write('persistent-worker-preflight-v1: all tests passed (no local inference)\n');
 })().catch(error => {
   process.stderr.write((error && error.stack) || String(error));
   process.exitCode = 1;

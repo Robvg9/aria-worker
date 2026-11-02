@@ -3030,6 +3030,15 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "how": "Verifica la reclamación de trabajos, leases, heartbeats y rechazo de resultados con tokens de lease obsoletos.",
     "capabilities": "Impide la ejecución duplicada por varios workers y facilita la recuperación."
   },
+  {
+    "id": "aria-windows-execution-adapter-v1",
+    "file": "tests/aria-windows-execution-adapter-v1.test.js",
+    "title": "ARIA Windows Execution-Only Adapter",
+    "category": "Autonomía / ejecución Windows",
+    "includedInNpmTest": false,
+    "how": "Verifica que el worker Windows ejecute operaciones acotadas de workspace sin planificador ni inferencia local.",
+    "capabilities": "Bloquea rutas fuera del workspace, archivos sensibles y comandos arbitrarios; comprueba escritura idempotente, respaldos, hash SHA-256 y verificación de evidencia."
+  },
 ];
 
 export type TestCatalogStats = Readonly<{
