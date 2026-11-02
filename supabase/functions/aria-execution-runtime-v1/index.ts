@@ -93,8 +93,15 @@ async function directGemini(route:any,input:any,requestId:string,providerTimeout
   if(body.generationConfig?.topP!==undefined){const {topP,...rest}=body.generationConfig;body.generationConfig=rest;}
   if(body.generationConfig?.topK!==undefined){const {topK,...rest}=body.generationConfig;body.generationConfig=rest;}
   const controller=new AbortController();const timeout=setTimeout(()=>controller.abort(),providerTimeoutMs??20000);
-  let res:Response;try{res=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,{method:"POST",headers:{"Content-Type":"application/json","x-goog-api-key":GOOGLE_API_KEY},body:JSON.stringify(body),signal:controller.signal})}catch(error){await settleModelQuota(reservationKey,"unknown",null,null);return out({status:"failed",error:{code:error instanceof Error&&error.name==="AbortError"?"transport_timeout":"transport_error",message:error instanceof Error&&error.name==="AbortError"?"provider request timed out":"transport failure"}})}finally{clearTimeout(timeout)}
-  const json=await res.json().catch(()=>null);if(!res.ok){await settleModelQuota(reservationKey,"failed",res.status,json);return out({status:"failed",error:{code:"provider_error",message:sanitize(json?.error?.message||`provider returned HTTP ${res.status}`),provider_status:res.status}});}
+  let res:Response;let json:any=null;
+  try{
+    res=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,{method:"POST",headers:{"Content-Type":"application/json","x-goog-api-key":GOOGLE_API_KEY},body:JSON.stringify(body),signal:controller.signal});
+    json=await res.json().catch((error:any)=>{if(error?.name==="AbortError")throw error;return null;});
+  }catch(error){
+    await settleModelQuota(reservationKey,"unknown",null,null);
+    const timedOut=error instanceof Error&&error.name==="AbortError";
+    return out({status:"failed",error:{code:timedOut?"transport_timeout":"transport_error",message:timedOut?"provider request timed out":"transport failure"}});
+  }finally{clearTimeout(timeout)}if(!res.ok){await settleModelQuota(reservationKey,"failed",res.status,json);return out({status:"failed",error:{code:"provider_error",message:sanitize(json?.error?.message||`provider returned HTTP ${res.status}`),provider_status:res.status}});}
   const parts=json?.candidates?.[0]?.content?.parts;const text=Array.isArray(parts)?parts.filter((x:any)=>typeof x?.text==="string").map((x:any)=>x.text).join(""):"";
   if(!text){await settleModelQuota(reservationKey,"failed",res.status,json);return out({status:"failed",error:{code:"invalid_response",message:"no text content in provider response"}});}
   const settled=await settleModelQuota(reservationKey,"succeeded",res.status,json);
@@ -134,16 +141,17 @@ async function xaiResponses(route:any,input:any,requestId:string,providerTimeout
   let res:Response;
   const controller=providerTimeoutMs?new AbortController():null;
   const timeout=controller?setTimeout(()=>controller.abort(),providerTimeoutMs):null;
+  let json:any=null;
   try{
     res=await fetch("https://api.x.ai/v1/responses",{method:"POST",headers:{Authorization:`Bearer ${sec}`,"Content-Type":"application/json"},body:JSON.stringify(body),...(controller?{signal:controller.signal}:{})});
+    json=await res.json().catch((error:any)=>{if(error?.name==="AbortError")throw error;return null;});
   }catch(error){
     await settleModelQuota(reservationKey,"unknown",null,null);
     const timedOut=controller&&(error as any)?.name==="AbortError";
     return out({status:"failed",error:{code:timedOut?"transport_timeout":"transport_error",message:timedOut?"provider request timed out":"transport failure"}});
   }finally{
     if(timeout)clearTimeout(timeout);
-  }
-  const json=await res.json().catch(()=>null);if(!res.ok){await settleModelQuota(reservationKey,"failed",res.status,json);return out({status:"failed",error:{code:"provider_error",message:sanitize(json?.error?.message||`provider returned HTTP ${res.status}`),provider_status:res.status}});}
+  }if(!res.ok){await settleModelQuota(reservationKey,"failed",res.status,json);return out({status:"failed",error:{code:"provider_error",message:sanitize(json?.error?.message||`provider returned HTTP ${res.status}`),provider_status:res.status}});}
   const parts=Array.isArray(json?.output)?json.output:[];const text=parts.flatMap((item:any)=>item?.type==="message"&&Array.isArray(item?.content)?item.content:[]).filter((c:any)=>typeof c?.text==="string").map((c:any)=>c.text).join("")|| (typeof json?.output_text==="string"?json.output_text:"");
   if(!text){await settleModelQuota(reservationKey,"failed",res.status,json);return out({status:"failed",error:{code:"invalid_response",message:"no text content in provider response"}});}
   const u=json?.usage;const inTok=typeof u?.input_tokens==="number"?u.input_tokens:null;const outTok=typeof u?.output_tokens==="number"?u.output_tokens:null;const total=typeof u?.total_tokens==="number"?u.total_tokens:(inTok!==null&&outTok!==null?inTok+outTok:null);
@@ -217,6 +225,7 @@ async function openRouterChat(route:any,input:any,requestId:string,providerTimeo
   let res:Response;
   const controller=new AbortController();
   const timeout=setTimeout(()=>controller.abort(),providerTimeoutMs??25000);
+  let json:any=null;
   try{
     res=await fetch("https://openrouter.ai/api/v1/chat/completions",{
       method:"POST",
@@ -224,12 +233,12 @@ async function openRouterChat(route:any,input:any,requestId:string,providerTimeo
       body:JSON.stringify(reqBody),
       signal:controller.signal
     });
+    json=await res.json().catch((error:any)=>{if(error?.name==="AbortError")throw error;return null;});
   }catch(error){
     await settleModelQuota(reservationKey,"unknown",null,null);
-    return out({status:"failed",error:{code:error instanceof Error&&error.name==="AbortError"?"transport_timeout":"transport_error",message:error instanceof Error&&error.name==="AbortError"?"provider request timed out":"transport failure"}});
+    const timedOut=error instanceof Error&&error.name==="AbortError";
+    return out({status:"failed",error:{code:timedOut?"transport_timeout":"transport_error",message:timedOut?"provider request timed out":"transport failure"}});
   }finally{clearTimeout(timeout)}
-
-  const json=await res.json().catch(()=>null);
   if(!res.ok){
     await settleModelQuota(reservationKey,"failed",res.status,json);
     return out({status:"failed",error:{code:"provider_error",message:sanitize(json?.error?.message||`provider returned HTTP ${res.status}`),provider_status:res.status}});
