@@ -948,7 +948,12 @@ export class AriaMissionStore {
       const reason = String(payload && (payload.reason || payload.error) || 'remote_plan_producer_rejected').slice(0, 160);
       return { ok: false, status: response.status, reason };
     }
-    if (!payload || payload.ok !== true || !Array.isArray(payload.plan && payload.plan.tasks)) {
+    const model = payload && payload.model;
+    if (!payload || payload.ok !== true || !Array.isArray(payload.plan && payload.plan.tasks) ||
+        model?.provider_id !== 'openrouter' ||
+        model?.account_id !== 'acct_openrouter_primary' ||
+        model?.model_id !== 'nvidia/nemotron-3.5-lightning:free' ||
+        model?.executor !== 'aria-execution-runtime-v1') {
       return { ok: false, status: 502, reason: 'remote_plan_producer_response_invalid' };
     }
     return {
@@ -956,6 +961,12 @@ export class AriaMissionStore {
       tasks: payload.plan.tasks,
       planner_version: String(payload.planner_version || 'unknown'),
       contract_version: String(payload.contract_version || 'unknown'),
+      model: {
+        provider_id: model.provider_id,
+        account_id: model.account_id,
+        model_id: model.model_id,
+        executor: model.executor
+      },
       requires_human_approval_for_mutations: payload.requires_human_approval_for_mutations === true
     };
   }
@@ -975,6 +986,7 @@ export class AriaMissionStore {
       source: 'supabase:aria-planner-v11',
       planner_version: result.planner_version,
       contract_version: result.contract_version,
+      model: result.model,
       requires_human_approval_for_mutations: result.requires_human_approval_for_mutations === true,
       tasks: result.tasks,
       durable_state_mutated: false
