@@ -44,7 +44,7 @@ async function api(store, route, { method = 'GET', token, body } = {}) {
   const requests = [];
   const priorFetch = globalThis.fetch;
   globalThis.fetch = async (url, init = {}) => {
-    requests.push({ url: String(url), headers: new Headers(init.headers), body: JSON.parse(init.body) });
+    requests.push({ url: String(url), headers: new Headers(init.headers), body: JSON.parse(init.body), redirect: init.redirect });
     const spec = requests[requests.length - 1].body.context.cloudflare_workspace_request;
     const operation = spec.allowed_operations[0];
     const tasks = operation === 'workspace.write'
@@ -110,6 +110,30 @@ async function api(store, route, { method = 'GET', token, body } = {}) {
     assert.equal(requests[0].headers.get('x-aria-plan-producer'), 'cloudflare-workspace-v1');
     assert.equal(requests[0].headers.get('x-aria-plan-producer-token'), producerToken);
     assert.equal(requests[0].headers.get('authorization'), null, 'root Supabase credentials must not be forwarded');
+
+    // Redirects are surfaced by status only; producer credentials are never forwarded to a redirect target.
+    const redirectRestoreFetch = globalThis.fetch;
+    globalThis.fetch = async (_url, init = {}) => {
+      assert.equal(init.redirect, 'manual');
+      return new Response('redirect target must not be exposed', {
+        status: 307,
+        headers: { location: 'https://sensitive.example/redirect-target' }
+      });
+    };
+    try {
+      const redirectPreview = await api(store, '/api/plan-preview', {
+        method: 'POST',
+        token: controlToken,
+        body: { goal: 'Inspect repository status', cloudflare_workspace_request: requestSpec }
+      });
+      assert.equal(redirectPreview.status, 503);
+      const redirectBody = await redirectPreview.json();
+      assert.equal(redirectBody.error, 'remote_plan_producer_redirect_307');
+      assert.equal(JSON.stringify(redirectBody).includes('sensitive.example'), false);
+      assert.equal(JSON.stringify(redirectBody).includes('redirect target'), false);
+    } finally {
+      globalThis.fetch = redirectRestoreFetch;
+    }
 
     // Transport diagnostics expose only a small allowlist, never the error message, URL or credentials.
     const successFetch = globalThis.fetch;
