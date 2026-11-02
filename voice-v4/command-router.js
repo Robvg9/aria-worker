@@ -49,7 +49,7 @@ const ACTIONS = Object.freeze({
 
 const TOP_LEVEL_FIELDS = new Set([
   'request_id', 'idempotency_key', 'expires_at', 'lane', 'operation',
-  'device_id', 'params', 'owner_session', 'source', 'mission_id', 'job_id',
+  'device_id', 'source_device_id', 'params', 'owner_session', 'source', 'mission_id', 'job_id',
   'command', 'shell', 'transcript', 'raw_audio'
 ]);
 
@@ -121,6 +121,7 @@ function validateRequestShape(request, now, maxFutureMs) {
   if (!isPlainObject(request)) return 'request_invalid';
   for (const key of Object.keys(request)) if (!TOP_LEVEL_FIELDS.has(key)) return 'unsupported_request_field';
   if (!validIdentifier(request.request_id, 8, 128)) return 'request_id_invalid';
+  if (!validIdentifier(request.source_device_id, 4, 160)) return 'source_device_id_required';
   if (!validIdentifier(request.idempotency_key, 16, 128)) return 'idempotency_key_invalid';
   if (!Number.isInteger(request.expires_at) || request.expires_at <= now || request.expires_at > now + maxFutureMs) {
     return 'request_expired_or_ttl_invalid';
@@ -205,7 +206,7 @@ function createVoiceCommandRouter({
           requestId: request.request_id,
           expiresAt: request.expires_at,
           expectedOwnerId: config.ownerId,
-          deviceId: request.device_id || null,
+          deviceId: request.source_device_id,
           operation: request.operation,
           lane: request.lane
         });
@@ -234,7 +235,7 @@ function createVoiceCommandRouter({
           requestId: request.request_id,
           expiresAt: request.expires_at,
           expectedOwnerId: config.ownerId,
-          deviceId: request.device_id || null,
+          deviceId: request.source_device_id,
           operation: request.operation,
           lane: request.lane
         });
@@ -287,7 +288,7 @@ function createVoiceCommandRouter({
         requestId: request.request_id,
         expiresAt: request.expires_at,
         expectedOwnerId: config.ownerId,
-        deviceId: request.device_id || null,
+        deviceId: request.source_device_id,
         operation: request.operation,
         lane: request.lane
       });
