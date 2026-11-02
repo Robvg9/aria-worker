@@ -71,6 +71,7 @@ function validateSessionPayload(payload, options, now, maxTtlMs, clockSkewMs) {
   if (Object.keys(payload).length !== SESSION_FIELDS.length) return 'session_payload_fields_missing';
   if (payload.version !== SESSION_VERSION) return 'session_version_unsupported';
   if (!validIdentifier(payload.owner_id)) return 'session_owner_invalid';
+  if (options.expectedOwnerId && payload.owner_id !== options.expectedOwnerId) return 'session_owner_mismatch';
   if (!validIdentifier(payload.device_id, 4)) return 'session_device_invalid';
   if (!validIdentifier(payload.session_id)) return 'session_id_invalid';
   if (!validIdentifier(payload.activation_id)) return 'activation_id_invalid';
