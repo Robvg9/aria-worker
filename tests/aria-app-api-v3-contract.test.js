@@ -110,7 +110,9 @@ assertContains(appApi,'const voiceMode = body?.voice_mode === true','PWA voice t
 assertContains(appApi,'voiceMode ? { lane: "fast", reason: "voice_low_latency" }','voice turns must use the fast conversation lane without deep recall/planning');
 assertContains(appApi,'routes.filter((route:any)=>route.provider_id!=="local_windows")','voice turns must never fall back to local Windows/Ollama devices');
 assertContains(appApi,'voiceMode ? routes.filter((route:any)=>route.provider_id!=="local_windows") : routes','voice route selection must exclude all local Windows devices');
-assertContains(appApi,'true,10000,192','voice model attempts must be bounded to 10 seconds and 192 output tokens');
+assertContains(appApi,'true,8000,160','voice model attempts must be bounded to 8 seconds and 160 output tokens');
+assertContains(appApi,'if(!shouldRetryPrimaryRouteOnce(error))break;','voice fallback must not bypass quota, rate-limit or credential governance');
+assertContains(appApi,'internal_request_timeout_|provider_status_(?:502|503|504)','voice fallback may retry only a bounded timeout or transient provider availability failure');
 assertContains(appApi,'voice_low_latency:true','successful voice responses must identify the low-latency path');
 assertContains(appApi,'if(voiceMode){','voice requests must return synchronously instead of using the background 130-second readback loop');
 assert.match(appApi,/async function internal\(url: string, payload: unknown, timeoutMs\?: number\)/,'internal requests must support a caller-supplied timeout');
