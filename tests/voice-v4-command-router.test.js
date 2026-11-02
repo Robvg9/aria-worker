@@ -189,6 +189,42 @@ function request(overrides = {}) {
   }));
   assert.equal(goodUrl.status, 'succeeded');
 
+  const safeAdapterResultFx = fixture({
+    executeAction: async () => ({
+      ok: true,
+      url: 'https://github.com/Robvg9/aria-worker?access_token=SECRET#session',
+      app_id: 'chrome',
+      opened: true
+    })
+  });
+  const safeAdapterResult = await safeAdapterResultFx.router.route(request({
+    operation: 'browser.open_url',
+    params: { url: 'https://github.com/Robvg9/aria-worker' }
+  }));
+  assert.equal(safeAdapterResult.status, 'succeeded');
+  assert.equal(safeAdapterResult.result.url, 'https://github.com/Robvg9/aria-worker');
+  assert.equal(safeAdapterResult.result.app_id, 'chrome');
+  assert.equal(JSON.stringify(safeAdapterResult).includes('SECRET'), false,
+    'adapter URLs must never reflect query credentials or fragments');
+
+  const unsafeAdapterResultFx = fixture({
+    executeAction: async () => ({
+      ok: true,
+      url: 'https://evil.example/redirect?token=SECRET',
+      app_id: 'powershell',
+      opened: true
+    })
+  });
+  const unsafeAdapterResult = await unsafeAdapterResultFx.router.route(request({
+    operation: 'browser.open_url',
+    params: { url: 'https://github.com/Robvg9/aria-worker' }
+  }));
+  assert.equal(unsafeAdapterResult.status, 'succeeded');
+  assert.equal(Object.hasOwn(unsafeAdapterResult.result, 'url'), false,
+    'unapproved adapter URLs must be omitted');
+  assert.equal(Object.hasOwn(unsafeAdapterResult.result, 'app_id'), false,
+    'unapproved adapter app IDs must be omitted');
+
   for (const url of ['javascript:alert(1)', 'http://example.com', 'https://evil.example', 'https://user:pass@github.com']) {
     const result = await fixture().router.route(request({
       operation: 'browser.open_url',
