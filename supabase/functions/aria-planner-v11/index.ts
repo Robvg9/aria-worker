@@ -4,6 +4,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { hasExplicitBattleCruiserGitHubWriteIntent } from "../_shared/battlecruiser-github-write-intent.mjs";
 import { explicitPhysicalExecutionRequirement, validatePhysicalExecutionPlan } from "../_shared/physical-execution-contract.mjs";
+import { buildCloudflareWorkspacePlan, isCloudflarePlanProducerRequest } from "./cloudflare-workspace-plan-v1.mjs";
 const URL=Deno.env.get("SUPABASE_URL")!, KEY=Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, SECRET=Deno.env.get("ARIA_RUNTIME_SHARED_SECRET")!;
 const ROOT=createClient(URL,KEY,{auth:{persistSession:false,autoRefreshToken:false,autoRefreshSession:false}});
 const EAS_PROJECT_ID="1b23b091-f7b6-4dc2-b328-c8e5ec07de57"; const db=ROOT.schema("aria_internal");
@@ -1460,7 +1461,34 @@ function cuevacoinStep6Plan(goal: string) {
   };
 }
 
-Deno.serve(async r=>{if(r.method!=="POST")return out({error:"method_not_allowed"},405);if(!(await auth(r)))return out({error:"unauthorized"},401);const b=await r.json().catch(()=>({}));const goal=typeof b.goal==="string"?b.goal.trim():"";let context=b.context&&typeof b.context==="object"&&!Array.isArray(b.context)?{...b.context}:{};if(!goal)return out({error:"goal_required"},400);
+Deno.serve(async r=>{
+  // The derived Cloudflare producer credential is accepted only on this exact
+  // structured workspace-plan contract. It does not authorize normal planner routes.
+  if(r.headers.has("x-aria-plan-producer")){
+    if(!(await isCloudflarePlanProducerRequest(r,SECRET)))return out({error:"unauthorized_plan_producer"},401);
+    if(r.method!=="POST")return out({error:"method_not_allowed"},405);
+    const pathname=new URL(r.url).pathname.replace(/\\/+$/,"");
+    if(!pathname.endsWith("/functions/v1/aria-planner-v11"))return out({error:"not_found"},404);
+    const producerBody=await r.json().catch(()=>null);
+    const producerGoal=typeof producerBody?.goal==="string"?producerBody.goal.trim():"";
+    const producerContext=producerBody?.context&&typeof producerBody.context==="object"&&!Array.isArray(producerBody.context)?producerBody.context:{};
+    if(!producerGoal)return out({error:"goal_required"},400);
+    try{
+      const plan=buildCloudflareWorkspacePlan(producerGoal,producerContext.cloudflare_workspace_request);
+      return out({
+        ok:true,
+        plan:{goal:plan.goal,tasks:plan.tasks},
+        planner_version:plan.planner_version,
+        contract_version:plan.contract_version,
+        requires_human_approval_for_mutations:plan.requires_human_approval_for_mutations
+      });
+    }catch(error){
+      return out({error:"cloudflare_workspace_plan_rejected",reason:String(error instanceof Error?error.message:error).slice(0,240)},422);
+    }
+  }
+  if(r.method!=="POST")return out({error:"method_not_allowed"},405);
+  if(!(await auth(r)))return out({error:"unauthorized"},401);
+  const b=await r.json().catch(()=>({}));const goal=typeof b.goal==="string"?b.goal.trim():"";let context=b.context&&typeof b.context==="object"&&!Array.isArray(b.context)?{...b.context}:{};if(!goal)return out({error:"goal_required"},400);
 const earlyPhysicalMetadata=context?.mission_planner_contract || context?.metadata?.mission_planner_contract || context;
 const earlyPhysicalRequirement=explicitPhysicalExecutionRequirement({goal,metadata:earlyPhysicalMetadata});
 if(earlyPhysicalRequirement.required){
