@@ -64,7 +64,6 @@ function escapeHtml(value){return String(value).replace(/[&<>'\"]/g,ch=>({"&":"&
 async function proxyAppApi(request,url){
   const suffix=url.pathname.replace(/^\/api(?=\/|$)/,"")||"/";
   const pausedMissionMutation = request.method === "POST" && (
-    suffix.endsWith("/conversation") ||
     suffix.endsWith("/missions") ||
     /\/missions\/[^/]+\/(?:verify-retry|invalidate-unverified-success|retry|human-gate\/approve|cancel)$/.test(suffix) ||
     suffix.endsWith("/meditation/control") ||

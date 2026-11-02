@@ -1,4 +1,17 @@
 const VOICE_LANGUAGE = 'es-PR';
+const VOICE_OUTPUT_START_EVENT = 'aria-voice-output-start';
+const VOICE_OUTPUT_END_EVENT = 'aria-voice-output-end';
+let speechSequence = 0;
+
+function emitVoiceOutputEvent(host, eventName) {
+  try {
+    if (typeof host?.dispatchEvent === 'function' && typeof Event === 'function') {
+      host.dispatchEvent(new Event(eventName));
+    }
+  } catch {
+    // Voice focus events are advisory; speech itself must remain independent.
+  }
+}
 
 export function cleanSpeechText(value) {
   return String(value ?? '')
@@ -71,9 +84,16 @@ export function speakAssistantText(value, host = window) {
     return false;
   }
 
+  const sequence = ++speechSequence;
   try {
     synthesis.cancel?.();
+    emitVoiceOutputEvent(host, VOICE_OUTPUT_START_EVENT);
     const utterance = new Utterance(spoken);
+    const finish = () => {
+      if (sequence === speechSequence) emitVoiceOutputEvent(host, VOICE_OUTPUT_END_EVENT);
+    };
+    utterance.onend = finish;
+    utterance.onerror = finish;
     utterance.lang = VOICE_LANGUAGE;
     utterance.rate = 1;
     utterance.pitch = 1;
@@ -92,14 +112,17 @@ export function speakAssistantText(value, host = window) {
     synthesis.speak(utterance);
     return true;
   } catch {
+    if (sequence === speechSequence) emitVoiceOutputEvent(host, VOICE_OUTPUT_END_EVENT);
     return false;
   }
 }
 
 export function stopAssistantSpeech(host = window) {
+  speechSequence += 1;
   try {
     host?.speechSynthesis?.cancel?.();
   } catch {
     // Speech cancellation must never interrupt chat or authentication.
   }
+  emitVoiceOutputEvent(host, VOICE_OUTPUT_END_EVENT);
 }
