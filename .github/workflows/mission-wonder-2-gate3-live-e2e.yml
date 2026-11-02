@@ -38,5 +38,7 @@ jobs:
           python-version: "3.12"
       - name: Install Supabase CLI
         run: npm install -g supabase
+      - name: Validate Python probe syntax
+        run: python3 -m py_compile scripts/mission-wonder-2-gate3-live-e2e.py
       - name: Validate exact deployment, Human Gate, one-shot fallback and global re-freeze
         run: python3 scripts/mission-wonder-2-gate3-live-e2e.py

@@ -270,6 +270,8 @@ def create_and_approve_mission():
        'paused', 0, 1, 0, {qjson(checkpoint)}, {qjson(metadata)}, NULL, NULL);
     """
     supabase_sql(insert)
+    global mission_created
+    mission_created = True
     print("ONE_STEP_MISSION_CREATED=PASS")
 
     approve = f"""
@@ -357,10 +359,9 @@ def main():
     mission_created = False
     try:
         github_deploy_exact_sha()
-        route_preflight()
         subprocess.run(["supabase", "link", "--project-ref", PROJECT], check=True, text=True, capture_output=True)
+        route_preflight()
         create_and_approve_mission()
-        mission_created = True
 
         status, response = http_post("aria-mission-runner-v22", {"mission_id": MISSION_ID}, timeout=90)
         print("SCOPED_RUNNER_HTTP=" + str(status))
