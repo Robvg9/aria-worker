@@ -696,3 +696,11 @@ button{touch-action:manipulation;}
   .chatPanel .panelHeading{flex-wrap:wrap;align-items:center}
   .chatPanel .voiceModeToggle{width:100%}
 }
+
+.voiceModePrivacyNote{
+  flex:1 1 100%;
+  color:var(--muted);
+  font-size:10px;
+  line-height:1.4;
+  max-width:460px;
+}
