@@ -1,12 +1,11 @@
 'use strict';
 
-// Mutation-free, one-shot preflight for the real Windows worker configuration.
-// It checks local Ollama readiness and the remote coordinator's worker-auth
-// boundary using GET requests only. It never claims a job or changes mission state.
+// Mutation-free preflight for the execution-only Windows worker.
+// The local adapter performs bounded workspace operations only. Planning and
+// semantic reasoning are remote responsibilities; this preflight never loads
+// a model, calls Ollama, claims a job, or changes mission state.
 const path = require('node:path');
 
-const DEFAULT_OLLAMA_URL = 'http://127.0.0.1:11434';
-const DEFAULT_MODEL = 'qwen3:4b';
 const PREFLIGHT_TIMEOUT_MS = 10000;
 
 function readConfig(env) {
@@ -38,9 +37,7 @@ function readConfig(env) {
     baseUrl: parsed.origin,
     token,
     adapterPath: path.resolve(adapterPath),
-    workspaceRoot,
-    ollamaUrl: String(env.ARIA_OLLAMA_URL || DEFAULT_OLLAMA_URL),
-    model: String(env.ARIA_OLLAMA_MODEL || DEFAULT_MODEL)
+    workspaceRoot
   };
 }
 
@@ -73,21 +70,21 @@ async function runPreflight({
   const adapterModule = adapterLoader(config.adapterPath);
   let adapter = adapterModule;
   if (adapterModule && typeof adapterModule.createAdapter === 'function' && adapterModule.supabaseIndependent !== true) {
-    adapter = adapterModule.createAdapter({
-      workspaceRoot: config.workspaceRoot,
-      ollamaUrl: config.ollamaUrl,
-      model: config.model
-    });
+    adapter = adapterModule.createAdapter({ workspaceRoot: config.workspaceRoot });
   }
 
-  if (!adapter || adapter.supabaseIndependent !== true) throw new Error('worker_adapter_must_declare_supabase_independent');
-  for (const method of ['health', 'plan', 'replan', 'executeTask', 'verifyCompletion']) {
+  if (!adapter || adapter.supabaseIndependent !== true ||
+      adapter.localInference !== false) {
+    throw new Error('worker_adapter_must_be_execution_only_without_local_inference');
+  }
+  for (const method of ['health', 'executeTask', 'verifyCompletion']) {
     if (typeof adapter[method] !== 'function') throw new Error('worker_adapter_method_missing:' + method);
   }
 
   const localHealth = await adapter.health();
-  if (!localHealth || localHealth.ok !== true) throw new Error('ollama_local_model_not_ready');
-  const model = String(localHealth.model || adapter.model || config.model);
+  if (!localHealth || localHealth.ok !== true || localHealth.local_inference !== false) {
+    throw new Error('local_execution_adapter_not_ready_or_local_inference_enabled');
+  }
 
   const healthResponse = await expectStatus(
     fetchImpl,
@@ -105,9 +102,9 @@ async function runPreflight({
     throw new Error('coordinator_health_contract_invalid');
   }
 
-  // Both requests are GETs to the claim route. The coordinator checks the
-  // worker token before rejecting the method with 405; no claim body is read,
-  // no Durable Object storage is changed, and no lease can be created.
+  // Both requests are GETs to the claim route. The coordinator checks worker
+  // auth before returning 405 for the authenticated wrong method; no body is
+  // read, no Durable Object storage is mutated, and no lease can be created.
   await expectStatus(
     fetchImpl,
     config.baseUrl + '/api/worker/claim',
@@ -126,9 +123,11 @@ async function runPreflight({
   return Object.freeze({
     ok: true,
     coordinator: config.baseUrl,
-    model,
+    adapter: 'aria-windows-execution-v1',
+    local_inference: false,
     checks: Object.freeze({
-      local_ollama: 'pass',
+      local_workspace_executor: 'pass',
+      local_inference_disabled: 'pass',
       coordinator_health: 'pass',
       unauthenticated_worker_rejected: 'pass',
       authenticated_worker_read_only: 'pass'
@@ -140,7 +139,8 @@ if (require.main === module) {
   runPreflight().then(result => {
     process.stdout.write('ARIA_WINDOWS_PREFLIGHT_PASS=true\n');
     process.stdout.write('ARIA_WINDOWS_PREFLIGHT_COORDINATOR=' + result.coordinator + '\n');
-    process.stdout.write('ARIA_WINDOWS_PREFLIGHT_MODEL=' + result.model + '\n');
+    process.stdout.write('ARIA_WINDOWS_PREFLIGHT_ADAPTER=' + result.adapter + '\n');
+    process.stdout.write('ARIA_WINDOWS_PREFLIGHT_LOCAL_INFERENCE=false\n');
     for (const [name, status] of Object.entries(result.checks)) {
       process.stdout.write('ARIA_WINDOWS_PREFLIGHT_CHECK_' + name.toUpperCase() + '=' + status.toUpperCase() + '\n');
     }
