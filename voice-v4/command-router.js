@@ -142,12 +142,17 @@ function createVoiceCommandRouter({
 
   async function route(request) {
     const currentTime = Number(now());
+    if (!Number.isFinite(currentTime)) return { status: 'blocked', reason: 'clock_unavailable', executed: false };
     const shapeError = validateRequestShape(request, currentTime, maxRequestTtlMs);
     if (shapeError) return { status: 'blocked', reason: shapeError, executed: false };
 
     if (request.lane === LANES.MISSION_EXECUTE) {
-      if (isMissionExecutionPaused()) {
-        return { status: 'blocked', reason: 'mission_execution_paused', executed: false };
+      try {
+        if (isMissionExecutionPaused()) {
+          return { status: 'blocked', reason: 'mission_execution_paused', executed: false };
+        }
+      } catch {
+        return { status: 'blocked', reason: 'mission_pause_state_unavailable', executed: false };
       }
       return { status: 'confirmation_required', reason: 'mission_human_confirmation_required', executed: false };
     }
@@ -161,11 +166,16 @@ function createVoiceCommandRouter({
       if (request.lane !== LANES.DEVICE_ACTION) {
         return { status: 'blocked', reason: 'message_send_not_a_read_operation', executed: false };
       }
-      const auth = await verifyOwnerSession(request.owner_session, {
-        requireSpeaker: true,
-        requestId: request.request_id,
-        expiresAt: request.expires_at
-      });
+      let auth;
+      try {
+        auth = await verifyOwnerSession(request.owner_session, {
+          requireSpeaker: true,
+          requestId: request.request_id,
+          expiresAt: request.expires_at
+        });
+      } catch {
+        return { status: 'blocked', reason: 'owner_session_verification_failed', executed: false };
+      }
       if (!auth || auth.valid !== true || auth.speakerVerified !== true || !auth.ownerId) {
         return { status: 'blocked', reason: 'owner_speaker_verification_required', executed: false };
       }
@@ -187,48 +197,63 @@ function createVoiceCommandRouter({
     if (!isRead && request.lane !== LANES.DEVICE_ACTION) {
       return { status: 'blocked', reason: 'lane_not_supported', executed: false };
     }
-    if (!request.device_id || !validIdentifier(request.device_id, 4, 160)) {
+    const globalRead = isRead && request.operation === 'aria.status';
+    if (!globalRead && (!request.device_id || !validIdentifier(request.device_id, 4, 160))) {
       return { status: 'blocked', reason: 'explicit_device_target_required', executed: false };
     }
 
-    const operationPolicy = isRead
-      ? { capability: 'device.telemetry', risk: 'read', validate: params => Object.keys(params).length === 0 }
-      : ACTIONS[request.operation];
+    const operationPolicy = globalRead
+      ? { capability: 'aria.status.read', risk: 'read', validate: params => Object.keys(params).length === 0 }
+      : isRead
+        ? { capability: 'device.telemetry', risk: 'read', validate: params => Object.keys(params).length === 0 }
+        : ACTIONS[request.operation];
     if (!operationPolicy) return { status: 'blocked', reason: 'device_action_not_allowlisted', executed: false };
     if (!operationPolicy.validate(request.params || {}, config)) {
       return { status: 'blocked', reason: 'device_action_params_invalid', executed: false };
     }
 
-    const auth = await verifyOwnerSession(request.owner_session, {
-      requireSpeaker: !isRead,
-      requestId: request.request_id,
-      expiresAt: request.expires_at
-    });
+    let auth;
+    try {
+      auth = await verifyOwnerSession(request.owner_session, {
+        requireSpeaker: !isRead,
+        requestId: request.request_id,
+        expiresAt: request.expires_at
+      });
+    } catch {
+      return { status: 'blocked', reason: 'owner_session_verification_failed', executed: false };
+    }
     if (!auth || auth.valid !== true || !auth.ownerId || (!isRead && auth.speakerVerified !== true)) {
       return { status: 'blocked', reason: isRead ? 'owner_session_invalid' : 'owner_speaker_verification_required', executed: false };
     }
 
-    let device;
-    try {
-      device = await resolveDevice(request.device_id);
-    } catch {
-      return { status: 'blocked', reason: 'device_lookup_failed', executed: false };
-    }
-    if (!device || device.device_id !== request.device_id || device.health !== 'healthy' || device.security !== 'trusted') {
-      return { status: 'blocked', reason: 'device_not_trusted_and_healthy', executed: false };
-    }
-    if (!Array.isArray(device.capabilities) || !device.capabilities.includes(operationPolicy.capability)) {
-      return { status: 'blocked', reason: 'device_capability_missing', executed: false };
+    let device = null;
+    if (!globalRead) {
+      try {
+        device = await resolveDevice(request.device_id);
+      } catch {
+        return { status: 'blocked', reason: 'device_lookup_failed', executed: false };
+      }
+      if (!device || device.device_id !== request.device_id || device.health !== 'healthy' || device.security !== 'trusted') {
+        return { status: 'blocked', reason: 'device_not_trusted_and_healthy', executed: false };
+      }
+      if (!Array.isArray(device.capabilities) || !device.capabilities.includes(operationPolicy.capability)) {
+        return { status: 'blocked', reason: 'device_capability_missing', executed: false };
+      }
     }
 
-    const authorization = await authorizeCapability({
-      ownerId: auth.ownerId,
-      deviceId: request.device_id,
-      operation: request.operation,
-      capability: operationPolicy.capability,
-      risk: operationPolicy.risk,
-      lane: request.lane
-    });
+    let authorization;
+    try {
+      authorization = await authorizeCapability({
+        ownerId: auth.ownerId,
+        deviceId: globalRead ? null : request.device_id,
+        operation: request.operation,
+        capability: operationPolicy.capability,
+        risk: operationPolicy.risk,
+        lane: request.lane
+      });
+    } catch {
+      return { status: 'blocked', reason: 'capability_authorization_unavailable', executed: false };
+    }
     if (!authorization || authorization.allowed !== true) {
       return { status: 'blocked', reason: authorization?.reason || 'capability_denied', executed: false };
     }
@@ -238,7 +263,7 @@ function createVoiceCommandRouter({
       claimed = await idempotencyStore.claim({
         key: request.idempotency_key,
         requestId: request.request_id,
-        deviceId: request.device_id,
+        deviceId: globalRead ? null : request.device_id,
         expiresAt: request.expires_at
       });
     } catch {
@@ -249,7 +274,7 @@ function createVoiceCommandRouter({
     if (isRead) {
       try {
         const result = await readStatus({ device, operation: request.operation, requestId: request.request_id });
-        return { status: 'succeeded', executed: false, result: sanitizeActionResult(result, device.device_id, request.operation) };
+        return { status: 'succeeded', executed: false, result: sanitizeActionResult(result, device?.device_id || null, request.operation) };
       } catch {
         return { status: 'failed', reason: 'read_status_failed', executed: false };
       }
