@@ -135,6 +135,9 @@ assertContains(appApi,'metadata:{conversation_only:true,conversation_id:conversa
 assertContains(appApi,'allowLocalFallback=!MISSION_EXECUTION_PAUSED','local Windows/Ollama fallback must remain disabled while mission execution is frozen');
 assert.doesNotMatch(appApi.slice(appApi.indexOf('const pausedMissionMutation'),appApi.indexOf('if (MISSION_EXECUTION_PAUSED && pausedMissionMutation)')),/path\.endsWith\("\/conversation"\)/,'ordinary chat must not be classified as mission mutation');
 assertContains(appApi,'mission_execution_paused: missionPauseActive','mission-intent text must be explained without queuing a mission while frozen');
+assertContains(appApi,'if (missionCandidate && !confirmedMissionGoal && !voiceMode)','spoken mission-like requests must stay on the conversation path even while mission execution is paused');
+assertContains(appApi,'MISSION_EXECUTION_PAUSED ? "LÍMITE DURO DE EJECUCIÓN: la ejecución de misiones está pausada. Esta petición se atiende exclusivamente como conversación de solo lectura','paused conversations must answer without enqueueing missions, jobs, or device actions');
+assertContains(appApi,'const execution=voiceMode\\n          ? await executeVoiceConversation(step,prompt,conversationId,visual_context,clientMessageId)','voice requests must reach the independent read-only inference path after the mission gate is bypassed');
 assertContains(appApi,'if (MISSION_EXECUTION_PAUSED) {\n          const pausedText','explicit mission confirmation must be refused before canonical DIRECT intake');
 assertContains(executor,'const conversationOnlyAllowed=','runtime must explicitly identify the constrained conversation-only exception');
 assertContains(executor,'body?.task_id==="conversation:"+body?.metadata?.conversation_id','conversation-only runtime access must be bound to the exact conversation task id');
