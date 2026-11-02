@@ -78,14 +78,19 @@ check(workflowSource.includes("python3 -m py_compile"),"workflow compiles the li
 check(liveScript.includes('args = ["supabase", "db", "query", "--linked", query]'),"SQL reads use supported Supabase CLI syntax");
 check(liveScript.includes('args.append("--yes")'),"remote SQL writes require explicit affirmative CLI consent");
 check(liveScript.includes('if not re.match(r"(?is)^SELECT\\b", statement) or ";" in statement'),"read mode accepts exactly one SELECT statement");
+const verifyStart=liveScript.indexOf("def verify_live_result():");
+const verifyEnd=liveScript.indexOf("\ndef revoke_scope()",verifyStart);
+const verifySource=liveScript.slice(verifyStart,verifyEnd);
+check(verifyStart>=0&&verifyEnd>verifyStart&&/query = f"""\s*SELECT CASE WHEN/.test(verifySource)&&!verifySource.includes("WITH mission AS ("),"post-run quota verification uses one plain SELECT compatible with the read-only SQL guard");
+
 check(!liveScript.includes('"--read-only"'),"unsupported Supabase CLI read-only flag is absent");
 check(liveScript.includes("supabase_sql(insert, allow_write=True)"),"mission INSERT requires explicit CLI consent");
 check(liveScript.includes("allow_write=True)"),"Human Gate approval and scope revocation require explicit CLI consent");
 check(liveScript.includes("model_id IS NULL AND status <> 'disabled'"),"Gate 3 preflight requires the account-wide OpenRouter free quota row");
 check(liveScript.includes("GATE3_QUOTA_BASELINE="),"Gate 3 captures request/token counters before its one provider call");
 check(liveScript.includes("quota_request_reservations_v1"),"Gate 3 reads the atomic provider reservation ledger after execution");
-check(liveScript.includes("reservation_count FROM quota_proof)=1"),"Gate 3 requires exactly one persisted provider reservation");
-check(liveScript.includes("settled_count FROM quota_proof)=1"),"Gate 3 requires that reservation to be settled with provider response and tokens");
+check(liveScript.includes("count(*) FROM aria_internal.quota_request_reservations_v1")&&liveScript.includes("left(reservation_key, length({q(reservation_prefix)}))"),"Gate 3 requires exactly one persisted provider reservation");
+check(liveScript.includes("status='succeeded'")&&liveScript.includes("provider_response_id IS NOT NULL")&&liveScript.includes("total_tokens > 0"),"Gate 3 requires a settled provider reservation with response and tokens");
 check(liveScript.includes('QUOTA_BASELINE["model_requests"] + 1'),"Gate 3 proves the exact-model request counter incremented once");
 check(liveScript.includes('QUOTA_BASELINE["account_requests"] + 1'),"Gate 3 proves the shared account request counter incremented");
 check(!liveScript.includes("limits_requests > usage_requests"),"Gate 3 no longer assumes a per-model daily request limit");
