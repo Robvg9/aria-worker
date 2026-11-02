@@ -99,6 +99,23 @@ if ([string]$task.Principal.LogonType -ne 'Interactive' -or
     [string]$task.Principal.RunLevel -ne 'Limited') {
     throw 'Scheduled task must retain Interactive logon and Limited run level.'
 }
+[xml]$originalTaskXml = Export-ScheduledTask -TaskName $TaskName -ErrorAction Stop
+$originalTriggersNode = $originalTaskXml.SelectSingleNode("//*[local-name()='Triggers']")
+$originalPrincipalNode = $originalTaskXml.SelectSingleNode("//*[local-name()='Principals']/*[local-name()='Principal']")
+$originalLogonTrigger = $originalTaskXml.SelectSingleNode("//*[local-name()='LogonTrigger']")
+if ($null -eq $originalTriggersNode -or $null -eq $originalPrincipalNode -or $null -eq $originalLogonTrigger) {
+    throw 'Existing task does not have the expected explicit LogonTrigger and Principal nodes.'
+}
+$originalLogonUser = $originalLogonTrigger.SelectSingleNode("./*[local-name()='UserId']")
+$originalLogonDelay = $originalLogonTrigger.SelectSingleNode("./*[local-name()='Delay']")
+if ($null -eq $originalLogonUser -or
+    [string]$originalLogonUser.InnerText -ine [string]$task.Principal.UserId -or
+    $null -eq $originalLogonDelay -or
+    [string]$originalLogonDelay.InnerText -ne 'PT30S') {
+    throw 'Existing task must retain its user-specific 30-second logon trigger.'
+}
+$originalTriggersXml = $originalTriggersNode.OuterXml
+$originalPrincipalXml = $originalPrincipalNode.OuterXml
 
 $oldAction = $task.Actions | Select-Object -First 1
 $hostExecutable = [System.IO.Path]::GetFullPath([string]$oldAction.Execute)
@@ -197,6 +214,14 @@ try {
 
     $verifiedTask = Get-ScheduledTask -TaskName $TaskName -TaskPath $task.TaskPath -ErrorAction Stop
     $verifiedAction = $verifiedTask.Actions | Select-Object -First 1
+    [xml]$verifiedTaskXml = Export-ScheduledTask -TaskName $TaskName -ErrorAction Stop
+    $verifiedTriggersNode = $verifiedTaskXml.SelectSingleNode("//*[local-name()='Triggers']")
+    $verifiedPrincipalNode = $verifiedTaskXml.SelectSingleNode("//*[local-name()='Principals']/*[local-name()='Principal']")
+    if ($null -eq $verifiedTriggersNode -or $null -eq $verifiedPrincipalNode -or
+        $verifiedTriggersNode.OuterXml -cne $originalTriggersXml -or
+        $verifiedPrincipalNode.OuterXml -cne $originalPrincipalXml) {
+        throw 'Post-update verification failed: task trigger or principal XML changed.'
+    }
     $verifiedArgs = [regex]::Match([string]$verifiedAction.Arguments, $argumentPattern)
     $verifiedIdentity = [string]$verifiedTask.Principal.UserId
     $verifiedSid = $null
