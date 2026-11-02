@@ -106,19 +106,32 @@ console.log("mission runner required connector evidence anti-false-success contr
     limits_tokens_total: null,
     usage_tokens_total: null,
   };
-  check(governance.m22QuotaAllowsModelRoute([availableQuota], expected), "exact available model quota accepted");
+  const accountDailyQuota = {
+    provider_id: "openrouter",
+    account_id: "acct_openrouter_primary",
+    model_id: null,
+    status: "unknown",
+    limits_requests: 50,
+    usage_requests: null,
+    limits_period: "day",
+  };
+  const quotaRows = [availableQuota, accountDailyQuota];
+  check(governance.m22QuotaAllowsModelRoute(quotaRows, expected), "exact model plus account-wide quota row accepted");
+  check(!governance.m22QuotaAllowsModelRoute([availableQuota], expected), "missing account-wide free quota fails closed");
   check(!governance.m22QuotaAllowsModelRoute([], expected), "missing quota fails closed");
-  check(!governance.m22QuotaAllowsModelRoute([{ ...availableQuota, status: "disabled" }], expected), "disabled quota excluded");
-  check(!governance.m22QuotaAllowsModelRoute([{ ...availableQuota, status: "unknown" }], expected), "unknown quota excluded");
-  check(!governance.m22QuotaAllowsModelRoute([{ ...availableQuota, account_id: "another-account" }], expected), "wrong account quota excluded");
-  check(!governance.m22QuotaAllowsModelRoute([{ ...availableQuota, model_id: "another-model" }], expected), "wrong model quota excluded");
-  check(!governance.m22QuotaAllowsModelRoute([{ ...availableQuota, model_id: null }], expected), "account-wide ambiguous quota excluded");
-  check(!governance.m22QuotaAllowsModelRoute([availableQuota, { ...availableQuota }], expected), "duplicate quota rows fail closed");
-  check(!governance.m22QuotaAllowsModelRoute([{ ...availableQuota, usage_requests: 50 }], expected), "request-exhausted quota excluded");
-  check(!governance.m22QuotaAllowsModelRoute([{ ...availableQuota, usage_requests: null }], expected), "unknown usage with a configured limit fails closed");
-  check(!governance.m22QuotaAllowsModelRoute([{ ...availableQuota, limits_requests: 0, usage_requests: 0 }], expected), "zero request limit excludes route");
-  check(!governance.m22QuotaAllowsModelRoute([{ ...availableQuota, usage_requests: -1 }], expected), "negative usage counter excludes route");
-  check(!governance.m22QuotaAllowsModelRoute([{ ...availableQuota, limits_tokens_total: 100, usage_tokens_total: 100 }], expected), "token-exhausted quota excluded");
+  check(!governance.m22QuotaAllowsModelRoute([{ ...availableQuota, status: "disabled" }, accountDailyQuota], expected), "disabled model quota excluded");
+  check(!governance.m22QuotaAllowsModelRoute([{ ...availableQuota, status: "unknown" }, accountDailyQuota], expected), "unknown model quota excluded");
+  check(!governance.m22QuotaAllowsModelRoute([{ ...availableQuota, account_id: "another-account" }, accountDailyQuota], expected), "wrong account quota excluded");
+  check(!governance.m22QuotaAllowsModelRoute([{ ...availableQuota, model_id: "another-model" }, accountDailyQuota], expected), "wrong model quota excluded");
+  check(!governance.m22QuotaAllowsModelRoute([{ ...availableQuota, model_id: null }, accountDailyQuota], expected), "account-wide row cannot replace exact model row");
+  check(!governance.m22QuotaAllowsModelRoute([availableQuota, { ...availableQuota }, accountDailyQuota], expected), "duplicate exact model quota rows fail closed");
+  check(governance.m22QuotaAllowsModelRoute([{ ...availableQuota, usage_requests: 50 }, accountDailyQuota], expected), "stale per-model request counter is not used as account daily capacity");
+  check(governance.m22QuotaAllowsModelRoute([{ ...availableQuota, usage_requests: null }, accountDailyQuota], expected), "live provider snapshot supplies free-model request usage");
+  check(governance.m22QuotaAllowsModelRoute([{ ...availableQuota, limits_requests: 0, usage_requests: 0 }, accountDailyQuota], expected), "obsolete per-model request cap does not override account daily limit");
+  check(!governance.m22QuotaAllowsModelRoute([{ ...availableQuota, usage_requests: -1 }, accountDailyQuota], expected), "negative model usage counter rejected");
+  check(!governance.m22QuotaAllowsModelRoute([availableQuota, { ...accountDailyQuota, status: "disabled" }], expected), "disabled account-wide quota excluded");
+  check(!governance.m22QuotaAllowsModelRoute([availableQuota, accountDailyQuota, { ...accountDailyQuota }], expected), "duplicate account-wide quota rows fail closed");
+  check(!governance.m22QuotaAllowsModelRoute([{ ...availableQuota, limits_tokens_total: 100, usage_tokens_total: 100 }, accountDailyQuota], expected), "token-exhausted quota excluded");
   check(governance.m22ClassifyModelFallbackFailure(402, 429, null, "quota exhausted") === "quota_exhausted", "outer HTTP 402 wins over nested 429");
   check(governance.m22ClassifyModelFallbackFailure(429, 402, null, "rate limited") === "rate_limit", "outer HTTP 429 wins over nested 402");
   check(governance.m22ClassifyModelFallbackFailure(200, 429, null, "too many requests") === "rate_limit", "nested provider 429 recognized");
