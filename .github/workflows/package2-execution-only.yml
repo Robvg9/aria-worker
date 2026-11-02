@@ -62,7 +62,7 @@ jobs:
         run: |
           node tests/persistent-worker-bridge-v1.test.js
           node tests/persistent-recovery-e2e-v1.test.cjs
-          node tests/persistent-hybrid-e2e-v1.test.cjs
+          node tests/persistent-hybrid-e2e-v1.test.js
       - name: Validate isolated coordinator without publishing
         run: npx --yes wrangler@latest deploy --dry-run --config wrangler.aria-autonomy.toml
 
