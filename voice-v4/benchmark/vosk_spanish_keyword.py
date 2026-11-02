@@ -18,22 +18,26 @@ from pathlib import Path
 from vosk import KaldiRecognizer, Model, SetLogLevel
 
 
+# Test a distinctive two-word wake phrase, not the ambiguous standalone name.
 CASES = (
-    ("positive_aria", "Aria", True),
-    ("positive_oye_aria", "Oye Aria", True),
-    ("negative_malaria", "Malaria", False),
-    ("negative_maria", "María", False),
-    ("negative_area", "Área", False),
-    ("negative_other", "Abre el navegador", False),
-    ("negative_conversation", "Hoy hace buen tiempo", False),
+    ("positive_oye_aria_145", "Oye Aria", True, 145),
+    ("positive_oye_aria_125", "Oye Aria", True, 125),
+    ("negative_oye_maria", "Oye María", False, 145),
+    ("negative_oye_malaria", "Oye Malaria", False, 145),
+    ("negative_malaria", "Malaria", False, 145),
+    ("negative_maria", "María", False, 145),
+    ("negative_area", "Área", False, 145),
+    ("negative_oye_area", "Oye Área", False, 145),
+    ("negative_other", "Abre el navegador", False, 145),
+    ("negative_conversation", "Hoy hace buen tiempo", False, 145),
 )
 
 
-def make_audio(text: str, output_dir: Path, index: int) -> tuple[Path, float]:
+def make_audio(text: str, output_dir: Path, index: int, speed: int) -> tuple[Path, float]:
     source = output_dir / f"source-{index}.wav"
     target = output_dir / f"audio-{index}.wav"
     subprocess.run(
-        ["espeak-ng", "-v", "es", "-s", "145", "-w", str(source), text],
+        ["espeak-ng", "-v", "es", "-s", str(speed), "-w", str(source), text],
         check=True,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
@@ -60,8 +64,8 @@ def detect(model: Model, wav_path: Path) -> tuple[bool, float]:
         sample_rate = audio.getframerate()
         pcm = audio.readframes(audio.getnframes())
 
-    # Keep the grammar narrow. [unk] permits speech outside the single wake token.
-    grammar = json.dumps(["aria", "[unk]"], ensure_ascii=False)
+    # Require the full phrase; a lone "aria" token is not sufficient to wake.
+    grammar = json.dumps(["oye aria", "[unk]"], ensure_ascii=False)
     recognizer = KaldiRecognizer(model, sample_rate, grammar)
     started = time.perf_counter()
     for offset in range(0, len(pcm), 4000):
@@ -69,7 +73,7 @@ def detect(model: Model, wav_path: Path) -> tuple[bool, float]:
     result = json.loads(recognizer.FinalResult() or "{}")
     elapsed = time.perf_counter() - started
     tokens = str(result.get("text", "")).lower().split()
-    return "aria" in tokens, elapsed
+    return tokens == ["oye", "aria"], elapsed
 
 
 def main() -> int:
@@ -94,8 +98,8 @@ def main() -> int:
     results = []
     with tempfile.TemporaryDirectory(prefix="aria-vosk-es-") as temp:
         temp_dir = Path(temp)
-        for index, (name, phrase, expected) in enumerate(CASES):
-            wav_path, duration = make_audio(phrase, temp_dir, index)
+        for index, (name, phrase, expected, speed) in enumerate(CASES):
+            wav_path, duration = make_audio(phrase, temp_dir, index, speed)
             try:
                 detected, elapsed = detect(model, wav_path)
             except Exception as exc:
@@ -132,6 +136,8 @@ def main() -> int:
         "false_positive_cases": false_positives,
         "false_negative_cases": false_negatives,
         "results": results,
+        "wake_phrase": "oye aria",
+        "wake_match_rule": "exact two-token sequence",
         "limitations": [
             "Synthetic espeak-ng Spanish is not Cuban owner speech.",
             "Hosted-runner resource results do not predict CPU/RAM on RobVG, LaCueva, or Android.",
