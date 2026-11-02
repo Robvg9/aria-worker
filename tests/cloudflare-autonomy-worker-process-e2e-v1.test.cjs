@@ -432,3 +432,6 @@ async function readJson(response, expectedStatus = 200) {
     await fs.rm(root, { recursive: true, force: true });
   }
 })().catch(error => {
+  process.stderr.write((error && error.stack) || String(error));
+  process.exitCode = 1;
+});
