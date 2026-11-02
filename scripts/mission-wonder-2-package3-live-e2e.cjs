@@ -122,7 +122,7 @@ function createAdapterSource({ probeId, relativePath, content, artifactPath, att
     "  localInference: false,",
     "module.exports = Object.freeze({",
     "  supabaseIndependent: true,",
-    "  capabilities: Object.freeze(['workspace']),",
+    "  capabilities: Object.freeze(['mission.plan', 'workspace', 'mission.verify']),",
     "  async health() { return { ok: true, local_inference: false, adapter: 'isolated-package3-file-adapter' }; },",
     "  async plan(goal, context) {",
     "    if (!String(goal).includes('Mission Wonder 2 Package 3 LIVE synthetic recovery probe')) throw new Error('unexpected_probe_goal');",
