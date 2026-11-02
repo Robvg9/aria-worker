@@ -110,17 +110,20 @@ def read_pcm(path: Path) -> tuple[np.ndarray, int]:
         raw = audio.readframes(audio.getnframes())
     return np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0, sample_rate
 
-def make_keyword_file(sp: spm.SentencePieceProcessor, root: Path, phrase: str, tag: str) -> Path:
-    configured = [(phrase, tag), ("ayuda", "control_ayuda"), ("policía", "control_policia")]
+def make_keyword_file(sp: spm.SentencePieceProcessor, root: Path, phrase: str, tag: str, score: float, threshold: float) -> tuple[Path, list[str]]:
+    configured = [(phrase, tag, score, threshold), ("ayuda", "control_ayuda", 1.0, 0.20), ("policía", "control_policia", 1.0, 0.20)]
     lines = []
-    for configured_phrase, configured_tag in configured:
+    target_pieces = []
+    for configured_phrase, configured_tag, configured_score, configured_threshold in configured:
         pieces = sp.encode(configured_phrase.lower(), out_type=str)
         if not pieces or any(not piece for piece in pieces):
             raise RuntimeError("bpe_encode_failed")
-        lines.append(" ".join(pieces) + " @" + configured_tag)
-    target = root / f"keywords-{tag}.txt"
+        if configured_tag == tag:
+            target_pieces = pieces
+        lines.append(" ".join(pieces) + f" :{configured_score:.2f} #{configured_threshold:.2f} @{configured_tag}")
+    target = root / f"keywords-{tag}-{score:.2f}-{threshold:.2f}.txt"
     target.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    return target
+    return target, target_pieces
 
 def detect(kws: sherpa_onnx.KeywordSpotter, samples: np.ndarray, sample_rate: int) -> tuple[list[str], float]:
     stream = kws.create_stream()
@@ -145,7 +148,7 @@ def detect(kws: sherpa_onnx.KeywordSpotter, samples: np.ndarray, sample_rate: in
         if result:
             detections.append(str(result).strip().lstrip("@"))
             kws.reset_stream(stream)
-    return sorted(set(detections)), time.perf_counter() - started
+    return detections, time.perf_counter() - started
 
 def create_spotter(root: Path, keywords_file: Path, threshold: float = 0.20):
     return sherpa_onnx.KeywordSpotter(
@@ -192,67 +195,83 @@ def main() -> int:
                         index += 1
 
             results = {}
+            score_sweep = (1.0, 2.0, 4.0, 8.0)
+            threshold_sweep = (0.05, 0.10, 0.20)
             for candidate, phrase in (("aria", "aria"), ("oye_aria", "oye aria")):
-                keyword_file = make_keyword_file(sp, root, phrase, candidate)
-                load_started = time.perf_counter()
-                kws = create_spotter(root, keyword_file)
-                load_ms = (time.perf_counter() - load_started) * 1000
-                candidate_rows = []
-                for case_id, _phrase, expected_candidate, expected_positive in CASES:
-                    for variant_idx, (samples, sample_rate, duration) in enumerate(samples_by_case[case_id]):
-                        labels, elapsed = detect(kws, samples, sample_rate)
-                        expected_for_candidate = expected_positive and (
-                            expected_candidate == candidate
-                            or (candidate == "aria" and expected_candidate == "oye_aria")
-                        )
-                        target_detected = candidate in labels
-                        expected_control = case_id in ("control_ayuda", "control_policia")
-                        control_tag = "control_ayuda" if case_id == "control_ayuda" else "control_policia" if case_id == "control_policia" else None
-                        candidate_rows.append({
-                            "case": case_id,
-                            "variant": variant_idx,
-                            "expected_positive": expected_for_candidate,
-                            "target_detected": target_detected,
-                            "control_expected": expected_control,
-                            "control_detected": bool(control_tag and control_tag in labels),
-                            "unexpected_labels": [label for label in labels if label not in (candidate, "control_ayuda", "control_policia")],
-                            "audio_seconds": round(duration, 3),
-                            "decode_ms": round(elapsed * 1000, 2),
-                            "real_time_factor": round(elapsed / max(duration, 0.001), 4),
+                configurations = []
+                for score in score_sweep:
+                    for threshold in threshold_sweep:
+                        keyword_file, target_pieces = make_keyword_file(sp, root, phrase, candidate, score, threshold)
+                        load_started = time.perf_counter()
+                        kws = create_spotter(root, keyword_file)
+                        load_ms = (time.perf_counter() - load_started) * 1000
+                        candidate_rows = []
+                        for case_id, _phrase, expected_candidate, expected_positive in CASES:
+                            for variant_idx, (samples, sample_rate, duration) in enumerate(samples_by_case[case_id]):
+                                labels, elapsed = detect(kws, samples, sample_rate)
+                                expected_for_candidate = expected_positive and (
+                                    expected_candidate == candidate
+                                    or (candidate == "aria" and expected_candidate == "oye_aria")
+                                )
+                                expected_control = case_id in ("control_ayuda", "control_policia")
+                                control_tag = "control_ayuda" if case_id == "control_ayuda" else "control_policia" if case_id == "control_policia" else None
+                                candidate_rows.append({
+                                    "case": case_id,
+                                    "variant": variant_idx,
+                                    "expected_positive": expected_for_candidate,
+                                    "target_detected": candidate in labels,
+                                    "target_detection_count": labels.count(candidate),
+                                    "control_expected": expected_control,
+                                    "control_detected": bool(control_tag and control_tag in labels),
+                                    "unexpected_labels": [label for label in labels if label not in (candidate, "control_ayuda", "control_policia")],
+                                    "audio_seconds": round(duration, 3),
+                                    "decode_ms": round(elapsed * 1000, 2),
+                                    "real_time_factor": round(elapsed / max(duration, 0.001), 4),
+                                })
+                        positives = [row for row in candidate_rows if row["expected_positive"]]
+                        negatives = [row for row in candidate_rows if not row["expected_positive"] and not row["control_expected"]]
+                        controls = [row for row in candidate_rows if row["control_expected"]]
+                        fp = [row for row in negatives if row["target_detected"]]
+                        fn = [row for row in positives if not row["target_detected"]]
+                        tp = [row for row in positives if row["target_detected"]]
+                        configurations.append({
+                            "configured_phrase": phrase,
+                            "target_score": score,
+                            "target_threshold": threshold,
+                            "target_bpe_pieces": target_pieces,
+                            "model_load_ms": round(load_ms, 2),
+                            "positive_count": len(positives),
+                            "true_positives": len(tp),
+                            "false_negatives": len(fn),
+                            "negative_count": len(negatives),
+                            "false_positives": len(fp),
+                            "control_phrase_count": len(controls),
+                            "control_phrase_hits": sum(1 for row in controls if row["control_detected"]),
+                            "duplicate_detection_samples": sum(1 for row in candidate_rows if row["target_detection_count"] > 1),
+                            "mean_real_time_factor": round(float(np.mean([row["real_time_factor"] for row in candidate_rows])), 4),
+                            "false_positive_cases": sorted({row["case"] for row in fp}),
+                            "false_negative_cases": sorted({row["case"] for row in fn}),
                         })
-                positives = [r for r in candidate_rows if r["expected_positive"]]
-                negatives = [r for r in candidate_rows if not r["expected_positive"] and not r["control_expected"]]
-                controls = [r for r in candidate_rows if r["control_expected"]]
-                fp = [r for r in negatives if r["target_detected"]]
-                fn = [r for r in positives if not r["target_detected"]]
-                tp = [r for r in positives if r["target_detected"]]
-                control_hits = sum(1 for r in controls if r["control_detected"])
-                results[candidate] = {
-                    "configured_phrase": phrase,
-                    "threshold": 0.20,
-                    "model_load_ms": round(load_ms, 2),
-                    "positive_count": len(positives),
-                    "true_positives": len(tp),
-                    "false_negatives": len(fn),
-                    "negative_count": len(negatives),
-                    "false_positives": len(fp),
-                    "control_phrase_count": len(controls),
-                    "control_phrase_hits": control_hits,
-                    "mean_real_time_factor": round(float(np.mean([r["real_time_factor"] for r in candidate_rows])), 4),
-                    "false_positive_cases": sorted({r["case"] for r in fp}),
-                    "false_negative_cases": sorted({r["case"] for r in fn}),
-                }
-                del kws
+                        del kws
+                results[candidate] = configurations
 
         # A candidate can only be shortlisted with >=95% synthetic positives and zero
         # confusable negatives in this small, explicitly limited smoke corpus.
-        shortlist = [
-            name for name, row in results.items()
-            if row["positive_count"] > 0
-            and row["true_positives"] / row["positive_count"] >= 0.95
-            and row["false_positives"] == 0
-            and row["control_phrase_hits"] / max(row["control_phrase_count"], 1) >= 0.70
-        ]
+        shortlist = []
+        for name, configurations in results.items():
+            eligible = [
+                row for row in configurations
+                if row["positive_count"] > 0
+                and row["true_positives"] / row["positive_count"] >= 0.95
+                and row["false_positives"] == 0
+                and row["duplicate_detection_samples"] == 0
+                and row["control_phrase_hits"] / max(row["control_phrase_count"], 1) >= 0.70
+            ]
+            if eligible:
+                shortlist.append({
+                    "candidate": name,
+                    "best_configuration": max(eligible, key=lambda row: row["true_positives"] / row["positive_count"])
+                })
         report = {
             "status": "shortlist_candidate" if shortlist else "no_candidate_passed_synthetic_gate",
             "shortlisted": shortlist,
@@ -263,6 +282,8 @@ def main() -> int:
             "spanish_tts_voices": voices,
             "speeds_wpm": list(speeds),
             "synthetic_case_count": len(CASES),
+            "score_sweep": list(score_sweep),
+            "threshold_sweep": list(threshold_sweep),
             "result_by_candidate": results,
             "elapsed_seconds": round(time.perf_counter() - started, 2),
             "limitations": [
@@ -278,7 +299,12 @@ def main() -> int:
             "status": report["status"],
             "shortlisted": shortlist,
             "spanish_tts_voices": voices,
-            "result_by_candidate": results,
+            "score_sweep": list(score_sweep),
+            "threshold_sweep": list(threshold_sweep),
+            "best_by_candidate": {
+                name: max(rows, key=lambda row: row["true_positives"] / max(row["positive_count"], 1))
+                for name, rows in results.items()
+            },
             "elapsed_seconds": report["elapsed_seconds"],
         }))
         return 0
