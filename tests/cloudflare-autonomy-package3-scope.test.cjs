@@ -39,7 +39,10 @@ async function call(store, route, {
   const headers = {};
   if (token) headers.authorization = 'Bearer ' + token;
   if (body !== undefined) headers['content-type'] = 'application/json';
-  if (probeId) headers['x-aria-package3-probe-id'] = probeId;
+  if (probeId) {
+    headers['x-aria-package3-probe-id'] = probeId;
+    headers['x-aria-package3-worker-id'] = String(body && body.worker_id || '');
+  }
   if (scopeToken) headers['x-aria-package3-scope-token'] = scopeToken;
   return store.fetch(new Request('https://coordinator.test' + route, {
     method,
