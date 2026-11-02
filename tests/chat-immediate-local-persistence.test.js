@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 
 const source = fs.readFileSync('pwa/src/App.tsx', 'utf8');
-const sendStart = source.indexOf('async function send()');
+const sendStart = source.indexOf('async function send(');
 const sendEnd = source.indexOf('\n  async function confirmPendingMission()', sendStart);
 assert.ok(sendStart >= 0 && sendEnd > sendStart, 'Chat.send function missing');
 

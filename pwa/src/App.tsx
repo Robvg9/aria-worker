@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ProjectWorkspace } from './ProjectWorkspace';
 import { PrivateVault } from './PrivateVault';
 import { VoiceInputButton } from './VoiceInputButton';
+import { isVoiceMissionAffirmative, isVoiceMissionNegative, speakAssistantText, stopAssistantSpeech } from './voiceOutput';
 import { mergeRestoredChatMessages } from './chatHistory';
 import { missionActivityLabel, missionGoalPreview, missionHumanTitle, missionListLabel } from './missionPresentation';
 import { artifactKindLabel, missionArtifacts, type MissionArtifact } from './missionArtifacts';
@@ -16,6 +17,12 @@ const SESSION_KEY = 'aria_session_v2';
 const UI_PREFS_KEY = 'aria_ui_preferences_v1';
 const BUILD = import.meta.env.VITE_BUILD || '2026.09.24-pwa-v10';
 const MEDITATION_LIVE_POLL_MS = 10000;
+const VOICE_MODE_KEY = 'aria_voice_conversation_mode_v1';
+
+function readVoiceModePreference(): boolean {
+  try { return localStorage.getItem(VOICE_MODE_KEY) === 'true'; }
+  catch { return false; }
+}
 function shortBuild(build: string) {
   const value = String(build || '');
   return value.length > 10 ? value.slice(0, 8) + '…' : value;
@@ -2152,6 +2159,9 @@ function Chat({
   const cachedChat = readChatHistory(session.userId);
   const [messages, setMessages] = useState<Message[]>(cachedChat?.messages ?? []);
   const [text, setText] = useState('');
+  const [voiceMode, setVoiceMode] = useState(readVoiceModePreference);
+  const voiceModeRef = useRef(voiceMode);
+  voiceModeRef.current = voiceMode;
   const [sending, setSending] = useState(false);
   const [missionCreatedNotice, setMissionCreatedNotice] = useState('');
   const [system, setSystem] = useState<any>(() => readCached('system', session.userId));
@@ -2182,6 +2192,13 @@ function Chat({
   const [syncState, setSyncState] = useState<'cached' | 'live' | 'offline'>(
     system || caps || mission ? 'cached' : 'offline'
   );
+
+  useEffect(() => {
+    try { localStorage.setItem(VOICE_MODE_KEY, voiceMode ? 'true' : 'false'); } catch {}
+    if (!voiceMode) stopAssistantSpeech();
+  }, [voiceMode]);
+
+  useEffect(() => () => stopAssistantSpeech(), []);
 
   const syncSystemAndMission = async () => {
     let fresh = false;
@@ -2316,8 +2333,8 @@ function Chat({
     return () => window.removeEventListener('beforeinstallprompt', onBefore);
   }, []);
 
-  async function send() {
-    const clean = text.trim();
+  async function send(voiceTranscript?: string) {
+    const clean = (typeof voiceTranscript === 'string' ? voiceTranscript : text).trim();
     if ((!clean && !file && !audioFile) || sending) return;
     const messageText = clean || (audioFile ? 'El usuario adjuntó un audio de voz. Procesa el audio adjunto y responde.' : '');
     const attachments = [file, audioFile].filter(Boolean) as File[];
@@ -2400,7 +2417,10 @@ function Chat({
       const serverProcessingMs = Number(responseData?.cognitive?.processing_ms);
       if (Number.isFinite(serverProcessingMs) && serverProcessingMs >= 0) setLastProcessingMs(serverProcessingMs);
       else if (processingStartedAtRef.current) setLastProcessingMs(Date.now() - processingStartedAtRef.current);
-      if (p?.text) setMessages(m => [...m, { id: crypto.randomUUID(), role: 'aria', text: p.text, processingMs: Number.isFinite(serverProcessingMs) ? serverProcessingMs : undefined }]);
+      if (p?.text) {
+        setMessages(m => [...m, { id: crypto.randomUUID(), role: 'aria', text: p.text, processingMs: Number.isFinite(serverProcessingMs) ? serverProcessingMs : undefined }]);
+        if (voiceModeRef.current) speakAssistantText(p.text);
+      }
       if (responseData?.mission_confirmation_required && responseData?.pending_mission?.goal) {
         setPendingMissionConfirmation({
           goal: String(d.pending_mission.goal),
@@ -2441,7 +2461,10 @@ function Chat({
       });
       const p = d.parts?.find((x: any) => x.type === 'text');
       const processingMs = Date.now() - startedAt;
-      if (p?.text) setMessages(m => [...m, { id: crypto.randomUUID(), role: 'aria', text: p.text, processingMs }]);
+      if (p?.text) {
+        setMessages(m => [...m, { id: crypto.randomUUID(), role: 'aria', text: p.text, processingMs }]);
+        if (voiceModeRef.current) speakAssistantText(p.text);
+      }
       setConversationId(typeof d?.conversationId === 'string' ? d.conversationId : pending.conversationId || conversationId);
       setPendingMissionConfirmation(null);
       if (d?.mission?.mission_id) void trackMission(String(d.mission.mission_id));
@@ -2455,7 +2478,9 @@ function Chat({
 
   function dismissPendingMission() {
     setPendingMissionConfirmation(null);
-    setMessages(m => [...m, { id: crypto.randomUUID(), role: 'aria', text: 'Entendido. No iniciaré una misión. Seguimos conversando normalmente.' }]);
+    const response = 'Entendido. No iniciaré una misión. Seguimos conversando normalmente.';
+    setMessages(m => [...m, { id: crypto.randomUUID(), role: 'aria', text: response }]);
+    if (voiceModeRef.current) speakAssistantText(response);
   }
 
   async function trackMission(id: string) {
@@ -2611,7 +2636,15 @@ function Chat({
                   <div className='panelTitle'>SEGUNDA PANTALLA</div>
                   <h2>CONVERSACIÓN DIRECTA</h2>
                 </div>
-
+                <button
+                  type='button'
+                  className={'voiceModeToggle' + (voiceMode ? ' active' : '')}
+                  aria-pressed={voiceMode}
+                  onClick={() => setVoiceMode(current => !current)}
+                >
+                  {voiceMode ? '🔊 Modo voz activo' : '🔈 Activar modo voz'}
+                </button>
+                {voiceMode && <small className='voiceModePrivacyNote'>El navegador puede procesar el audio para transcribirlo; ARIA recibe el texto. El micrófono solo se activa al pulsar Hablar.</small>}
               </div>
               <div ref={chatWindowRef} className='chatWindow' data-testid='chat-window' aria-live='polite' aria-atomic='false'>
                 {messages.length
@@ -2655,9 +2688,37 @@ function Chat({
                   onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send(); } }}
                   placeholder='Habla con ARIA…'
                 />
-                <VoiceInputButton captureAudio onAudio={setAudioFile} onTranscript={transcript => setText(previous => previous.trim() ? previous.replace(/\s+$/, '') + ' ' + transcript : transcript)} />
+                <VoiceInputButton
+                  captureAudio={!voiceMode}
+                  autoSubmit={voiceMode}
+                  onAudio={setAudioFile}
+                  buttonLabel={voiceMode ? '🎙️ Hablar' : '🎙️ Audio'}
+                  listeningLabel='■ Detener'
+                  disabled={sending}
+                  onTranscript={transcript => {
+                    if (voiceMode) {
+                      if (pendingMissionConfirmation) {
+                        if (isVoiceMissionAffirmative(transcript)) {
+                          void confirmPendingMission();
+                          return;
+                        }
+                        if (isVoiceMissionNegative(transcript)) {
+                          dismissPendingMission();
+                          return;
+                        }
+                        const clarification = 'No reconocí una confirmación clara. Di «sí, comenzar la misión» para aprobarla o «no, solo conversar» para cancelarla.';
+                        setMessages(current => [...current, { id: crypto.randomUUID(), role: 'aria', text: clarification }]);
+                        speakAssistantText(clarification);
+                        return;
+                      }
+                      void send(transcript);
+                      return;
+                    }
+                    setText(previous => previous.trim() ? previous.replace(/\s+$/, '') + ' ' + transcript : transcript);
+                  }}
+                />
                 <button className='send' aria-label={sending ? 'Enviando mensaje' : 'Enviar mensaje'} disabled={sending || (!text.trim() && !file && !audioFile)} onClick={send}>{sending ? '…' : '↑'}</button>
-                <div className='composerStatus' aria-live='polite'>{sending ? ('Procesando… ' + formatProcessingTime(processingElapsedMs)) : error ? 'Error · revisa el mensaje' : lastProcessingMs != null ? ('Último procesamiento · ' + formatProcessingTime(lastProcessingMs)) : 'Listo para enviar'}</div>
+                <div className='composerStatus' aria-live='polite'>{sending ? ('Procesando… ' + formatProcessingTime(processingElapsedMs)) : error ? 'Error · revisa el mensaje' : voiceMode ? 'Modo voz · pulsa Hablar y luego Detener' : lastProcessingMs != null ? ('Último procesamiento · ' + formatProcessingTime(lastProcessingMs)) : 'Listo para enviar'}</div>
               </div>
             </section>
           </section>

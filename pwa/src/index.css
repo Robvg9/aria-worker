@@ -672,3 +672,35 @@ button{touch-action:manipulation;}
   .projectOverviewPreview .panelHeading>div:last-child>a.ghost{max-width:100%;box-sizing:border-box;white-space:normal!important;overflow-wrap:anywhere}
 }
 /* Settings RWHT scoped login + credential-free Auth probe classification, 2026-10-17; no UI behavior change. */
+
+
+/* ARIA VOICE v1 — explicit opt-in; speech is never captured in the background. */
+.voiceModeToggle{
+  flex:0 0 auto;
+  min-height:40px;
+  border:1px solid var(--line);
+  border-radius:12px;
+  background:#171122;
+  color:var(--text);
+  padding:8px 12px;
+  font-size:12px;
+  font-weight:850;
+  white-space:nowrap;
+}
+.voiceModeToggle:hover,.voiceModeToggle.active{
+  border-color:#7658df;
+  background:rgba(159,124,255,.13);
+}
+.voiceModeToggle.active{color:#d8caff}
+@media(max-width:560px){
+  .chatPanel .panelHeading{flex-wrap:wrap;align-items:center}
+  .chatPanel .voiceModeToggle{width:100%}
+}
+
+.voiceModePrivacyNote{
+  flex:1 1 100%;
+  color:var(--muted);
+  font-size:10px;
+  line-height:1.4;
+  max-width:460px;
+}
