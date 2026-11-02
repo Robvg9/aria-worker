@@ -506,7 +506,7 @@ function chatFailureMessage(error: unknown, traceId: string): string {
   return "No se pudo completar la respuesta de ARIA. Diagnóstico: " + detail + ". El mensaje quedó guardado; la referencia técnica es " + trace + ".";
 }
 
-async function execute(step: any, prompt: string, conversationId: string, visualContext:any=null, clientMessageId:string|null=null, waitForLocal:boolean=true, requestTimeoutMs=45000, maxTokens=512) {
+async function execute(step: any, prompt: string, conversationId: string, visualContext:any=null, clientMessageId:string|null=null, waitForLocal:boolean=true, requestTimeoutMs=45000, maxTokens=512, voiceMode=false) {
   const target = step?.target;
   if (!target?.provider_id || !target?.account_id || !target?.model_id) throw new Error("executor_contract_route_incomplete");
   if (target.provider_id === "local_windows") {
@@ -632,7 +632,7 @@ async function execute(step: any, prompt: string, conversationId: string, visual
     payload={contents:[{role:"user",parts:[{text:prompt},{inlineData:{mimeType:String(visualContext.mime_type||"image/png"),data:base64}}]}],generationConfig:{maxOutputTokens:maxTokens,temperature:0.3}};
     multimodal=true;
   }
-  const x=await internal(EXEC,{execution_version:"1",request_id:conversationId+":"+crypto.randomUUID(),task_id:"conversation:"+conversationId,capability:"text_generation",selected_route:{status:"selected",provider_id:target.provider_id,account_id:target.account_id,model_id:target.model_id,capability:"text_generation"},authorization:{status:"approved",risk_class:"READ",evidence_ref:"aria-app-api-v3"},input:{payload},policy:{},metadata:{conversation_id:conversationId,source_application:"aria-app-v1",executor_type:"model",multimodal}},requestTimeoutMs);
+  const x=await internal(EXEC,{execution_version:"1",request_id:conversationId+":"+crypto.randomUUID(),task_id:"conversation:"+conversationId,capability:"text_generation",selected_route:{status:"selected",provider_id:target.provider_id,account_id:target.account_id,model_id:target.model_id,capability:"text_generation"},authorization:{status:"approved",risk_class:"READ",evidence_ref:"aria-app-api-v3"},input:{payload},policy:{},metadata:{conversation_id:conversationId,source_application:"aria-app-v1",executor_type:"model",multimodal,...(voiceMode?{voice_mode:true,voice_provider_timeout_ms:6000}:{})}},requestTimeoutMs);
   if(!x.r.ok||x.b?.status!=="succeeded") {
     const failure = x.b?.error && typeof x.b.error === "object" ? x.b.error : {};
     const code = sanitizeChatFailureDetail(failure.code ?? x.b?.reason ?? x.b?.status ?? "execution_failed").replace(/[^A-Za-z0-9_.:-]/g, "_").slice(0, 100);
@@ -728,7 +728,7 @@ function shouldRetryPrimaryRouteOnce(error:any) {
   // Retry only transient provider availability failures. Never retry quota/rate-limit
   // or credential/auth failures, which must not be evaded by repeated requests.
   if(/429|quota|rate.?limit|resource.?exhausted|credential_unavailable|invalid.?api.?key|unauthorized|provider.*401|provider.*403/.test(value)) return false;
-  return /internal_request_timeout_|provider_status_(?:502|503|504)\b|high demand|overload|temporarily unavailable|service unavailable|bad gateway/.test(value);
+  return /transport_timeout|internal_request_timeout_|provider_status_(?:502|503|504)\b|high demand|overload|temporarily unavailable|service unavailable|bad gateway/.test(value);
 }
 
 async function executeConversationWithFallback(step:any, prompt:string, conversationId:string, visualContext:any=null, clientMessageId:string|null=null, waitForLocal:boolean=true, allowLocalFallback=true, requestTimeoutMs=45000, maxTokens=512) {
@@ -814,7 +814,7 @@ async function executeVoiceConversation(step:any,prompt:string,conversationId:st
   for(const route of candidates){
     const candidate={...(step||{}),target:{...(step?.target||{}),type:"model",provider_id:route.provider_id,account_id:route.account_id,model_id:route.model_id}};
     try{
-      const result=await execute(candidate,prompt,conversationId,visualContext,clientMessageId,true,8000,160);
+      const result=await execute(candidate,prompt,conversationId,visualContext,clientMessageId,true,12000,160,true);
       const content=typeof result?.response?.content==="string"?result.response.content.trim():"";
       if(result?.status!=="succeeded"||!content)throw new Error("voice_empty_response");
       return {result,route,fallback_count:failures.length,failures};
