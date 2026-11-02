@@ -828,6 +828,35 @@ async function executeVoiceConversation(step:any,prompt:string,conversationId:st
   throw error;
 }
 
+async function executeConversationOnly(step:any,prompt:string,conversationId:string,visualContext:any,clientMessageId:string|null) {
+  const routes=await conversationRoutes();
+  const primary=step?.target && step.target.provider_id!=="local_windows" ? step.target : null;
+  const candidates:any[]=[];
+  const seen=new Set<string>();
+  for(const route of [primary,...routes.filter((item:any)=>item.provider_id!=="local_windows")].filter(Boolean)){
+    const key=String(route.provider_id)+"|"+String(route.account_id)+"|"+String(route.model_id);
+    if(!seen.has(key)){seen.add(key);candidates.push(route);}
+    if(candidates.length>=2)break;
+  }
+  if(!candidates.length)throw new Error("conversation_cloud_route_unavailable");
+  const failures:any[]=[];
+  for(const route of candidates){
+    const candidate={...(step||{}),target:{...(step?.target||{}),type:"model",provider_id:route.provider_id,account_id:route.account_id,model_id:route.model_id}};
+    try{
+      const result=await execute(candidate,prompt,conversationId,visualContext,clientMessageId,true,18000,420,false);
+      const content=typeof result?.response?.content==="string"?result.response.content.trim():"";
+      if(result?.status!=="succeeded"||!content)throw new Error("conversation_empty_response");
+      return {result,route,fallback_count:failures.length,failures};
+    }catch(error){
+      failures.push({provider_id:String(route.provider_id),model_id:String(route.model_id),error:sanitizeChatFailureDetail(error instanceof Error?error.message:error)});
+      if(!shouldRetryPrimaryRouteOnce(error))break;
+    }
+  }
+  const error:any=new Error("conversation_response_unavailable:"+failures.map((item:any)=>item.provider_id+"_"+item.error).join("|"));
+  error.failures=failures;
+  throw error;
+}
+
 async function completeConversationInBackground(args:{
   userId:string;
   conversationId:string;
@@ -2604,19 +2633,21 @@ Deno.serve(async (req) => {
       const modelStartedAt = Date.now();
       const debateRequested = !voiceMode && shouldDebate(text, lane.lane);
       const title=project?.name ? project.name+" · Chat" : "ARIA · Chat";
-      if(voiceMode){
-        const voiceStartedAt=Date.now();
-        const execution=await executeVoiceConversation(step,prompt,conversationId,visual_context,clientMessageId);
+      if(voiceMode || MISSION_EXECUTION_PAUSED){
+        const conversationStartedAt=Date.now();
+        const execution=voiceMode
+          ? await executeVoiceConversation(step,prompt,conversationId,visual_context,clientMessageId)
+          : await executeConversationOnly(step,prompt,conversationId,visual_context,clientMessageId);
         const answer=String(execution?.result?.response?.content??"").trim();
-        if(!answer)throw new Error("voice_empty_response");
+        if(!answer)throw new Error(voiceMode?"voice_empty_response":"conversation_empty_response");
         const assistantPersistStartedAt=Date.now();
-        let voicePersistenceWarning:string|null=null;
+        let conversationPersistenceWarning:string|null=null;
         try{
           await persistConversationMessage(user.id,conversationId,"assistant",answer,[{type:"text",text:answer}],trace,"success",
             String(execution.route?.provider_id||"unknown"),String(execution.route?.model_id||"unknown"),
             project?.name ? project.name+" · Chat" : "ARIA · Chat",project);
         }catch(error){
-          voicePersistenceWarning=String((error as any)?.message??error);
+          conversationPersistenceWarning=String((error as any)?.message??error);
         }
         return json({
           ok:true,
@@ -2628,19 +2659,19 @@ Deno.serve(async (req) => {
             provider_id:execution.route?.provider_id??null,
             model_id:execution.route?.model_id??null,
             fallback_count:execution.fallback_count??0,
-            voice_mode:true,
-            voice_low_latency:true,
-            processing_ms:Date.now()-voiceStartedAt,
+            conversation_only:MISSION_EXECUTION_PAUSED,
+            ...(voiceMode?{voice_mode:true,voice_low_latency:true}:{}),
+            processing_ms:Date.now()-conversationStartedAt,
             input_persistence_ms:initialPersistenceMs,
             assistant_persistence_ms:Date.now()-assistantPersistStartedAt,
-            persistence_warning:voicePersistenceWarning
+            persistence_warning:conversationPersistenceWarning
           },
           trace_id:trace
         });
       }
 
-      // Standard typed conversations stay asynchronous and retain their existing
-      // governed fallback/recovery path. Voice mode takes the bounded cloud path above.
+      // Ordinary non-frozen typed conversations retain their established asynchronous
+      // recovery path. Mission execution remains behind the separate governed intake.
       // The canonical user message is persisted before model execution.
       const jobId=("chat_"+conversationId+"_"+(clientMessageId||trace)).replace(/[^a-zA-Z0-9_-]/g,"_").slice(0,120);
       EdgeRuntime.waitUntil(completeConversationInBackground({
