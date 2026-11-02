@@ -78,7 +78,6 @@ function request(overrides = {}) {
   assert.equal(fx.calls.claim.length, 1);
   assert.equal(fx.calls.auth[0].options.requireSpeaker, true);
   assert.equal(fx.calls.auth[0].options.expectedOwnerId, 'owner-123');
-  assert.equal(fx.calls.auth[0].options.expectedOwnerId, 'owner-1');
 
   const duplicate = await fx.router.route(request({ request_id: 'req-voice-0002' }));
   assert.equal(duplicate.status, 'duplicate');
