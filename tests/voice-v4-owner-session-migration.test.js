@@ -80,6 +80,12 @@ assert.match(storage, /enqueue_voice_device_command/);
 assert.match(storage, /createVoiceDeviceAgentQueue/);
 assert.match(storage, /claim_voice_device_command/);
 assert.match(storage, /complete_voice_device_command/);
+const adapterResultFields = storage.match(/const allowed = new Set\\(\\[([^\\]]+)\\]\\);/)?.[1] || '';
+const sqlResultFields = migration.match(/WHERE item[.]key NOT IN \\(([^)]+)\\)/)?.[1] || '';
+const quotedFields = (value) => [...value.matchAll(/"([^"]+)"|'([^']+)'/g)]
+  .map((match) => match[1] || match[2]).sort();
+assert.deepEqual(quotedFields(adapterResultFields), quotedFields(sqlResultFields),
+  'TypeScript device result allowlist must exactly match the SQL completion allowlist');
 assert.match(storage, /registerTrustedDeviceKey/);
 assert.match(storage, /resolveTrustedDeviceKey/);
 assert.match(storage, /revokeTrustedDeviceKey/);
