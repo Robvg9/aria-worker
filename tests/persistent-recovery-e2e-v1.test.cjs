@@ -288,8 +288,9 @@ async function testActualWorkerProcessAgainstEphemeralCoordinator() {
 module.exports = {
   createAdapter: ({ workspaceRoot }) => ({
     supabaseIndependent: true,
-    capabilities: ['ollama', 'workspace'],
-    health: async () => ({ ok: true, model: 'package5-fixture-model' }),
+    localInference: false,
+    capabilities: ['workspace', 'mission.plan', 'mission.verify'],
+    health: async () => ({ ok: true, local_inference: false, adapter: 'package5-fixture' }),
     plan: async () => [{
       task_id: 'worker-process-read',
       title: 'Read a disposable fixture',
@@ -400,9 +401,11 @@ async function testActualWorkerStopsOnCoordinatorFreezeWithoutPollingAgain() {
 module.exports = {
   createAdapter: () => ({
     supabaseIndependent: true,
-    capabilities: ['ollama', 'workspace'],
-    health: async () => ({ ok: true, model: 'package5-freeze-fixture' }),
-    executeTask: async () => ({ passed: true, evidence: { unexpected_execution: true } })
+    localInference: false,
+    capabilities: [],
+    health: async () => ({ ok: true, local_inference: false, adapter: 'package5-freeze-fixture' }),
+    executeTask: async () => ({ passed: true, evidence: { unexpected_execution: true } }),
+    verifyCompletion: async () => ({ passed: false })
   })
 };
 `, 'utf8');
