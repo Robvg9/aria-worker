@@ -1,12 +1,12 @@
-const WAKE_PREFIX = /^(?:(?:oye|hey|hola|ok|okay)\\s+)?aria(?:\\s*[,;:]\\s*|\\s+|$)/;
+const WAKE_PREFIX = /^(?:(?:oye|hey|hola|ok|okay)\s+)?aria(?:\s*[,;:]\s*|\s+|$)/;
 
 export function normalizeWakeSpeech(value) {
   return String(value ?? '')
     .normalize('NFD')
-    .replace(/[\\u0300-\\u036f]/g, '')
+    .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
     .replace(/[¿?¡!.,;:]/g, ' ')
-    .replace(/\\s+/g, ' ')
+    .replace(/\s+/g, ' ')
     .trim();
 }
 
