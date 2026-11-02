@@ -90,7 +90,10 @@ assert.match(storage, /sourceDeviceId/);
 assert.match(storage, /p_source_device_id/);
 assert.match(storage, /requireUuid[(]authenticatedOwnerId/);
 assert.match(storage, /input[.]ownerId !== authenticatedOwnerId/);
-assert.doesNotMatch(storage, /execution_jobs|enqueue_execution_job_gateway|mission_id|job_id|raw_audio|transcript|speaker_template|private_key/i,
+const executableStorage = storage
+  .replace(/\/\*[\s\S]*?\*\//g, '')
+  .replace(/^\s*\/\/.*$/gm, '');
+assert.doesNotMatch(executableStorage, /execution_jobs|enqueue_execution_job_gateway|mission_id|job_id|raw_audio|transcript|speaker_template|private_key/i,
   'service adapters must not queue missions or store voice/private key material');
 
 assert.match(router, /source_device_id/);
