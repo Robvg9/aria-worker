@@ -368,3 +368,172 @@ GRANT EXECUTE ON FUNCTION aria_internal.resolve_voice_trusted_device_key(uuid,te
   TO service_role;
 GRANT EXECUTE ON FUNCTION aria_internal.revoke_voice_trusted_device_key(uuid,text)
   TO service_role;
+
+
+-- Speaker policy contains only the owner-selected local model ID and threshold.
+-- The acoustic template and all voice samples stay encrypted on each device.
+BEGIN;
+
+CREATE TABLE IF NOT EXISTS aria_internal.voice_speaker_policies (
+  owner_user_id uuid NOT NULL,
+  device_id text NOT NULL,
+  speaker_model_id text NOT NULL,
+  minimum_score numeric(5,4) NOT NULL CHECK (minimum_score >= 0 AND minimum_score <= 1),
+  enabled boolean NOT NULL DEFAULT false,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  revoked_at timestamptz,
+  CONSTRAINT voice_speaker_policies_pk PRIMARY KEY (owner_user_id, device_id),
+  CONSTRAINT voice_speaker_policies_device_fk
+    FOREIGN KEY (owner_user_id, device_id)
+    REFERENCES aria_internal.voice_trusted_device_keys(owner_user_id, device_id)
+    ON DELETE CASCADE,
+  CONSTRAINT voice_speaker_policies_model_format CHECK (
+    length(speaker_model_id) BETWEEN 3 AND 160
+    AND speaker_model_id ~ '^[A-Za-z0-9._:-]+$'
+  )
+);
+
+COMMENT ON TABLE aria_internal.voice_speaker_policies IS
+  'Server-side speaker model/threshold policy only. No voiceprint, embedding, waveform, or voice sample is stored. The user-owned speaker template remains local and encrypted.';
+
+CREATE OR REPLACE FUNCTION aria_internal.set_voice_speaker_policy(
+  p_owner_user_id uuid,
+  p_device_id text,
+  p_speaker_model_id text,
+  p_minimum_score numeric,
+  p_enabled boolean
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = aria_internal, pg_catalog
+AS $$
+DECLARE
+  result jsonb;
+BEGIN
+  IF p_owner_user_id IS NULL
+     OR p_device_id IS NULL
+     OR p_speaker_model_id IS NULL OR length(p_speaker_model_id) NOT BETWEEN 3 AND 160
+     OR p_speaker_model_id !~ '^[A-Za-z0-9._:-]+$'
+     OR p_minimum_score IS NULL OR p_minimum_score < 0 OR p_minimum_score > 1
+     OR p_enabled IS NULL THEN
+    RAISE EXCEPTION 'invalid voice speaker policy';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM aria_internal.voice_trusted_device_keys k
+    JOIN aria_internal.device_registry d ON d.device_id = k.device_id
+    WHERE k.owner_user_id = p_owner_user_id
+      AND k.device_id = p_device_id
+      AND k.enabled = true
+      AND k.security = 'trusted'
+      AND k.revoked_at IS NULL
+      AND d.status = 'online'
+      AND d.capabilities @> '["audio.wake_word"]'::jsonb
+      AND d.last_seen_at >= now() - interval '90 seconds'
+  ) THEN
+    RAISE EXCEPTION 'trusted voice device unavailable';
+  END IF;
+
+  INSERT INTO aria_internal.voice_speaker_policies (
+    owner_user_id, device_id, speaker_model_id, minimum_score, enabled,
+    created_at, updated_at, revoked_at
+  ) VALUES (
+    p_owner_user_id, p_device_id, p_speaker_model_id, p_minimum_score, p_enabled,
+    now(), now(), NULL
+  )
+  ON CONFLICT (owner_user_id, device_id) DO UPDATE
+  SET speaker_model_id = EXCLUDED.speaker_model_id,
+      minimum_score = EXCLUDED.minimum_score,
+      enabled = EXCLUDED.enabled,
+      updated_at = now(),
+      revoked_at = NULL;
+
+  SELECT jsonb_build_object(
+    'owner_id', owner_user_id,
+    'device_id', device_id,
+    'speaker_model_id', speaker_model_id,
+    'minimum_score', minimum_score,
+    'enabled', enabled,
+    'updated_at', updated_at
+  ) INTO result
+  FROM aria_internal.voice_speaker_policies
+  WHERE owner_user_id = p_owner_user_id AND device_id = p_device_id;
+
+  RETURN result;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION aria_internal.resolve_voice_speaker_policy(
+  p_owner_user_id uuid,
+  p_device_id text
+)
+RETURNS jsonb
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = aria_internal, pg_catalog
+AS $$
+  SELECT jsonb_build_object(
+    'enabled', p.enabled,
+    'modelId', p.speaker_model_id,
+    'minimumScore', p.minimum_score
+  )
+  FROM aria_internal.voice_speaker_policies p
+  JOIN aria_internal.voice_trusted_device_keys k
+    ON k.owner_user_id = p.owner_user_id AND k.device_id = p.device_id
+  JOIN aria_internal.device_registry d ON d.device_id = p.device_id
+  WHERE p.owner_user_id = p_owner_user_id
+    AND p.device_id = p_device_id
+    AND p.enabled = true
+    AND p.revoked_at IS NULL
+    AND k.enabled = true
+    AND k.security = 'trusted'
+    AND k.revoked_at IS NULL
+    AND d.status = 'online'
+    AND d.capabilities @> '["audio.wake_word"]'::jsonb
+    AND d.last_seen_at >= now() - interval '90 seconds'
+  LIMIT 1;
+$$;
+
+CREATE OR REPLACE FUNCTION aria_internal.revoke_voice_speaker_policy(
+  p_owner_user_id uuid,
+  p_device_id text
+)
+RETURNS boolean
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = aria_internal, pg_catalog
+AS $$
+DECLARE
+  affected integer;
+BEGIN
+  UPDATE aria_internal.voice_speaker_policies
+  SET enabled = false,
+      revoked_at = coalesce(revoked_at, now()),
+      updated_at = now()
+  WHERE owner_user_id = p_owner_user_id
+    AND device_id = p_device_id
+    AND enabled = true;
+  GET DIAGNOSTICS affected = ROW_COUNT;
+  RETURN affected = 1;
+END;
+$$;
+
+REVOKE ALL ON TABLE aria_internal.voice_speaker_policies FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION aria_internal.set_voice_speaker_policy(uuid,text,text,numeric,boolean)
+  FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION aria_internal.resolve_voice_speaker_policy(uuid,text)
+  FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION aria_internal.revoke_voice_speaker_policy(uuid,text)
+  FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION aria_internal.set_voice_speaker_policy(uuid,text,text,numeric,boolean)
+  TO service_role;
+GRANT EXECUTE ON FUNCTION aria_internal.resolve_voice_speaker_policy(uuid,text)
+  TO service_role;
+GRANT EXECUTE ON FUNCTION aria_internal.revoke_voice_speaker_policy(uuid,text)
+  TO service_role;
+
+COMMIT;
