@@ -2445,7 +2445,7 @@ Deno.serve(async (req) => {
         : "";
       const missionCandidate = looksLikeMissionRequest(text);
 
-      if (missionCandidate && !confirmedMissionGoal) {
+      if (missionCandidate && !confirmedMissionGoal && !voiceMode) {
         const confirmationText = MISSION_EXECUTION_PAUSED
           ? "La ejecución de misiones está temporalmente pausada. Puedo conversar contigo, ayudarte a definir el objetivo y preparar el plan, pero no iniciaré una misión hasta que se reactive el sistema."
           : `Entiendo esto como una solicitud para que ARIA realice trabajo. ¿Quieres que comience una misión para: «${text}»? Si solo querías preguntar o conversar, no iniciaré ninguna misión.`;
@@ -2618,6 +2618,7 @@ Deno.serve(async (req) => {
         "El estado LIVE, memoria y contexto visual son fuentes auxiliares. Solo úsalos cuando ayuden a contestar la petición real.",
         "Para una conversación casual, saludo, confirmación o pregunta simple, responde de forma directa y natural; no hables de misiones o Meditación IA salvo que el usuario lo haya pedido.",
         voiceMode ? "MODO VOZ DE BAJA LATENCIA: responde como en una conversación oral natural, en español claro, directamente a la pregunta, en 1 a 3 frases breves (máximo unas 55 palabras). No uses Markdown, encabezados, listas ni explicaciones de procesamiento. No delegues esta respuesta a dispositivos locales." : "",
+        MISSION_EXECUTION_PAUSED ? "LÍMITE DURO DE EJECUCIÓN: la ejecución de misiones está pausada. Esta petición se atiende exclusivamente como conversación de solo lectura: nunca crees ni pongas en cola misiones/jobs, no envíes órdenes a dispositivos, no invoques herramientas de acción y no afirmes haber realizado acciones. Si el usuario pide una acción que requiere misión, explícale brevemente que no se ha ejecutado porque sigue pausada y ayúdale a preparar el plan o responde la parte conversacional." : "",
         "No digas que careces de acceso a herramientas, persistencia o ejecución si el contexto demuestra lo contrario.",
         "No inventes acciones ejecutadas. Distingue siempre entre en cola, ejecutando, bloqueada, completada o fallida.",
         project ? "PROYECTO ACTIVO: " + JSON.stringify(project) + ". Mantén la conversación dentro de este proyecto y no la desvíes al estado global de ARIA salvo que el usuario lo pida." : "",
