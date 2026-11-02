@@ -137,7 +137,15 @@ assert.doesNotMatch(appApi.slice(appApi.indexOf('const pausedMissionMutation'),a
 assertContains(appApi,'mission_execution_paused: missionPauseActive','mission-intent text must be explained without queuing a mission while frozen');
 assertContains(appApi,'if (missionCandidate && !confirmedMissionGoal && !voiceMode)','spoken mission-like requests must stay on the conversation path even while mission execution is paused');
 assertContains(appApi,'MISSION_EXECUTION_PAUSED ? "LÍMITE DURO DE EJECUCIÓN: la ejecución de misiones está pausada. Esta petición se atiende exclusivamente como conversación de solo lectura','paused conversations must answer without enqueueing missions, jobs, or device actions');
-assertContains(appApi,'? await executeVoiceConversation(step,prompt,conversationId,visual_context,clientMessageId)','voice requests must reach the independent read-only inference path after the mission gate is bypassed');
+assertContains(appApi,'? await executeVoiceConversation(step,prompt,conversationId,visual_context,clientMessageId,trace)','voice requests must reach the independent read-only inference path after the mission gate is bypassed');
+assertContains(appApi,'[ARIA-VOICE-REQUEST-START]','voice backend must log the start of a request without conversation content');
+assertContains(appApi,'[ARIA-VOICE-PROVIDER-ATTEMPT]','voice backend must log each cloud provider attempt');
+assertContains(appApi,'[ARIA-VOICE-RESPONSE-RECEIVED]','voice backend must distinguish a returned response from transcription');
+assertContains(appApi,'[ARIA-VOICE-PROVIDER-FAILED]','voice backend must distinguish provider failure from microphone failure');
+assertContains(appApi,'response_chars:content.length','voice backend diagnostics may retain response length only');
+assertContains(appApi,'error_code:code','voice backend failures must expose a normalized machine error code');
+const voiceExecutionSource=appApi.slice(appApi.indexOf('async function executeVoiceConversation('),appApi.indexOf('async function executeConversationOnly('));
+assert.doesNotMatch(voiceExecutionSource,/console\\.(?:info|warn|error)\\([^;]*(?:prompt|transcript|text)\\s*:\\s*(?:prompt|content)/s,'voice provider logs must never include transcript or generated response text');
 assertContains(appApi,'if (MISSION_EXECUTION_PAUSED) {\n          const pausedText','explicit mission confirmation must be refused before canonical DIRECT intake');
 assertContains(executor,'const conversationOnlyAllowed=','runtime must explicitly identify the constrained conversation-only exception');
 assertContains(executor,'body?.task_id==="conversation:"+body?.metadata?.conversation_id','conversation-only runtime access must be bound to the exact conversation task id');
