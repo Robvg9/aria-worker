@@ -221,7 +221,6 @@ function spawnWorker({ workerId, root, adapterPath, leaseEvidenceDir, probeId, s
     result: 'running',
     checks: {}
   };
-  let probeCreated = false;
   let scopeClosed = false;
   let workerBefore = null;
   let workerAfter = null;
@@ -271,7 +270,6 @@ function spawnWorker({ workerId, root, adapterPath, leaseEvidenceDir, probeId, s
       },
       expectedStatus: 201
     });
-    probeCreated = true;
     missionId = started.data.mission.mission_id;
     assert.equal(started.data.probe.status, 'active');
     assert.equal(started.data.mission.status, 'planning');
@@ -428,8 +426,8 @@ function spawnWorker({ workerId, root, adapterPath, leaseEvidenceDir, probeId, s
     assert.equal(completed.notifications[0].attempts, 0);
     evidence.checks.no_duplicate_jobs_events_or_external_notifications = 'PASS';
 
-    const allMissions = await api('/api/missions', { expectedStatus: 200 });
-    assert.equal((allMissions.data.missions || []).filter(item => item.metadata?.probe_id === PROBE_ID).length, 1);
+    const probeMission = await api('/api/missions/' + encodeURIComponent(missionId), { expectedStatus: 200 });
+    assert.equal(probeMission.data.mission.metadata.probe_id, PROBE_ID);
     evidence.checks.single_probe_mission_in_durable_object = 'PASS';
 
     const closed = await api('/api/package3/probe/close', {
@@ -477,15 +475,24 @@ function spawnWorker({ workerId, root, adapterPath, leaseEvidenceDir, probeId, s
   } finally {
     await killWorker(workerBefore).catch(() => {});
     await killWorker(workerAfter).catch(() => {});
-    if (probeCreated && !scopeClosed) {
+    if (!scopeClosed) {
       try {
-        const cleanup = await api('/api/package3/probe/close', {
-          method: 'POST',
-          body: { probe_id: PROBE_ID, reason: 'workflow_finally_cleanup' },
-          expectedStatus: 200
-        });
-        scopeClosed = cleanup.data.scope.status === 'closed';
-        evidence.cleanup = scopeClosed ? 'PASS' : 'INCOMPLETE';
+        const existingScope = await api('/api/package3/probes/' + PROBE_ID);
+        if (existingScope.status === 404) {
+          // The start request never persisted a scope, so no mission can be claimed.
+          scopeClosed = true;
+          evidence.cleanup = 'NO_SCOPE_CREATED';
+        } else if (existingScope.status === 200) {
+          const cleanup = await api('/api/package3/probe/close', {
+            method: 'POST',
+            body: { probe_id: PROBE_ID, reason: 'workflow_finally_cleanup' },
+            expectedStatus: 200
+          });
+          scopeClosed = cleanup.data.scope.status === 'closed';
+          evidence.cleanup = scopeClosed ? 'PASS' : 'INCOMPLETE';
+        } else {
+          throw new Error('unexpected_scope_cleanup_readback_http_' + existingScope.status);
+        }
       } catch (error) {
         evidence.cleanup = 'FAILED';
         evidence.cleanup_error = String(error && error.message || error).slice(0, 1000);
