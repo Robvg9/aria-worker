@@ -29,7 +29,7 @@ function validateVoiceDeviceCommand(command, options = {}) {
   if (!command || typeof command !== 'object' || Array.isArray(command)) throw fail('operation_unsupported');
   if (!UUID_RE.test(String(command.command_id || ''))) throw fail('operation_unsupported');
   if (!deviceId || command.device_id !== deviceId) throw fail('device_unavailable');
-  if (!UUID_RE.test(String(command.source_device_id || ''))) throw fail('device_unavailable');
+  if (typeof command.source_device_id !== 'string' || !/^[A-Za-z0-9._:-]{8,160}$/.test(command.source_device_id)) throw fail('device_unavailable');
   if (command.status !== 'claimed') throw fail('device_unavailable');
 
   const expiry = Date.parse(String(command.expires_at || ''));

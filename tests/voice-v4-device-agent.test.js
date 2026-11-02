@@ -22,6 +22,9 @@ function command(overrides = {}) {
 }
 
 (async () => {
+  const realDeviceId = command({ source_device_id: 'a16-de-roberto-carlos' });
+  assert.equal(validateVoiceDeviceCommand(realDeviceId, { deviceId: DEVICE, nowMs: NOW }).operation, 'display.brightness.set',
+    'device registry IDs are text identifiers and are not required to be UUIDs');
   const valid = validateVoiceDeviceCommand(command(), { deviceId: DEVICE, nowMs: NOW });
   assert.equal(valid.operation, 'display.brightness.set');
   assert.deepEqual(valid.params, { brightness: 72 });

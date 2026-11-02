@@ -351,7 +351,9 @@ async function loop(){
   let consecutivePollFailures=0;
   while(!stopping){
     const voiceState = await claimAndExecuteVoiceCommand();
-    const state = voiceState === 'worked' ? 'worked' : await claimAndExecute();
+    const jobState = voiceState === 'worked' ? 'idle' : await claimAndExecute();
+    const state = voiceState === 'worked' || jobState === 'worked' ? 'worked'
+      : voiceState === 'error' || jobState === 'error' ? 'error' : 'idle';
     if(state==='error'){
       consecutivePollFailures=Math.min(consecutivePollFailures+1,6);
     }else{
