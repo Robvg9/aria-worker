@@ -257,6 +257,7 @@ export class AriaMissionStore {
       const job = await this.ctx.storage.get('job:' + jobId);
       if (!job || job.mission_id !== scope.mission_id ||
           !PACKAGE3_PROBE_ALLOWED_JOB_OPERATIONS.has(String(job.operation))) return null;
+      if (!(Array.isArray(scope.allowed_job_ids) && scope.allowed_job_ids.includes(job.job_id))) return null;
       if (job.operation === 'task.execute' && job.task?.operation !== 'workspace.write') return null;
     }
     return scope;
@@ -274,6 +275,10 @@ export class AriaMissionStore {
     if (scopeToken.length < 32 || scopeToken.length > 200) return error('package3_probe_scope_token_invalid', 400);
     const scopeKey = 'package3:probe:' + probeId;
     if (await this.ctx.storage.get(scopeKey)) return error('package3_probe_id_already_used', 409);
+    const existingScopes = await this.ctx.storage.list({ prefix: 'package3:probe:' });
+    if (Array.from(existingScopes.values()).some(item => ['preparing', 'active'].includes(item.status))) {
+      return error('package3_probe_already_active', 409);
+    }
     const idempotencyKey = 'mw2p3-' + probeId;
     if (await this.ctx.storage.get('idempotency:mission:' + idempotencyKey)) {
       return error('package3_probe_idempotency_record_already_exists', 409);
@@ -734,6 +739,14 @@ export class AriaMissionStore {
       last_error: null
     };
     await this.ctx.storage.put('job:' + job.job_id, job);
+    if (this.package3ProbeContext && mission.mission_id === this.package3ProbeContext.mission_id) {
+      const scopeKey = 'package3:probe:' + this.package3ProbeContext.probe_id;
+      const currentScope = await this.ctx.storage.get(scopeKey);
+      if (currentScope && currentScope.status === 'active') {
+        currentScope.allowed_job_ids = Array.from(new Set([...(currentScope.allowed_job_ids || []), job.job_id]));
+        await this.ctx.storage.put(scopeKey, currentScope);
+      }
+    }
     await this.ctx.storage.setAlarm(Date.now() + this.alarmMs);
     return job;
   }
@@ -840,7 +853,12 @@ export class AriaMissionStore {
     const records = await this.ctx.storage.list({ prefix: 'job:' });
     const candidate = Array.from(records.values())
       .filter(job => {
-        if (probeScope && job.mission_id !== probeScope.mission_id) return false;
+        if (probeScope) {
+          if (job.mission_id !== probeScope.mission_id) return false;
+          if (!Array.isArray(probeScope.allowed_job_ids) || !probeScope.allowed_job_ids.includes(job.job_id)) return false;
+          if (!PACKAGE3_PROBE_ALLOWED_JOB_OPERATIONS.has(String(job.operation))) return false;
+          if (job.operation === 'task.execute' && job.task?.operation !== 'workspace.write') return false;
+        }
         return job.status === 'queued' ||
           (job.status === 'leased' && job.lease_until && Date.parse(job.lease_until) <= now);
       })
@@ -915,6 +933,17 @@ export class AriaMissionStore {
       } catch (err) {
         return this.failAfterResult(job, mission, String(err.message || err));
       }
+      if (this.package3ProbeContext && job.operation === 'mission.plan') {
+        const expectedPath = 'package3-proof-' + this.package3ProbeContext.probe_id + '.txt';
+        if (planned.length !== 1 ||
+            planned[0]?.operation !== 'workspace.write' ||
+            planned[0]?.payload?.relative_path !== expectedPath ||
+            typeof planned[0]?.payload?.content !== 'string' ||
+            planned[0].payload.content.length < 1 ||
+            planned[0].payload.content.length > 200) {
+          return this.failAfterResult(job, mission, 'package3_probe_plan_scope_violation');
+        }
+      }
       if (job.operation === 'mission.replan') {
         mission.tasks.push(...tasks);
         mission.replans = (mission.replans || 0) + 1;
@@ -935,6 +964,17 @@ export class AriaMissionStore {
       const task = mission.tasks.find(item => item.task_id === job.task_id);
       if (!task) return this.failAfterResult(job, mission, 'task_not_found');
       if (result.passed !== true) return this.handleTaskFailure(job, mission, task, String(result.error || 'task_result_not_passed'));
+      if (this.package3ProbeContext) {
+        const evidence = result.evidence && typeof result.evidence === 'object' ? result.evidence : {};
+        const expectedPath = 'package3-proof-' + this.package3ProbeContext.probe_id + '.txt';
+        if (job.task?.operation !== 'workspace.write' ||
+            evidence.relative_path !== expectedPath ||
+            !/^[a-f0-9]{64}$/.test(String(evidence.sha256 || '')) ||
+            evidence.execution_attempt !== 2 ||
+            evidence.write_action !== 'already_identical') {
+          return this.failAfterResult(job, mission, 'package3_probe_artifact_evidence_invalid');
+        }
+      }
       task.status = 'succeeded';
       task.evidence = [clone(result.evidence == null ? { result: 'passed_without_detail' } : result.evidence)];
       task.last_error = null;
@@ -949,7 +989,20 @@ export class AriaMissionStore {
     if (job.operation === 'mission.verify') {
       const verification = result.evidence && result.evidence.verification;
       mission.verification = clone(verification || { passed: false, reason: 'verification_result_missing' });
-      if (result.passed === true && verification && verification.passed === true) {
+      let package3ProofVerified = true;
+      if (this.package3ProbeContext) {
+        const task = mission.tasks.find(item => item.operation === 'workspace.write');
+        const taskEvidence = task?.evidence?.[0];
+        const artifact = verification?.artifact;
+        package3ProofVerified = Boolean(
+          taskEvidence &&
+          artifact &&
+          artifact.independent_read === true &&
+          artifact.relative_path === 'package3-proof-' + this.package3ProbeContext.probe_id + '.txt' &&
+          artifact.sha256 === taskEvidence.sha256
+        );
+      }
+      if (result.passed === true && verification && verification.passed === true && package3ProofVerified) {
         mission.status = 'succeeded';
         mission.progress_percent = 100;
         mission.last_error = null;
