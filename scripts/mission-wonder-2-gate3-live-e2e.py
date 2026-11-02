@@ -27,6 +27,7 @@ OPENROUTER = {
     "model_id": "nvidia/nemotron-3.5-lightning:free",
 }
 EXPECTED_TEXT = "MISSION_WONDER_2_GATE3_OK"
+QUOTA_BASELINE = None
 
 
 def fail(message):
@@ -243,11 +244,46 @@ def route_preflight():
       AND
       (SELECT count(*) FROM aria_internal.quota_registry
         WHERE provider_id='openrouter' AND account_id='acct_openrouter_primary'
-          AND model_id='nvidia/nemotron-3.5-lightning:free' AND status='available'
-          AND limits_requests > usage_requests) = 1
+          AND model_id IS NULL AND status <> 'disabled'
+          AND limits_requests IS NOT NULL AND limits_requests > 0) = 1
     THEN 'GATE3_ROUTE_PREFLIGHT_PASS' ELSE 'GATE3_ROUTE_PREFLIGHT_FAIL' END;
     """
     check_sql(query, "GATE3_ROUTE_PREFLIGHT_PASS", "GATE3_ROUTE_PREFLIGHT")
+    read_quota_baseline()
+
+
+def read_quota_baseline():
+    global QUOTA_BASELINE
+    query = """
+    SELECT 'GATE3_QUOTA_BASELINE=' || json_build_object(
+      'model_requests', (SELECT usage_requests FROM aria_internal.quota_registry
+        WHERE quota_id='quota_openrouter_nvidia_nemotron_35_lightning_free'),
+      'model_tokens_total', (SELECT COALESCE(usage_tokens_total,0) FROM aria_internal.quota_registry
+        WHERE quota_id='quota_openrouter_nvidia_nemotron_35_lightning_free'),
+      'account_requests', (SELECT usage_requests FROM aria_internal.quota_registry
+        WHERE provider_id='openrouter' AND account_id='acct_openrouter_primary' AND model_id IS NULL),
+      'account_tokens_total', (SELECT COALESCE(usage_tokens_total,0) FROM aria_internal.quota_registry
+        WHERE provider_id='openrouter' AND account_id='acct_openrouter_primary' AND model_id IS NULL),
+      'account_limit', (SELECT limits_requests FROM aria_internal.quota_registry
+        WHERE provider_id='openrouter' AND account_id='acct_openrouter_primary' AND model_id IS NULL)
+    )::text;
+    """
+    output = supabase_sql(query)
+    match = re.search(r"GATE3_QUOTA_BASELINE=(\\{[^\\r\\n]+\\})", output)
+    if not match:
+        print("GATE3_QUOTA_BASELINE_OUTPUT=" + output[-3000:])
+        fail("quota baseline was not returned")
+    try:
+        baseline = json.loads(match.group(1))
+    except json.JSONDecodeError:
+        fail("quota baseline JSON is invalid")
+    for key in ("model_requests", "model_tokens_total", "account_requests", "account_tokens_total", "account_limit"):
+        if not isinstance(baseline.get(key), int) or baseline[key] < 0:
+            fail("quota baseline field is unknown or invalid: " + key)
+    if baseline["account_limit"] <= 0:
+        fail("account daily free quota limit is invalid")
+    QUOTA_BASELINE = baseline
+    print("GATE3_QUOTA_BASELINE=PASS")
 
 
 def create_and_approve_mission():
@@ -353,24 +389,62 @@ def create_and_approve_mission():
 
 
 def verify_live_result():
+    if not isinstance(QUOTA_BASELINE, dict):
+        fail("quota baseline was not captured before mission creation")
+    reservation_prefix = MISSION_ID + ":" + STEP_ID + ":"
     query = f"""
+    WITH mission AS (
+      SELECT status, completed_steps, checkpoint
+      FROM aria_internal.mission_state WHERE mission_id={q(MISSION_ID)}
+    ), quota_proof AS (
+      SELECT
+        count(*) AS reservation_count,
+        count(*) FILTER (
+          WHERE status='succeeded'
+            AND provider_status BETWEEN 200 AND 299
+            AND total_tokens > 0
+            AND provider_response_id IS NOT NULL
+        ) AS settled_count,
+        COALESCE(sum(total_tokens),0)::bigint AS settled_tokens
+      FROM aria_internal.quota_request_reservations_v1
+      WHERE left(reservation_key, length({q(reservation_prefix)}))={q(reservation_prefix)}
+        AND provider_id='openrouter'
+        AND account_id='acct_openrouter_primary'
+        AND model_id='nvidia/nemotron-3.5-lightning:free'
+    ), model_quota AS (
+      SELECT usage_requests, usage_tokens_total
+      FROM aria_internal.quota_registry
+      WHERE quota_id='quota_openrouter_nvidia_nemotron_35_lightning_free'
+    ), account_quota AS (
+      SELECT usage_requests, limits_requests
+      FROM aria_internal.quota_registry
+      WHERE provider_id='openrouter'
+        AND account_id='acct_openrouter_primary'
+        AND model_id IS NULL
+    )
     SELECT CASE WHEN
-      status='succeeded'
-      AND completed_steps=1
-      AND checkpoint #>> '{{results,{STEP_ID},provider_id}}'='openrouter'
-      AND checkpoint #>> '{{results,{STEP_ID},model_id}}'='nvidia/nemotron-3.5-lightning:free'
-      AND checkpoint #>> '{{results,{STEP_ID},model_fallback_used}}'='true'
-      AND checkpoint #>> '{{results,{STEP_ID},model_fallback_attempts}}'='1'
-      AND checkpoint #>> '{{results,{STEP_ID},model_execution_failures,0,provider_id}}'='google'
-      AND checkpoint #>> '{{results,{STEP_ID},model_execution_failures,0,provider_status}}'='429'
-      AND checkpoint #>> '{{results,{STEP_ID},model_execution_failures,0,code}}'='provider_error'
-      AND checkpoint #>> '{{attempts,{STEP_ID}}}'='1'
+      (SELECT status FROM mission)='succeeded'
+      AND (SELECT completed_steps FROM mission)=1
+      AND (SELECT checkpoint #>> '{{results,{STEP_ID},provider_id}}' FROM mission)='openrouter'
+      AND (SELECT checkpoint #>> '{{results,{STEP_ID},model_id}}' FROM mission)='nvidia/nemotron-3.5-lightning:free'
+      AND (SELECT checkpoint #>> '{{results,{STEP_ID},model_fallback_used}}' FROM mission)='true'
+      AND (SELECT checkpoint #>> '{{results,{STEP_ID},model_fallback_attempts}}' FROM mission)='1'
+      AND (SELECT checkpoint #>> '{{results,{STEP_ID},model_execution_failures,0,provider_id}}' FROM mission)='google'
+      AND (SELECT checkpoint #>> '{{results,{STEP_ID},model_execution_failures,0,provider_status}}' FROM mission)='429'
+      AND (SELECT checkpoint #>> '{{results,{STEP_ID},model_execution_failures,0,code}}' FROM mission)='provider_error'
+      AND (SELECT checkpoint #>> '{{attempts,{STEP_ID}}}' FROM mission)='1'
+      AND (SELECT reservation_count FROM quota_proof)=1
+      AND (SELECT settled_count FROM quota_proof)=1
+      AND (SELECT usage_requests FROM model_quota)={QUOTA_BASELINE["model_requests"] + 1}
+      AND (SELECT usage_tokens_total FROM model_quota)={QUOTA_BASELINE["model_tokens_total"]}+(SELECT settled_tokens FROM quota_proof)
+      AND (SELECT usage_requests FROM account_quota)>={QUOTA_BASELINE["account_requests"] + 1}
+      AND (SELECT usage_requests FROM account_quota)<=(SELECT limits_requests FROM account_quota)
     THEN 'GATE3_LIVE_EVIDENCE_PASS'
     ELSE 'GATE3_LIVE_EVIDENCE_FAIL'
-    END
-    FROM aria_internal.mission_state WHERE mission_id={q(MISSION_ID)};
+    END;
     """
     check_sql(query, "GATE3_LIVE_EVIDENCE_PASS", "GATE3_LIVE_EVIDENCE")
+    print("GATE3_QUOTA_RESERVATION_SETTLEMENT=PASS")
 
 
 def revoke_scope():
