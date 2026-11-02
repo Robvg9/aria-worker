@@ -11,5 +11,8 @@ module.exports = Object.freeze({
   },
   async executeTask() {
     throw new Error('FROZEN_WORKER_PROBE_MUST_NEVER_EXECUTE_TASKS');
+  },
+  async verifyCompletion() {
+    return { passed: false, reason: 'frozen_probe_never_verifies_missions' };
   }
 });
