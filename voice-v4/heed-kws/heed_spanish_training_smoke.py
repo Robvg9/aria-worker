@@ -8,8 +8,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import numpy as np
 import resource
 import subprocess
+import sys
 import tempfile
 import time
 import wave
@@ -197,11 +199,68 @@ def run_candidate(candidate: str, root: Path, train_voices: list[str],
         export_started = time.perf_counter()
         exported = export_to_onnx(model_path, candidate_root / "export", int8=True,
                                   log_fn=lambda _message: None)
+        runtime_model = exported.int8_path if exported.int8_path and exported.int8_path.exists() else exported.onnx_path
+
+        # Recreate only aggregate held-out features in a temporary directory.
+        # The runtime benchmark itself runs in a separate process that imports
+        # NumPy + ONNX Runtime but not PyTorch, isolating deployment RSS.
+        with tempfile.TemporaryDirectory(prefix="aria-heed-onnx-features-") as feature_dir:
+            features_root = Path(feature_dir)
+            for index, wav_path in enumerate(sorted(test_pos.glob("*.wav"))):
+                features = log_mel(prepare_clip(load_wav(wav_path))).numpy()
+                np.save(features_root / f"pos_{index:05d}.npy", features, allow_pickle=False)
+            for index, wav_path in enumerate(sorted(test_neg.glob("*.wav"))):
+                features = log_mel(prepare_clip(load_wav(wav_path))).numpy()
+                np.save(features_root / f"neg_{index:05d}.npy", features, allow_pickle=False)
+
+            runtime_process = subprocess.run(
+                [
+                    sys.executable,
+                    str(Path(__file__).with_name("onnx_runtime_bench.py")),
+                    "--model", str(runtime_model),
+                    "--features-dir", str(features_root),
+                    "--threshold", str(float(artifact.threshold)),
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=300,
+            )
+            runtime_report = json.loads(runtime_process.stdout.strip().splitlines()[-1])
+
+        onnx_shortlisted = (
+            runtime_report["tpr"] >= 0.95
+            and runtime_report["fpr"] == 0.0
+        )
+        result["status"] = "synthetic_shortlist_candidate" if onnx_shortlisted else "candidate_rejected"
+        result["onnx_runtime_eval"] = {
+            "format": "onnx_int8" if runtime_model == exported.int8_path else "onnx_fp32",
+            "threshold": float(artifact.threshold),
+            "positive_count": runtime_report["positive_count"],
+            "true_positives": runtime_report["true_positives"],
+            "false_negatives": runtime_report["false_negatives"],
+            "negative_count": runtime_report["negative_count"],
+            "false_positives": runtime_report["false_positives"],
+            "true_negatives": runtime_report["true_negatives"],
+            "tpr": runtime_report["tpr"],
+            "fpr": runtime_report["fpr"],
+            "session_load_ms": runtime_report["session_load_ms"],
+            "mean_inference_ms": runtime_report["mean_inference_ms"],
+            "p95_inference_ms": runtime_report["p95_inference_ms"],
+            "mean_real_time_factor": runtime_report["mean_real_time_factor"],
+            "process_peak_rss_mb": runtime_report["peak_process_rss_mb"],
+            "model_file_bytes": runtime_report["model_file_bytes"],
+            "inference_threads": runtime_report["intra_op_threads"],
+        }
         result["export"] = {
             "onnx_bytes": int(exported.onnx_size_bytes),
             "int8_bytes": int(exported.int8_size_bytes or 0),
             "onnx_export_seconds": round(time.perf_counter() - export_started, 2),
             "max_abs_error_fp32": round(float(exported.max_abs_error_fp32), 8),
+            "max_abs_error_int8": (
+                round(float(exported.max_abs_error_int8), 8)
+                if exported.max_abs_error_int8 is not None else None
+            ),
         }
     return result
 
