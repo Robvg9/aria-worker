@@ -632,7 +632,7 @@ async function execute(step: any, prompt: string, conversationId: string, visual
     payload={contents:[{role:"user",parts:[{text:prompt},{inlineData:{mimeType:String(visualContext.mime_type||"image/png"),data:base64}}]}],generationConfig:{maxOutputTokens:maxTokens,temperature:0.3}};
     multimodal=true;
   }
-  const x=await internal(EXEC,{execution_version:"1",request_id:conversationId+":"+crypto.randomUUID(),task_id:"conversation:"+conversationId,capability:"text_generation",selected_route:{status:"selected",provider_id:target.provider_id,account_id:target.account_id,model_id:target.model_id,capability:"text_generation"},authorization:{status:"approved",risk_class:"READ",evidence_ref:"aria-app-api-v3"},input:{payload},policy:{},metadata:{conversation_id:conversationId,source_application:"aria-app-v1",executor_type:"model",multimodal,...(voiceMode?{voice_mode:true,voice_provider_timeout_ms:6000}:{})}},requestTimeoutMs);
+  const x=await internal(EXEC,{execution_version:"1",request_id:conversationId+":"+crypto.randomUUID(),task_id:"conversation:"+conversationId,capability:"text_generation",selected_route:{status:"selected",provider_id:target.provider_id,account_id:target.account_id,model_id:target.model_id,capability:"text_generation"},authorization:{status:"approved",risk_class:"READ",evidence_ref:"aria-app-conversation-v1"},input:{payload},policy:{conversation_only:true},metadata:{conversation_only:true,conversation_id:conversationId,source_application:"aria-app-v1",executor_type:"model",multimodal,...(voiceMode?{voice_mode:true,voice_provider_timeout_ms:6000}:{})}},requestTimeoutMs);
   if(!x.r.ok||x.b?.status!=="succeeded") {
     const failure = x.b?.error && typeof x.b.error === "object" ? x.b.error : {};
     const code = sanitizeChatFailureDetail(failure.code ?? x.b?.reason ?? x.b?.status ?? "execution_failed").replace(/[^A-Za-z0-9_.:-]/g, "_").slice(0, 100);
@@ -731,7 +731,7 @@ function shouldRetryPrimaryRouteOnce(error:any) {
   return /transport_timeout|internal_request_timeout_|provider_status_(?:502|503|504)\b|high demand|overload|temporarily unavailable|service unavailable|bad gateway/.test(value);
 }
 
-async function executeConversationWithFallback(step:any, prompt:string, conversationId:string, visualContext:any=null, clientMessageId:string|null=null, waitForLocal:boolean=true, allowLocalFallback=true, requestTimeoutMs=45000, maxTokens=512) {
+async function executeConversationWithFallback(step:any, prompt:string, conversationId:string, visualContext:any=null, clientMessageId:string|null=null, waitForLocal:boolean=true, allowLocalFallback=!MISSION_EXECUTION_PAUSED, requestTimeoutMs=45000, maxTokens=512) {
   const failures:any[]=[];
   if(step?.target){
     try{
@@ -824,6 +824,35 @@ async function executeVoiceConversation(step:any,prompt:string,conversationId:st
     }
   }
   const error:any=new Error("voice_response_unavailable:"+failures.map((item:any)=>item.provider_id+"_"+item.error).join("|"));
+  error.failures=failures;
+  throw error;
+}
+
+async function executeConversationOnly(step:any,prompt:string,conversationId:string,visualContext:any,clientMessageId:string|null) {
+  const routes=await conversationRoutes();
+  const primary=step?.target && step.target.provider_id!=="local_windows" ? step.target : null;
+  const candidates:any[]=[];
+  const seen=new Set<string>();
+  for(const route of [primary,...routes.filter((item:any)=>item.provider_id!=="local_windows")].filter(Boolean)){
+    const key=String(route.provider_id)+"|"+String(route.account_id)+"|"+String(route.model_id);
+    if(!seen.has(key)){seen.add(key);candidates.push(route);}
+    if(candidates.length>=2)break;
+  }
+  if(!candidates.length)throw new Error("conversation_cloud_route_unavailable");
+  const failures:any[]=[];
+  for(const route of candidates){
+    const candidate={...(step||{}),target:{...(step?.target||{}),type:"model",provider_id:route.provider_id,account_id:route.account_id,model_id:route.model_id}};
+    try{
+      const result=await execute(candidate,prompt,conversationId,visualContext,clientMessageId,true,28000,420,false);
+      const content=typeof result?.response?.content==="string"?result.response.content.trim():"";
+      if(result?.status!=="succeeded"||!content)throw new Error("conversation_empty_response");
+      return {result,route,fallback_count:failures.length,failures};
+    }catch(error){
+      failures.push({provider_id:String(route.provider_id),model_id:String(route.model_id),error:sanitizeChatFailureDetail(error instanceof Error?error.message:error)});
+      if(!shouldRetryPrimaryRouteOnce(error))break;
+    }
+  }
+  const error:any=new Error("conversation_response_unavailable:"+failures.map((item:any)=>item.provider_id+"_"+item.error).join("|"));
   error.failures=failures;
   throw error;
 }
@@ -1986,7 +2015,6 @@ Deno.serve(async (req) => {
     const pausedMissionMutation =
       req.method === "POST" &&
       (
-        path.endsWith("/conversation") ||
         path.endsWith("/missions") ||
         /\/missions\/[^/]+\/(?:verify-retry|invalidate-unverified-success|retry|human-gate\/approve|cancel)$/.test(path) ||
         path.endsWith("/meditation/control") ||
@@ -2418,7 +2446,10 @@ Deno.serve(async (req) => {
       const missionCandidate = looksLikeMissionRequest(text);
 
       if (missionCandidate && !confirmedMissionGoal) {
-        const confirmationText = `Entiendo esto como una solicitud para que ARIA realice trabajo. ¿Quieres que comience una misión para: «${text}»? Si solo querías preguntar o conversar, no iniciaré ninguna misión.`;
+        const confirmationText = MISSION_EXECUTION_PAUSED
+          ? "La ejecución de misiones está temporalmente pausada. Puedo conversar contigo, ayudarte a definir el objetivo y preparar el plan, pero no iniciaré una misión hasta que se reactive el sistema."
+          : `Entiendo esto como una solicitud para que ARIA realice trabajo. ¿Quieres que comience una misión para: «${text}»? Si solo querías preguntar o conversar, no iniciaré ninguna misión.`;
+        const missionPauseActive = MISSION_EXECUTION_PAUSED;
         const assistantPersistStartedAt = Date.now();
         try {
           await persistConversationMessage(
@@ -2428,7 +2459,7 @@ Deno.serve(async (req) => {
             confirmationText,
             [{type:"text",text:confirmationText}],
             trace,
-            "mission_confirmation_required",
+            missionPauseActive ? "mission_execution_paused" : "mission_confirmation_required",
             null,
             null,
             project?.name ? project.name+" · Chat" : "ARIA · Chat",
@@ -2442,9 +2473,12 @@ Deno.serve(async (req) => {
         return json({
           ok: true,
           conversationId,
-          visualState: "mission_confirmation_required",
-          mission_confirmation_required: true,
-          pending_mission: { goal: text, conversationId },
+          visualState: missionPauseActive ? "mission_execution_paused" : "mission_confirmation_required",
+          mission_execution_paused: missionPauseActive,
+          ...(missionPauseActive ? {} : {
+            mission_confirmation_required: true,
+            pending_mission: { goal: text, conversationId }
+          }),
           parts: [{ type: "text", text: confirmationText }],
           cognitive: {
             recall_count: 0,
@@ -2452,7 +2486,7 @@ Deno.serve(async (req) => {
             model_id: null,
             fallback_count: 0,
             routed_to_mission: false,
-            confirmation_required: true,
+            confirmation_required: !missionPauseActive,
             processing_ms: Date.now() - requestStartedAt,
             input_persistence_ms: initialPersistenceMs,
             assistant_persistence_ms: assistantPersistenceMs ?? null,
@@ -2463,6 +2497,22 @@ Deno.serve(async (req) => {
       }
 
       if (confirmedMissionGoal) {
+        if (MISSION_EXECUTION_PAUSED) {
+          const pausedText = "Las misiones de ARIA están pausadas. No he creado ni iniciado ninguna misión. Podemos seguir conversando y preparar el plan mientras tanto.";
+          try {
+            await persistConversationMessage(user.id,conversationId,"assistant",pausedText,[{type:"text",text:pausedText}],trace,
+              "mission_execution_paused",null,null,project?.name ? project.name+" · Chat" : "ARIA · Chat",project);
+          } catch (error) {
+            persistenceWarning = persistenceWarning || String((error as any)?.message ?? error);
+          }
+          return json({
+            error:"mission_execution_paused",
+            execution_enabled:false,
+            conversationId,
+            parts:[{type:"text",text:pausedText}],
+            trace_id:trace
+          },423);
+        }
         const direct = await internal(DIRECT, {
           goal: confirmedMissionGoal,
           mission_id: undefined,
@@ -2538,16 +2588,16 @@ Deno.serve(async (req) => {
         });
       }
 
-      const lane = voiceMode ? { lane: "fast", reason: "voice_low_latency" } : classifyConversation(text);
+      const lane = (voiceMode || MISSION_EXECUTION_PAUSED) ? { lane: "fast", reason: voiceMode ? "voice_low_latency" : "mission_pause_conversation_only" } : classifyConversation(text);
       const cognitiveSources = lane.lane === "deep" ? await Promise.all([recall(text,user.id), learnedContext(project)]) : [[], { skills: [], world_model: null }];
       const memory = cognitiveSources[0] as any[];
       const learned = cognitiveSources[1] as any;
       let step: any;
       if (lane.lane === "fast" || looksLikeSimpleConversation(text)) {
         const routes=await conversationRoutes();
-        const eligibleRoutes=voiceMode ? routes.filter((route:any)=>route.provider_id!=="local_windows") : routes;
-        if(voiceMode&&!eligibleRoutes.length){
-          return json({error:"voice_cloud_route_unavailable",stage:"routing",trace_id:trace},503);
+        const eligibleRoutes=(voiceMode || MISSION_EXECUTION_PAUSED) ? routes.filter((route:any)=>route.provider_id!=="local_windows") : routes;
+        if((voiceMode || MISSION_EXECUTION_PAUSED)&&!eligibleRoutes.length){
+          return json({error:voiceMode?"voice_cloud_route_unavailable":"conversation_cloud_route_unavailable",stage:"routing",trace_id:trace},503);
         }
         if(eligibleRoutes[0]) step={target:{type:"model",provider_id:eligibleRoutes[0].provider_id,account_id:eligibleRoutes[0].account_id,model_id:eligibleRoutes[0].model_id}};
       }
@@ -2583,19 +2633,21 @@ Deno.serve(async (req) => {
       const modelStartedAt = Date.now();
       const debateRequested = !voiceMode && shouldDebate(text, lane.lane);
       const title=project?.name ? project.name+" · Chat" : "ARIA · Chat";
-      if(voiceMode){
-        const voiceStartedAt=Date.now();
-        const execution=await executeVoiceConversation(step,prompt,conversationId,visual_context,clientMessageId);
+      if(voiceMode || MISSION_EXECUTION_PAUSED){
+        const conversationStartedAt=Date.now();
+        const execution=voiceMode
+          ? await executeVoiceConversation(step,prompt,conversationId,visual_context,clientMessageId)
+          : await executeConversationOnly(step,prompt,conversationId,visual_context,clientMessageId);
         const answer=String(execution?.result?.response?.content??"").trim();
-        if(!answer)throw new Error("voice_empty_response");
+        if(!answer)throw new Error(voiceMode?"voice_empty_response":"conversation_empty_response");
         const assistantPersistStartedAt=Date.now();
-        let voicePersistenceWarning:string|null=null;
+        let conversationPersistenceWarning:string|null=null;
         try{
           await persistConversationMessage(user.id,conversationId,"assistant",answer,[{type:"text",text:answer}],trace,"success",
             String(execution.route?.provider_id||"unknown"),String(execution.route?.model_id||"unknown"),
             project?.name ? project.name+" · Chat" : "ARIA · Chat",project);
         }catch(error){
-          voicePersistenceWarning=String((error as any)?.message??error);
+          conversationPersistenceWarning=String((error as any)?.message??error);
         }
         return json({
           ok:true,
@@ -2607,19 +2659,19 @@ Deno.serve(async (req) => {
             provider_id:execution.route?.provider_id??null,
             model_id:execution.route?.model_id??null,
             fallback_count:execution.fallback_count??0,
-            voice_mode:true,
-            voice_low_latency:true,
-            processing_ms:Date.now()-voiceStartedAt,
+            conversation_only:true,
+            ...(voiceMode?{voice_mode:true,voice_low_latency:true}:{}),
+            processing_ms:Date.now()-conversationStartedAt,
             input_persistence_ms:initialPersistenceMs,
             assistant_persistence_ms:Date.now()-assistantPersistStartedAt,
-            persistence_warning:voicePersistenceWarning
+            persistence_warning:conversationPersistenceWarning
           },
           trace_id:trace
         });
       }
 
-      // Standard typed conversations stay asynchronous and retain their existing
-      // governed fallback/recovery path. Voice mode takes the bounded cloud path above.
+      // Ordinary non-frozen typed conversations retain their established asynchronous
+      // recovery path. Mission execution remains behind the separate governed intake.
       // The canonical user message is persisted before model execution.
       const jobId=("chat_"+conversationId+"_"+(clientMessageId||trace)).replace(/[^a-zA-Z0-9_-]/g,"_").slice(0,120);
       EdgeRuntime.waitUntil(completeConversationInBackground({
