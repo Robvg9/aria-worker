@@ -2379,6 +2379,9 @@ function Chat({
       setAudioFile(null);
       const clientMessageId = crypto.randomUUID();
       const d = await api('/conversation', session.accessToken, { method: 'POST', body: JSON.stringify({ parts, clientMessageId, conversationId: activeConversationId, voice_mode: voiceModeRef.current }) });
+      if (voiceModeRef.current && d?.processing) {
+        throw new Error('La respuesta rápida de voz no está activa; se evitó esperar la cola lenta.');
+      }
       let responseData = d;
       if (d?.processing && d?.job_id) {
         const deadline = Date.now() + 130000;
