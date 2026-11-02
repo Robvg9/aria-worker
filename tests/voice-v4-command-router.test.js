@@ -113,6 +113,14 @@ function request(overrides = {}) {
   assert.equal(globalRead.executed, false);
   assert.equal(globalReadFx.calls.read[0].device, null, 'global ARIA status must not guess a device');
   assert.equal(globalReadFx.calls.capability[0].deviceId, null);
+  const invalidGlobalTarget = await fixture().router.route(request({
+    lane: LANES.READ,
+    operation: 'aria.status',
+    device_id: 'device-robvg',
+    params: {},
+    owner_session: { valid: true, speakerVerified: false }
+  }));
+  assert.equal(invalidGlobalTarget.reason, 'global_status_must_not_target_device');
 
   const blockedMission = await fx.router.route(request({
     lane: LANES.MISSION_EXECUTE,
@@ -254,9 +262,10 @@ function request(overrides = {}) {
   }).router.route(request());
   assert.equal(storeUnavailable.reason, 'idempotency_store_unavailable');
 
-  const missionUnpaused = await fixture({
+  const missionUnpausedFx = fixture({
     isMissionExecutionPaused: () => false
-  }).router.route(request({
+  });
+  const missionUnpaused = await missionUnpausedFx.router.route(request({
     lane: LANES.MISSION_EXECUTE,
     operation: 'mission.start',
     mission_id: 'mission-voice-002',
@@ -264,6 +273,23 @@ function request(overrides = {}) {
   }));
   assert.equal(missionUnpaused.status, 'confirmation_required');
   assert.equal(missionUnpaused.executed, false);
+  assert.equal(missionUnpausedFx.calls.auth[0].options.requireSpeaker, true);
+
+  const missionNoSpeaker = await fixture({
+    isMissionExecutionPaused: () => false
+  }).router.route(request({
+    lane: LANES.MISSION_EXECUTE,
+    operation: 'mission.start',
+    mission_id: 'mission-voice-004',
+    params: {},
+    owner_session: { valid: true, speakerVerified: false }
+  }));
+  assert.equal(missionNoSpeaker.reason, 'owner_speaker_verification_required');
+
+  const clockUnavailable = await fixture({
+    now: () => { throw new Error('clock failure'); }
+  }).router.route(request());
+  assert.equal(clockUnavailable.reason, 'clock_unavailable');
 
   console.log('ARIA VOICE V4 COMMAND ROUTER POLICY CONTRACT: PASS');
 })().catch(error => {
