@@ -36,7 +36,25 @@ export function m22MissionWonder2ScopedProbeAllowed(mission, step, actionHash, n
   if (!Number.isFinite(issuedAt) || !Number.isFinite(expiresAt) || issuedAt > now + 60_000 || expiresAt <= now || expiresAt <= issuedAt || expiresAt - issuedAt > 15 * 60_000) return false;
   const plan = mission?.checkpoint?.plan;
   if (!Array.isArray(plan) || plan.length !== 1 || !step) return false;
-  if (JSON.stringify(canonicalStep(plan[0])) !== JSON.stringify(canonicalStep(step))) return false;
+  const plannedStep = plan[0];
+  const plannedAuthorization = plannedStep?.authorization;
+  const suppliedAuthorization = step?.authorization;
+  // The runner replaces a Human Gate's pending authorization with a verified
+  // execution grant immediately before calling the model executor. Compare all
+  // action fields against the persisted plan, then verify that transformed grant
+  // is bound to this exact approved gate.
+  const comparableStep = { ...step, authorization: plannedAuthorization };
+  if (JSON.stringify(canonicalStep(plannedStep)) !== JSON.stringify(canonicalStep(comparableStep))) return false;
+  const persistedAuthorization = JSON.stringify(normalize(suppliedAuthorization)) === JSON.stringify(normalize(plannedAuthorization));
+  const executionAuthorization =
+    suppliedAuthorization?.status === "approved" &&
+    suppliedAuthorization?.risk_class === "READ" &&
+    suppliedAuthorization?.human_gate_verified === true &&
+    suppliedAuthorization?.human_gate_action_hash === actionHash &&
+    suppliedAuthorization?.human_gate_mission_id === missionId &&
+    suppliedAuthorization?.human_gate_step_id === String(step.id ?? "");
+  if (!persistedAuthorization && !executionAuthorization) return false;
+  if (persistedAuthorization && plannedAuthorization?.status !== "human_required") return false;
   if (String(step.id ?? "") !== "gate3_provider_fallback" || step.executor_type !== "model" || step.target?.type !== "model" || step.operation !== "text_generation") return false;
   if (String(step.risk ?? "").toUpperCase() !== "READ") return false;
   if (step.target?.provider_id !== GOOGLE_PRIMARY.provider_id || step.target?.account_id !== GOOGLE_PRIMARY.account_id || step.target?.model_id !== GOOGLE_PRIMARY.model_id) return false;
@@ -49,12 +67,12 @@ export function m22MissionWonder2ScopedProbeAllowed(mission, step, actionHash, n
   if (step.verify?.response_content_equals !== "MISSION_WONDER_2_GATE3_OK") return false;
   const policy = step.policy ?? {};
   if (policy.human_gate_required !== true || policy.allow_rate_limit_fallback !== true || policy.mission_wonder_2_gate3_probe !== true) return false;
-  if (step.authorization?.status !== "human_required") return false;
   // Prevent automatic retries from multiplying the one external provider call.
   if (step.retryable !== false || Number(step.max_attempts) !== 1) return false;
   const gate = mission?.checkpoint?.human_gate;
   if (!gate || gate.required !== true || gate.status !== "approved" || gate.verified !== false) return false;
   if (gate.step_id !== step.id || gate.action_hash !== actionHash || !/^[0-9a-f]{64}$/.test(String(actionHash ?? ""))) return false;
   if (typeof gate.approval_token !== "string" || gate.approval_token.length < 32 || typeof gate.approved_by !== "string" || !gate.approved_by.trim()) return false;
+  if (executionAuthorization && suppliedAuthorization.human_gate_approval_token !== gate.approval_token) return false;
   return true;
 }

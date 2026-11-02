@@ -2168,7 +2168,11 @@ async function verifiedModelFallbackRoutes(original: any, operation: string) {
 
 async function modelExecute(missionId: string, step: any, auth: AuthContext, mission: any = null) {
   const gate3ScopedProbe = step?.policy?.mission_wonder_2_gate3_probe === true;
-  if (gate3ScopedProbe && !m22MissionWonder2ScopedProbeAllowed(mission, step, await humanGateActionHash(step))) {
+  const gate3PlannedStep = Array.isArray(mission?.checkpoint?.plan)
+    ? mission.checkpoint.plan.find((planned: any) => String(planned?.id ?? "") === String(step?.id ?? ""))
+    : null;
+  const gate3ActionHash = await humanGateActionHash(gate3PlannedStep || step);
+  if (gate3ScopedProbe && !m22MissionWonder2ScopedProbeAllowed(mission, step, gate3ActionHash)) {
     return { status: "blocked", executor_type: "model", operation: step.operation, error: { code: "mission_wonder_2_gate3_scope_invalid", message: "Scoped Gate 3 approval, expiry, or exact step binding did not validate." } };
   }
   const primary = {
