@@ -269,9 +269,11 @@ def create_and_approve_mission():
        'Mission Wonder 2 Gate 3 supervised READ-only provider fallback probe',
        'paused', 0, 1, 0, {qjson(checkpoint)}, {qjson(metadata)}, NULL, NULL);
     """
-    supabase_sql(insert)
+    # Mark cleanup required before sending INSERT: if the DB commits but the
+    # CLI connection drops, the finally block must still revoke this mission.
     global mission_created
     mission_created = True
+    supabase_sql(insert)
     print("ONE_STEP_MISSION_CREATED=PASS")
 
     approve = f"""
