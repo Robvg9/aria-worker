@@ -13,6 +13,11 @@ const {
 } = require('../supabase/functions/_shared/cloudflare-plan-preview-auth-v1.mjs');
 
 (async () => {
+  const fs = require('node:fs');
+  const plannerSource = fs.readFileSync('supabase/functions/aria-planner-v11/index.ts', 'utf8');
+  assert.match(plannerSource, /new globalThis\.URL\(r\.url\)\.pathname\.replace\(\/\\\/\+\$\//);
+  assert.doesNotMatch(plannerSource, /replace\(\/\\\\\/+\$\//, 'planner path normalization must not contain the invalid escaped-slash regex');
+
   const secret = 'test-only-aria-runtime-secret-'.padEnd(48, 'x');
   const producerToken = await deriveCloudflarePlanProducerToken(secret);
   assert.match(producerToken, /^[a-f0-9]{64}$/);
