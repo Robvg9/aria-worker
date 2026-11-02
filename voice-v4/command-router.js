@@ -145,6 +145,7 @@ function validateRequestShape(request, now, maxFutureMs) {
 }
 
 function createVoiceCommandRouter({
+  authenticatedOwnerId,
   verifyOwnerSession,
   authorizeCapability,
   resolveDevice,
@@ -157,6 +158,9 @@ function createVoiceCommandRouter({
   now = Date.now,
   maxRequestTtlMs = 30000
 } = {}) {
+  if (!validIdentifier(authenticatedOwnerId, 8, 128)) {
+    throw new TypeError('authenticatedOwnerId from the validated API session is required');
+  }
   const required = { verifyOwnerSession, authorizeCapability, resolveDevice, readStatus, executeAction };
   for (const [name, fn] of Object.entries(required)) {
     if (typeof fn !== 'function') throw new TypeError(name + ' function required');
@@ -170,6 +174,7 @@ function createVoiceCommandRouter({
   }
 
   const config = Object.freeze({
+    ownerId: authenticatedOwnerId,
     allowedApps: new Set(allowedApps.filter(value => typeof value === 'string' && /^[A-Za-z0-9._-]{1,120}$/.test(value))),
     allowedUrlHosts: new Set(allowedUrlHosts.map(normalizeHost).filter(Boolean))
   });
@@ -199,6 +204,7 @@ function createVoiceCommandRouter({
           requireSpeaker: true,
           requestId: request.request_id,
           expiresAt: request.expires_at,
+          expectedOwnerId: config.ownerId,
           deviceId: request.device_id || null,
           operation: request.operation,
           lane: request.lane
@@ -227,6 +233,7 @@ function createVoiceCommandRouter({
           requireSpeaker: true,
           requestId: request.request_id,
           expiresAt: request.expires_at,
+          expectedOwnerId: config.ownerId,
           deviceId: request.device_id || null,
           operation: request.operation,
           lane: request.lane
@@ -279,6 +286,7 @@ function createVoiceCommandRouter({
         requireSpeaker: !isRead,
         requestId: request.request_id,
         expiresAt: request.expires_at,
+        expectedOwnerId: config.ownerId,
         deviceId: request.device_id || null,
         operation: request.operation,
         lane: request.lane
