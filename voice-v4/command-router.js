@@ -358,6 +358,7 @@ function createVoiceCommandRouter({
     try {
       const result = await executeAction({
         device,
+        sourceDeviceId: request.source_device_id,
         operation: request.operation,
         params: request.params || {},
         requestId: request.request_id,
