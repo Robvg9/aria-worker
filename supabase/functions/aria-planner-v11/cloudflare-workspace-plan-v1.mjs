@@ -250,12 +250,55 @@ export const CLOUDflarePlanProducerContract = Object.freeze({
   readOnlyOperations: READ_ONLY_OPERATIONS
 });
 
+const SAFE_PLAN_FAILURE_REASONS = new Set([
+  'cloudflare_workspace_request_v1_required',
+  'goal_required',
+  'workspace_absolute_path_blocked',
+  'workspace_path_policy_blocked',
+  'workspace_context_too_large',
+  'plan_allowed_operations_invalid',
+  'plan_operation_rejected',
+  'workspace_mutations_not_explicitly_allowed',
+  'workspace_mutation_intent_hint_required',
+  'workspace_list_depth_invalid',
+  'workspace_search_query_invalid',
+  'workspace_write_content_required',
+  'workspace_write_content_too_large',
+  'workspace_edit_old_text_required',
+  'workspace_edit_old_text_too_large',
+  'workspace_edit_new_text_too_large',
+  'test_file_policy_blocked',
+  'plan_task_count_invalid',
+  'plan_task_invalid',
+  'plan_task_id_invalid',
+  'plan_dependency_invalid',
+  'plan_dependency_count_invalid',
+  'plan_payload_too_large',
+  'planner_model_output_invalid',
+  'planner_model_output_not_json',
+  'planner_model_output_invalid_json',
+  'verified_free_plan_model_unavailable',
+  'plan_preview_auth_unavailable',
+  'canonical_model_executor_unreachable',
+  'canonical_model_execution_rejected',
+  'route_missing',
+  'authorization_not_approved',
+  'capability_missing',
+  'route_not_selectable',
+  'model_not_verified',
+  'input_missing',
+  'credential_unavailable',
+  'provider_error',
+  'transport_timeout',
+  'transport_error',
+  'invalid_response',
+  'provider_permanently_excluded',
+  'adapter_unavailable',
+  'mission_execution_paused',
+  'remote_plan_producer_rejected'
+]);
+
 export function sanitizeCloudflarePlanFailureReason(value) {
-  const normalized = String(value || '')
-    .toLowerCase()
-    .replace(/[^a-z0-9_.:-]+/g, '_')
-    .replace(/_+/g, '_')
-    .replace(/^[_:.]+|[_:.]+$/g, '')
-    .slice(0, 160);
-  return normalized || 'remote_plan_producer_rejected';
+  const candidate = String(value || '');
+  return SAFE_PLAN_FAILURE_REASONS.has(candidate) ? candidate : 'remote_plan_producer_rejected';
 }
