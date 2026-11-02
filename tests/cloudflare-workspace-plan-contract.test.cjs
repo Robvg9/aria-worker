@@ -17,10 +17,32 @@ const {
   const path = require('node:path');
   const plannerSourcePath = path.join(__dirname, '..', 'supabase', 'functions', 'aria-planner-v11', 'index.ts');
   const plannerSource = fs.readFileSync(plannerSourcePath, 'utf8');
+  const executionRuntimePath = path.join(__dirname, '..', 'supabase', 'functions', 'aria-execution-runtime-v1', 'index.ts');
+  const executionRuntimeSource = fs.readFileSync(executionRuntimePath, 'utf8');
+  const deployWorkflowPath = path.join(__dirname, '..', '.github', 'workflows', 'aria-autonomy-coordinator-deploy.yml');
+  const deployWorkflowSource = fs.readFileSync(deployWorkflowPath, 'utf8');
   assert.ok(plannerSource.includes('const pathname=new globalThis.URL(r.url).pathname.replace(/\\/+$/,"");'), 'planner producer URL normalization must be Deno-parseable');
   assert.equal(plannerSource.includes('replace(/\\\\/+$/,"")'), false, 'planner must not retain the invalid escaped-slash regex');
 
+  // The narrow plan bridge has its own secret; runtime root auth remains separate.
+  assert.ok(plannerSource.includes('Deno.env.get("ARIA_PLAN_PRODUCER_SHARED_SECRET")??"";'));
+  assert.ok(plannerSource.includes('deriveCloudflarePlanPreviewToken(PLAN_BRIDGE_SECRET)'));
+  assert.ok(plannerSource.includes('isCloudflarePlanProducerRequest(r,PLAN_BRIDGE_SECRET)'));
+  assert.ok(executionRuntimeSource.includes('Deno.env.get("ARIA_PLAN_PRODUCER_SHARED_SECRET")??"";'));
+  assert.ok(executionRuntimeSource.includes('isCloudflarePlanPreviewRequest(r,PLAN_BRIDGE_SECRET)'));
+  assert.equal(executionRuntimeSource.includes('isCloudflarePlanPreviewRequest(r,SECRET)'), false);
+  assert.ok(deployWorkflowSource.includes('confirm_plan_bridge_secret_sync == true'), 'production secret sync must have its own human gate');
+  assert.ok(deployWorkflowSource.includes('secrets.ARIA_PLAN_PRODUCER_SHARED_SECRET'));
+  assert.ok(deployWorkflowSource.includes('supabase secrets set --project-ref "$SUPABASE_PROJECT_REF" --env-file "$tmp_env" --yes'));
+  assert.ok(deployWorkflowSource.includes('supabase functions deploy aria-planner-v11'));
+  assert.ok(deployWorkflowSource.includes('supabase functions deploy aria-execution-runtime-v1'));
+  assert.ok(deployWorkflowSource.includes('if: inputs.send_telegram_test == true'));
+  assert.equal(deployWorkflowSource.includes('secrets.ARIA_RUNTIME_SHARED_SECRET'), false, 'coordinator deploy must not rotate or depend on the legacy runtime root secret');
+  assert.equal(deployWorkflowSource.includes('"ARIA_PLAN_PRODUCER_SHARED_SECRET": derived'), false, 'the shared secret must never be forwarded to Cloudflare');
+
   const secret = 'test-only-aria-runtime-secret-'.padEnd(48, 'x');
+  await assert.rejects(() => deriveCloudflarePlanProducerToken('short'), /aria_plan_producer_secret_invalid/);
+  await assert.rejects(() => deriveCloudflarePlanPreviewToken('short'), /aria_plan_producer_secret_invalid/);
   const producerToken = await deriveCloudflarePlanProducerToken(secret);
   assert.match(producerToken, /^[a-f0-9]{64}$/);
   assert.equal(await deriveCloudflarePlanProducerToken(secret), producerToken);
