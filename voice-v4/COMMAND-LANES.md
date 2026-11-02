@@ -22,13 +22,16 @@ Raw shell, PowerShell, arbitrary code, file mutations, payment, purchase, delete
 ## Trust boundaries
 
 Production integration must inject:
-- an owner-session verifier that validates a signed, expiring assertion from the local speaker verifier;
+- `authenticatedOwnerId` from the API's already-validated login session. It is mandatory when constructing the router; never accept it from the voice transcript or request body.
+- the Ed25519 `createOwnerSessionVerifier` from `owner-session-verifier.js`, bound to a trusted per-device public key and the authenticated owner ID;
+- an atomic, shared nonce store (`consume`) so signed owner sessions cannot be replayed on Android and multiple PCs;
+- a server-controlled speaker policy that pins the approved model ID and minimum score. The client's `speaker_verified` and score fields are meaningful only inside a valid signature from the registered device key.
 - an authorization provider for the capability grant;
 - a device registry lookup returning current health, trusted security posture and exact capabilities;
 - a shared atomic idempotency store spanning Android and PCs;
 - a fixed operation adapter that maps structured parameters to native APIs, never a shell string.
 
-A boolean supplied by an untrusted client is not a speaker proof. This module trusts only the injected server/native verification result. Speaker biometrics are not a high-assurance factor against replay/deepfake; messaging always needs separate visible confirmation.
+A boolean supplied by an untrusted client is not a speaker proof. The signed-session module checks the Ed25519 signature, registered device ownership/trust/health, owner match, request/device binding, 30-second TTL and one-time nonce. The module is still NOT WIRED to the production API, device registry or durable nonce table. No speaker model is accepted for Cuban Spanish yet. A signature proves that the enrolled device asserted its local result; it does not make the speaker model immune to replay/deepfake. Messaging always needs separate visible confirmation.
 
 ## Operational invariant
 
