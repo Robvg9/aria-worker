@@ -175,6 +175,45 @@ function request(overrides = {}) {
   assert.equal(message.executed, false);
   assert.equal(message.confirmation_channel, 'visible_authenticated_ui');
   assert.equal(messageFx.calls.action.length, 0, 'voice biometrics alone must never send a message');
+  const messageNoSpeaker = await fixture().router.route(request({
+    operation: 'message.send',
+    owner_session: { valid: true, speakerVerified: false },
+    params: { recipient_id: 'contact-mom', body: 'Te quiero.' }
+  }));
+  assert.equal(messageNoSpeaker.reason, 'owner_speaker_verification_required');
+
+  const unknownAction = await fixture().router.route(request({
+    operation: 'shell.execute',
+    params: { command: 'whoami' }
+  }));
+  assert.equal(unknownAction.reason, 'device_action_not_allowlisted');
+
+  const authUnavailable = await fixture({
+    verifyOwnerSession: async () => { throw new Error('native verifier unavailable'); }
+  }).router.route(request());
+  assert.equal(authUnavailable.reason, 'owner_session_verification_failed');
+
+  const pauseUnavailable = await fixture({
+    isMissionExecutionPaused: () => { throw new Error('mission state unavailable'); }
+  }).router.route(request({
+    lane: LANES.MISSION_EXECUTE,
+    operation: 'mission.start',
+    mission_id: 'mission-voice-003',
+    params: {}
+  }));
+  assert.equal(pauseUnavailable.reason, 'mission_pause_state_unavailable');
+  assert.equal(pauseUnavailable.executed, false);
+
+  const authorizationUnavailable = await fixture({
+    authorizeCapability: async () => { throw new Error('authorization unavailable'); }
+  }).router.route(request());
+  assert.equal(authorizationUnavailable.reason, 'capability_authorization_unavailable');
+
+  const deviceLookupUnavailable = await fixture({
+    resolveDevice: async () => { throw new Error('registry unavailable'); }
+  }).router.route(request());
+  assert.equal(deviceLookupUnavailable.reason, 'device_lookup_failed');
+
 
   const missionContext = await fixture().router.route(request({ mission_id: 'mission-not-allowed' }));
   assert.equal(missionContext.reason, 'mission_context_forbidden_on_direct_lane');
