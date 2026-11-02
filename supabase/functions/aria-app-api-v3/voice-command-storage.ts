@@ -337,7 +337,7 @@ export function createVoiceDeviceAgentQueue(serviceClient: any) {
       throw new Error("voice_command_status_invalid");
     }
     const result = input.result || {};
-    const allowed = new Set(["ok","brightness","app_id","url","title","opened","verified","state"]);
+    const allowed = new Set(["ok","brightness","app_id","opened","verified"]);
     for (const [key, value] of Object.entries(result)) {
       if (!allowed.has(key)) throw new Error("voice_command_result_field_unsupported");
       if (typeof value === "string" && value.length > 160) throw new Error("voice_command_result_value_invalid");
