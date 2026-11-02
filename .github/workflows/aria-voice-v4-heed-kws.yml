@@ -53,5 +53,6 @@ jobs:
           path: |
             ${{ runner.temp }}/aria-heed-report.json
             ${{ runner.temp }}/aria-heed/shortlisted-models/*.onnx
+            ${{ runner.temp }}/aria-heed/shortlisted-models/*.json
           if-no-files-found: ignore
           retention-days: 7
