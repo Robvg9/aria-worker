@@ -111,6 +111,28 @@ async function api(store, route, { method = 'GET', token, body } = {}) {
     assert.equal(requests[0].headers.get('x-aria-plan-producer-token'), producerToken);
     assert.equal(requests[0].headers.get('authorization'), null, 'root Supabase credentials must not be forwarded');
 
+    // Transport diagnostics expose only a small allowlist, never the error message, URL or credentials.
+    const successFetch = globalThis.fetch;
+    globalThis.fetch = async () => {
+      const failure = new TypeError('sensitive transport message must never be returned');
+      failure.cause = { code: 'UND_ERR_CONNECT_TIMEOUT' };
+      throw failure;
+    };
+    try {
+      const unreachablePreview = await api(store, '/api/plan-preview', {
+        method: 'POST',
+        token: controlToken,
+        body: { goal: 'Inspect repository status', cloudflare_workspace_request: requestSpec }
+      });
+      assert.equal(unreachablePreview.status, 503);
+      const unreachableBody = await unreachablePreview.json();
+      assert.equal(unreachableBody.error, 'remote_plan_producer_unreachable_typeerror_und_err_connect_timeout');
+      assert.equal(JSON.stringify(unreachableBody).includes('sensitive transport message'), false);
+      assert.equal(JSON.stringify(unreachableBody).includes('icuqsstxfdbvjytkhlog'), false);
+    } finally {
+      globalThis.fetch = successFetch;
+    }
+
     // Neither the control token nor the worker token may submit a remote plan.
     const controlCannotSubmit = await api(store, '/api/missions/mission_fake/plan', {
       method: 'POST',
