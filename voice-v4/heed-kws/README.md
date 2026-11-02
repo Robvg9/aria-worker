@@ -19,3 +19,15 @@ The open-vocabulary sherpa-onnx Spanish candidate was evaluated twice in a hoste
 - The benchmark therefore does not shortlist this pretrained model for ARIA. A successful runtime/benchmark job is not evidence that the wake phrase works.
 - The follow-up is a purpose-trained Heed candidate with held-out synthetic voice profiles and an expanded confusable corpus. It remains a shortlist experiment only; it cannot authorize production/background capture or owner authentication.
 
+## Heed synthetic shortlist result — 2026-11-02
+
+Run [#41532084557](https://github.com/Robvg9/aria-worker/actions/runs/41532084557) completed SUCCESS as a benchmark and produced:
+
+- aria: REJECTED — 54 held-out positives, TPR 94.444%, 450 hard-negative clips, FPR 0%; the recall gate was 95%.
+- oye_aria: SYNTHETIC SHORTLIST — 36/36 held-out positives detected (TPR 100%) and 0/522 false triggers on the synthetic hard-negative set (FPR 0%).
+- INT8 ONNX model: 41,021 bytes (41 KB), threshold 0.72; session load 5.969 ms; mean inference 0.301 ms; p95 0.317 ms; 1 inference thread.
+- The training process used about 1.82 GB peak RSS on the hosted runner. The previous runtime RSS field mirrored that figure and is not considered a trustworthy isolated-inference memory result. The benchmark has been changed to report the ONNX process /proc/self/status current RSS and high-water RSS separately; those values need a fresh run before assessing device resource fit.
+- Training and ONNX scores are entirely eSpeak-generated. Held-out voices es-la and es-mx are only TTS configurations, not independent human speakers. The zero-FP result does NOT estimate a real-world false activation rate.
+
+The current branch now preserves the shortlisted ONNX file under the runner temporary directory shortlisted-models/ and uploads it with the aggregate JSON report; it does not persist WAVs or training audio. The next benchmark run will contain the model and corrected memory telemetry. This remains a research artifact only: no production app imports it, no devices are touched, and Oye ARIA is not yet accepted for live use.
+
