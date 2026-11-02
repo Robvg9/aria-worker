@@ -198,7 +198,10 @@ function createVoiceCommandRouter({
         missionAuth = await verifyOwnerSession(request.owner_session, {
           requireSpeaker: true,
           requestId: request.request_id,
-          expiresAt: request.expires_at
+          expiresAt: request.expires_at,
+          deviceId: request.device_id || null,
+          operation: request.operation,
+          lane: request.lane
         });
       } catch {
         return { status: 'blocked', reason: 'owner_session_verification_failed', executed: false };
@@ -223,7 +226,10 @@ function createVoiceCommandRouter({
         auth = await verifyOwnerSession(request.owner_session, {
           requireSpeaker: true,
           requestId: request.request_id,
-          expiresAt: request.expires_at
+          expiresAt: request.expires_at,
+          deviceId: request.device_id || null,
+          operation: request.operation,
+          lane: request.lane
         });
       } catch {
         return { status: 'blocked', reason: 'owner_session_verification_failed', executed: false };
@@ -272,7 +278,10 @@ function createVoiceCommandRouter({
       auth = await verifyOwnerSession(request.owner_session, {
         requireSpeaker: !isRead,
         requestId: request.request_id,
-        expiresAt: request.expires_at
+        expiresAt: request.expires_at,
+        deviceId: request.device_id || null,
+        operation: request.operation,
+        lane: request.lane
       });
     } catch {
       return { status: 'blocked', reason: 'owner_session_verification_failed', executed: false };
