@@ -2378,7 +2378,7 @@ function Chat({
       setFile(null);
       setAudioFile(null);
       const clientMessageId = crypto.randomUUID();
-      const d = await api('/conversation', session.accessToken, { method: 'POST', body: JSON.stringify({ parts, clientMessageId, conversationId: activeConversationId }) });
+      const d = await api('/conversation', session.accessToken, { method: 'POST', body: JSON.stringify({ parts, clientMessageId, conversationId: activeConversationId, voice_mode: voiceModeRef.current }) });
       let responseData = d;
       if (d?.processing && d?.job_id) {
         const deadline = Date.now() + 130000;
@@ -2699,8 +2699,7 @@ function Chat({
                     if (voiceMode) {
                       if (pendingMissionConfirmation) {
                         if (isVoiceMissionAffirmative(transcript)) {
-                          void confirmPendingMission();
-                          return;
+                          return confirmPendingMission();
                         }
                         if (isVoiceMissionNegative(transcript)) {
                           dismissPendingMission();
@@ -2711,8 +2710,7 @@ function Chat({
                         speakAssistantText(clarification);
                         return;
                       }
-                      void send(transcript);
-                      return;
+                      return send(transcript);
                     }
                     setText(previous => previous.trim() ? previous.replace(/\s+$/, '') + ' ' + transcript : transcript);
                   }}
