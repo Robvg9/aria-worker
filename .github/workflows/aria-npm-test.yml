@@ -19,6 +19,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Audit stale PWA catalog literals
+        shell: bash
+        run: |
+          if git grep -n -E "2026-10-30-mission-freeze-v1|content='336'" -- tests scripts pwa; then
+            echo "STALE_PWA_TEST_CATALOG_LITERAL_FOUND"
+            exit 1
+          fi
+          echo "PWA_TEST_CATALOG_NO_STALE_LITERALS=PASS"
       - uses: actions/setup-node@v4
         with:
           node-version: 22
