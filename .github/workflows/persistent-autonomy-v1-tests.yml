@@ -610,6 +610,65 @@ jobs:
           Write-Output ('RUNNER_SID=' + $identity.User.Value)
           Write-Output ('RUNNER_LOCALAPPDATA=' + $env:LOCALAPPDATA)
 
+          # Inspect only metadata/ACL for the known interactive profile config.
+          # Never read or decrypt workerTokenDpapi under the service identity.
+          $interactiveProfile = 'C:\Users\robvg'
+          $interactiveConfig = Join-Path $interactiveProfile 'AppData\Local\ARIA\worker\worker.config.json'
+          $profile = Get-CimInstance Win32_UserProfile -ErrorAction SilentlyContinue |
+            Where-Object { $_.LocalPath -ieq $interactiveProfile } | Select-Object -First 1
+          Write-Output ('ROBVG_INTERACTIVE_PROFILE_EXISTS=' + [string](Test-Path -LiteralPath $interactiveProfile -PathType Container))
+          Write-Output ('ROBVG_INTERACTIVE_PROFILE_SID=' + [string]$profile.SID)
+          Write-Output ('ROBVG_INTERACTIVE_PROFILE_LOADED=' + [string]$profile.Loaded)
+          try {
+            if (Test-Path -LiteralPath $interactiveConfig -PathType Leaf) {
+              $configAcl = Get-Acl -LiteralPath $interactiveConfig -ErrorAction Stop
+              $configOwnerSid = $configAcl.GetOwner([System.Security.Principal.SecurityIdentifier]).Value
+              $configRules = $configAcl.GetAccessRules($true,$true,[System.Security.Principal.SecurityIdentifier])
+              Write-Output 'ROBVG_INTERACTIVE_DPAPI_CONFIG_EXISTS=true'
+              Write-Output ('ROBVG_INTERACTIVE_DPAPI_CONFIG_OWNER_SID=' + $configOwnerSid)
+              Write-Output ('ROBVG_INTERACTIVE_DPAPI_CONFIG_ACL_RULE_COUNT=' + $configRules.Count)
+              Write-Output ('ROBVG_INTERACTIVE_DPAPI_CONFIG_ACL_SIDS=' + (($configRules | ForEach-Object { $_.IdentityReference.Value + ':' + [string]$_.AccessControlType + ':' + [string]$_.FileSystemRights }) -join ';'))
+              if ($profile -and $configOwnerSid -eq $profile.SID) {
+                Write-Output 'ROBVG_INTERACTIVE_DPAPI_CONFIG_OWNER_MATCH=PASS'
+              }
+              else {
+                Write-Output 'ROBVG_INTERACTIVE_DPAPI_CONFIG_OWNER_MATCH=FAIL_OR_UNVERIFIED'
+              }
+            }
+            else {
+              Write-Output 'ROBVG_INTERACTIVE_DPAPI_CONFIG_EXISTS=false'
+            }
+          }
+          catch {
+            Write-Output 'ROBVG_INTERACTIVE_DPAPI_CONFIG_METADATA=ACCESS_DENIED_OR_ERROR'
+            Write-Output ('ROBVG_INTERACTIVE_DPAPI_CONFIG_ERROR=' + $_.Exception.GetType().Name)
+          }
+
+          # Independent GET-only checks: the main preflight exits at Ollama first.
+          try {
+            $ollama = Invoke-WebRequest -Uri 'http://127.0.0.1:11434/api/tags' -Method GET -TimeoutSec 5 -UseBasicParsing
+            $ollamaJson = $ollama.Content | ConvertFrom-Json -ErrorAction Stop
+            $ollamaModels = @($ollamaJson.models | ForEach-Object { [string]$_.name })
+            Write-Output ('ROBVG_OLLAMA_HTTP=' + [int]$ollama.StatusCode)
+            Write-Output ('ROBVG_OLLAMA_QWEN3_4B_PRESENT=' + [string]($ollamaModels -contains 'qwen3:4b'))
+            Write-Output ('ROBVG_OLLAMA_MODEL_COUNT=' + $ollamaModels.Count)
+          }
+          catch {
+            Write-Output 'ROBVG_OLLAMA_GET=FAILED'
+            Write-Output ('ROBVG_OLLAMA_ERROR=' + $_.Exception.GetType().Name)
+          }
+          try {
+            $coordinator = Invoke-WebRequest -Uri 'https://aria-autonomy-coordinator.robvg9.workers.dev/health' -Method GET -TimeoutSec 10 -UseBasicParsing
+            $coordinatorJson = $coordinator.Content | ConvertFrom-Json -ErrorAction Stop
+            Write-Output ('ROBVG_COORDINATOR_HEALTH_HTTP=' + [int]$coordinator.StatusCode)
+            Write-Output ('ROBVG_COORDINATOR_HEALTH_OK=' + [string]($coordinatorJson.ok -eq $true))
+            Write-Output ('ROBVG_COORDINATOR_SUPABASE_INDEPENDENT=' + [string]($coordinatorJson.supabase_independent -eq $true))
+          }
+          catch {
+            Write-Output 'ROBVG_COORDINATOR_HEALTH=FAILED'
+            Write-Output ('ROBVG_COORDINATOR_HEALTH_ERROR=' + $_.Exception.GetType().Name)
+          }
+
           $taskName = 'ARIA Persistent Windows Worker'
           $task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
           $allAriaTasks = @(Get-ScheduledTask -ErrorAction Stop | Where-Object { $_.TaskName -match 'ARIA|Persistent Worker' })
