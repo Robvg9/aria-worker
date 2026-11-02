@@ -55,6 +55,8 @@ check(workflowSource.includes("github.ref == 'refs/heads/main'"),"live probe onl
 check(liveScript.includes("EXACT_MAIN_SHA_SUPABASE_DEPLOY=PASS")||liveScript.includes("Deploy ARIA Supabase Runtime"),"live probe waits for exact-SHA canonical deployment");
 check(liveScript.includes("max_provider_calls")&&liveScript.includes("retryable")&&liveScript.includes("max_attempts"),"live probe is limited to one non-retryable provider call");
 check(liveScript.includes("GATE3_SCOPE_REVOKED=PASS")&&liveScript.includes("verify_global_freeze"),"live probe revokes scope and verifies global freeze afterward");
+check(liveScript.includes("GATE3_SCOPE_REVOKE_VERIFY_PASS")&&liveScript.includes("approval_token"),"live probe reads back disabled scope and cleared approval token");
+check(liveScript.includes("freeze_error = None")&&liveScript.includes("verify_global_freeze()"),"global freeze verification runs even when cleanup fails");
 check(!liveScript.toLowerCase().includes("mistral"),"live probe has no Mistral route");
 check(liveScript.indexOf("mission_created = True") < liveScript.indexOf("supabase_sql(insert)"),"cleanup is armed before mission insert can commit");
 check(liveScript.indexOf('supabase", "link"') < liveScript.indexOf('route_preflight()'),"Supabase is linked before registry preflight");

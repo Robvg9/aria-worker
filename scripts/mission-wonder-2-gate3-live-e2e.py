@@ -338,11 +338,28 @@ def revoke_scope():
            lease_owner=NULL,
            lease_until=NULL,
            updated_at=clock_timestamp()
-     WHERE mission_id={q(MISSION_ID)};
+     WHERE mission_id={q(MISSION_ID)}
+     RETURNING mission_id;
     """
-    supabase_sql(query)
+    output = supabase_sql(query)
+    if MISSION_ID not in output:
+        # The INSERT may have failed before committing; no scoped authority exists.
+        print("GATE3_SCOPE_REVOKE_NO_ROW=PASS")
+        return
+    verify = f"""
+    SELECT CASE WHEN
+      metadata #>> '{{mission_wonder_2_gate3_scope,enabled}}'='false'
+      AND coalesce(checkpoint->'human_gate'->>'approval_token','')=''
+      AND status NOT IN ('queued','running','waiting')
+      AND lease_owner IS NULL
+      AND lease_until IS NULL
+    THEN 'GATE3_SCOPE_REVOKE_VERIFY_PASS'
+    ELSE 'GATE3_SCOPE_REVOKE_VERIFY_FAIL'
+    END
+    FROM aria_internal.mission_state WHERE mission_id={q(MISSION_ID)};
+    """
+    check_sql(verify, "GATE3_SCOPE_REVOKE_VERIFY_PASS", "GATE3_SCOPE_REVOKE_VERIFY")
     print("GATE3_SCOPE_REVOKED=PASS")
-
 
 def verify_global_freeze():
     for slug in (
@@ -374,13 +391,25 @@ def main():
         verify_live_result()
         print("GATE3_PROVIDER_FALLBACK_LIVE=PASS")
     finally:
+        cleanup_error = None
+        freeze_error = None
         if mission_created:
             try:
                 revoke_scope()
             except Exception as error:
+                cleanup_error = error
                 print("GATE3_SCOPE_REVOKE_ERROR=" + str(error))
-                raise
-        verify_global_freeze()
+        try:
+            verify_global_freeze()
+        except Exception as error:
+            freeze_error = error
+            print("GATE3_GLOBAL_FREEZE_VERIFY_ERROR=" + str(error))
+        if cleanup_error and freeze_error:
+            raise RuntimeError("scope revocation and global freeze verification both failed")
+        if freeze_error:
+            raise freeze_error
+        if cleanup_error:
+            raise cleanup_error
 
 
 if __name__ == "__main__":
