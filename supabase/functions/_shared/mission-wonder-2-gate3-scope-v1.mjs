@@ -50,6 +50,8 @@ export function m22MissionWonder2ScopedProbeAllowed(mission, step, actionHash, n
   const policy = step.policy ?? {};
   if (policy.human_gate_required !== true || policy.allow_rate_limit_fallback !== true || policy.mission_wonder_2_gate3_probe !== true) return false;
   if (step.authorization?.status !== "human_required") return false;
+  // Prevent automatic retries from multiplying the one external provider call.
+  if (step.retryable !== false || Number(step.max_attempts) !== 1) return false;
   const gate = mission?.checkpoint?.human_gate;
   if (!gate || gate.required !== true || gate.status !== "approved" || gate.verified !== false) return false;
   if (gate.step_id !== step.id || gate.action_hash !== actionHash || !/^[0-9a-f]{64}$/.test(String(actionHash ?? ""))) return false;

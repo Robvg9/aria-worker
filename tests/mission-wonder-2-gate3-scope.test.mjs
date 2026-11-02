@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { m22Gate3HumanGateActionHash, m22Gate3RouteAllowed, m22MissionWonder2ScopedProbeAllowed } from "../supabase/functions/_shared/mission-wonder-2-gate3-scope-v1.mjs";
 const check=(ok,label)=>{if(!ok)throw new Error("Gate 3 scope regression: "+label);console.log("Gate 3 scope: "+label+" PASS");};
 const now=Date.parse("2026-11-02T02:00:00.000Z");
-const step={id:"gate3_provider_fallback",operation:"text_generation",executor_type:"model",risk:"READ",target:{type:"model",provider_id:"google",account_id:"acct_google_gemini_free",model_id:"google/gemini-3.5-flash-lite-direct"},input:{prompt:"Reply with exactly: MISSION_WONDER_2_GATE3_OK",max_completion_tokens:24,fault_injection:"http_429"},policy:{human_gate_required:true,allow_rate_limit_fallback:true,mission_wonder_2_gate3_probe:true},authorization:{status:"human_required",risk_class:"READ"},verify:{response_content_equals:"MISSION_WONDER_2_GATE3_OK"}};
+const step={id:"gate3_provider_fallback",operation:"text_generation",executor_type:"model",risk:"READ",target:{type:"model",provider_id:"google",account_id:"acct_google_gemini_free",model_id:"google/gemini-3.5-flash-lite-direct"},input:{prompt:"Reply with exactly: MISSION_WONDER_2_GATE3_OK",max_completion_tokens:24,fault_injection:"http_429"},policy:{human_gate_required:true,allow_rate_limit_fallback:true,mission_wonder_2_gate3_probe:true},authorization:{status:"human_required",risk_class:"READ"},retryable:false,max_attempts:1,verify:{response_content_equals:"MISSION_WONDER_2_GATE3_OK"}};
 const actionHash=await m22Gate3HumanGateActionHash(step);
 const mission={mission_id:"mission_wonder_2_gate3_probe_workflow_123456",status:"queued",metadata:{goal_source:"mission_wonder_2_gate3",probe:"mission_wonder_2_gate3",mission_wonder_2_gate3_scope:{version:1,purpose:"mission_wonder_2_gate3_provider_fallback_v1",enabled:true,issued_at:"2026-11-02T01:55:00.000Z",expires_at:"2026-11-02T02:05:00.000Z",max_provider_calls:1,review_ref:"workflow_dispatch:123456"}},checkpoint:{plan:[step],human_gate:{required:true,status:"approved",verified:false,step_id:step.id,action_hash:actionHash,approval_token:"a".repeat(64),approved_by:"github_workflow_dispatch"}}};
 check(m22MissionWonder2ScopedProbeAllowed(mission,step,actionHash,now),"exact approved one-step probe accepted");
@@ -22,6 +22,8 @@ check(!m22MissionWonder2ScopedProbeAllowed(mission,{...step,input:{...step.input
 check(!m22MissionWonder2ScopedProbeAllowed(mission,{...step,input:{...step.input,fault_all_routes:true}},actionHash,now),"all-routes fault injection denied");
 check(!m22MissionWonder2ScopedProbeAllowed(mission,{...step,policy:{...step.policy,allow_rate_limit_fallback:false}},actionHash,now),"fallback policy must be exact boolean true");
 check(!m22MissionWonder2ScopedProbeAllowed(mission,{...step,risk:"LOW_RISK_WRITE"},actionHash,now),"non-READ step denied");
+check(!m22MissionWonder2ScopedProbeAllowed(mission,{...step,retryable:true},actionHash,now),"retryable steps denied");
+check(!m22MissionWonder2ScopedProbeAllowed(mission,{...step,max_attempts:2},actionHash,now),"multiple attempts denied");
 check(!m22MissionWonder2ScopedProbeAllowed(mission,{...step,input:{...step.input,max_completion_tokens:100}},actionHash,now),"token budget above 32 denied");
 check(!m22MissionWonder2ScopedProbeAllowed(mission,step,"f".repeat(64),now),"hash mismatch denied");
 check(!m22MissionWonder2ScopedProbeAllowed(mission,step,actionHash,Date.parse("2026-11-02T02:05:00.000Z")),"expired at exact cutoff denied");
