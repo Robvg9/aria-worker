@@ -115,7 +115,7 @@ assert.match(router, /mission_execution_paused/);
 
 assert.match(deviceGateway, /\/v1\/voice\/commands\/claim/);
 assert.match(deviceGateway, /claim_voice_device_command/);
-assert.match(deviceGateway, /\/v1\/voice\/commands\/\([0-9a-f]\{8\}/);
+assert.match(deviceGateway, /\/v1\/voice\/commands\/\(\[0-9a-f\]\{8\}/);
 assert.match(deviceGateway, /complete_voice_device_command/);
 assert.match(deviceGateway, /p_device_token:voiceDeviceToken/);
 const deviceGatewayAuth = deviceGateway.indexOf("const a=await auth(req,b.device_id)");
