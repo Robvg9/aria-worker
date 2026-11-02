@@ -151,6 +151,8 @@ def detect(kws: sherpa_onnx.KeywordSpotter, samples: np.ndarray, sample_rate: in
     return detections, time.perf_counter() - started
 
 def create_spotter(root: Path, keywords_file: Path, threshold: float = 0.20):
+    if not 0.0 < threshold <= 1.0:
+        raise ValueError("keyword_threshold_out_of_range")
     return sherpa_onnx.KeywordSpotter(
         tokens=str(root / "tokens.txt"),
         encoder=str(root / "encoder-epoch-20-avg-2-chunk-16-left-64.onnx"),
@@ -203,7 +205,7 @@ def main() -> int:
                     for threshold in threshold_sweep:
                         keyword_file, target_pieces = make_keyword_file(sp, root, phrase, candidate, score, threshold)
                         load_started = time.perf_counter()
-                        kws = create_spotter(root, keyword_file)
+                        kws = create_spotter(root, keyword_file, threshold=threshold)
                         load_ms = (time.perf_counter() - load_started) * 1000
                         candidate_rows = []
                         for case_id, _phrase, expected_candidate, expected_positive in CASES:
