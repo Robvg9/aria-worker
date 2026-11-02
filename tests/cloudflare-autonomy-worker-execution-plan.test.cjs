@@ -3,6 +3,7 @@
 const assert = require('node:assert/strict');
 const CONTROL_TOKEN = 'execution-plan-control-token'.padEnd(48, 'c');
 const WORKER_TOKEN = 'execution-plan-worker-token'.padEnd(48, 'w');
+const PLAN_PRODUCER_TOKEN = 'execution-plan-derived-plan-producer-token'.padEnd(64, 'p');
 
 class MemoryStorage {
   constructor() { this.values = new Map(); this.alarmAt = null; }
@@ -39,6 +40,7 @@ async function call(store, route, { method = 'GET', token = CONTROL_TOKEN, body 
   const store = new AriaMissionStore(state, {
     ARIA_CONTROL_TOKEN: CONTROL_TOKEN,
     ARIA_WORKER_TOKEN: WORKER_TOKEN,
+    ARIA_PLAN_PRODUCER_TOKEN: PLAN_PRODUCER_TOKEN,
     ARIA_WORKER_LEASE_MS: '60000',
     ARIA_ALARM_INTERVAL_MS: '5000'
   });
@@ -86,8 +88,17 @@ async function call(store, route, { method = 'GET', token = CONTROL_TOKEN, body 
     idempotent: true,
     max_attempts: 2
   }];
+  const controlTokenCannotSubmitPlan = await call(store, '/api/missions/' + missionId + '/plan', {
+    method: 'POST',
+    token: CONTROL_TOKEN,
+    body: { tasks: plannerPlan }
+  });
+  assert.equal(controlTokenCannotSubmitPlan.status, 401,
+    'the general control credential must not authorize plan submission');
+
   const planResponse = await call(store, '/api/missions/' + missionId + '/plan', {
     method: 'POST',
+    token: PLAN_PRODUCER_TOKEN,
     body: { tasks: plannerPlan }
   });
   assert.equal(planResponse.status, 201);
