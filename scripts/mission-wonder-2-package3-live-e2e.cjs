@@ -280,6 +280,30 @@ function spawnWorker({ workerId, root, adapterPath, leaseEvidenceDir, probeId, s
     evidence.mission_id = missionId;
     evidence.checks.single_allowlisted_mission_created = 'PASS';
 
+    const concurrentProbeId = PROBE_ID + '-parallel';
+    const concurrentProbe = await api('/api/package3/probe/start', {
+      method: 'POST',
+      body: {
+        confirm: 'RUN_ONE_MISSION_WONDER_2_PACKAGE3_PROBE',
+        probe_id: concurrentProbeId,
+        scope_token: crypto.randomBytes(48).toString('base64url')
+      },
+      expectedStatus: 409
+    });
+    assert.equal(concurrentProbe.data.error, 'package3_probe_already_active');
+    evidence.checks.second_concurrent_probe_rejected = 'PASS';
+
+    const outOfScopeWorker = await api('/api/worker/claim', {
+      method: 'POST',
+      token: WORKER_TOKEN,
+      probeId: PROBE_ID,
+      scopeToken,
+      body: { worker_id: 'unlisted-package3-worker' },
+      expectedStatus: 423
+    });
+    assert.equal(outOfScopeWorker.data.error, 'mission_execution_paused');
+    evidence.checks.unlisted_worker_denied_before_claim = 'PASS';
+
     const content = 'Mission Wonder 2 Package 3 LIVE proof ' + PROBE_ID + '\n';
     await fsp.writeFile(adapterPath, createAdapterSource({
       probeId: PROBE_ID,
