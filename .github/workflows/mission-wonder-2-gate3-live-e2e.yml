@@ -1,0 +1,44 @@
+name: Mission Wonder 2 Gate 3 — supervised LIVE fallback
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_gate3_live_probe:
+        description: "Authorize one READ-only probe: synthetic Google 429, then at most one free OpenRouter Nemotron request"
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: mission-wonder-2-gate3-live-e2e
+  cancel-in-progress: false
+
+jobs:
+  gate3-live-probe:
+    if: ${{ github.ref == 'refs/heads/main' && inputs.confirm_gate3_live_probe == true }}
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 15
+    env:
+      SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      ARIA_RUNTIME_SHARED_SECRET: ${{ secrets.ARIA_RUNTIME_SHARED_SECRET }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout exact main SHA
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Supabase CLI
+        run: npm install -g supabase
+      - name: Validate Python probe syntax
+        run: python3 -m py_compile scripts/mission-wonder-2-gate3-live-e2e.py
+      - name: Validate exact deployment, Human Gate, one-shot fallback and global re-freeze
+        run: python3 scripts/mission-wonder-2-gate3-live-e2e.py

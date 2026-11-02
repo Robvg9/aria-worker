@@ -5,6 +5,8 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { bitriseExecute } from "./bitrise.ts";
 import { createPlanWithTimeout, buildDeviceEnqueuePayload, cloudflareConnectorExecute, DEVICE_OPS_ALLOWLIST } from "./forensic-continuity-fixes.ts";
 import { resolveDeviceTargetPolicy } from "./device-target-policy-v1.mjs";
+import { m22ClassifyModelFallbackFailure, m22QuotaAllowsModelRoute, m22RateLimitFallbackAllowed } from "./model-fallback-governance-v1.mjs";
+import { m22Gate3HumanGateActionHash, m22Gate3RouteAllowed, m22MissionWonder2ScopedProbeAllowed } from "../_shared/mission-wonder-2-gate3-scope-v1.mjs";
 import { validatePhysicalExecutionPlan, validatePhysicalExecutionEvidence } from "../_shared/physical-execution-contract.mjs";
 
 const V_LOGICAL = "aria-mission-runner-v22-universal";
@@ -1005,6 +1007,8 @@ function canonicalGateStep(step: any) {
 }
 
 async function humanGateActionHash(step: any) {
+  // Preserve the canonical hash contract for every pre-existing Human Gate.
+  // The shared helper computes the same hash for this probe's explicit model step.
   const raw = JSON.stringify(canonicalGateStep(step));
   const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(raw));
   return Array.from(new Uint8Array(bytes)).map((b) => b.toString(16).padStart(2, "0")).join("");
@@ -2057,7 +2061,7 @@ async function verifiedModelFallbackRoutes(original: any, operation: string) {
 
   // Cross-provider fallback is intentionally READ-only. The primary route remains
   // unchanged; only already-verified, enabled routes registered in ARIA may be used.
-  const [modelsRes, capsRes, accountsRes] = await Promise.all([
+  const [modelsRes, capsRes, accountsRes, quotasRes] = await Promise.all([
     sb.schema("aria_internal").from("model_registry")
       .select("model_id,provider_id,status,enabled")
       .in("provider_id", ["openrouter", "google"]),
@@ -2068,8 +2072,14 @@ async function verifiedModelFallbackRoutes(original: any, operation: string) {
     sb.schema("aria_internal").from("account_registry")
       .select("account_id,provider_id,status,enabled,models")
       .in("provider_id", ["openrouter", "google"]),
+    sb.schema("aria_internal").from("quota_registry")
+      .select("account_id,provider_id,model_id,status,limits_requests,usage_requests,limits_tokens_input,usage_tokens_input,limits_tokens_output,usage_tokens_output,limits_tokens_total,usage_tokens_total")
+      .in("provider_id", ["openrouter", "google"]),
   ]);
-  if (modelsRes.error || capsRes.error || accountsRes.error) return [];
+  // A route without one unambiguous, available model-level quota is not eligible.
+  // Missing/unknown/disabled/exhausted quota data fails closed; account-wide rows
+  // with a null model_id are intentionally not treated as proof for a model.
+  if (modelsRes.error || capsRes.error || accountsRes.error || quotasRes.error) return [];
 
   const caps = new Map((capsRes.data || []).map((x:any) => [String(x.model_id), x]));
   const accounts = (accountsRes.data || []).filter((x:any) =>
@@ -2088,11 +2098,17 @@ async function verifiedModelFallbackRoutes(original: any, operation: string) {
     if (providerId === "openrouter" && !modelId.endsWith(":free")) continue;
     if (providerId === "google" && !modelId.endsWith("-direct")) continue;
 
-    const account = accounts.find((a:any) =>
-      a.provider_id === providerId &&
-      Array.isArray(a.models) &&
-      a.models.includes(modelId)
-    );
+    const account = accounts.find((a:any) => {
+      const accountId = String(a.account_id || "");
+      return a.provider_id === providerId &&
+        Array.isArray(a.models) &&
+        a.models.includes(modelId) &&
+        m22QuotaAllowsModelRoute(quotasRes.data, {
+          provider_id: providerId,
+          account_id: accountId,
+          model_id: modelId,
+        });
+    });
     if (!account) continue;
 
     out.push({
@@ -2150,7 +2166,11 @@ async function verifiedModelFallbackRoutes(original: any, operation: string) {
     .map(({_verified_at,_provider_priority,...route}:any) => route);
 }
 
-async function modelExecute(missionId: string, step: any, auth: AuthContext) {
+async function modelExecute(missionId: string, step: any, auth: AuthContext, mission: any = null) {
+  const gate3ScopedProbe = step?.policy?.mission_wonder_2_gate3_probe === true;
+  if (gate3ScopedProbe && !m22MissionWonder2ScopedProbeAllowed(mission, step, await humanGateActionHash(step))) {
+    return { status: "blocked", executor_type: "model", operation: step.operation, error: { code: "mission_wonder_2_gate3_scope_invalid", message: "Scoped Gate 3 approval, expiry, or exact step binding did not validate." } };
+  }
   const primary = {
     status: "selected",
     provider_id: String(step.target.provider_id),
@@ -2177,11 +2197,24 @@ async function modelExecute(missionId: string, step: any, auth: AuthContext) {
   const filteredFallbackRoutes = fallbackRoutes.filter((r:any) => r.provider_id !== primaryRoute.provider_id || r.account_id !== primaryRoute.account_id || r.model_id !== primaryRoute.model_id);
   const localFallback = filteredFallbackRoutes.find((r:any) => r.provider_id === "local_windows") || null;
   const cloudFallbacks = filteredFallbackRoutes.filter((r:any) => r.provider_id !== "local_windows");
-  const routes = [
-    ...(primaryLocalAvailable ? [primaryRoute] : []),
-    ...cloudFallbacks.slice(0, 2),
-    ...(localFallback ? [localFallback] : []),
-  ].slice(0, 4);
+  let routes: any[];
+  if (gate3ScopedProbe) {
+    const gate3Fallbacks = cloudFallbacks.filter((route: any) => m22Gate3RouteAllowed(route))
+      .filter((route: any) => route.provider_id === "openrouter").slice(0, 1);
+    if (!m22Gate3RouteAllowed(primaryRoute) || gate3Fallbacks.length !== 1) {
+      return { status: "blocked", executor_type: "model", operation: step.operation,
+        error: { code: "mission_wonder_2_gate3_route_allowlist_mismatch", message: "The supervised Gate 3 probe requires exactly Google Direct followed by OpenRouter Nemotron Free." } };
+    }
+    // Primary Google returns a synthetic 429; exactly one real upstream call can
+    // follow, and only through the allowlisted free OpenRouter Nemotron route.
+    routes = [primaryRoute, ...gate3Fallbacks];
+  } else {
+    routes = [
+      ...(primaryLocalAvailable ? [primaryRoute] : []),
+      ...cloudFallbacks.slice(0, 2),
+      ...(localFallback ? [localFallback] : []),
+    ].slice(0, 4);
+  }
   if (!routes.length) {
     return {
       status: "failed",
@@ -2202,12 +2235,18 @@ async function modelExecute(missionId: string, step: any, auth: AuthContext) {
   const injectFault = typeof step?.input?.fault_injection === "string" ? String(step.input.fault_injection) : "";
   const injectAll = step?.input?.fault_all_routes === true;
   const blockedProviderAccounts = new Set<string>();
+  const blockedRateLimitProviders = new Set<string>();
+  const blockedRateLimitAccounts = new Set<string>();
   for (const route of routes) {
     const routeAccountKey = `${route.provider_id}:${route.account_id}`;
-    // Once a provider/account signals exhausted quota or payment-required, do
-    // not retry another model on that same service. Continue only to a
-    // separately verified account/provider route.
-    if (blockedProviderAccounts.has(routeAccountKey)) continue;
+    // 402 keeps the existing provider/account circuit breaker. A 429 blocks the
+    // entire rate-limited provider and account so another model/account cannot
+    // be used to evade the provider's limit.
+    if (
+      blockedProviderAccounts.has(routeAccountKey) ||
+      blockedRateLimitProviders.has(String(route.provider_id)) ||
+      blockedRateLimitAccounts.has(String(route.account_id))
+    ) continue;
     if (route.provider_id === "local_windows") {
       const source = step.input && typeof step.input === "object" ? step.input : {};
       const localPrompt = typeof source.prompt === "string"
@@ -2323,7 +2362,30 @@ async function modelExecute(missionId: string, step: any, auth: AuthContext) {
     });
     const body = await response.json().catch(() => null);
     if (response.ok && body?.status === "succeeded") {
-      return { ...body, executor_type: "model", operation: step.operation, provider_id: route.provider_id, account_id: route.account_id, model_id: route.model_id, model_fallback_used: route.model_id !== primary.model_id, model_fallback_attempts: failures.length };
+      return {
+        ...body,
+        executor_type: "model",
+        operation: step.operation,
+        provider_id: route.provider_id,
+        account_id: route.account_id,
+        model_id: route.model_id,
+        model_fallback_used: route.model_id !== primary.model_id,
+        model_fallback_attempts: failures.length,
+        // Preserve the sanitized primary-route failure only for the supervised
+        // Gate 3 probe so persisted evidence proves the synthetic Google 429
+        // was followed by exactly one allowlisted OpenRouter request.
+        ...(gate3ScopedProbe ? {
+          model_execution_failures: failures.map((failure: any) => ({
+            provider_id: failure.provider_id,
+            account_id: failure.account_id,
+            model_id: failure.model_id,
+            http_status: failure.http_status,
+            code: failure.code,
+            message: failure.message,
+            provider_status: failure.provider_status,
+          })),
+        } : {}),
+      };
     }
     const err = body?.error && typeof body.error === "object" ? body.error : { message: String(body?.error || body?.reason || `execution_${response.status}`) };
     failures.push({
@@ -2335,8 +2397,21 @@ async function modelExecute(missionId: string, step: any, auth: AuthContext) {
       message: String(err.message || "model execution failed"),
       provider_status: err.provider_status ?? null,
     });
-    if (isProviderQuotaBlocked(response.status, err.provider_status, err.code, err.message)) {
+    const failureKind = m22ClassifyModelFallbackFailure(
+      response.status,
+      err.provider_status,
+      err.code,
+      err.message,
+    );
+    if (failureKind === "quota_exhausted") {
       blockedProviderAccounts.add(routeAccountKey);
+    }
+    if (failureKind === "rate_limit") {
+      blockedRateLimitProviders.add(String(route.provider_id));
+      blockedRateLimitAccounts.add(String(route.account_id));
+      // 429 is terminal by default. An explicit true policy may continue only
+      // through the remaining routes; the blocked provider/account stay skipped.
+      if (!m22RateLimitFallbackAllowed(step.policy)) break;
     }
   }
 
@@ -2947,7 +3022,7 @@ async function executeStep(missionId: string, step: any, auth: AuthContext, miss
   const type = executorType(step);
   if (type === "connector") return connectorExecute(missionId, step, auth.token, mission);
   if (type === "device") return deviceExecute(missionId, step);
-  if (type === "model") return modelExecute(missionId, step, auth);
+  if (type === "model") return modelExecute(missionId, step, auth, mission);
   if (type === "agent") return agentExecute(missionId, step, auth);
   if (type === "eas") return easExecute(step);
   throw new Error(`unknown_executor_type:${type}`);
@@ -3071,10 +3146,27 @@ async function chainNextMeditationMission(depth: number) {
 Deno.serve(async (request) => {
   if (request.method !== "POST") return out({ error: "method_not_allowed" }, 405);
   if (!(await authorized(request))) return out({ error: "unauthorized" }, 401);
-  if (MISSION_EXECUTION_PAUSED) return out({ ok: false, status: "paused", error: "mission_execution_paused", runtime: V_LOGICAL, execution_enabled: false }, 423);
 
   const body = await request.json().catch(() => ({}));
   const requestedMissionId = typeof body?.mission_id === "string" ? body.mission_id : null;
+  let gate3ScopedProbeAllowed = false;
+  if (MISSION_EXECUTION_PAUSED) {
+    // Global pause remains enabled. Only the exact approved, expiring one-step
+    // Gate 3 mission may enter; every other request still receives HTTP 423.
+    if (requestedMissionId && body?.action !== "human_gate_decide") {
+      try {
+        const { data: probeMission, error: probeError } = await sb.schema("aria_internal")
+          .from("mission_state").select("mission_id,status,checkpoint,metadata")
+          .eq("mission_id", requestedMissionId).maybeSingle();
+        const probeStep = Array.isArray(probeMission?.checkpoint?.plan) ? probeMission.checkpoint.plan[0] : null;
+        const probeHash = probeStep ? await humanGateActionHash(probeStep) : "";
+        gate3ScopedProbeAllowed = !probeError && m22MissionWonder2ScopedProbeAllowed(probeMission, probeStep, probeHash);
+      } catch {
+        gate3ScopedProbeAllowed = false;
+      }
+    }
+    if (!gate3ScopedProbeAllowed) return out({ ok: false, status: "paused", error: "mission_execution_paused", runtime: V_LOGICAL, execution_enabled: false }, 423);
+  }
   const chainDepth = Math.max(0, Math.min(8, Number(body?.chain_depth || 0)));
   const meditationChain = request.headers.get("x-aria-trigger") === "meditation-ia";
   // The temporary RWHT exclusivity guard must never become a global mission blocker.
@@ -3118,29 +3210,25 @@ Deno.serve(async (request) => {
   try {
     let staleRecovery: { status: "ok" | "deferred"; reason?: string } = { status: "ok" };
     let hardBlockRecovery = 0;
-    try {
-      await rpc("aria_autonomy_recover_stale_missions", { p_stale_after: "00:02:00" });
-    } catch (recoveryError) {
-      const reason = recoveryError instanceof Error ? recoveryError.message : String(recoveryError);
-      if (/schema cache|retrying|statement timeout|timeout/i.test(reason)) {
-        staleRecovery = { status: "deferred", reason };
-      } else {
-        throw recoveryError;
+    if (!gate3ScopedProbeAllowed) {
+      try {
+        await rpc("aria_autonomy_recover_stale_missions", { p_stale_after: "00:02:00" });
+      } catch (recoveryError) {
+        const reason = recoveryError instanceof Error ? recoveryError.message : String(recoveryError);
+        if (/schema cache|retrying|statement timeout|timeout/i.test(reason)) staleRecovery = { status: "deferred", reason };
+        else throw recoveryError;
       }
-    }
-
-    try {
-      const reopened = await rpc("aria_internal.aria_reopen_recoverable_hard_blocks", { p_limit: 20 });
-      hardBlockRecovery = Number(reopened || 0);
-      if (hardBlockRecovery > 0 && requestedMissionId) {
-        await emitEvent(String(requestedMissionId), "hard_blocks_reopened", {
-          reopened: hardBlockRecovery,
-          recovery_epoch: "advanced",
-          reason: "new governed recovery capability",
-        }).catch(() => undefined);
+      try {
+        const reopened = await rpc("aria_internal.aria_reopen_recoverable_hard_blocks", { p_limit: 20 });
+        hardBlockRecovery = Number(reopened || 0);
+        if (hardBlockRecovery > 0 && requestedMissionId) {
+          await emitEvent(String(requestedMissionId), "hard_blocks_reopened", {
+            reopened: hardBlockRecovery, recovery_epoch: "advanced", reason: "new governed recovery capability",
+          }).catch(() => undefined);
+        }
+      } catch {
+        hardBlockRecovery = 0;
       }
-    } catch {
-      hardBlockRecovery = 0;
     }
 
     const mission = requestedMissionId

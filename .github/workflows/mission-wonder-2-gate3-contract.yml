@@ -1,0 +1,45 @@
+name: Mission Wonder 2 Gate 3 scoped probe contract
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/mission-wonder-2-gate3-live-e2e.yml'
+      - '.github/workflows/mission-wonder-2-gate3-contract.yml'
+      - 'scripts/mission-wonder-2-gate3-live-e2e.py'
+      - 'supabase/functions/_shared/mission-wonder-2-gate3-scope-v1.mjs'
+      - 'supabase/functions/aria-mission-runner-v22/index.ts'
+      - 'supabase/functions/aria-execution-runtime-v1/index.ts'
+      - 'tests/mission-wonder-2-gate3-scope.test.mjs'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/mission-wonder-2-gate3-live-e2e.yml'
+      - '.github/workflows/mission-wonder-2-gate3-contract.yml'
+      - 'scripts/mission-wonder-2-gate3-live-e2e.py'
+      - 'supabase/functions/_shared/mission-wonder-2-gate3-scope-v1.mjs'
+      - 'supabase/functions/aria-mission-runner-v22/index.ts'
+      - 'supabase/functions/aria-execution-runtime-v1/index.ts'
+      - 'tests/mission-wonder-2-gate3-scope.test.mjs'
+
+permissions:
+  contents: read
+
+jobs:
+  scoped-probe-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Compile supervised LIVE probe without running it
+        run: python3 -m py_compile scripts/mission-wonder-2-gate3-live-e2e.py
+      - name: Test exact mission, route allowlist, expiry, retry limit and freeze contracts
+        run: node tests/mission-wonder-2-gate3-scope.test.mjs

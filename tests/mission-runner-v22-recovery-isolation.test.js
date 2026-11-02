@@ -97,8 +97,15 @@ const modelExecute = s.slice(modelExecuteStart, agentExecuteStart);
 for (const marker of [
   "const blockedProviderAccounts = new Set<string>()",
   "blockedProviderAccounts.has(routeAccountKey)",
-  "isProviderQuotaBlocked(response.status, err.provider_status, err.code, err.message)",
+  "const failureKind = m22ClassifyModelFallbackFailure(",
+  'failureKind === "quota_exhausted"',
   "blockedProviderAccounts.add(routeAccountKey)",
+  "blockedRateLimitProviders.has(String(route.provider_id))",
+  "blockedRateLimitAccounts.has(String(route.account_id))",
+  'failureKind === "rate_limit"',
+  "m22RateLimitFallbackAllowed(step.policy)",
+  "blockedRateLimitProviders.add(String(route.provider_id))",
+  "blockedRateLimitAccounts.add(String(route.account_id))",
 ]) {
   if (!modelExecute.includes(marker)) {
     throw new Error("model quota circuit-breaker missing marker: " + marker);

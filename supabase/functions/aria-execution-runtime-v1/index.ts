@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { m22Gate3HumanGateActionHash, m22Gate3RouteAllowed, m22MissionWonder2ScopedProbeAllowed } from "../_shared/mission-wonder-2-gate3-scope-v1.mjs";
 const MISSION_EXECUTION_PAUSED = true;
 const URL=Deno.env.get("SUPABASE_URL")!;const KEY=Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;const SECRET=Deno.env.get("ARIA_RUNTIME_SHARED_SECRET")??"";const GOOGLE_API_KEY=Deno.env.get("GOOGLE_API_KEY")??"";
 const sb=createClient(URL,KEY,{auth:{persistSession:false,autoRefreshToken:false}});
@@ -71,7 +72,23 @@ async function xaiResponses(route:any,input:any){
   const u=json?.usage;const inTok=typeof u?.input_tokens==="number"?u.input_tokens:null;const outTok=typeof u?.output_tokens==="number"?u.output_tokens:null;const total=typeof u?.total_tokens==="number"?u.total_tokens:(inTok!==null&&outTok!==null?inTok+outTok:null);
   return out({status:"succeeded",response:{modality:"text",content:text,provider_response_id:typeof json?.id==="string"?json.id:null,finish_reason:typeof json?.status==="string"?json.status:null,provider_model:typeof json?.model==="string"?json.model:route.model_id},usage:{status:"reported",prompt_tokens:inTok,completion_tokens:outTok,total_tokens:total},metadata:{runtime:"aria-execution-runtime-v1",adapter_id:"xai_responses",provider_id:"xai",route_type:"direct",attempt:1,canonical_write:false,memory_authority:"none"}});
 }
-Deno.serve(async r=>{if(r.method!=="POST")return out({error:"method_not_allowed"},405);if(!(await auth(r)))return out({error:"unauthorized"},401);if(MISSION_EXECUTION_PAUSED)return out({status:"paused",error:{code:"mission_execution_paused"},execution_enabled:false},423);const body=await r.json().catch(()=>({}));const route=body?.selected_route;const input=body?.input;const az=body?.authorization;const policy=body?.policy;if(!route||typeof route!=="object")return out({status:"blocked",reason:"route_missing"});if(!az||az.status!=="approved")return out({status:"blocked",reason:"authorization_not_approved"});if(policy?.human_gate_required===true){if(az.human_gate_verified!==true)return out({status:"blocked",reason:"human_gate_required"});if(typeof az.human_gate_mission_id!=="string"||typeof az.human_gate_step_id!=="string"||typeof az.human_gate_action_hash!=="string"||typeof az.human_gate_approval_token!=="string")return out({status:"blocked",reason:"human_gate_evidence_missing"});const {data:gateOk,error:gateError}=await sb.rpc("human_gate_authorize_execution",{p_mission_id:az.human_gate_mission_id,p_step_id:az.human_gate_step_id,p_action_hash:az.human_gate_action_hash,p_approval_token:az.human_gate_approval_token});if(gateError||gateOk!==true)return out({status:"blocked",reason:"human_gate_authorization_invalid"});}
+Deno.serve(async r=>{if(r.method!=="POST")return out({error:"method_not_allowed"},405);if(!(await auth(r)))return out({error:"unauthorized"},401);const body=await r.json().catch(()=>({}));const route=body?.selected_route;const input=body?.input;const az=body?.authorization;const policy=body?.policy;
+let gate3ScopedProbeAllowed=false;
+if(MISSION_EXECUTION_PAUSED){
+  const missionId=String(body?.metadata?.mission_id||"");
+  const stepId=String(body?.metadata?.step_id||"");
+  if(missionId&&stepId&&policy?.mission_wonder_2_gate3_probe===true&&policy?.human_gate_required===true&&az?.human_gate_verified===true&&m22Gate3RouteAllowed(route)){
+    try{
+      const {data:probeMission,error:probeError}=await sb.schema("aria_internal").from("mission_state").select("mission_id,status,checkpoint,metadata").eq("mission_id",missionId).maybeSingle();
+      const probeStep=Array.isArray(probeMission?.checkpoint?.plan)?probeMission.checkpoint.plan.find((candidate:any)=>String(candidate?.id||"")===stepId):null;
+      const probeHash=probeStep?await m22Gate3HumanGateActionHash(probeStep):"";
+      gate3ScopedProbeAllowed=!probeError&&m22MissionWonder2ScopedProbeAllowed(probeMission,probeStep,probeHash);
+    }catch{
+      gate3ScopedProbeAllowed=false;
+    }
+  }
+  if(!gate3ScopedProbeAllowed)return out({status:"paused",error:{code:"mission_execution_paused"},execution_enabled:false},423);
+}if(!route||typeof route!=="object")return out({status:"blocked",reason:"route_missing"});if(!az||az.status!=="approved")return out({status:"blocked",reason:"authorization_not_approved"});if(policy?.human_gate_required===true){if(az.human_gate_verified!==true)return out({status:"blocked",reason:"human_gate_required"});if(typeof az.human_gate_mission_id!=="string"||typeof az.human_gate_step_id!=="string"||typeof az.human_gate_action_hash!=="string"||typeof az.human_gate_approval_token!=="string")return out({status:"blocked",reason:"human_gate_evidence_missing"});const {data:gateOk,error:gateError}=await sb.rpc("human_gate_authorize_execution",{p_mission_id:az.human_gate_mission_id,p_step_id:az.human_gate_step_id,p_action_hash:az.human_gate_action_hash,p_approval_token:az.human_gate_approval_token});if(gateError||gateOk!==true)return out({status:"blocked",reason:"human_gate_authorization_invalid"});}
 // LIVE resilience fault injection: auth already required; gated by evidence_ref prefix only.
 // Produces the SAME error shapes as real upstream failures so recovery paths can be exercised end-to-end.
 const _fault=body?.metadata?.fault_injection;const _eref=String(az?.evidence_ref||"");
