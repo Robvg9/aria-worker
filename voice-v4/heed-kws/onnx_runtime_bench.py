@@ -27,6 +27,23 @@ def probability(session, features: np.ndarray) -> tuple[float, float]:
     return float(score), elapsed_ms
 
 
+
+def proc_memory_mb() -> dict[str, float | None]:
+    """Read this process' own Linux RSS counters after exec (not fork parent rusage)."""
+    try:
+        values = {}
+        for line in Path("/proc/self/status").read_text(encoding="utf-8").splitlines():
+            if line.startswith(("VmRSS:", "VmHWM:")):
+                key, raw = line.split(":", 1)
+                kb = int(raw.strip().split()[0])
+                values[key] = round(kb / 1024.0, 2)
+        return {
+            "current_rss_mb": values.get("VmRSS"),
+            "proc_high_water_rss_mb": values.get("VmHWM"),
+        }
+    except (OSError, ValueError, IndexError):
+        return {"current_rss_mb": None, "proc_high_water_rss_mb": None}
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", required=True)
@@ -101,7 +118,8 @@ def main() -> int:
         "true_negatives": len(negative_scores) - fp,
         "tpr": round(tpr, 6),
         "fpr": round(fpr, 6),
-        "peak_process_rss_mb": round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024, 2),
+        "resource_ru_maxrss_mb": round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024, 2),
+        **proc_memory_mb(),
     }
     print(json.dumps(report))
     return 0
