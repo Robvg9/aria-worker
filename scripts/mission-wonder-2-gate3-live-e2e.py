@@ -269,7 +269,7 @@ def read_quota_baseline():
     )::text;
     """
     output = supabase_sql(query)
-    match = re.search(r"GATE3_QUOTA_BASELINE=(\\{[^\\r\\n]+\\})", output)
+    match = re.search(r"GATE3_QUOTA_BASELINE=(\{[^\r\n]+\})", output)
     if not match:
         print("GATE3_QUOTA_BASELINE_OUTPUT=" + output[-3000:])
         fail("quota baseline was not returned")
