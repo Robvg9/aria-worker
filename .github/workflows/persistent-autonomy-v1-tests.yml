@@ -196,7 +196,7 @@ jobs:
           }
 
   windows-physical-readonly-preflight:
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'feat/aria-windows-worker-preflight-20261031'
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (github.event.pull_request.head.ref == 'feat/aria-windows-worker-preflight-20261031' || github.event.pull_request.head.ref == 'chore/package2-readonly-inventory-20261102')
     runs-on: [self-hosted, Windows, X64]
     timeout-minutes: 5
     steps:
@@ -584,7 +584,7 @@ jobs:
           }
 
   windows-persistence-task-readonly-inventory:
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'chore/package2-inspection-20261031'
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (github.event.pull_request.head.ref == 'chore/package2-inspection-20261031' || github.event.pull_request.head.ref == 'chore/package2-readonly-inventory-20261102')
     needs: [contract-tests, windows-supervisor-syntax, live-security-readonly-check]
     runs-on: [self-hosted, Windows, X64]
     timeout-minutes: 3
