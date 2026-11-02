@@ -366,6 +366,22 @@ function createVoiceCommandRouter({
         ownerId: auth.ownerId
       });
       if (!result || result.ok !== true) return { status: 'failed', reason: 'device_action_failed', executed: false };
+      if (result.status === 'duplicate' || result.duplicate === true) {
+        return { status: 'duplicate', reason: 'idempotency_key_already_claimed', executed: false };
+      }
+      if (result.status === 'queued' || result.queued === true) {
+        if (typeof result.command_id !== 'string'
+            || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(result.command_id)) {
+          return { status: 'failed', reason: 'device_queue_ack_invalid', executed: false };
+        }
+        return {
+          status: 'queued',
+          executed: false,
+          command_id: result.command_id,
+          device_id: device.device_id,
+          operation: request.operation
+        };
+      }
       return { status: 'succeeded', executed: true, result: sanitizeActionResult(result, device.device_id, request.operation, config) };
     } catch {
       return { status: 'failed', reason: 'device_action_failed', executed: false };
