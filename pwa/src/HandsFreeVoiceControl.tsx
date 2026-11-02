@@ -362,6 +362,17 @@ export function HandsFreeVoiceControl({
         <span className='handsFreeVoiceIndicator' aria-hidden='true' />
         {enabled ? '■ Pausar manos libres' : '🎙️ Manos libres'}
       </button>
+      <button
+        type='button'
+        className='handsFreeSilenceButton'
+        aria-label='Detener la voz de ARIA'
+        onClick={() => {
+          stopAssistantSpeech();
+          setStatus('Voz de ARIA detenida.');
+        }}
+      >
+        🔇 Silencio
+      </button>
       <span className='handsFreeVoiceStatus' role='status' aria-live='polite'>
         {status}{wakeArmed ? ' · frase activada' : ''}
       </span>
