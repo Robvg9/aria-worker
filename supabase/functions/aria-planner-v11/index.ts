@@ -4,7 +4,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { hasExplicitBattleCruiserGitHubWriteIntent } from "../_shared/battlecruiser-github-write-intent.mjs";
 import { explicitPhysicalExecutionRequirement, validatePhysicalExecutionPlan } from "../_shared/physical-execution-contract.mjs";
-import { buildCloudflareWorkspacePlan, isCloudflarePlanProducerRequest } from "./cloudflare-workspace-plan-v1.mjs";
+import { buildCloudflareWorkspacePlan, isCloudflarePlanProducerRequest, sanitizeCloudflarePlanFailureReason } from "./cloudflare-workspace-plan-v1.mjs";
 import { isCloudflarePlanProducerPath } from "./cloudflare-plan-producer-path-v1.mjs";
 import { deriveCloudflarePlanPreviewToken } from "../_shared/cloudflare-plan-preview-auth-v1.mjs";
 const URL=Deno.env.get("SUPABASE_URL")!, KEY=Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, SECRET=Deno.env.get("ARIA_RUNTIME_SHARED_SECRET")!; const PLAN_BRIDGE_SECRET=Deno.env.get("ARIA_PLAN_PRODUCER_SHARED_SECRET")??"";
@@ -1553,7 +1553,9 @@ Deno.serve(async r=>{
     if(!producerGoal)return out({error:"goal_required"},400);
     const produced=await generateCloudflareWorkspacePlan(producerGoal,producerContext.cloudflare_workspace_request);
     if(!produced.ok){
-      return out({error:"cloudflare_workspace_plan_unavailable",reason:produced.reason},produced.status||503);
+      const safeReason=sanitizeCloudflarePlanFailureReason(produced.reason);
+      console.warn("ARIA_CLOUDFLARE_WORKSPACE_PLAN_REJECTED="+safeReason);
+      return out({error:"cloudflare_workspace_plan_unavailable",reason:safeReason},produced.status||503);
     }
     return out({
       ok:true,
