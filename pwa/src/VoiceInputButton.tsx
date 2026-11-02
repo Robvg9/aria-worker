@@ -7,6 +7,7 @@ type VoiceInputButtonProps = {
   autoSubmit?: boolean;
   buttonLabel?: string;
   listeningLabel?: string;
+  disabled?: boolean;
   className?: string;
 };
 
@@ -53,6 +54,7 @@ export function VoiceInputButton({
   autoSubmit = false,
   buttonLabel = '🎙️ Audio',
   listeningLabel = '■ Detener',
+  disabled = false,
   className = ''
 }: VoiceInputButtonProps) {
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
@@ -90,7 +92,7 @@ export function VoiceInputButton({
     if (transcript) {
       onTranscriptRef.current(transcript);
       if (session.audioFile) setNotice('Audio adjuntado y transcripción insertada. Revisa el texto y pulsa Enviar.');
-      else if (autoSubmit) setNotice('Transcripción lista. Enviando a ARIA…');
+      else if (autoSubmit) setNotice('Transcripción recibida. Procesando voz…');
       else if (session.audioError) setNotice('Transcripción insertada; no se pudo adjuntar el audio: ' + session.audioError);
       else setNotice('Transcripción insertada. Revísala y envíala.');
     } else if (session.audioFile) {
@@ -253,6 +255,7 @@ export function VoiceInputButton({
     <span className={'voiceInputControl ' + className}>
       <button
         type='button'
+        disabled={disabled}
         className='voiceInputButton'
         aria-label={listening ? listeningLabel : buttonLabel}
         aria-pressed={listening}
