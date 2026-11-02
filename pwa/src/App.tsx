@@ -3,6 +3,7 @@ import { ProjectWorkspace } from './ProjectWorkspace';
 import { PrivateVault } from './PrivateVault';
 import { VoiceInputButton } from './VoiceInputButton';
 import { HandsFreeVoiceControl } from './HandsFreeVoiceControl';
+import { appendVoiceDiagnostic } from './voiceDiagnostics';
 import { isVoiceMissionAffirmative, isVoiceMissionNegative, speakAssistantText, stopAssistantSpeech } from './voiceOutput';
 import { mergeRestoredChatMessages } from './chatHistory';
 import { missionActivityLabel, missionGoalPreview, missionHumanTitle, missionListLabel } from './missionPresentation';
@@ -2364,6 +2365,10 @@ function Chat({
     setConversationId(activeConversationId);
     setMessages(m => [...m, userMessage]);
     setText('');
+    const voiceRequestStartedAt = voiceModeRef.current ? Date.now() : null;
+    if (voiceRequestStartedAt !== null) {
+      appendVoiceDiagnostic('conversation_request_started', { voice_mode: true, chars: messageText.length });
+    }
     try {
       const parts: any[] = [];
       if (messageText) parts.push({ type: 'text', text: messageText });
@@ -2381,6 +2386,14 @@ function Chat({
       setAudioFile(null);
       const clientMessageId = crypto.randomUUID();
       const d = await api('/conversation', session.accessToken, { method: 'POST', body: JSON.stringify({ parts, clientMessageId, conversationId: activeConversationId, voice_mode: voiceModeRef.current }) });
+      if (voiceRequestStartedAt !== null) {
+        const firstText = Array.isArray(d?.parts) ? d.parts.find((item: any) => item?.type === 'text')?.text : '';
+        appendVoiceDiagnostic('conversation_response_received', {
+          duration_ms: Date.now() - voiceRequestStartedAt,
+          response_chars: typeof firstText === 'string' ? firstText.length : 0,
+          processing: Boolean(d?.processing)
+        });
+      }
       if (voiceModeRef.current && d?.processing) {
         throw new Error('La respuesta rápida de voz no está activa; se evitó esperar la cola lenta.');
       }
@@ -2437,6 +2450,13 @@ function Chat({
       }
       return Boolean(p?.text);
     } catch (x) {
+      if (voiceRequestStartedAt !== null) {
+        const code = x instanceof Error ? x.message.split(':')[0] : 'unknown';
+        appendVoiceDiagnostic('conversation_request_failed', {
+          duration_ms: Date.now() - voiceRequestStartedAt,
+          error_code: String(code || 'unknown').slice(0, 48)
+        });
+      }
       setError(x instanceof Error ? x.message : 'Error comunicando con ARIA.');
       return false;
     } finally {
