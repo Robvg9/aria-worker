@@ -141,7 +141,12 @@ function createVoiceCommandRouter({
   });
 
   async function route(request) {
-    const currentTime = Number(now());
+    let currentTime;
+    try {
+      currentTime = Number(now());
+    } catch {
+      return { status: 'blocked', reason: 'clock_unavailable', executed: false };
+    }
     if (!Number.isFinite(currentTime)) return { status: 'blocked', reason: 'clock_unavailable', executed: false };
     const shapeError = validateRequestShape(request, currentTime, maxRequestTtlMs);
     if (shapeError) return { status: 'blocked', reason: shapeError, executed: false };
@@ -153,6 +158,19 @@ function createVoiceCommandRouter({
         }
       } catch {
         return { status: 'blocked', reason: 'mission_pause_state_unavailable', executed: false };
+      }
+      let missionAuth;
+      try {
+        missionAuth = await verifyOwnerSession(request.owner_session, {
+          requireSpeaker: true,
+          requestId: request.request_id,
+          expiresAt: request.expires_at
+        });
+      } catch {
+        return { status: 'blocked', reason: 'owner_session_verification_failed', executed: false };
+      }
+      if (!missionAuth || missionAuth.valid !== true || !missionAuth.ownerId || missionAuth.speakerVerified !== true) {
+        return { status: 'blocked', reason: 'owner_speaker_verification_required', executed: false };
       }
       return { status: 'confirmation_required', reason: 'mission_human_confirmation_required', executed: false };
     }
@@ -198,6 +216,9 @@ function createVoiceCommandRouter({
       return { status: 'blocked', reason: 'lane_not_supported', executed: false };
     }
     const globalRead = isRead && request.operation === 'aria.status';
+    if (globalRead && request.device_id !== undefined) {
+      return { status: 'blocked', reason: 'global_status_must_not_target_device', executed: false };
+    }
     if (!globalRead && (!request.device_id || !validIdentifier(request.device_id, 4, 160))) {
       return { status: 'blocked', reason: 'explicit_device_target_required', executed: false };
     }
