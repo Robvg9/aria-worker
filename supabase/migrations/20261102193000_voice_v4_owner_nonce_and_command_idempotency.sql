@@ -685,6 +685,7 @@ CREATE TABLE IF NOT EXISTS aria_internal.voice_device_commands (
   command_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   owner_user_id uuid NOT NULL,
   device_id text NOT NULL REFERENCES aria_internal.device_registry(device_id) ON DELETE CASCADE,
+  source_device_id text NOT NULL REFERENCES aria_internal.device_registry(device_id) ON DELETE CASCADE,
   request_id text NOT NULL,
   idempotency_key text NOT NULL,
   operation text NOT NULL CHECK (
@@ -758,6 +759,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS voice_device_commands_owner_idempotency_idx
   ON aria_internal.voice_device_commands(owner_user_id, idempotency_key);
 CREATE INDEX IF NOT EXISTS voice_device_commands_claim_idx
   ON aria_internal.voice_device_commands(device_id, status, requested_at);
+CREATE INDEX IF NOT EXISTS voice_device_commands_source_idx
+  ON aria_internal.voice_device_commands(owner_user_id, source_device_id, status);
 
 COMMENT ON TABLE aria_internal.voice_device_commands IS
   'Direct, short-lived, allowlisted device actions. Separate from mission execution_jobs. Never stores mission/job IDs, arbitrary commands, audio, transcripts, or message bodies.';
@@ -765,6 +768,7 @@ COMMENT ON TABLE aria_internal.voice_device_commands IS
 CREATE OR REPLACE FUNCTION aria_internal.enqueue_voice_device_command(
   p_owner_user_id uuid,
   p_device_id text,
+  p_source_device_id text,
   p_request_id text,
   p_idempotency_key text,
   p_operation text,
@@ -782,6 +786,7 @@ DECLARE
 BEGIN
   IF p_owner_user_id IS NULL
      OR p_device_id IS NULL OR length(p_device_id) NOT BETWEEN 8 AND 160
+     OR p_source_device_id IS NULL OR length(p_source_device_id) NOT BETWEEN 8 AND 160
      OR p_request_id IS NULL OR length(p_request_id) NOT BETWEEN 8 AND 128
      OR p_idempotency_key IS NULL OR length(p_idempotency_key) NOT BETWEEN 16 AND 128
      OR p_idempotency_key !~ '^[A-Za-z0-9._:-]+$'
@@ -793,33 +798,44 @@ BEGIN
     RAISE EXCEPTION 'invalid direct voice command';
   END IF;
 
-  SELECT d.* INTO v_device
-  FROM aria_internal.device_registry d
-  JOIN aria_internal.voice_trusted_device_keys k
-    ON k.device_id = d.device_id
-  JOIN aria_internal.voice_speaker_policies s
-    ON s.owner_user_id = k.owner_user_id AND s.device_id = k.device_id
-  JOIN aria_internal.voice_speaker_model_catalog m
-    ON m.model_id = s.speaker_model_id AND m.status = 'approved'
-  WHERE k.owner_user_id = p_owner_user_id
-    AND d.device_id = p_device_id
-    AND d.status = 'online'
-    AND d.last_seen_at >= now() - interval '90 seconds'
-    AND d.capabilities @> '["audio.wake_word"]'::jsonb
-    AND k.enabled = true AND k.security = 'trusted' AND k.revoked_at IS NULL
-    AND s.enabled = true AND s.revoked_at IS NULL
+  SELECT target.* INTO v_device
+  FROM aria_internal.device_registry target
+  JOIN aria_internal.voice_trusted_device_keys target_key
+    ON target_key.owner_user_id = p_owner_user_id AND target_key.device_id = target.device_id
+  JOIN aria_internal.device_registry source
+    ON source.device_id = p_source_device_id
+  JOIN aria_internal.voice_trusted_device_keys source_key
+    ON source_key.owner_user_id = p_owner_user_id AND source_key.device_id = source.device_id
+  JOIN aria_internal.voice_speaker_policies source_policy
+    ON source_policy.owner_user_id = p_owner_user_id AND source_policy.device_id = source.device_id
+  JOIN aria_internal.voice_speaker_model_catalog model
+    ON model.model_id = source_policy.speaker_model_id AND model.status = 'approved'
+  WHERE target.device_id = p_device_id
+    AND target.status = 'online'
+    AND target.last_seen_at >= now() - interval '90 seconds'
+    AND target_key.enabled = true AND target_key.security = 'trusted' AND target_key.revoked_at IS NULL
+    AND source.status = 'online'
+    AND source.last_seen_at >= now() - interval '90 seconds'
+    AND source.capabilities @> '["audio.wake_word"]'::jsonb
+    AND source_key.enabled = true AND source_key.security = 'trusted' AND source_key.revoked_at IS NULL
+    AND source_policy.enabled = true AND source_policy.revoked_at IS NULL
+    AND (
+      (p_operation = 'display.brightness.set' AND target.capabilities @> '["display.brightness.write"]'::jsonb)
+      OR (p_operation = 'app.open' AND target.capabilities @> '["app.open"]'::jsonb)
+      OR (p_operation = 'browser.open_url' AND target.capabilities @> '["browser.open_url"]'::jsonb)
+    )
   LIMIT 1
-  FOR UPDATE OF d;
+  FOR UPDATE OF target;
 
   IF NOT FOUND THEN
     RAISE EXCEPTION 'trusted owner-verified voice device unavailable';
   END IF;
 
   INSERT INTO aria_internal.voice_device_commands (
-    owner_user_id, device_id, request_id, idempotency_key,
+    owner_user_id, device_id, source_device_id, request_id, idempotency_key,
     operation, params, expires_at
   ) VALUES (
-    p_owner_user_id, p_device_id, p_request_id, p_idempotency_key,
+    p_owner_user_id, p_device_id, p_source_device_id, p_request_id, p_idempotency_key,
     p_operation, coalesce(p_params, '{}'::jsonb), p_expires_at
   )
   ON CONFLICT (owner_user_id, idempotency_key) DO NOTHING
@@ -833,6 +849,7 @@ BEGIN
     'status','queued',
     'command_id',v_command.command_id,
     'device_id',v_command.device_id,
+    'source_device_id',v_command.source_device_id,
     'operation',v_command.operation,
     'expires_at',v_command.expires_at
   );
@@ -868,14 +885,22 @@ BEGIN
     JOIN aria_internal.device_registry d ON d.device_id = c.device_id
     JOIN aria_internal.voice_trusted_device_keys k
       ON k.owner_user_id = c.owner_user_id AND k.device_id = c.device_id
+    JOIN aria_internal.device_registry source
+      ON source.device_id = c.source_device_id
+    JOIN aria_internal.voice_trusted_device_keys source_key
+      ON source_key.owner_user_id = c.owner_user_id AND source_key.device_id = source.device_id
     JOIN aria_internal.voice_speaker_policies s
-      ON s.owner_user_id = c.owner_user_id AND s.device_id = c.device_id
+      ON s.owner_user_id = c.owner_user_id AND s.device_id = source.device_id
     JOIN aria_internal.voice_speaker_model_catalog m
       ON m.model_id = s.speaker_model_id AND m.status = 'approved'
     WHERE c.device_id = p_device_id
       AND c.status = 'queued'
       AND c.expires_at > now()
       AND k.enabled = true AND k.security = 'trusted' AND k.revoked_at IS NULL
+      AND source.status = 'online'
+      AND source.last_seen_at >= now() - interval '90 seconds'
+      AND source.capabilities @> '["audio.wake_word"]'::jsonb
+      AND source_key.enabled = true AND source_key.security = 'trusted' AND source_key.revoked_at IS NULL
       AND s.enabled = true AND s.revoked_at IS NULL
       AND d.token_hash = v_token_hash
       AND d.status = 'online'
@@ -900,6 +925,7 @@ BEGIN
   RETURN jsonb_build_object(
     'command_id',v_command.command_id,
     'device_id',v_command.device_id,
+    'source_device_id',v_command.source_device_id,
     'operation',v_command.operation,
     'params',v_command.params,
     'expires_at',v_command.expires_at,
@@ -942,7 +968,7 @@ BEGIN
   END IF;
   IF EXISTS (
        SELECT 1 FROM jsonb_object_keys(coalesce(p_result,'{}'::jsonb)) AS item(key)
-       WHERE item.key NOT IN ('ok','brightness','app_id','url','title','opened','verified','state')
+       WHERE item.key NOT IN ('ok','brightness','app_id','opened','verified')
      )
      OR EXISTS (
        SELECT 1 FROM jsonb_each(coalesce(p_result,'{}'::jsonb)) AS item(key,value)
@@ -961,7 +987,7 @@ BEGIN
              OR (item.value #>> '{}')::numeric NOT BETWEEN 0 AND 100
           ))
        OR (item.key IN ('opened','verified','ok') AND jsonb_typeof(item.value) <> 'boolean')
-       OR (item.key IN ('app_id','url','title','state') AND jsonb_typeof(item.value) <> 'string')
+       OR (item.key IN ('app_id') AND jsonb_typeof(item.value) <> 'string')
   ) THEN
     RAISE EXCEPTION 'voice command result value invalid';
   END IF;
@@ -981,13 +1007,21 @@ BEGIN
     AND EXISTS (
       SELECT 1
       FROM aria_internal.voice_trusted_device_keys k
+      JOIN aria_internal.device_registry source
+        ON source.device_id = c.source_device_id
+      JOIN aria_internal.voice_trusted_device_keys source_key
+        ON source_key.owner_user_id = c.owner_user_id AND source_key.device_id = source.device_id
       JOIN aria_internal.voice_speaker_policies s
-        ON s.owner_user_id = k.owner_user_id AND s.device_id = k.device_id
+        ON s.owner_user_id = c.owner_user_id AND s.device_id = source.device_id
       JOIN aria_internal.voice_speaker_model_catalog m
         ON m.model_id = s.speaker_model_id AND m.status = 'approved'
       WHERE k.owner_user_id = c.owner_user_id
         AND k.device_id = c.device_id
         AND k.enabled = true AND k.security = 'trusted' AND k.revoked_at IS NULL
+        AND source.status = 'online'
+        AND source.last_seen_at >= now() - interval '90 seconds'
+        AND source.capabilities @> '["audio.wake_word"]'::jsonb
+        AND source_key.enabled = true AND source_key.security = 'trusted' AND source_key.revoked_at IS NULL
         AND s.enabled = true AND s.revoked_at IS NULL
     )
     AND c.status IN ('claimed','running')
@@ -999,13 +1033,13 @@ END;
 $$;
 
 REVOKE ALL ON TABLE aria_internal.voice_device_commands FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION aria_internal.enqueue_voice_device_command(uuid,text,text,text,text,jsonb,timestamptz)
+REVOKE ALL ON FUNCTION aria_internal.enqueue_voice_device_command(uuid,text,text,text,text,text,jsonb,timestamptz)
   FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION aria_internal.claim_voice_device_command(text,text)
   FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION aria_internal.complete_voice_device_command(uuid,text,text,text,jsonb,text)
   FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION aria_internal.enqueue_voice_device_command(uuid,text,text,text,text,jsonb,timestamptz)
+GRANT EXECUTE ON FUNCTION aria_internal.enqueue_voice_device_command(uuid,text,text,text,text,text,jsonb,timestamptz)
   TO service_role;
 GRANT EXECUTE ON FUNCTION aria_internal.claim_voice_device_command(text,text)
   TO service_role;
