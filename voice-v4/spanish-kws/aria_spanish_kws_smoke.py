@@ -196,10 +196,14 @@ def main() -> int:
                 for case_id, _phrase, expected_candidate, expected_positive in CASES:
                     for variant_idx, (samples, sample_rate, duration) in enumerate(samples_by_case[case_id]):
                         detected, elapsed, count = detect(kws, samples, sample_rate)
+                        expected_for_candidate = expected_positive and (
+                            expected_candidate == candidate
+                            or (candidate == "aria" and expected_candidate == "oye_aria")
+                        )
                         candidate_rows.append({
                             "case": case_id,
                             "variant": variant_idx,
-                            "expected_positive": expected_positive and expected_candidate == candidate,
+                            "expected_positive": expected_for_candidate,
                             "detected": detected,
                             "duplicate_detections": count,
                             "audio_seconds": round(duration, 3),
