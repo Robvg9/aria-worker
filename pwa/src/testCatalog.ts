@@ -8,7 +8,7 @@ export type TestCatalogItem = {
   capabilities: string;
 };
 
-export const TEST_CATALOG_VERSION = '2026-10-30-mission-freeze-v1';
+export const TEST_CATALOG_VERSION = '2026-11-02-voice-v4-command-lanes-v1';
 export const TEST_CATALOG: TestCatalogItem[] = [
   {
     "id": "mission-job-authorization-fence",
@@ -2957,6 +2957,15 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "includedInNpmTest": true,
     "how": "Comprueba que las superficies de chat, crear misión, analizar ideas y Proyectos expongan dictado por micrófono con transcripción.",
     "capabilities": "Detecta regresiones de SpeechRecognition, idioma español, permisos del micrófono, inserción de transcripción y controles responsive."
+  },
+  {
+    "id": "voice-v4-command-router",
+    "file": "tests/voice-v4-command-router.test.js",
+    "title": "ARIA Voice V4 Command Lanes + Safety",
+    "category": "Seguridad / voz / dispositivos",
+    "includedInNpmTest": true,
+    "how": "Comprueba que voz se divide en consultas, acciones locales allowlisted y misiones, sin mezclar dispatch ni reabrir el freeze.",
+    "capabilities": "Detecta comandos shell arbitrarios, destinos ambiguos, equipos no confiables, capacidades ausentes, repetición entre dispositivos y envíos de mensajes sin confirmación."
   },
   {
     "id": "aria-autonomy-supabase-boundary",
