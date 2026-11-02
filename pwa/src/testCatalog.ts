@@ -8,7 +8,7 @@ export type TestCatalogItem = {
   capabilities: string;
 };
 
-export const TEST_CATALOG_VERSION = '2026-11-02-voice-v4-command-lanes-v1';
+export const TEST_CATALOG_VERSION = '2026-11-02-voice-v4-command-lanes-v2';
 export const TEST_CATALOG: TestCatalogItem[] = [
   {
     "id": "mission-job-authorization-fence",
@@ -2993,6 +2993,15 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "includedInNpmTest": true,
     "how": "Comprueba que un modelo KWS exportado incluya su metadata de preprocesamiento, umbral y activación, y que el gate ONNX pase antes de conservarlo.",
     "capabilities": "Detecta paquetes ONNX incompletos, sidecars incompatibles, hashes ausentes y candidatos sintéticos presentados incorrectamente como aprobados."
+  },
+  {
+    "id": "voice-v4-device-agent",
+    "file": "tests/voice-v4-device-agent.test.js",
+    "title": "ARIA Voice V4 Device Command Agent",
+    "category": "Voz / dispositivos / seguridad",
+    "includedInNpmTest": true,
+    "how": "Verifica la validación y el despacho de comandos directos desde la cola Voice V4 para agentes Windows y Android, sin usar la cola de misiones.",
+    "capabilities": "Bloquea dispositivos discordantes, comandos expirados, operaciones no permitidas, aplicaciones fuera de allowlist y URLs que no estén autorizadas; exige confirmación real del adaptador antes de reportar éxito."
   },
 
   {
