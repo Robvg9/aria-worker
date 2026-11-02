@@ -59,7 +59,9 @@ assert.match(app, /isVoiceMissionAffirmative\(transcript\)/, 'spoken affirmative
 assert.match(app, /isVoiceMissionNegative\(transcript\)/, 'spoken cancellation must be handled inside the pending mission confirmation gate');
 assert.match(app, /void send\(transcript\)/, 'voice mode must submit the final recognized transcript automatically');
 assert.match(voice, /autoSubmit = false/, 'voice input must preserve manual review mode outside voice conversation');
-assert.match(voice, /Transcripción lista\. Enviando a ARIA/, 'automatic voice mode must announce transcript submission');
+assert.match(voice, /Transcripción recibida\\. Procesando voz/, 'automatic voice mode must announce voice processing');
+assert.match(voice, /disabled = false/, 'voice input must support a busy-state guard');
+assert.match(app, /disabled=\\{sending\\}/, 'chat must prevent overlapping voice submissions');
 assert.match(css, /\.voiceModeToggle/, 'PWA must expose the voice mode control');
 
 (async () => {
