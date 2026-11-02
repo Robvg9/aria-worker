@@ -2559,7 +2559,7 @@ Deno.serve(async (req) => {
         });
       }
 
-      const lane = voiceMode ? { lane: "fast", reason: "voice_low_latency" } : classifyConversation(text);
+      const lane = (voiceMode || MISSION_EXECUTION_PAUSED) ? { lane: "fast", reason: voiceMode ? "voice_low_latency" : "mission_pause_conversation_only" } : classifyConversation(text);
       const cognitiveSources = lane.lane === "deep" ? await Promise.all([recall(text,user.id), learnedContext(project)]) : [[], { skills: [], world_model: null }];
       const memory = cognitiveSources[0] as any[];
       const learned = cognitiveSources[1] as any;
@@ -2567,7 +2567,7 @@ Deno.serve(async (req) => {
       if (lane.lane === "fast" || looksLikeSimpleConversation(text)) {
         const routes=await conversationRoutes();
         const eligibleRoutes=(voiceMode || MISSION_EXECUTION_PAUSED) ? routes.filter((route:any)=>route.provider_id!=="local_windows") : routes;
-        if(voiceMode&&!eligibleRoutes.length){
+        if((voiceMode || MISSION_EXECUTION_PAUSED)&&!eligibleRoutes.length){
           return json({error:"voice_cloud_route_unavailable",stage:"routing",trace_id:trace},503);
         }
         if(eligibleRoutes[0]) step={target:{type:"model",provider_id:eligibleRoutes[0].provider_id,account_id:eligibleRoutes[0].account_id,model_id:eligibleRoutes[0].model_id}};
