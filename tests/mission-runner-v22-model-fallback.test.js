@@ -18,6 +18,11 @@ const required = [
   "_provider_priority",
   "model_fallback_used",
   "model_execution_failures",
+  '.from("quota_registry")',
+  "m22QuotaAllowsModelRoute",
+  "blockedRateLimitProviders",
+  "blockedRateLimitAccounts",
+  "m22RateLimitFallbackAllowed(step.policy)",
   "LOCAL_DEVICE_HEARTBEAT_FRESHNESS_MS = 3 * 60_000",
   "function isFreshDeviceHeartbeat(lastSeenAt: unknown",
   "isFreshDeviceHeartbeat(d?.last_seen_at)",
@@ -76,3 +81,49 @@ if (!source.includes('executorType(step) === "connector"') || !source.includes('
   throw new Error("named tool success must be backed by a connector execution result");
 }
 console.log("mission runner required connector evidence anti-false-success contract: PASS");
+
+
+(async () => {
+  const governance = await import("../supabase/functions/aria-mission-runner-v22/model-fallback-governance-v1.mjs");
+  const check = (condition, label) => {
+    if (!condition) throw new Error("model fallback governance regression: " + label);
+    console.log("model fallback governance: " + label + " PASS");
+  };
+  const expected = {
+    provider_id: "openrouter",
+    account_id: "acct_openrouter_primary",
+    model_id: "nvidia/nemotron-3.5-lightning:free",
+  };
+  const availableQuota = {
+    ...expected,
+    status: "available",
+    limits_requests: 50,
+    usage_requests: 0,
+    limits_tokens_input: null,
+    usage_tokens_input: null,
+    limits_tokens_output: null,
+    usage_tokens_output: null,
+    limits_tokens_total: null,
+    usage_tokens_total: null,
+  };
+  check(governance.m22QuotaAllowsModelRoute([availableQuota], expected), "exact available model quota accepted");
+  check(!governance.m22QuotaAllowsModelRoute([], expected), "missing quota fails closed");
+  check(!governance.m22QuotaAllowsModelRoute([{ ...availableQuota, status: "disabled" }], expected), "disabled quota excluded");
+  check(!governance.m22QuotaAllowsModelRoute([{ ...availableQuota, status: "unknown" }], expected), "unknown quota excluded");
+  check(!governance.m22QuotaAllowsModelRoute([{ ...availableQuota, account_id: "another-account" }], expected), "wrong account quota excluded");
+  check(!governance.m22QuotaAllowsModelRoute([{ ...availableQuota, model_id: "another-model" }], expected), "wrong model quota excluded");
+  check(!governance.m22QuotaAllowsModelRoute([{ ...availableQuota, model_id: null }], expected), "account-wide ambiguous quota excluded");
+  check(!governance.m22QuotaAllowsModelRoute([availableQuota, { ...availableQuota }], expected), "duplicate quota rows fail closed");
+  check(!governance.m22QuotaAllowsModelRoute([{ ...availableQuota, usage_requests: 50 }], expected), "request-exhausted quota excluded");
+  check(!governance.m22QuotaAllowsModelRoute([{ ...availableQuota, limits_tokens_total: 100, usage_tokens_total: 100 }], expected), "token-exhausted quota excluded");
+  check(governance.m22ClassifyModelFallbackFailure(402, 429, null, "quota exhausted") === "quota_exhausted", "outer HTTP 402 wins over nested 429");
+  check(governance.m22ClassifyModelFallbackFailure(429, 402, null, "rate limited") === "rate_limit", "outer HTTP 429 wins over nested 402");
+  check(governance.m22ClassifyModelFallbackFailure(200, 429, null, "too many requests") === "rate_limit", "nested provider 429 recognized");
+  check(governance.m22ClassifyModelFallbackFailure(200, null, "rate_limit", "provider limit") === "rate_limit", "provider rate-limit code recognized");
+  check(governance.m22RateLimitFallbackAllowed({ allow_rate_limit_fallback: true }), "explicit boolean rate-limit fallback enabled");
+  check(!governance.m22RateLimitFallbackAllowed({ allow_rate_limit_fallback: "true" }), "string true does not enable rate-limit fallback");
+  check(!governance.m22RateLimitFallbackAllowed({}), "rate-limit fallback denied by default");
+})().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});

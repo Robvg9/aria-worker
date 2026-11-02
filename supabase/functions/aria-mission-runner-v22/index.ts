@@ -5,6 +5,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { bitriseExecute } from "./bitrise.ts";
 import { createPlanWithTimeout, buildDeviceEnqueuePayload, cloudflareConnectorExecute, DEVICE_OPS_ALLOWLIST } from "./forensic-continuity-fixes.ts";
 import { resolveDeviceTargetPolicy } from "./device-target-policy-v1.mjs";
+import { m22ClassifyModelFallbackFailure, m22QuotaAllowsModelRoute, m22RateLimitFallbackAllowed } from "./model-fallback-governance-v1.mjs";
 import { validatePhysicalExecutionPlan, validatePhysicalExecutionEvidence } from "../_shared/physical-execution-contract.mjs";
 
 const V_LOGICAL = "aria-mission-runner-v22-universal";
@@ -2057,7 +2058,7 @@ async function verifiedModelFallbackRoutes(original: any, operation: string) {
 
   // Cross-provider fallback is intentionally READ-only. The primary route remains
   // unchanged; only already-verified, enabled routes registered in ARIA may be used.
-  const [modelsRes, capsRes, accountsRes] = await Promise.all([
+  const [modelsRes, capsRes, accountsRes, quotasRes] = await Promise.all([
     sb.schema("aria_internal").from("model_registry")
       .select("model_id,provider_id,status,enabled")
       .in("provider_id", ["openrouter", "google"]),
@@ -2068,8 +2069,14 @@ async function verifiedModelFallbackRoutes(original: any, operation: string) {
     sb.schema("aria_internal").from("account_registry")
       .select("account_id,provider_id,status,enabled,models")
       .in("provider_id", ["openrouter", "google"]),
+    sb.schema("aria_internal").from("quota_registry")
+      .select("account_id,provider_id,model_id,status,limits_requests,usage_requests,limits_tokens_input,usage_tokens_input,limits_tokens_output,usage_tokens_output,limits_tokens_total,usage_tokens_total")
+      .in("provider_id", ["openrouter", "google"]),
   ]);
-  if (modelsRes.error || capsRes.error || accountsRes.error) return [];
+  // A route without one unambiguous, available model-level quota is not eligible.
+  // Missing/unknown/disabled/exhausted quota data fails closed; account-wide rows
+  // with a null model_id are intentionally not treated as proof for a model.
+  if (modelsRes.error || capsRes.error || accountsRes.error || quotasRes.error) return [];
 
   const caps = new Map((capsRes.data || []).map((x:any) => [String(x.model_id), x]));
   const accounts = (accountsRes.data || []).filter((x:any) =>
@@ -2088,11 +2095,17 @@ async function verifiedModelFallbackRoutes(original: any, operation: string) {
     if (providerId === "openrouter" && !modelId.endsWith(":free")) continue;
     if (providerId === "google" && !modelId.endsWith("-direct")) continue;
 
-    const account = accounts.find((a:any) =>
-      a.provider_id === providerId &&
-      Array.isArray(a.models) &&
-      a.models.includes(modelId)
-    );
+    const account = accounts.find((a:any) => {
+      const accountId = String(a.account_id || "");
+      return a.provider_id === providerId &&
+        Array.isArray(a.models) &&
+        a.models.includes(modelId) &&
+        m22QuotaAllowsModelRoute(quotasRes.data, {
+          provider_id: providerId,
+          account_id: accountId,
+          model_id: modelId,
+        });
+    });
     if (!account) continue;
 
     out.push({
@@ -2202,12 +2215,18 @@ async function modelExecute(missionId: string, step: any, auth: AuthContext) {
   const injectFault = typeof step?.input?.fault_injection === "string" ? String(step.input.fault_injection) : "";
   const injectAll = step?.input?.fault_all_routes === true;
   const blockedProviderAccounts = new Set<string>();
+  const blockedRateLimitProviders = new Set<string>();
+  const blockedRateLimitAccounts = new Set<string>();
   for (const route of routes) {
     const routeAccountKey = `${route.provider_id}:${route.account_id}`;
-    // Once a provider/account signals exhausted quota or payment-required, do
-    // not retry another model on that same service. Continue only to a
-    // separately verified account/provider route.
-    if (blockedProviderAccounts.has(routeAccountKey)) continue;
+    // 402 keeps the existing provider/account circuit breaker. A 429 blocks the
+    // entire rate-limited provider and account so another model/account cannot
+    // be used to evade the provider's limit.
+    if (
+      blockedProviderAccounts.has(routeAccountKey) ||
+      blockedRateLimitProviders.has(String(route.provider_id)) ||
+      blockedRateLimitAccounts.has(String(route.account_id))
+    ) continue;
     if (route.provider_id === "local_windows") {
       const source = step.input && typeof step.input === "object" ? step.input : {};
       const localPrompt = typeof source.prompt === "string"
@@ -2335,8 +2354,21 @@ async function modelExecute(missionId: string, step: any, auth: AuthContext) {
       message: String(err.message || "model execution failed"),
       provider_status: err.provider_status ?? null,
     });
-    if (isProviderQuotaBlocked(response.status, err.provider_status, err.code, err.message)) {
+    const failureKind = m22ClassifyModelFallbackFailure(
+      response.status,
+      err.provider_status,
+      err.code,
+      err.message,
+    );
+    if (failureKind === "quota_exhausted") {
       blockedProviderAccounts.add(routeAccountKey);
+    }
+    if (failureKind === "rate_limit") {
+      blockedRateLimitProviders.add(String(route.provider_id));
+      blockedRateLimitAccounts.add(String(route.account_id));
+      // 429 is terminal by default. An explicit true policy may continue only
+      // through the remaining routes; the blocked provider/account stay skipped.
+      if (!m22RateLimitFallbackAllowed(step.policy)) break;
     }
   }
 
