@@ -9,6 +9,7 @@ export function cleanSpeechText(value) {
     .replace(/<[^>]*>/g, ' ')
     .replace(/[\*_\`>#~|]/g, ' ')
     .replace(/\s+/g, ' ')
+    .replace(/\s+([.,!?;:])/g, '$1')
     .trim()
     .slice(0, 3200);
 }
