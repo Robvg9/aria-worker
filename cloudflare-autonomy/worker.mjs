@@ -802,9 +802,17 @@ export class AriaMissionStore {
     if (!goal || goal.length > 10000) return error('goal_required_or_too_long', 400);
     const policyInput = body.policy && typeof body.policy === 'object' ? body.policy : {};
     const metadata = body.metadata && typeof body.metadata === 'object' ? clone(body.metadata) : {};
+    const workspaceRequest = metadata.cloudflare_workspace_request;
+    const workspaceMutationRequested = Boolean(
+      workspaceRequest && workspaceRequest.allow_mutations === true &&
+      Array.isArray(workspaceRequest.tasks) &&
+      workspaceRequest.tasks.some(task => task && ['workspace.write', 'workspace.edit'].includes(String(task.operation || '')))
+    );
     const policy = {
-      max_risk: parseRisk(policyInput.max_risk || 'medium'),
-      require_human_approval: policyInput.require_human_approval !== false,
+      // Mutating workspace plans are forced behind a human gate regardless of
+      // a caller-supplied max_risk/require_human_approval override.
+      max_risk: workspaceMutationRequested ? 'low' : parseRisk(policyInput.max_risk || 'medium'),
+      require_human_approval: workspaceMutationRequested ? true : policyInput.require_human_approval !== false,
       allow_background: true,
       max_steps: Math.max(1, Math.min(50, Number(policyInput.max_steps) || 20))
     };
@@ -947,7 +955,8 @@ export class AriaMissionStore {
       ok: true,
       tasks: payload.plan.tasks,
       planner_version: String(payload.planner_version || 'unknown'),
-      contract_version: String(payload.contract_version || 'unknown')
+      contract_version: String(payload.contract_version || 'unknown'),
+      requires_human_approval_for_mutations: payload.requires_human_approval_for_mutations === true
     };
   }
 
@@ -966,8 +975,9 @@ export class AriaMissionStore {
       source: 'supabase:aria-planner-v11',
       planner_version: result.planner_version,
       contract_version: result.contract_version,
+      requires_human_approval_for_mutations: result.requires_human_approval_for_mutations === true,
       tasks: result.tasks,
-      read_only_preview: true
+      durable_state_mutated: false
     });
   }
 
