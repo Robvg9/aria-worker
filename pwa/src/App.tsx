@@ -2451,10 +2451,11 @@ function Chat({
       return Boolean(p?.text);
     } catch (x) {
       if (voiceRequestStartedAt !== null) {
-        const code = x instanceof Error ? x.message.split(':')[0] : 'unknown';
+        const detail = x instanceof Error ? x.message : '';
+        const knownCode = detail.match(/^([a-z][a-z0-9_]{2,47})(?::|$)/i)?.[1];
         appendVoiceDiagnostic('conversation_request_failed', {
           duration_ms: Date.now() - voiceRequestStartedAt,
-          error_code: String(code || 'unknown').slice(0, 48)
+          error_code: knownCode ? knownCode.toLowerCase() : 'request_failed'
         });
       }
       setError(x instanceof Error ? x.message : 'Error comunicando con ARIA.');
