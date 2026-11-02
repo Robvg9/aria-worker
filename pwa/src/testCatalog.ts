@@ -2985,6 +2985,15 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "how": "Comprueba permisos de almacenamiento, adaptadores de sesión y límites de separación entre acciones directas y el motor de misiones.",
     "capabilities": "Impide persistir audio o plantillas biométricas, introducir datos de voz en jobs de misión o exponer RPC privados."
   },
+  {
+    "id": "voice-v4-heed-model-package",
+    "file": "tests/voice-v4-heed-model-package.test.js",
+    "title": "ARIA Voice V4 Heed ONNX + Metadata Package Contract",
+    "category": "Voz / modelos / seguridad",
+    "includedInNpmTest": true,
+    "how": "Comprueba que un modelo KWS exportado incluya su metadata de preprocesamiento, umbral y activación, y que el gate ONNX pase antes de conservarlo.",
+    "capabilities": "Detecta paquetes ONNX incompletos, sidecars incompatibles, hashes ausentes y candidatos sintéticos presentados incorrectamente como aprobados."
+  },
 
   {
     "id": "aria-autonomy-supabase-boundary",
