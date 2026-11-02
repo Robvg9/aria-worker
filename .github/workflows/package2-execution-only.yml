@@ -10,6 +10,9 @@ on:
       - 'cloudflare-autonomy/worker.mjs'
       - 'supabase/functions/aria-planner-v11/index.ts'
       - 'supabase/functions/aria-planner-v11/cloudflare-workspace-plan-v1.mjs'
+      - 'supabase/functions/_shared/cloudflare-plan-preview-auth-v1.mjs'
+      - 'supabase/functions/aria-execution-runtime-v1/index.ts'
+      - 'tests/cloudflare-plan-preview-auth.test.cjs'
       - 'tests/cloudflare-workspace-plan-contract.test.cjs'
       - 'tests/cloudflare-autonomy-remote-plan-producer.test.cjs'
       - '.github/workflows/aria-autonomy-coordinator-deploy.yml'
@@ -52,6 +55,8 @@ jobs:
         run: |
           node --check cloudflare-autonomy/worker.mjs
           node --check supabase/functions/aria-planner-v11/cloudflare-workspace-plan-v1.mjs
+          node --check supabase/functions/_shared/cloudflare-plan-preview-auth-v1.mjs
+          node --check tests/cloudflare-plan-preview-auth.test.cjs
           node --check scripts/aria-persistent-windows-worker-v1.js
           node --check scripts/aria-persistent-windows-worker-preflight-v1.js
           node --check autonomy/aria-windows-execution-adapter-v1.js
@@ -64,6 +69,7 @@ jobs:
         run: |
           node tests/cloudflare-autonomy-worker-execution-plan.test.cjs
           node tests/cloudflare-workspace-plan-contract.test.cjs
+          node tests/cloudflare-plan-preview-auth.test.cjs
           node tests/cloudflare-autonomy-remote-plan-producer.test.cjs
           node tests/cloudflare-autonomy-package3-scope.test.cjs
           node tests/cloudflare-autonomy-worker.test.js
