@@ -709,28 +709,28 @@ CREATE TABLE IF NOT EXISTS aria_internal.voice_device_commands (
     AND idempotency_key ~ '^[A-Za-z0-9._:-]+$'
   ),
   CONSTRAINT voice_device_command_params_shape CHECK (
-    CASE operation
-      WHEN 'display.brightness.set' THEN
-        jsonb_typeof(params) = 'object'
-        AND params ? 'brightness'
-        AND jsonb_typeof(params->'brightness') = 'number'
-        AND (params->>'brightness')::numeric BETWEEN 0 AND 100
-        AND jsonb_object_length(params) = 1
-      WHEN 'app.open' THEN
-        jsonb_typeof(params) = 'object'
-        AND params ? 'app_id'
-        AND jsonb_typeof(params->'app_id') = 'string'
-        AND length(params->>'app_id') BETWEEN 1 AND 120
-        AND params->>'app_id' ~ '^[A-Za-z0-9._-]+$'
-        AND jsonb_object_length(params) = 1
-      WHEN 'browser.open_url' THEN
-        jsonb_typeof(params) = 'object'
-        AND params ? 'url'
-        AND jsonb_typeof(params->'url') = 'string'
-        AND length(params->>'url') BETWEEN 9 AND 2048
-        AND params->>'url' ~ '^https://'
-        AND jsonb_object_length(params) = 1
-      ELSE false
+    CASE
+      WHEN jsonb_typeof(params) <> 'object' THEN false
+      ELSE CASE operation
+        WHEN 'display.brightness.set' THEN
+          params ? 'brightness'
+          AND jsonb_typeof(params->'brightness') = 'number'
+          AND (params->>'brightness')::numeric BETWEEN 0 AND 100
+          AND jsonb_object_length(params) = 1
+        WHEN 'app.open' THEN
+          params ? 'app_id'
+          AND jsonb_typeof(params->'app_id') = 'string'
+          AND length(params->>'app_id') BETWEEN 1 AND 120
+          AND params->>'app_id' ~ '^[A-Za-z0-9._-]+$'
+          AND jsonb_object_length(params) = 1
+        WHEN 'browser.open_url' THEN
+          params ? 'url'
+          AND jsonb_typeof(params->'url') = 'string'
+          AND length(params->>'url') BETWEEN 9 AND 2048
+          AND params->>'url' ~ '^https://'
+          AND jsonb_object_length(params) = 1
+        ELSE false
+      END
     END
   ),
   CONSTRAINT voice_device_command_expiry_window CHECK (
@@ -929,9 +929,18 @@ BEGIN
      OR p_device_id IS NULL OR length(p_device_id) NOT BETWEEN 8 AND 160
      OR p_device_token IS NULL OR length(p_device_token) < 32
      OR p_status IS NULL OR p_status NOT IN ('succeeded','failed')
-     OR jsonb_typeof(coalesce(p_result,'{}'::jsonb)) <> 'object'
      OR (p_status = 'succeeded' AND p_error_code IS NOT NULL)
-     OR EXISTS (
+     OR (p_error_code IS NOT NULL AND p_error_code NOT IN (
+       'device_unavailable','permission_denied','operation_unsupported',
+       'app_not_allowlisted','url_not_allowlisted','native_api_failed',
+       'command_expired','command_cancelled','device_busy'
+     )) THEN
+    RAISE EXCEPTION 'invalid voice command completion';
+  END IF;
+  IF jsonb_typeof(coalesce(p_result,'{}'::jsonb)) <> 'object' THEN
+    RAISE EXCEPTION 'voice command result must be an object';
+  END IF;
+  IF EXISTS (
        SELECT 1 FROM jsonb_object_keys(coalesce(p_result,'{}'::jsonb)) AS item(key)
        WHERE item.key NOT IN ('ok','brightness','app_id','url','title','opened','verified','state')
      )
@@ -939,13 +948,8 @@ BEGIN
        SELECT 1 FROM jsonb_each(coalesce(p_result,'{}'::jsonb)) AS item(key,value)
        WHERE jsonb_typeof(item.value) NOT IN ('string','number','boolean')
           OR (jsonb_typeof(item.value) = 'string' AND length(item.value #>> '{}') > 160)
-     )
-     OR (p_error_code IS NOT NULL AND p_error_code NOT IN (
-       'device_unavailable','permission_denied','operation_unsupported',
-       'app_not_allowlisted','url_not_allowlisted','native_api_failed',
-       'command_expired','command_cancelled','device_busy'
-     )) THEN
-    RAISE EXCEPTION 'invalid voice command completion';
+     ) THEN
+    RAISE EXCEPTION 'voice command result contains unsupported fields or values';
   END IF;
   v_token_hash := encode(extensions.digest(p_device_token, 'sha256'), 'hex');
 
