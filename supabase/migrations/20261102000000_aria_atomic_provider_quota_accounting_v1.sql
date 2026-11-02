@@ -485,6 +485,9 @@ BEGIN
       UPDATE aria_internal.quota_registry
       SET
         usage_requests = CASE WHEN usage_period_start = v_period_start THEN COALESCE(usage_requests, 0) + 1 ELSE 1 END,
+        usage_tokens_input = CASE WHEN v_prompt_tokens IS NULL THEN usage_tokens_input WHEN usage_period_start = v_period_start THEN COALESCE(usage_tokens_input, 0) + v_prompt_tokens ELSE v_prompt_tokens END,
+        usage_tokens_output = CASE WHEN v_completion_tokens IS NULL THEN usage_tokens_output WHEN usage_period_start = v_period_start THEN COALESCE(usage_tokens_output, 0) + v_completion_tokens ELSE v_completion_tokens END,
+        usage_tokens_total = CASE WHEN COALESCE(v_total_tokens, v_prompt_tokens + v_completion_tokens) IS NULL THEN usage_tokens_total WHEN usage_period_start = v_period_start THEN COALESCE(usage_tokens_total, 0) + COALESCE(v_total_tokens, v_prompt_tokens + v_completion_tokens) ELSE COALESCE(v_total_tokens, v_prompt_tokens + v_completion_tokens) END,
         usage_period_start = v_period_start,
         usage_period_end = v_period_end,
         metadata = metadata || jsonb_build_object('verified_gate3_historical_requests_backfilled', 1),
