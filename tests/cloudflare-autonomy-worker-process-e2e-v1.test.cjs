@@ -109,7 +109,7 @@ async function readJson(response, expectedStatus = 200) {
     "module.exports = Object.freeze({",
     "  supabaseIndependent: true,",
     "  localInference: false,",,
-    "  capabilities: Object.freeze(['workspace']),",
+    "  capabilities: Object.freeze(['mission.plan', 'workspace', 'mission.verify']),",
     "  async health() { return { ok: true, local_inference: false, adapter: 'isolated-package3-fixture' }; },",
     "  async plan(goal) {",
     "    if (!String(goal).includes('package 3 isolated E2E')) throw new Error('unexpected_mission_goal');",
