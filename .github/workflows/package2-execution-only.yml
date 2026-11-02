@@ -5,6 +5,8 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/package2-execution-only.yml'
+      - '.github/workflows/aria-autonomy-coordinator-deploy.yml'
+      - '.github/workflows/persistent-autonomy-v1-tests.yml'
       - 'cloudflare-autonomy/worker.mjs'
       - 'supabase/functions/aria-planner-v11/index.ts'
       - 'supabase/functions/aria-planner-v11/cloudflare-workspace-plan-v1.mjs'
