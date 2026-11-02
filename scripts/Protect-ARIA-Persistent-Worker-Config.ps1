@@ -29,8 +29,8 @@ if (-not $AdapterPath) {
     $AdapterPath = Join-Path $installRoot 'autonomy\aria-windows-execution-adapter-v1.js'
 }
 $adapterPath = (Resolve-Path -LiteralPath $AdapterPath).Path
-$adapterRelative = [System.IO.Path]::GetRelativePath($installRoot, $adapterPath)
-if ($adapterRelative -eq '..' -or $adapterRelative.StartsWith('..' + [System.IO.Path]::DirectorySeparatorChar) -or [System.IO.Path]::IsPathRooted($adapterRelative)) {
+$installPrefix = $installRoot.TrimEnd('\') + '\'
+if (-not $adapterPath.StartsWith($installPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
     throw 'Execution adapter must remain inside InstallDir.'
 }
 
