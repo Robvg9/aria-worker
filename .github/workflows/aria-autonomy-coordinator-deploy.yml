@@ -67,6 +67,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          trap 'rm -f .aria-autonomy-secrets.json' EXIT
           python - <<'PY'
           import hashlib, hmac, json, os
           root_secret = os.environ["ARIA_RUNTIME_SHARED_SECRET"]
@@ -84,7 +85,6 @@ jobs:
           with open(".aria-autonomy-secrets.json", "w", encoding="utf-8") as handle:
               json.dump(payload, handle)
           PY
-          trap 'rm -f .aria-autonomy-secrets.json' EXIT
           wrangler deploy --config wrangler.aria-autonomy.toml --secrets-file .aria-autonomy-secrets.json
           echo "ARIA_AUTONOMY_CLOUDFLARE_DEPLOY_COMMAND_COMPLETED=true"
       - name: Verify live health, auth, frozen scope and canonical plan bridge
