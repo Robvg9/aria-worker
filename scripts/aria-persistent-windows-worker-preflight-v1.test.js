@@ -43,7 +43,7 @@ async function testReadOnlyPreflightPassesWithoutLocalModel() {
       return new Response('{"error":"unauthorized_worker"}', { status: 401 });
     }
     assert.equal(options.headers.authorization, 'Bearer ' + workerToken);
-    return new Response('{"error":"method_not_allowed"}', { status: 405 });
+    return new Response('{"error":"mission_execution_paused"}', { status: 423 });
   };
 
   const result = await runPreflight({ env: baseEnv, fetchImpl, adapterLoader });
@@ -105,7 +105,7 @@ async function testRejectsInvalidWorkerTokenWithoutMutation() {
   };
   await assert.rejects(
     () => runPreflight({ env: baseEnv, fetchImpl, adapterLoader }),
-    /coordinator_status_mismatch:worker_token_accepted_read_only:expected_405:received_401/
+    /coordinator_status_mismatch:worker_token_accepted_and_global_freeze_enforced:expected_423:received_401/
   );
   assert.equal(calls, 3);
 }
