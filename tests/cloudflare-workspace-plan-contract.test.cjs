@@ -33,9 +33,10 @@ const {
     isCloudflarePlanProducerPath('/functions/v1/aria-execution-runtime-v1'),
     isCloudflarePlanProducerPath('/functions/v1/aria-planner-v11/extra')
   ], [true, true, true, false, false], 'only the canonical planner endpoint forms are accepted');
-  assert.equal(sanitizeCloudflarePlanFailureReason('Model output rejected: Unexpected <token> in JSON'), 'model_output_rejected:_unexpected_token_in_json');
+  assert.equal(sanitizeCloudflarePlanFailureReason('planner_model_output_invalid_json'), 'planner_model_output_invalid_json');
+  assert.equal(sanitizeCloudflarePlanFailureReason('workspace_search_query_invalid'), 'workspace_search_query_invalid');
+  assert.equal(sanitizeCloudflarePlanFailureReason('Model output rejected: Unexpected <token> in JSON'), 'remote_plan_producer_rejected');
   assert.equal(sanitizeCloudflarePlanFailureReason(''), 'remote_plan_producer_rejected');
-  assert.equal(sanitizeCloudflarePlanFailureReason('x'.repeat(240)).length, 160);
 
   // The narrow plan bridge has its own secret; runtime root auth remains separate.
   assert.ok(plannerSource.includes('Deno.env.get("ARIA_PLAN_PRODUCER_SHARED_SECRET")??"";'));
