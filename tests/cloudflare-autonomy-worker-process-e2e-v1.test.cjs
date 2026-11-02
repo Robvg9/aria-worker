@@ -399,7 +399,7 @@ async function readJson(response, expectedStatus = 200) {
     assert.equal(missions.size, 1);
     const events = await storage.list({ prefix: 'event:' + missionId + ':' });
     const eventValues = Array.from(events.values());
-    for (const eventType of ['mission_created', 'mission_planned', 'task_started', 'task_succeeded', 'mission_verified_complete']) {
+    for (const eventType of ['mission_created', 'mission_plan_submitted', 'task_started', 'task_succeeded', 'mission_verified_complete']) {
       assert.equal(eventValues.filter(event => event.type === eventType).length, 1, 'duplicate event: ' + eventType);
     }
     assert.equal(eventValues.length, 5, 'mission lifecycle must have one deterministic event per completed phase');
