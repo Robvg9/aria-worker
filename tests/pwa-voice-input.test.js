@@ -91,6 +91,9 @@ assert.ok(voice.includes('Transcripción recibida. ARIA está preparando tu resp
 assert.ok(voice.includes('Respuesta recibida. Puedes hablar de nuevo.'), 'voice processing notice must resolve when the assistant reply arrives');
 assert.match(voice, /Promise\.resolve\(\)[\s\S]*onTranscriptRef\.current\(transcript\)/, 'voice mode must await completion of the assistant turn');
 assert.match(app, /voice_mode: voiceModeRef\.current/, 'voice chat must explicitly request its low-latency backend path');
+assert.match(app, /appendVoiceDiagnostic\('conversation_request_started'/, 'voice diagnostics must record when a transcript is sent to the API');
+assert.match(app, /appendVoiceDiagnostic\('conversation_response_received'/, 'voice diagnostics must distinguish a received API response from a recognition event');
+assert.match(app, /appendVoiceDiagnostic\('conversation_request_failed'/, 'voice diagnostics must record request failures without storing message content');
 assert.match(app, /return send\(transcript\)/, 'voice input must await the assistant response result');
 assert.match(voice, /disabled = false/, 'voice input must support a busy-state guard');
 assert.ok(app.includes('disabled={sending}'), 'chat must prevent overlapping voice submissions');
@@ -130,6 +133,9 @@ assert.match(app, /voiceModePrivacyNote/, 'PWA must disclose that the browser ma
   assert.equal(voiceDiagnostics.appendVoiceDiagnostic('interim_result', { chars: 14 }, { storage: diagnosticStorage }).persisted, true, 'interim result metadata must be supported');
   assert.equal(voiceDiagnostics.appendVoiceDiagnostic('no_final_result', {}, { storage: diagnosticStorage }).persisted, true, 'missing final recognition results must be observable');
   assert.equal(voiceDiagnostics.appendVoiceDiagnostic('no_match', {}, { storage: diagnosticStorage }).persisted, true, 'browser no-match outcomes must be observable');
+  assert.equal(voiceDiagnostics.appendVoiceDiagnostic('conversation_request_started', { voice_mode: true, chars: 24 }, { storage: diagnosticStorage }).persisted, true);
+  assert.equal(voiceDiagnostics.appendVoiceDiagnostic('conversation_response_received', { duration_ms: 450, response_chars: 18, processing: false }, { storage: diagnosticStorage }).persisted, true);
+  assert.equal(voiceDiagnostics.appendVoiceDiagnostic('conversation_request_failed', { duration_ms: 6500, error_code: 'voice_response_unavailable' }, { storage: diagnosticStorage }).persisted, true);
   for (let i = 0; i < 65; i += 1) {
     voiceDiagnostics.appendVoiceDiagnostic('recognition_end', {}, { storage: diagnosticStorage, now: 1793644447000 + i });
   }
