@@ -799,7 +799,8 @@ async function executeConversationWithFallback(step:any, prompt:string, conversa
 }
 
 
-async function executeVoiceConversation(step:any,prompt:string,conversationId:string,visualContext:any,clientMessageId:string|null) {
+async function executeVoiceConversation(step:any,prompt:string,conversationId:string,visualContext:any,clientMessageId:string|null,traceId:string) {
+  const routeStartedAt=Date.now();
   const routes=await conversationRoutes();
   const primary=step?.target && step.target.provider_id!=="local_windows" ? step.target : null;
   const candidates:any[]=[];
@@ -809,20 +810,67 @@ async function executeVoiceConversation(step:any,prompt:string,conversationId:st
     if(!seen.has(key)){seen.add(key);candidates.push(route);}
     if(candidates.length>=2)break;
   }
-  if(!candidates.length)throw new Error("voice_cloud_route_unavailable");
+  console.info("[ARIA-VOICE-REQUEST-START]",JSON.stringify({
+    trace_id:traceId,
+    provider_candidate_count:candidates.length,
+    request_timeout_ms:12000,
+    provider_timeout_ms:6000,
+    local_fallback:false
+  }));
+  if(!candidates.length){
+    console.warn("[ARIA-VOICE-ROUTE-FAILED]",JSON.stringify({
+      trace_id:traceId,
+      error_code:"voice_cloud_route_unavailable",
+      duration_ms:Date.now()-routeStartedAt
+    }));
+    throw new Error("voice_cloud_route_unavailable");
+  }
   const failures:any[]=[];
-  for(const route of candidates){
+  for(let attempt=0;attempt<candidates.length;attempt++){
+    const route=candidates[attempt];
+    const providerStartedAt=Date.now();
     const candidate={...(step||{}),target:{...(step?.target||{}),type:"model",provider_id:route.provider_id,account_id:route.account_id,model_id:route.model_id}};
+    console.info("[ARIA-VOICE-PROVIDER-ATTEMPT]",JSON.stringify({
+      trace_id:traceId,
+      attempt:attempt+1,
+      provider_id:String(route.provider_id),
+      model_id:String(route.model_id)
+    }));
     try{
       const result=await execute(candidate,prompt,conversationId,visualContext,clientMessageId,true,12000,160,true);
       const content=typeof result?.response?.content==="string"?result.response.content.trim():"";
       if(result?.status!=="succeeded"||!content)throw new Error("voice_empty_response");
+      console.info("[ARIA-VOICE-RESPONSE-RECEIVED]",JSON.stringify({
+        trace_id:traceId,
+        provider_id:String(route.provider_id),
+        model_id:String(route.model_id),
+        duration_ms:Date.now()-providerStartedAt,
+        route_duration_ms:Date.now()-routeStartedAt,
+        response_chars:content.length,
+        status:"succeeded",
+        fallback_count:failures.length
+      }));
       return {result,route,fallback_count:failures.length,failures};
     }catch(error){
-      failures.push({provider_id:String(route.provider_id),model_id:String(route.model_id),error:sanitizeChatFailureDetail(error instanceof Error?error.message:error)});
+      const detail=error instanceof Error?error.message:String(error);
+      const code=detail.match(/^([a-z][a-z0-9_]{2,80})(?::|$)/i)?.[1]?.toLowerCase()||"provider_request_failed";
+      console.warn("[ARIA-VOICE-PROVIDER-FAILED]",JSON.stringify({
+        trace_id:traceId,
+        provider_id:String(route.provider_id),
+        model_id:String(route.model_id),
+        duration_ms:Date.now()-providerStartedAt,
+        error_code:code
+      }));
+      failures.push({provider_id:String(route.provider_id),model_id:String(route.model_id),error:sanitizeChatFailureDetail(detail)});
       if(!shouldRetryPrimaryRouteOnce(error))break;
     }
   }
+  console.error("[ARIA-VOICE-ROUTE-FAILED]",JSON.stringify({
+    trace_id:traceId,
+    total_duration_ms:Date.now()-routeStartedAt,
+    attempted_providers:failures.length,
+    error_code:"voice_response_unavailable"
+  }));
   const error:any=new Error("voice_response_unavailable:"+failures.map((item:any)=>item.provider_id+"_"+item.error).join("|"));
   error.failures=failures;
   throw error;
@@ -2637,7 +2685,7 @@ Deno.serve(async (req) => {
       if(voiceMode || MISSION_EXECUTION_PAUSED){
         const conversationStartedAt=Date.now();
         const execution=voiceMode
-          ? await executeVoiceConversation(step,prompt,conversationId,visual_context,clientMessageId)
+          ? await executeVoiceConversation(step,prompt,conversationId,visual_context,clientMessageId,trace)
           : await executeConversationOnly(step,prompt,conversationId,visual_context,clientMessageId);
         const answer=String(execution?.result?.response?.content??"").trim();
         if(!answer)throw new Error(voiceMode?"voice_empty_response":"conversation_empty_response");
