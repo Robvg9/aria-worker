@@ -79,9 +79,11 @@ async function main() {
   }
   if (adapter.supabaseIndependent !== true ||
       adapter.localInference !== false ||
+      typeof adapter.plan === 'function' ||
+      typeof adapter.replan === 'function' ||
       typeof adapter.executeTask !== 'function' ||
       typeof adapter.verifyCompletion !== 'function') {
-    throw new Error('Worker adapter must be Supabase-independent, execution-only (localInference:false), and expose executeTask + verifyCompletion.');
+    throw new Error('Worker adapter must be Supabase-independent, execution-only (localInference:false), expose no planner, and provide executeTask + verifyCompletion.');
   }
   if (typeof adapter.health === 'function') {
     const health = await adapter.health();
