@@ -188,20 +188,20 @@ jobs:
           node scripts/patch-eas-into-mission-runner-v22.js supabase/functions/aria-mission-runner-v22/index.ts
           # Phase 3: only the canonical execution chain is release-bearing.
           # Legacy planner/runner/supervisor slots remain compatibility-only and are not re-deployed.
-          supabase functions deploy aria-planner-v11 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
-          supabase functions deploy aria-canonical-runtime-v1 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
-          supabase functions deploy aria-mission-runner-v22 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
-          supabase functions deploy aria-runtime-gateway-v1 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
-          supabase functions deploy aria-execution-runtime-v1 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
-          supabase functions deploy aria-device-gateway --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
-          supabase functions deploy aria-smart-verifier-v1 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
-          supabase functions deploy aria-agent-runtime-v1 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
-          supabase functions deploy aria-gemini-direct-live-check-v1 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
-          supabase functions deploy aria-direct-v1 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
-          supabase functions deploy aria-app-api-v3 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
-          supabase functions deploy aria-github-app-runtime-v1 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
-          supabase functions deploy aria-memory-v2 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
-          supabase functions deploy aria-mcp-inbound-grok-v1 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
+          supabase functions deploy aria-planner-v11 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt --yes
+          supabase functions deploy aria-canonical-runtime-v1 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt --yes
+          supabase functions deploy aria-mission-runner-v22 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt --yes
+          supabase functions deploy aria-runtime-gateway-v1 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt --yes
+          supabase functions deploy aria-execution-runtime-v1 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt --yes
+          supabase functions deploy aria-device-gateway --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt --yes
+          supabase functions deploy aria-smart-verifier-v1 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt --yes
+          supabase functions deploy aria-agent-runtime-v1 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt --yes
+          supabase functions deploy aria-gemini-direct-live-check-v1 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt --yes
+          supabase functions deploy aria-direct-v1 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt --yes
+          supabase functions deploy aria-app-api-v3 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt --yes
+          supabase functions deploy aria-github-app-runtime-v1 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt --yes
+          supabase functions deploy aria-memory-v2 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt --yes
+          supabase functions deploy aria-mcp-inbound-grok-v1 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt --yes
 # Final 3/7 notification cutover verification trigger: keep production workflows exercising the exact main state.
 
 # 2026-09-28: canonical runtime deploy must certify planner metadata forwarding + device-intent routing from main.
