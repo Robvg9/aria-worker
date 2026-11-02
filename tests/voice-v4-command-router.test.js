@@ -2,6 +2,9 @@
 
 const assert = require('node:assert/strict');
 
+let createVoiceCommandRouter;
+let LANES;
+
 function fixture(overrides = {}) {
   const calls = { read: [], action: [], claim: [], auth: [], capability: [] };
   const claimed = new Set();
@@ -68,7 +71,7 @@ function request(overrides = {}) {
 }
 
 (async () => {
-  const { createVoiceCommandRouter, LANES } = await import('../supabase/functions/_shared/voice-command-router.mjs');
+  ({ createVoiceCommandRouter, LANES } = await import('../supabase/functions/_shared/voice-command-router.mjs'));
   const fx = fixture();
   const allowed = await fx.router.route(request());
   assert.equal(allowed.status, 'queued', 'the API must not claim execution before a target agent confirms it');
