@@ -160,6 +160,20 @@ async function xaiResponses(route:any,input:any,requestId:string,providerTimeout
   return out({status:"succeeded",response:{modality:"text",content:text,provider_response_id:typeof json?.id==="string"?json.id:null,finish_reason:typeof json?.status==="string"?json.status:null,provider_model:typeof json?.model==="string"?json.model:route.model_id},usage:{status:"reported",prompt_tokens:inTok,completion_tokens:outTok,total_tokens:total},metadata:{runtime:"aria-execution-runtime-v1",adapter_id:"xai_responses",provider_id:"xai",route_type:"direct",attempt:1,quota_accounting:settled?"settled":"reserved_settlement_pending",canonical_write:false,memory_authority:"none"}});
 }
 Deno.serve(async r=>{if(r.method!=="POST")return out({error:"method_not_allowed"},405);if(!(await auth(r)))return out({error:"unauthorized"},401);const body=await r.json().catch(()=>({}));const route=body?.selected_route;const input=body?.input;const az=body?.authorization;const policy=body?.policy;const rawVoiceTimeout=Number(body?.metadata?.voice_provider_timeout_ms);const voiceProviderTimeoutMs=body?.metadata?.voice_mode===true?Math.max(1000,Math.min(8000,Number.isFinite(rawVoiceTimeout)&&rawVoiceTimeout>0?rawVoiceTimeout:6000)):null;
+const conversationOnlyAllowed=
+  body?.metadata?.conversation_only===true&&
+  body?.metadata?.source_application==="aria-app-v1"&&
+  body?.metadata?.executor_type==="model"&&
+  typeof body?.metadata?.conversation_id==="string"&&
+  body?.metadata?.conversation_id.length>0&&
+  !body?.metadata?.mission_id&&!body?.metadata?.step_id&&!body?.metadata?.job_id&&
+  body?.capability==="text_generation"&&
+  body?.policy?.conversation_only===true&&
+  ["google","xai","openrouter"].includes(String(route?.provider_id||""))&&
+  body?.authorization?.status==="approved"&&
+  body?.authorization?.risk_class==="READ"&&
+  body?.authorization?.evidence_ref==="aria-app-conversation-v1"&&
+  (typeof input?.payload?.prompt==="string"&&input.payload.prompt.length<=12000||Array.isArray(input?.payload?.contents));
 let gate3ScopedProbeAllowed=false;
 let cloudflarePlanPreviewAllowed=false;
 if(MISSION_EXECUTION_PAUSED){
@@ -209,7 +223,7 @@ if(MISSION_EXECUTION_PAUSED){
   }catch{
     cloudflarePlanPreviewAllowed=false;
   }
-  if(!gate3ScopedProbeAllowed&&!cloudflarePlanPreviewAllowed){
+  if(!gate3ScopedProbeAllowed&&!cloudflarePlanPreviewAllowed&&!conversationOnlyAllowed){
     return out({status:"paused",error:{code:"mission_execution_paused"},execution_enabled:false},423);
   }
 }if(!route||typeof route!=="object")return out({status:"blocked",reason:"route_missing"});if(!az||az.status!=="approved")return out({status:"blocked",reason:"authorization_not_approved"});if(policy?.human_gate_required===true){if(az.human_gate_verified!==true)return out({status:"blocked",reason:"human_gate_required"});if(typeof az.human_gate_mission_id!=="string"||typeof az.human_gate_step_id!=="string"||typeof az.human_gate_action_hash!=="string"||typeof az.human_gate_approval_token!=="string")return out({status:"blocked",reason:"human_gate_evidence_missing"});const {data:gateOk,error:gateError}=await sb.rpc("human_gate_authorize_execution",{p_mission_id:az.human_gate_mission_id,p_step_id:az.human_gate_step_id,p_action_hash:az.human_gate_action_hash,p_approval_token:az.human_gate_approval_token});if(gateError||gateOk!==true)return out({status:"blocked",reason:"human_gate_authorization_invalid"});}
