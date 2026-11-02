@@ -60,6 +60,7 @@ function request(overrides = {}) {
     lane: LANES.DEVICE_ACTION,
     operation: 'display.brightness.set',
     device_id: 'device-robvg',
+    source_device_id: 'device-android',
     params: { brightness: 100 },
     owner_session: { valid: true, speakerVerified: true },
     source: 'voice',
@@ -78,6 +79,8 @@ function request(overrides = {}) {
   assert.equal(fx.calls.claim.length, 1);
   assert.equal(fx.calls.auth[0].options.requireSpeaker, true);
   assert.equal(fx.calls.auth[0].options.expectedOwnerId, 'owner-123');
+  assert.equal(fx.calls.auth[0].options.deviceId, 'device-android');
+  assert.equal(fx.calls.action[0].sourceDeviceId, 'device-android', 'signature source and action target must remain separate');
 
   const duplicate = await fx.router.route(request({ request_id: 'req-voice-0002' }));
   assert.equal(duplicate.status, 'duplicate');
@@ -165,6 +168,9 @@ function request(overrides = {}) {
   assert.equal(noSpeakerFx.calls.action.length, 0);
 
   const noTargetFx = fixture();
+  const noSource = await noTargetFx.router.route(request({ source_device_id: undefined }));
+  assert.equal(noSource.reason, 'source_device_id_required');
+
   const noTarget = await noTargetFx.router.route(request({ device_id: undefined }));
   assert.equal(noTarget.reason, 'explicit_device_target_required');
   assert.equal(noTargetFx.calls.action.length, 0);
