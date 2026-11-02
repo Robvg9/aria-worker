@@ -26,7 +26,8 @@ assert.match(app, /VoiceInputButton\s+captureAudio=\{!voiceMode\}\s+autoSubmit=\
 assert.match(app, /for \(const attachment of attachments\)/, 'main chat must upload audio alongside normal attachments');
 assert.match(app, /VoiceInputButton captureAudio onAudio=\{setMissionAudioFile\}/, 'mission creation must record and attach its audio');
 assert.match(app, /VoiceInputButton captureAudio onAudio=\{setIdeaAudioFile\}/, 'Meditation IA idea analysis must record and attach its audio');
-assert.equal((app.match(/<VoiceInputButton captureAudio/g) || []).length, 3, 'all three main PWA AI input surfaces must record original audio, not dictation only');
+assert.equal((app.match(/<VoiceInputButton captureAudio/g) || []).length, 2, 'mission and idea surfaces retain audio attachments; voice chat uses transcript-only mode');
+assert.match(app, /captureAudio=\{!voiceMode\}/, 'voice chat does not upload a second copy of audio');
 assert.match(app, /audio_attachments: audioAttachments/, 'main mission request must send uploaded audio metadata');
 assert.match(app, /audio_transcript: clean/, 'mission and idea requests must include the transcribed text');
 
