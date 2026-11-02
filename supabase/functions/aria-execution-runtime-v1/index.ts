@@ -166,14 +166,19 @@ const conversationOnlyAllowed=
   body?.metadata?.executor_type==="model"&&
   typeof body?.metadata?.conversation_id==="string"&&
   body?.metadata?.conversation_id.length>0&&
+  body?.execution_version==="1"&&
+  body?.task_id==="conversation:"+body?.metadata?.conversation_id&&
   !body?.metadata?.mission_id&&!body?.metadata?.step_id&&!body?.metadata?.job_id&&
-  body?.capability==="text_generation"&&
+  body?.capability==="text_generation"&&route?.capability==="text_generation"&&
   body?.policy?.conversation_only===true&&
   ["google","xai","openrouter"].includes(String(route?.provider_id||""))&&
   body?.authorization?.status==="approved"&&
   body?.authorization?.risk_class==="READ"&&
   body?.authorization?.evidence_ref==="aria-app-conversation-v1"&&
-  (typeof input?.payload?.prompt==="string"&&input.payload.prompt.length<=12000||Array.isArray(input?.payload?.contents));
+  !Array.isArray(input?.payload?.tools)&&
+  (typeof input?.payload?.prompt==="string"&&input.payload.prompt.length<=12000||
+   Array.isArray(input?.payload?.contents)&&input.payload.contents.length<=3&&
+   input.payload.contents.every((item:any)=>item?.role==="user"&&Array.isArray(item?.parts)&&item.parts.length<=3));
 let gate3ScopedProbeAllowed=false;
 let cloudflarePlanPreviewAllowed=false;
 if(MISSION_EXECUTION_PAUSED){
