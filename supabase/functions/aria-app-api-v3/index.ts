@@ -506,7 +506,7 @@ function chatFailureMessage(error: unknown, traceId: string): string {
   return "No se pudo completar la respuesta de ARIA. Diagnóstico: " + detail + ". El mensaje quedó guardado; la referencia técnica es " + trace + ".";
 }
 
-async function execute(step: any, prompt: string, conversationId: string, visualContext:any=null, clientMessageId:string|null=null, waitForLocal:boolean=true) {
+async function execute(step: any, prompt: string, conversationId: string, visualContext:any=null, clientMessageId:string|null=null, waitForLocal:boolean=true, requestTimeoutMs=45000, maxTokens=512) {
   const target = step?.target;
   if (!target?.provider_id || !target?.account_id || !target?.model_id) throw new Error("executor_contract_route_incomplete");
   if (target.provider_id === "local_windows") {
@@ -616,7 +616,7 @@ async function execute(step: any, prompt: string, conversationId: string, visual
     }
     throw new Error("local_qwen_job_timeout");
   }
-  let payload:any={prompt,max_tokens:512,temperature:0.3};
+  let payload:any={prompt,max_tokens:maxTokens,temperature:0.3};
   let multimodal=false;
   if(visualContext?.image_path && target.provider_id==="google"){
     const signed=await serviceClient().storage.from(MEDIA_BUCKET).createSignedUrl(String(visualContext.image_path),600);
@@ -629,10 +629,10 @@ async function execute(step: any, prompt: string, conversationId: string, visual
     const chunk=32768;
     for(let i=0;i<bytes.length;i+=chunk) binary+=String.fromCharCode(...bytes.subarray(i,Math.min(bytes.length,i+chunk)));
     const base64=btoa(binary);
-    payload={contents:[{role:"user",parts:[{text:prompt},{inlineData:{mimeType:String(visualContext.mime_type||"image/png"),data:base64}}]}],generationConfig:{maxOutputTokens:512,temperature:0.3}};
+    payload={contents:[{role:"user",parts:[{text:prompt},{inlineData:{mimeType:String(visualContext.mime_type||"image/png"),data:base64}}]}],generationConfig:{maxOutputTokens:maxTokens,temperature:0.3}};
     multimodal=true;
   }
-  const x=await internal(EXEC,{execution_version:"1",request_id:conversationId+":"+crypto.randomUUID(),task_id:"conversation:"+conversationId,capability:"text_generation",selected_route:{status:"selected",provider_id:target.provider_id,account_id:target.account_id,model_id:target.model_id,capability:"text_generation"},authorization:{status:"approved",risk_class:"READ",evidence_ref:"aria-app-api-v3"},input:{payload},policy:{},metadata:{conversation_id:conversationId,source_application:"aria-app-v1",executor_type:"model",multimodal}},45000);
+  const x=await internal(EXEC,{execution_version:"1",request_id:conversationId+":"+crypto.randomUUID(),task_id:"conversation:"+conversationId,capability:"text_generation",selected_route:{status:"selected",provider_id:target.provider_id,account_id:target.account_id,model_id:target.model_id,capability:"text_generation"},authorization:{status:"approved",risk_class:"READ",evidence_ref:"aria-app-api-v3"},input:{payload},policy:{},metadata:{conversation_id:conversationId,source_application:"aria-app-v1",executor_type:"model",multimodal}},requestTimeoutMs);
   if(!x.r.ok||x.b?.status!=="succeeded") {
     const failure = x.b?.error && typeof x.b.error === "object" ? x.b.error : {};
     const code = sanitizeChatFailureDetail(failure.code ?? x.b?.reason ?? x.b?.status ?? "execution_failed").replace(/[^A-Za-z0-9_.:-]/g, "_").slice(0, 100);
@@ -731,11 +731,11 @@ function shouldRetryPrimaryRouteOnce(error:any) {
   return /provider_status_(?:502|503|504)\b|high demand|overload|temporarily unavailable|service unavailable|bad gateway/.test(value);
 }
 
-async function executeConversationWithFallback(step:any, prompt:string, conversationId:string, visualContext:any=null, clientMessageId:string|null=null, waitForLocal:boolean=true) {
+async function executeConversationWithFallback(step:any, prompt:string, conversationId:string, visualContext:any=null, clientMessageId:string|null=null, waitForLocal:boolean=true, allowLocalFallback=true, requestTimeoutMs=45000, maxTokens=512) {
   const failures:any[]=[];
   if(step?.target){
     try{
-      const result=await execute(step,prompt,conversationId,visualContext,clientMessageId,waitForLocal);
+      const result=await execute(step,prompt,conversationId,visualContext,clientMessageId,waitForLocal,requestTimeoutMs,maxTokens);
       return {result,route:{provider_id:step.target.provider_id,account_id:step.target.account_id,model_id:step.target.model_id},fallback_count:0,failures};
     }catch(error){
       failures.push({provider_id:step.target.provider_id,account_id:step.target.account_id,model_id:step.target.model_id,error:String(error instanceof Error?error.message:error)});
@@ -748,7 +748,7 @@ async function executeConversationWithFallback(step:any, prompt:string, conversa
         }));
         await new Promise(resolve=>setTimeout(resolve,1200));
         try{
-          const result=await execute(step,prompt,conversationId,visualContext,clientMessageId,waitForLocal);
+          const result=await execute(step,prompt,conversationId,visualContext,clientMessageId,waitForLocal,requestTimeoutMs,maxTokens);
           return {result,route:{provider_id:step.target.provider_id,account_id:step.target.account_id,model_id:step.target.model_id},fallback_count:0,primary_retry_count:1,failures};
         }catch(retryError){
           failures.push({provider_id:step.target.provider_id,account_id:step.target.account_id,model_id:step.target.model_id,attempt:2,error:String(retryError instanceof Error?retryError.message:retryError)});
@@ -777,7 +777,7 @@ async function executeConversationWithFallback(step:any, prompt:string, conversa
       || String(a.provider_id).localeCompare(String(b.provider_id))
       || String(a.model_id).localeCompare(String(b.model_id));
   }).slice(0,1);
-  const candidateRoutes=[...cloudFallbacks,...(localRoute?[localRoute]:[])];
+  const candidateRoutes=[...cloudFallbacks,...(allowLocalFallback&&localRoute?[localRoute]:[])];
 
   for(const route of candidateRoutes){
     const key=String(route.provider_id)+"|"+String(route.account_id)+"|"+String(route.model_id);
@@ -785,7 +785,7 @@ async function executeConversationWithFallback(step:any, prompt:string, conversa
     seen.add(key);
     try{
       const candidate={...step,target:{...(step.target||{}),type:"model",provider_id:route.provider_id,account_id:route.account_id,model_id:route.model_id,...(route.device_id?{device_id:route.device_id}: {})}};
-      const result=await execute(candidate,prompt,conversationId,visualContext,clientMessageId,waitForLocal);
+      const result=await execute(candidate,prompt,conversationId,visualContext,clientMessageId,waitForLocal,requestTimeoutMs,maxTokens);
       return {result,route,fallback_count:failures.length,failures};
     }catch(error){
       failures.push({provider_id:route.provider_id,account_id:route.account_id,model_id:route.model_id,error:String(error instanceof Error?error.message:error)});
@@ -798,6 +798,34 @@ async function executeConversationWithFallback(step:any, prompt:string, conversa
   throw error;
 }
 
+
+async function executeVoiceConversation(step:any,prompt:string,conversationId:string,visualContext:any,clientMessageId:string|null) {
+  const routes=await conversationRoutes();
+  const primary=step?.target && step.target.provider_id!=="local_windows" ? step.target : null;
+  const candidates:any[]=[];
+  const seen=new Set<string>();
+  for(const route of [primary,...routes.filter((item:any)=>item.provider_id!=="local_windows")].filter(Boolean)){
+    const key=String(route.provider_id)+"|"+String(route.account_id)+"|"+String(route.model_id);
+    if(!seen.has(key)){seen.add(key);candidates.push(route);}
+    if(candidates.length>=2)break;
+  }
+  if(!candidates.length)throw new Error("voice_cloud_route_unavailable");
+  const failures:any[]=[];
+  for(const route of candidates){
+    const candidate={...(step||{}),target:{...(step?.target||{}),type:"model",provider_id:route.provider_id,account_id:route.account_id,model_id:route.model_id}};
+    try{
+      const result=await execute(candidate,prompt,conversationId,visualContext,clientMessageId,true,10000,192);
+      const content=typeof result?.response?.content==="string"?result.response.content.trim():"";
+      if(result?.status!=="succeeded"||!content)throw new Error("voice_empty_response");
+      return {result,route,fallback_count:failures.length,failures};
+    }catch(error){
+      failures.push({provider_id:String(route.provider_id),model_id:String(route.model_id),error:sanitizeChatFailureDetail(error instanceof Error?error.message:error)});
+    }
+  }
+  const error:any=new Error("voice_response_unavailable:"+failures.map((item:any)=>item.provider_id+"_"+item.error).join("|"));
+  error.failures=failures;
+  throw error;
+}
 
 async function completeConversationInBackground(args:{
   userId:string;
@@ -2358,8 +2386,9 @@ Deno.serve(async (req) => {
       const body = await req.json().catch(() => null);
       const parts = Array.isArray(body?.parts) ? body.parts : [];
       const text = parts.filter((p:any)=>p?.type==="text").map((p:any)=>String(p.text??"").trim()).filter(Boolean).join("\n");
+      const voiceMode = body?.voice_mode === true;
       const project = normalizeProjectContext(body);
-      const battleCruiserLiveContext = project?.id === "battlecruiser"
+      const battleCruiserLiveContext = !voiceMode && project?.id === "battlecruiser"
         ? await battleCruiserLiveUserContext(req.headers.get("x-battlecruiser-access-token"))
         : null;
       const visual_context = normalizeVisualContext(body);
@@ -2508,14 +2537,18 @@ Deno.serve(async (req) => {
         });
       }
 
-      const lane = classifyConversation(text);
+      const lane = voiceMode ? { lane: "fast", reason: "voice_low_latency" } : classifyConversation(text);
       const cognitiveSources = lane.lane === "deep" ? await Promise.all([recall(text,user.id), learnedContext(project)]) : [[], { skills: [], world_model: null }];
       const memory = cognitiveSources[0] as any[];
       const learned = cognitiveSources[1] as any;
       let step: any;
       if (lane.lane === "fast" || looksLikeSimpleConversation(text)) {
         const routes=await conversationRoutes();
-        if(routes[0]) step={target:{type:"model",provider_id:routes[0].provider_id,account_id:routes[0].account_id,model_id:routes[0].model_id}};
+        const eligibleRoutes=voiceMode ? routes.filter((route:any)=>route.provider_id!=="local_windows") : routes;
+        if(voiceMode&&!eligibleRoutes.length){
+          return json({error:"voice_cloud_route_unavailable",stage:"routing",trace_id:trace},503);
+        }
+        if(eligibleRoutes[0]) step={target:{type:"model",provider_id:eligibleRoutes[0].provider_id,account_id:eligibleRoutes[0].account_id,model_id:eligibleRoutes[0].model_id}};
       }
       if (!step?.target) {
         try {
@@ -2526,13 +2559,14 @@ Deno.serve(async (req) => {
       }
       const context = memory.slice(0, 6).map((m:any)=>String(m?.content??"").trim()).filter(Boolean).join("\n\n");
       const runtimeQuery = /\b(estado|misi[oó]n|misiones|ejecuci[oó]n|bloquead|completad|online|capacidad|capacidades|dispositivo|meditaci[oó]n|verificaci[oó]n|runtime|aria)\b/i.test(text);
-      const live = runtimeQuery ? await liveAssistantContext(user.id).catch(() => null) : null;
+      const live = !voiceMode && runtimeQuery ? await liveAssistantContext(user.id).catch(() => null) : null;
       const liveText = live ? "Estado LIVE del sistema ARIA (fuente operativa):\n" + JSON.stringify(live) : "";
       const prompt = [
         "Eres ARIA, la IA operativa del sistema.",
         "REGLA PRINCIPAL: responde primero y exactamente a la última frase del usuario. No conviertas el contexto técnico o el historial del sistema en la pregunta del usuario.",
         "El estado LIVE, memoria y contexto visual son fuentes auxiliares. Solo úsalos cuando ayuden a contestar la petición real.",
         "Para una conversación casual, saludo, confirmación o pregunta simple, responde de forma directa y natural; no hables de misiones o Meditación IA salvo que el usuario lo haya pedido.",
+        voiceMode ? "MODO VOZ DE BAJA LATENCIA: responde como en una conversación oral natural, en español claro, directamente a la pregunta, en 1 a 3 frases breves (máximo unas 55 palabras). No uses Markdown, encabezados, listas ni explicaciones de procesamiento. No delegues esta respuesta a dispositivos locales." : "",
         "No digas que careces de acceso a herramientas, persistencia o ejecución si el contexto demuestra lo contrario.",
         "No inventes acciones ejecutadas. Distingue siempre entre en cola, ejecutando, bloqueada, completada o fallida.",
         project ? "PROYECTO ACTIVO: " + JSON.stringify(project) + ". Mantén la conversación dentro de este proyecto y no la desvíes al estado global de ARIA salvo que el usuario lo pida." : "",
@@ -2546,11 +2580,46 @@ Deno.serve(async (req) => {
         "MENSAJE DEL USUARIO — RESPONDE A ESTO DIRECTAMENTE:\n" + text
       ].filter(Boolean).join("\n\n");
       const modelStartedAt = Date.now();
-      const debateRequested = shouldDebate(text, lane.lane);
+      const debateRequested = !voiceMode && shouldDebate(text, lane.lane);
       const title=project?.name ? project.name+" · Chat" : "ARIA · Chat";
-      // Never hold the HTTP request open for two 45-second model attempts.
-      // The canonical user message is already persisted; the client will poll the
-      // canonical conversation until the assistant reply (or explicit failure) is persisted.
+      if(voiceMode){
+        const voiceStartedAt=Date.now();
+        const execution=await executeVoiceConversation(step,prompt,conversationId,visual_context,clientMessageId);
+        const answer=String(execution?.result?.response?.content??"").trim();
+        if(!answer)throw new Error("voice_empty_response");
+        const assistantPersistStartedAt=Date.now();
+        let voicePersistenceWarning:string|null=null;
+        try{
+          await persistConversationMessage(user.id,conversationId,"assistant",answer,[{type:"text",text:answer}],trace,"success",
+            String(execution.route?.provider_id||"unknown"),String(execution.route?.model_id||"unknown"),
+            project?.name ? project.name+" · Chat" : "ARIA · Chat",project);
+        }catch(error){
+          voicePersistenceWarning=String((error as any)?.message??error);
+        }
+        return json({
+          ok:true,
+          conversationId,
+          visualState:"success",
+          parts:[{type:"text",text:answer}],
+          cognitive:{
+            recall_count:memory.length,
+            provider_id:execution.route?.provider_id??null,
+            model_id:execution.route?.model_id??null,
+            fallback_count:execution.fallback_count??0,
+            voice_mode:true,
+            voice_low_latency:true,
+            processing_ms:Date.now()-voiceStartedAt,
+            input_persistence_ms:initialPersistenceMs,
+            assistant_persistence_ms:Date.now()-assistantPersistStartedAt,
+            persistence_warning:voicePersistenceWarning
+          },
+          trace_id:trace
+        });
+      }
+
+      // Standard typed conversations stay asynchronous and retain their existing
+      // governed fallback/recovery path. Voice mode takes the bounded cloud path above.
+      // The canonical user message is persisted before model execution.
       const jobId=("chat_"+conversationId+"_"+(clientMessageId||trace)).replace(/[^a-zA-Z0-9_-]/g,"_").slice(0,120);
       EdgeRuntime.waitUntil(completeConversationInBackground({
         userId:user.id,
