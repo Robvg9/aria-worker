@@ -9,6 +9,9 @@ import { deriveOperationalDiagnostic } from "../_shared/operational-diagnostics.
 import { inspectGithubSource, buildCapabilityIndex, buildAbsorptionPlan, buildAbsorptionIdentity, advanceAbsorptionPlan, evaluateAbsorptionCompletion } from "../_shared/absorb-engine.mjs";
 import { deriveMissionDisplayTitle, MISSION_TITLE_VERSION } from "../_shared/mission-title.mjs";
 import { handlePrivateVaultRequest, isPrivateVaultRoute, privateVaultAuthFailure, privateVaultPreflight } from "./private-vault.ts";
+import { createVoiceCommandRouter } from "../_shared/voice-command-router.mjs";
+import { createOwnerSessionVerifier } from "../_shared/voice-owner-session-verifier.mjs";
+import { createVoiceCommandStores } from "./voice-command-storage.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
@@ -2029,6 +2032,128 @@ async function reorderMeditationQueue(userId:string, orderedMissionIds:string[])
   return {ordered_mission_ids:ids,queue_priorities:Object.fromEntries(ids.map((id,i)=>[id,priorityBase-i]))};
 }
 
+
+function readVoiceAllowList(name: string): string[] {
+  const raw = String(Deno.env.get(name) || "").trim();
+  if (!raw) return [];
+  let values: unknown;
+  try { values = JSON.parse(raw); } catch { values = raw.split(",").map(value => value.trim()); }
+  if (!Array.isArray(values)) return [];
+  return [...new Set(values.filter((value): value is string =>
+    typeof value === "string" && value.length > 0 && value.length <= 253
+  ))].slice(0, 100);
+}
+
+async function createVoiceCommandApiRouter(ownerId: string) {
+  const sb = serviceClient();
+  const stores = createVoiceCommandStores(sb, ownerId);
+  const verifyOwnerSession = createOwnerSessionVerifier({
+    resolveTrustedDeviceKey: (deviceId: string) => stores.resolveTrustedDeviceKey(deviceId),
+    resolveSpeakerPolicy: (input: any) => stores.resolveSpeakerPolicy({
+      ownerId: String(input.ownerId || ""),
+      deviceId: String(input.deviceId || "")
+    }),
+    nonceStore: stores.nonceStore
+  });
+
+  async function resolveDevice(deviceId: string) {
+    const [trusted, lookup] = await Promise.all([
+      stores.resolveTrustedDeviceKey(deviceId),
+      sb.schema("aria_internal").from("device_registry")
+        .select("device_id,display_name,agent_type,status,capabilities,last_seen_at")
+        .eq("device_id", deviceId).maybeSingle()
+    ]);
+    if (lookup.error) throw new Error("voice_device_lookup_failed");
+    const row = lookup.data;
+    if (!trusted || !row || row.device_id !== deviceId) return null;
+    const lastSeen = Date.parse(String(row.last_seen_at || ""));
+    const fresh = Number.isFinite(lastSeen) && Date.now() - lastSeen <= 90_000;
+    return {
+      device_id: String(row.device_id),
+      display_name: typeof row.display_name === "string" ? row.display_name : null,
+      agent_type: String(row.agent_type || "unknown"),
+      status: String(row.status || "unknown"),
+      health: row.status === "online" && fresh ? "healthy" : "degraded",
+      security: trusted.security,
+      capabilities: Array.isArray(row.capabilities) ? row.capabilities : [],
+      last_seen_at: row.last_seen_at
+    };
+  }
+
+  async function readStatus(input: any) {
+    if (input.device) {
+      return {
+        state: String(input.device.status || "unknown"),
+        device_id: String(input.device.device_id)
+      };
+    }
+    const { data: keys, error: keyError } = await sb.schema("aria_internal")
+      .from("voice_trusted_device_keys")
+      .select("device_id")
+      .eq("owner_user_id", ownerId)
+      .eq("enabled", true)
+      .eq("security", "trusted")
+      .is("revoked_at", null);
+    if (keyError) throw new Error("voice_status_device_lookup_failed");
+    const deviceIds = [...new Set((keys || []).map((row: any) => String(row.device_id || "")).filter(Boolean))];
+    if (!deviceIds.length) return { state: "no_trusted_devices" };
+    const { data: devices, error } = await sb.schema("aria_internal").from("device_registry")
+      .select("device_id,status,last_seen_at")
+      .in("device_id", deviceIds);
+    if (error) throw new Error("voice_status_device_lookup_failed");
+    const rows = Array.isArray(devices) ? devices : [];
+    const online = rows.filter((row: any) => {
+      const lastSeen = Date.parse(String(row.last_seen_at || ""));
+      return row.status === "online" && Number.isFinite(lastSeen) && Date.now() - lastSeen <= 90_000;
+    }).length;
+    return { state: String(online) + "/" + String(rows.length) + "_trusted_devices_online" };
+  }
+
+  const authorizeCapability = async (input: any) => {
+    if (input.ownerId !== ownerId) return { allowed: false, reason: "voice_owner_mismatch" };
+    const readCapabilities = new Set(["aria.status.read", "device.telemetry"]);
+    const actionCapabilities = new Set([
+      "display.brightness.write", "app.open", "browser.open_url"
+    ]);
+    if (input.risk === "read" && readCapabilities.has(input.capability)) {
+      return { allowed: true, reason: "trusted_owner_read_only" };
+    }
+    if (input.risk !== "read" && actionCapabilities.has(input.capability)) {
+      return { allowed: true, reason: "signed_owner_session_and_device_policy_required" };
+    }
+    return { allowed: false, reason: "voice_capability_not_allowlisted" };
+  };
+
+  const executeAction = async (input: any) => {
+    const queued = await stores.enqueueDeviceCommand({
+      ownerId,
+      deviceId: String(input.device?.device_id || ""),
+      sourceDeviceId: String(input.sourceDeviceId || ""),
+      requestId: String(input.requestId || ""),
+      idempotencyKey: String(input.idempotencyKey || ""),
+      operation: String(input.operation || ""),
+      params: input.params || {},
+      expiresAt: Number(input.expiresAt || 0)
+    });
+    if (!queued || typeof queued !== "object") throw new Error("voice_device_queue_unavailable");
+    return { ok: true, ...queued };
+  };
+
+  return createVoiceCommandRouter({
+    authenticatedOwnerId: ownerId,
+    verifyOwnerSession,
+    authorizeCapability,
+    resolveDevice,
+    readStatus,
+    executeAction,
+    idempotencyStore: stores.idempotencyStore,
+    isMissionExecutionPaused: () => MISSION_EXECUTION_PAUSED,
+    allowedApps: readVoiceAllowList("ARIA_VOICE_ALLOWED_APPS"),
+    allowedUrlHosts: readVoiceAllowList("ARIA_VOICE_ALLOWED_URL_HOSTS"),
+    maxRequestTtlMs: 30_000
+  });
+}
+
 Deno.serve(async (req) => {
   const trace = req.headers.get("x-aria-trace-id") ?? crypto.randomUUID();
   const internalPath = new URL(req.url).pathname.replace(/\/+$/, "");
@@ -2076,6 +2201,29 @@ Deno.serve(async (req) => {
     if (req.method === "GET" && path.endsWith("/session")) return json({ ok: true, service: "aria-app-api-v3", user: { id: user.id, email: user.email ?? null }, trace_id: trace });
     if (req.method === "GET" && path.endsWith("/system")) { const r = await fetch(DIRECT); const b = await r.json().catch(() => null); return json({ ok: r.ok, service: "aria-app-api-v3", user_id: user.id, aria: b, trace_id: trace }, r.ok ? 200 : 502); }
     if (req.method === "GET" && path.endsWith("/capabilities")) return json({ ok: true, capabilities: await capabilityCatalog(user.id), trace_id: trace });
+    if (req.method === "POST" && path.endsWith("/voice/commands")) {
+      const body = await req.json().catch(() => null);
+      try {
+        const router = await createVoiceCommandApiRouter(String(user.id));
+        const result = await router.route(body);
+        if (result.status === "queued") {
+          return json({ ok: true, command: result, trace_id: trace }, 202);
+        }
+        if (result.status === "confirmation_required") {
+          return json({ ok: true, confirmation_required: true, command: result, trace_id: trace }, 200);
+        }
+        if (result.status === "succeeded") {
+          return json({ ok: true, result, trace_id: trace }, 200);
+        }
+        const status = result.reason === "mission_execution_paused" ? 423
+          : result.status === "duplicate" ? 409
+          : result.status === "failed" ? 502
+          : 403;
+        return json({ ok: false, result, trace_id: trace }, status);
+      } catch {
+        return json({ ok: false, error: "voice_command_router_unavailable", trace_id: trace }, 503);
+      }
+    }
     if (req.method === "GET" && path.endsWith("/absorb")) return json({ ok: true, version:"aria-absorb-v1", absorptions: await absorbRows(user.id), trace_id: trace });
     if (req.method === "POST" && path.endsWith("/absorb/inspect")) { const body=await req.json().catch(()=>({})); return json({ok:true,absorption:presentAbsorption(await absorbInspect(user.id,body)),trace_id:trace}); }
     if (req.method === "POST" && path.endsWith("/absorb/verify")) { const body=await req.json().catch(()=>({})); try { return json({ok:true,absorption:presentAbsorption(await absorbVerify(user.id,String(body?.absorption_id||""))),trace_id:trace}); } catch(e) { return json({error:String(e?.message||e),trace_id:trace},Number(e?.status)||409); } }
