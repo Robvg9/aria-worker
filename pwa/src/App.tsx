@@ -2516,6 +2516,11 @@ function Chat({
     setText(previous => previous.trim() ? previous.replace(/\\s+$/, '') + ' ' + transcript : transcript);
   }
 
+  function handlePushToTalkTranscript(transcript: string): void | Promise<boolean> {
+    const result = handleVoiceTranscript(transcript);
+    return result instanceof Promise ? result : undefined;
+  }
+
   async function trackMission(id: string) {
     let delayMs = 1500;
     for (let i = 0; i < 600; i++) {
@@ -2728,26 +2733,8 @@ function Chat({
                   onAudio={setAudioFile}
                   buttonLabel={voiceMode ? '🎙️ Hablar' : '🎙️ Audio'}
                   listeningLabel='■ Detener'
-                  disabled={sending}
-                  onTranscript={transcript => {
-                    if (voiceMode) {
-                      if (pendingMissionConfirmation) {
-                        if (isVoiceMissionAffirmative(transcript)) {
-                          return confirmPendingMission();
-                        }
-                        if (isVoiceMissionNegative(transcript)) {
-                          dismissPendingMission();
-                          return;
-                        }
-                        const clarification = 'No reconocí una confirmación clara. Di «sí, comenzar la misión» para aprobarla o «no, solo conversar» para cancelarla.';
-                        setMessages(current => [...current, { id: crypto.randomUUID(), role: 'aria', text: clarification }]);
-                        speakAssistantText(clarification);
-                        return;
-                      }
-                      return send(transcript);
-                    }
-                    setText(previous => previous.trim() ? previous.replace(/\s+$/, '') + ' ' + transcript : transcript);
-                  }}
+                  disabled={sending || handsFreeActive}
+                  onTranscript={handlePushToTalkTranscript}
                 />
                 <button className='send' aria-label={sending ? 'Enviando mensaje' : 'Enviar mensaje'} disabled={sending || (!text.trim() && !file && !audioFile)} onClick={send}>{sending ? '…' : '↑'}</button>
                 <div className='composerStatus' aria-live='polite'>{sending ? ('Procesando… ' + formatProcessingTime(processingElapsedMs)) : error ? 'Error · revisa el mensaje' : handsFreeActive ? 'Manos libres activo · di «ARIA» para hablar' : voiceMode ? 'Modo voz · pulsa Hablar o inicia Manos libres' : lastProcessingMs != null ? ('Último procesamiento · ' + formatProcessingTime(lastProcessingMs)) : 'Listo para enviar'}</div>
