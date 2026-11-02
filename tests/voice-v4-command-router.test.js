@@ -205,13 +205,16 @@ function request(overrides = {}) {
     operation: 'app.open',
     params: { app_id: 'chrome' }
   }));
-  assert.equal(validApp.status, 'succeeded');
+  assert.equal(validApp.status, 'queued');
+  assert.equal(validApp.executed, false);
+  assert.equal(validApp.command_id, '123e4567-e89b-42d3-a456-426614174000');
 
   const goodUrl = await fixture().router.route(request({
     operation: 'browser.open_url',
     params: { url: 'https://github.com/Robvg9/aria-worker' }
   }));
-  assert.equal(goodUrl.status, 'succeeded');
+  assert.equal(goodUrl.status, 'queued');
+  assert.equal(goodUrl.executed, false);
 
   const safeAdapterResultFx = fixture({
     executeAction: async () => ({
