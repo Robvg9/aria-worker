@@ -142,7 +142,7 @@ jobs:
 
           try {
             $scriptPath = Join-Path $env:GITHUB_WORKSPACE 'scripts/Protect-ARIA-Persistent-Worker-Config.ps1'
-            & $scriptPath -InstallDir $env:GITHUB_WORKSPACE -WorkspaceRoot $workspace -OllamaModel 'ci-test-model:latest'
+            & $scriptPath -InstallDir $env:GITHUB_WORKSPACE -WorkspaceRoot $workspace
             $configPath = Join-Path $env:LOCALAPPDATA 'ARIA/worker/worker.config.json'
             if (-not (Test-Path -LiteralPath $configPath -PathType Leaf)) {
               throw 'DPAPI config file was not created.'
