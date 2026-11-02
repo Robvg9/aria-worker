@@ -2644,6 +2644,7 @@ function Chat({
                 >
                   {voiceMode ? '🔊 Modo voz activo' : '🔈 Activar modo voz'}
                 </button>
+                {voiceMode && <small className='voiceModePrivacyNote'>El navegador puede procesar el audio para transcribirlo; ARIA recibe el texto. El micrófono solo se activa al pulsar Hablar.</small>}
               </div>
               <div ref={chatWindowRef} className='chatWindow' data-testid='chat-window' aria-live='polite' aria-atomic='false'>
                 {messages.length
