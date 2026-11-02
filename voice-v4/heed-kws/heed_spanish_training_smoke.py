@@ -290,6 +290,22 @@ def run_candidate(candidate: str, root: Path, train_voices: list[str],
                 raise RuntimeError("heed_metadata_threshold_mismatch")
             if not isinstance(metadata["preprocessing"], list) or not metadata["preprocessing"]:
                 raise RuntimeError("heed_metadata_preprocessing_missing")
+            preprocessing_ops = [
+                item.get("op") if isinstance(item, dict) else None
+                for item in metadata["preprocessing"]
+            ]
+            if preprocessing_ops != [
+                "highpass_filter", "peak_normalize", "log_mel", "cmn"
+            ]:
+                raise RuntimeError("heed_metadata_preprocessing_contract_mismatch")
+            trigger = metadata["trigger"]
+            energy_gate = metadata["energy_gate"]
+            if (not isinstance(trigger, dict)
+                or int(trigger.get("consecutive_frames", 0)) < 1
+                or float(trigger.get("refractory_seconds", 0)) <= 0
+                or not isinstance(energy_gate, dict)
+                or float(energy_gate.get("rms_threshold_dbfs", 0)) >= 0):
+                raise RuntimeError("heed_metadata_trigger_contract_invalid")
 
             model_artifact_dir.mkdir(parents=True, exist_ok=True)
             artifact_name = f"{candidate}-{result['onnx_runtime_eval']['format']}.onnx"
