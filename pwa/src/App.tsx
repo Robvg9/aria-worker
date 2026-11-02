@@ -2501,7 +2501,7 @@ function Chat({
     return true;
   }
 
-  function handleVoiceTranscript(transcript: string): Promise<boolean> | void {
+  function handleVoiceTranscript(transcript: string): Promise<boolean> | boolean | void {
     if (voiceModeRef.current) {
       if (pendingMissionConfirmation) {
         if (isVoiceMissionAffirmative(transcript)) return confirmPendingMission();
