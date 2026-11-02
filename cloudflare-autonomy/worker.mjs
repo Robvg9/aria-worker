@@ -31,6 +31,28 @@ const json = (value, status = 200, headers = {}) => new Response(JSON.stringify(
 });
 const error = (message, status = 400) => json({ error: message }, status);
 
+const PACKAGE3_PROBE_TTL_MS = 10 * 60 * 1000;
+const PACKAGE3_PROBE_LEASE_MS = 8000;
+const PACKAGE3_PROBE_ALLOWED_JOB_OPERATIONS = new Set(['mission.plan', 'task.execute', 'mission.verify']);
+const PACKAGE3_PROBE_ID_PATTERN = /^[a-z0-9][a-z0-9-]{7,70}$/;
+
+async function sha256Hex(value) {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(String(value)));
+  return Array.from(new Uint8Array(digest)).map(byte => byte.toString(16).padStart(2, '0')).join('');
+}
+function constantTimeTextEqual(left, right) {
+  const a = new TextEncoder().encode(String(left || ''));
+  const b = new TextEncoder().encode(String(right || ''));
+  if (a.length !== b.length) return false;
+  let difference = 0;
+  for (let index = 0; index < a.length; index += 1) difference |= a[index] ^ b[index];
+  return difference === 0;
+}
+function package3ProbeWorkerIdAllowed(scope, workerId) {
+  const prefix = String(scope && scope.worker_id_prefix || '');
+  return Boolean(prefix && (workerId === prefix + 'before' || workerId === prefix + 'after'));
+}
+
 function authorized(request, token) {
   if (typeof token !== 'string' || token.length < 32) return false;
   return request.headers.get('authorization') === 'Bearer ' + token;
@@ -89,6 +111,7 @@ export class AriaMissionStore {
     this.env = env;
     this.lock = Promise.resolve();
     this.alarmMs = Math.max(5000, Number(env.ARIA_ALARM_INTERVAL_MS) || 15000);
+    this.package3ProbeContext = null;
   }
 
   isMissionExecutionPaused() {
@@ -96,21 +119,40 @@ export class AriaMissionStore {
   }
 
   assertMissionExecutionEnabled() {
-    if (this.isMissionExecutionPaused()) throw new Error('mission_execution_paused');
+    if (this.isMissionExecutionPaused() && !this.package3ProbeContext) {
+      throw new Error('mission_execution_paused');
+    }
   }
 
   pausedResponse() {
     return error('mission_execution_paused', 423);
   }
 
-  async exclusive(fn) {
-    if (this.isMissionExecutionPaused()) return this.pausedResponse();
+  async exclusive(fn, options = {}) {
+    const requestedProbeId = String(options.probeScope && options.probeScope.probe_id || '');
+    if (this.isMissionExecutionPaused() && options.allowFrozen !== true && !requestedProbeId) {
+      return this.pausedResponse();
+    }
     const previous = this.lock;
     let release;
     this.lock = new Promise(resolve => { release = resolve; });
     await previous;
-    try { return await fn(); }
-    finally { release(); }
+    const previousProbeContext = this.package3ProbeContext;
+    try {
+      if (requestedProbeId) {
+        const currentScope = await this.ctx.storage.get('package3:probe:' + requestedProbeId);
+        if (!currentScope || currentScope.status !== 'active' ||
+            Date.parse(currentScope.expires_at) <= Date.now() ||
+            currentScope.mission_id !== options.probeScope.mission_id) {
+          return this.pausedResponse();
+        }
+        this.package3ProbeContext = currentScope;
+      }
+      return await fn();
+    } finally {
+      this.package3ProbeContext = previousProbeContext;
+      release();
+    }
   }
 
   async fetch(request) {
@@ -128,7 +170,22 @@ export class AriaMissionStore {
     const workerRoute = url.pathname === '/api/worker/claim' || /^\/api\/worker\/jobs\/[^/]+\/(heartbeat|complete|fail)$/.test(url.pathname);
     if (workerRoute) {
       if (!authorized(request, this.env.ARIA_WORKER_TOKEN)) return error('unauthorized_worker', 401);
-      if (method !== 'GET' && this.isMissionExecutionPaused()) return this.pausedResponse();
+      if (this.isMissionExecutionPaused()) {
+        if (method !== 'POST') return this.pausedResponse();
+        let body;
+        try { body = await request.clone().json(); } catch (_) { return error('invalid_json', 400); }
+        const match = url.pathname.match(/^\/api\/worker\/jobs\/([^/]+)\/(heartbeat|complete|fail)$/);
+        const jobId = match ? decodeURIComponent(match[1]) : null;
+        const scope = await this.resolvePackage3ProbeWorkerScope(request, body, jobId);
+        if (!scope) return this.pausedResponse();
+        return this.exclusive(async () => {
+          if (url.pathname === '/api/worker/claim') return this.claim(request);
+          if (!match) return error('method_not_allowed', 405);
+          if (match[2] === 'heartbeat') return this.heartbeat(jobId, request);
+          if (match[2] === 'complete') return this.complete(jobId, request);
+          return this.fail(jobId, request);
+        }, { probeScope: scope });
+      }
       if (method === 'POST' && url.pathname === '/api/worker/claim') return this.exclusive(() => this.claim(request));
       const match = url.pathname.match(/^\/api\/worker\/jobs\/([^/]+)\/(heartbeat|complete|fail)$/);
       if (method !== 'POST' || !match) return error('method_not_allowed', 405);
@@ -140,8 +197,19 @@ export class AriaMissionStore {
 
     if (!url.pathname.startsWith('/api/')) return error('not_found', 404);
     if (!authorized(request, this.env.ARIA_CONTROL_TOKEN)) return error('unauthorized', 401);
-    // The only mutation permitted during the global freeze is a one-shot,
-    // authenticated Telegram delivery probe. It cannot create or resume missions.
+    // A single exact-scope Package 3 probe may run while every general mutation stays frozen.
+    if (method === 'POST' && url.pathname === '/api/package3/probe/start') {
+      if (!this.isMissionExecutionPaused()) return error('package3_probe_requires_global_freeze', 409);
+      return this.exclusive(() => this.startPackage3Probe(request), { allowFrozen: true });
+    }
+    if (method === 'POST' && url.pathname === '/api/package3/probe/close') {
+      return this.exclusive(() => this.closePackage3Probe(request), { allowFrozen: true });
+    }
+    const package3ReadbackMatch = url.pathname.match(/^\/api\/package3\/probes\/([a-z0-9-]{8,71})$/);
+    if (method === 'GET' && package3ReadbackMatch) {
+      return this.package3ProbeReadback(decodeURIComponent(package3ReadbackMatch[1]));
+    }
+    // The only other mutation permitted during the global freeze is the one-shot Telegram probe.
     if (method === 'POST' && url.pathname === '/api/notifications/test') {
       return this.sendTelegramTest(request);
     }
@@ -173,6 +241,236 @@ export class AriaMissionStore {
     const approvalMatch = url.pathname.match(/^\/api\/approvals\/([^/]+)$/);
     if (method === 'POST' && approvalMatch) return this.exclusive(() => this.decideApproval(decodeURIComponent(approvalMatch[1]), request));
     return error('not_found', 404);
+  }
+
+  async resolvePackage3ProbeWorkerScope(request, body, jobId) {
+    const probeId = String(request.headers.get('x-aria-package3-probe-id') || '');
+    const token = String(request.headers.get('x-aria-package3-scope-token') || '');
+    if (!PACKAGE3_PROBE_ID_PATTERN.test(probeId) || token.length < 32 || token.length > 200) return null;
+    const scope = await this.ctx.storage.get('package3:probe:' + probeId);
+    if (!scope || scope.status !== 'active' || Date.parse(scope.expires_at) <= Date.now()) return null;
+    const tokenHash = await sha256Hex(token);
+    if (!constantTimeTextEqual(tokenHash, scope.scope_token_sha256)) return null;
+    const workerId = String(body && body.worker_id || '');
+    if (!package3ProbeWorkerIdAllowed(scope, workerId)) return null;
+    if (jobId) {
+      const job = await this.ctx.storage.get('job:' + jobId);
+      if (!job || job.mission_id !== scope.mission_id ||
+          !PACKAGE3_PROBE_ALLOWED_JOB_OPERATIONS.has(String(job.operation))) return null;
+      if (job.operation === 'task.execute' && job.task?.operation !== 'workspace.write') return null;
+    }
+    return scope;
+  }
+
+  async startPackage3Probe(request) {
+    let body;
+    try { body = await request.json(); } catch (_) { return error('invalid_json', 400); }
+    if (!body || body.confirm !== 'RUN_ONE_MISSION_WONDER_2_PACKAGE3_PROBE') {
+      return error('explicit_package3_probe_confirmation_required', 400);
+    }
+    const probeId = String(body.probe_id || '');
+    const scopeToken = String(body.scope_token || '');
+    if (!PACKAGE3_PROBE_ID_PATTERN.test(probeId)) return error('package3_probe_id_invalid', 400);
+    if (scopeToken.length < 32 || scopeToken.length > 200) return error('package3_probe_scope_token_invalid', 400);
+    const scopeKey = 'package3:probe:' + probeId;
+    if (await this.ctx.storage.get(scopeKey)) return error('package3_probe_id_already_used', 409);
+    const idempotencyKey = 'mw2p3-' + probeId;
+    if (await this.ctx.storage.get('idempotency:mission:' + idempotencyKey)) {
+      return error('package3_probe_idempotency_record_already_exists', 409);
+    }
+
+    const scope = {
+      version: 'v1',
+      probe_id: probeId,
+      status: 'preparing',
+      mission_id: null,
+      scope_token_sha256: await sha256Hex(scopeToken),
+      worker_id_prefix: 'mw2p3-' + probeId + '-',
+      allowed_job_ids: [],
+      claim_count: 0,
+      claimed_worker_ids: [],
+      created_at: nowIso(),
+      expires_at: new Date(Date.now() + PACKAGE3_PROBE_TTL_MS).toISOString(),
+      lease_ms: PACKAGE3_PROBE_LEASE_MS,
+      closed_at: null,
+      close_reason: null,
+      scope_token_revoked_at: null
+    };
+    await this.ctx.storage.put(scopeKey, scope);
+    const previousProbeContext = this.package3ProbeContext;
+    this.package3ProbeContext = scope;
+    try {
+      const missionRequest = new Request('https://aria.internal/api/missions', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'idempotency-key': idempotencyKey
+        },
+        body: JSON.stringify({
+          goal: 'Mission Wonder 2 Package 3 LIVE synthetic recovery probe ' + probeId + ': write one temporary proof artifact, recover the same job after a process interruption, and verify its SHA-256.',
+          metadata: {
+            mission: 'Mission Wonder 2',
+            package: 3,
+            environment: 'production-live-probe',
+            execution_scope: 'one-mission-one-artifact',
+            package3_live_probe: true,
+            probe_id: probeId
+          },
+          policy: {
+            max_risk: 'medium',
+            require_human_approval: true,
+            max_steps: 1
+          }
+        })
+      });
+      const createdResponse = await this.createMission(missionRequest);
+      const createdPayload = await createdResponse.json().catch(() => ({}));
+      if (!createdResponse.ok || !createdPayload.mission?.mission_id) {
+        scope.status = 'failed';
+        scope.last_error = String(createdPayload.error || 'package3_probe_mission_create_failed').slice(0, 300);
+        scope.scope_token_sha256 = null;
+        await this.ctx.storage.put(scopeKey, scope);
+        return error(scope.last_error, createdResponse.status || 500);
+      }
+      scope.mission_id = String(createdPayload.mission.mission_id);
+      scope.status = 'active';
+      const records = await this.ctx.storage.list({ prefix: 'job:' });
+      scope.allowed_job_ids = Array.from(records.values())
+        .filter(job => job.mission_id === scope.mission_id)
+        .map(job => String(job.job_id));
+      await this.ctx.storage.put(scopeKey, scope);
+      return json({
+        ok: true,
+        probe: {
+          probe_id: probeId,
+          status: scope.status,
+          mission_id: scope.mission_id,
+          expires_at: scope.expires_at,
+          lease_ms: scope.lease_ms,
+          allowed_job_operations: Array.from(PACKAGE3_PROBE_ALLOWED_JOB_OPERATIONS)
+        },
+        mission: createdPayload.mission
+      }, 201);
+    } catch (cause) {
+      scope.status = 'failed';
+      scope.last_error = String(cause && cause.message || cause || 'package3_probe_start_failed').slice(0, 300);
+      scope.scope_token_sha256 = null;
+      await this.ctx.storage.put(scopeKey, scope);
+      return error('package3_probe_start_failed:' + scope.last_error, 500);
+    } finally {
+      this.package3ProbeContext = previousProbeContext;
+    }
+  }
+
+  async package3ProbeReadback(probeId) {
+    if (!PACKAGE3_PROBE_ID_PATTERN.test(String(probeId || ''))) return error('package3_probe_id_invalid', 400);
+    const scope = await this.ctx.storage.get('package3:probe:' + probeId);
+    if (!scope) return error('package3_probe_not_found', 404);
+    const mission = scope.mission_id ? await this.getMission(scope.mission_id) : null;
+    const [jobRecords, eventRecords, notificationRecords] = await Promise.all([
+      this.ctx.storage.list({ prefix: 'job:' }),
+      scope.mission_id
+        ? this.ctx.storage.list({ prefix: 'event:' + scope.mission_id + ':' })
+        : Promise.resolve(new Map()),
+      this.ctx.storage.list({ prefix: 'notification:' })
+    ]);
+    const jobs = Array.from(jobRecords.values())
+      .filter(job => job.mission_id === scope.mission_id)
+      .map(job => ({
+        job_id: job.job_id,
+        mission_id: job.mission_id,
+        task_id: job.task_id,
+        operation: job.operation,
+        task_operation: job.task?.operation || null,
+        status: job.status,
+        worker_id: job.worker_id,
+        attempts: job.attempts,
+        lease_until: job.lease_until,
+        created_at: job.created_at,
+        updated_at: job.updated_at,
+        last_error: job.last_error,
+        result: clone(job.result)
+      }))
+      .sort((a, b) => a.created_at.localeCompare(b.created_at));
+    const events = Array.from(eventRecords.values()).sort((a, b) => a.sequence - b.sequence);
+    const notifications = Array.from(notificationRecords.values())
+      .filter(item => item.event?.mission_id === scope.mission_id)
+      .map(item => ({
+        notification_id: item.notification_id,
+        status: item.status,
+        attempts: item.attempts,
+        delivered_at: item.delivered_at,
+        last_error: item.last_error,
+        event: clone(item.event)
+      }));
+    return json({
+      ok: true,
+      scope: {
+        version: scope.version,
+        probe_id: scope.probe_id,
+        status: scope.status,
+        mission_id: scope.mission_id,
+        worker_id_prefix: scope.worker_id_prefix,
+        allowed_job_ids: scope.allowed_job_ids,
+        claim_count: scope.claim_count,
+        claimed_worker_ids: scope.claimed_worker_ids,
+        created_at: scope.created_at,
+        expires_at: scope.expires_at,
+        lease_ms: scope.lease_ms,
+        closed_at: scope.closed_at,
+        close_reason: scope.close_reason,
+        scope_token_revoked_at: scope.scope_token_revoked_at
+      },
+      mission,
+      jobs,
+      events,
+      notifications
+    });
+  }
+
+  async closePackage3Probe(request) {
+    let body;
+    try { body = await request.json(); } catch (_) { return error('invalid_json', 400); }
+    const probeId = String(body && body.probe_id || '');
+    if (!PACKAGE3_PROBE_ID_PATTERN.test(probeId)) return error('package3_probe_id_invalid', 400);
+    const scopeKey = 'package3:probe:' + probeId;
+    const scope = await this.ctx.storage.get(scopeKey);
+    if (!scope) return error('package3_probe_not_found', 404);
+    if (scope.status === 'closed') return this.package3ProbeReadback(probeId);
+    const previousProbeContext = this.package3ProbeContext;
+    this.package3ProbeContext = scope;
+    try {
+      const jobs = await this.ctx.storage.list({ prefix: 'job:' });
+      for (const job of jobs.values()) {
+        if (job.mission_id !== scope.mission_id || !ACTIVE_JOB_STATES.has(job.status)) continue;
+        job.status = 'cancelled';
+        job.last_error = 'package3_probe_scope_closed';
+        job.worker_id = null;
+        job.lease_token = null;
+        job.lease_until = null;
+        job.updated_at = nowIso();
+        await this.ctx.storage.put('job:' + job.job_id, job);
+      }
+      const mission = scope.mission_id ? await this.getMission(scope.mission_id) : null;
+      if (mission && !['succeeded', 'failed', 'cancelled'].includes(mission.status)) {
+        mission.status = 'cancelled';
+        mission.current_task_id = null;
+        mission.last_error = 'package3_probe_scope_closed';
+        await this.saveMission(mission, 'package3_probe_closed', {
+          probe_id: probeId,
+          reason: String(body.reason || 'operator_cleanup').slice(0, 200)
+        });
+      }
+      scope.status = 'closed';
+      scope.closed_at = nowIso();
+      scope.close_reason = String(body.reason || 'operator_cleanup').slice(0, 200);
+      scope.scope_token_sha256 = null;
+      scope.scope_token_revoked_at = nowIso();
+      await this.ctx.storage.put(scopeKey, scope);
+      return this.package3ProbeReadback(probeId);
+    } finally {
+      this.package3ProbeContext = previousProbeContext;
+    }
   }
 
   async getMission(missionId) {
@@ -250,18 +548,21 @@ export class AriaMissionStore {
     const telegramConfigured = Boolean(this.env.ARIA_TELEGRAM_BOT_TOKEN && this.env.ARIA_TELEGRAM_CHAT_ID);
     const webhookConfigured = Boolean(this.env.ARIA_NOTIFICATION_WEBHOOK_URL);
     const configured = telegramRequested ? telegramConfigured : webhookConfigured;
+    const isPackage3Probe = Boolean(this.package3ProbeContext);
     const record = {
       notification_id: uuid('notification'),
       created_at: nowIso(),
       updated_at: nowIso(),
-      status: configured ? 'pending' : 'waiting_config',
+      status: isPackage3Probe ? 'suppressed_package3_probe' : (configured ? 'pending' : 'waiting_config'),
       attempts: 0,
       delivered_at: null,
-      last_error: configured ? null : (telegramRequested ? 'telegram_configuration_incomplete' : 'notification_webhook_not_configured'),
+      last_error: isPackage3Probe
+        ? 'external_delivery_disabled_for_package3_probe'
+        : (configured ? null : (telegramRequested ? 'telegram_configuration_incomplete' : 'notification_webhook_not_configured')),
       event: clone(event)
     };
     await this.ctx.storage.put('notification:' + record.notification_id, record);
-    if (configured) {
+    if (configured && !isPackage3Probe) {
       this.ctx.waitUntil((async () => {
         try {
           await this.deliverNotification(record.notification_id);
@@ -532,9 +833,17 @@ export class AriaMissionStore {
     const workerId = String(body.worker_id || '').slice(0, 200);
     if (!workerId) return error('worker_id_required', 400);
     const now = Date.now();
+    const probeScope = this.package3ProbeContext;
+    if (probeScope && !package3ProbeWorkerIdAllowed(probeScope, workerId)) {
+      return error('package3_probe_worker_not_allowed', 403);
+    }
     const records = await this.ctx.storage.list({ prefix: 'job:' });
     const candidate = Array.from(records.values())
-      .filter(job => job.status === 'queued' || (job.status === 'leased' && job.lease_until && Date.parse(job.lease_until) <= now))
+      .filter(job => {
+        if (probeScope && job.mission_id !== probeScope.mission_id) return false;
+        return job.status === 'queued' ||
+          (job.status === 'leased' && job.lease_until && Date.parse(job.lease_until) <= now);
+      })
       .sort((a, b) => a.created_at.localeCompare(b.created_at))[0];
     if (!candidate) return json({ job: null });
     const job = await this.ctx.storage.get('job:' + candidate.job_id);
@@ -542,11 +851,23 @@ export class AriaMissionStore {
     job.status = 'leased';
     job.worker_id = workerId;
     job.lease_token = crypto.randomUUID();
-    job.lease_until = new Date(Date.now() + Math.max(5000, Number(this.env.ARIA_WORKER_LEASE_MS) || 60000)).toISOString();
+    const leaseMs = this.package3ProbeContext
+      ? PACKAGE3_PROBE_LEASE_MS
+      : Math.max(5000, Number(this.env.ARIA_WORKER_LEASE_MS) || 60000);
+    job.lease_until = new Date(Date.now() + leaseMs).toISOString();
     job.updated_at = nowIso();
     job.attempts += 1;
     job.claimed_capabilities = Array.isArray(body.capabilities) ? body.capabilities.map(String).slice(0, 50) : [];
     await this.ctx.storage.put('job:' + job.job_id, job);
+    if (probeScope) {
+      const currentScope = await this.ctx.storage.get('package3:probe:' + probeScope.probe_id);
+      if (currentScope && currentScope.status === 'active') {
+        currentScope.claim_count = Number(currentScope.claim_count || 0) + 1;
+        currentScope.allowed_job_ids = Array.from(new Set([...(currentScope.allowed_job_ids || []), job.job_id]));
+        currentScope.claimed_worker_ids = Array.from(new Set([...(currentScope.claimed_worker_ids || []), workerId]));
+        await this.ctx.storage.put('package3:probe:' + probeScope.probe_id, currentScope);
+      }
+    }
     await this.scheduleAlarm();
     const mission = await this.getMission(job.mission_id);
     return json({ job: { ...job, context: { ...job.context, mission } } });
@@ -559,7 +880,10 @@ export class AriaMissionStore {
     const job = await this.ctx.storage.get('job:' + jobId);
     if (!job) return error('job_not_found', 404);
     if (job.status !== 'leased' || job.worker_id !== body.worker_id || job.lease_token !== body.lease_token) return error('lease_mismatch', 409);
-    job.lease_until = new Date(Date.now() + Math.max(5000, Number(this.env.ARIA_WORKER_LEASE_MS) || 60000)).toISOString();
+    const leaseMs = this.package3ProbeContext
+      ? PACKAGE3_PROBE_LEASE_MS
+      : Math.max(5000, Number(this.env.ARIA_WORKER_LEASE_MS) || 60000);
+    job.lease_until = new Date(Date.now() + leaseMs).toISOString();
     job.updated_at = nowIso();
     await this.ctx.storage.put('job:' + jobId, job);
     await this.ctx.storage.setAlarm(Date.now() + this.alarmMs);
