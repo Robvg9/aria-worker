@@ -2,6 +2,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { m22Gate3HumanGateActionHash, m22Gate3RouteAllowed, m22MissionWonder2ScopedProbeAllowed } from "../_shared/mission-wonder-2-gate3-scope-v1.mjs";
 import { parseOpenRouterFreeDailyQuota, extractProviderUsage, parseQuotaReservation } from "./quota-accounting-v1.mjs";
+import { isCloudflarePlanPreviewRequest } from "../_shared/cloudflare-plan-preview-auth-v1.mjs";
 const MISSION_EXECUTION_PAUSED = true;
 const URL=Deno.env.get("SUPABASE_URL")!;const KEY=Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;const SECRET=Deno.env.get("ARIA_RUNTIME_SHARED_SECRET")??"";const GOOGLE_API_KEY=Deno.env.get("GOOGLE_API_KEY")??"";
 const sb=createClient(URL,KEY,{auth:{persistSession:false,autoRefreshToken:false}});
@@ -141,6 +142,7 @@ async function xaiResponses(route:any,input:any,requestId:string){
 }
 Deno.serve(async r=>{if(r.method!=="POST")return out({error:"method_not_allowed"},405);if(!(await auth(r)))return out({error:"unauthorized"},401);const body=await r.json().catch(()=>({}));const route=body?.selected_route;const input=body?.input;const az=body?.authorization;const policy=body?.policy;
 let gate3ScopedProbeAllowed=false;
+let cloudflarePlanPreviewAllowed=false;
 if(MISSION_EXECUTION_PAUSED){
   const missionId=String(body?.metadata?.mission_id||"");
   const stepId=String(body?.metadata?.step_id||"");
@@ -154,7 +156,43 @@ if(MISSION_EXECUTION_PAUSED){
       gate3ScopedProbeAllowed=false;
     }
   }
-  if(!gate3ScopedProbeAllowed)return out({status:"paused",error:{code:"mission_execution_paused"},execution_enabled:false},423);
+
+  // One narrowly scoped, read-only model call is allowed to produce a plan.
+  // It cannot create missions/jobs, dispatch tools, access devices or perform
+  // workspace mutations. All ordinary model execution remains frozen.
+  try{
+    const prompt=String(body?.input?.payload?.prompt||"");
+    const requestId=String(body?.request_id||"");
+    cloudflarePlanPreviewAllowed=
+      await isCloudflarePlanPreviewRequest(r,SECRET) &&
+      body?.execution_version==="1" &&
+      requestId.startsWith("aria-cloudflare-plan-preview-v1:") &&
+      body?.task_id==="cloudflare_workspace_plan_preview" &&
+      body?.metadata?.purpose==="aria-cloudflare-plan-preview-v1" &&
+      policy?.aria_cloudflare_plan_preview===true &&
+      policy?.read_only===true &&
+      policy?.tool_use===false &&
+      az?.status==="approved" &&
+      az?.risk_class==="READ" &&
+      az?.evidence_ref==="aria-cloudflare-plan-preview-v1" &&
+      route?.provider_id==="openrouter" &&
+      route?.account_id==="acct_openrouter_primary" &&
+      route?.model_id==="nvidia/nemotron-3.5-lightning:free" &&
+      route?.capability==="text_generation" &&
+      prompt.length>=20 &&
+      prompt.length<=16000 &&
+      Number(body?.input?.payload?.max_tokens||0)>0 &&
+      Number(body?.input?.payload?.max_tokens||0)<=700 &&
+      Number(body?.input?.payload?.temperature)===0 &&
+      !Array.isArray(body?.input?.payload?.tools) &&
+      !body?.metadata?.mission_id &&
+      !body?.metadata?.step_id;
+  }catch{
+    cloudflarePlanPreviewAllowed=false;
+  }
+  if(!gate3ScopedProbeAllowed&&!cloudflarePlanPreviewAllowed){
+    return out({status:"paused",error:{code:"mission_execution_paused"},execution_enabled:false},423);
+  }
 }if(!route||typeof route!=="object")return out({status:"blocked",reason:"route_missing"});if(!az||az.status!=="approved")return out({status:"blocked",reason:"authorization_not_approved"});if(policy?.human_gate_required===true){if(az.human_gate_verified!==true)return out({status:"blocked",reason:"human_gate_required"});if(typeof az.human_gate_mission_id!=="string"||typeof az.human_gate_step_id!=="string"||typeof az.human_gate_action_hash!=="string"||typeof az.human_gate_approval_token!=="string")return out({status:"blocked",reason:"human_gate_evidence_missing"});const {data:gateOk,error:gateError}=await sb.rpc("human_gate_authorize_execution",{p_mission_id:az.human_gate_mission_id,p_step_id:az.human_gate_step_id,p_action_hash:az.human_gate_action_hash,p_approval_token:az.human_gate_approval_token});if(gateError||gateOk!==true)return out({status:"blocked",reason:"human_gate_authorization_invalid"});}
 // LIVE resilience fault injection: auth already required; gated by evidence_ref prefix only.
 // Produces the SAME error shapes as real upstream failures so recovery paths can be exercised end-to-end.
