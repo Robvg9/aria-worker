@@ -290,8 +290,26 @@ export class AriaMissionStore {
     const scopeKey = 'package3:probe:' + probeId;
     if (await this.ctx.storage.get(scopeKey)) return error('package3_probe_id_already_used', 409);
     const existingScopes = await this.ctx.storage.list({ prefix: 'package3:probe:' });
-    if (Array.from(existingScopes.values()).some(item => ['preparing', 'active'].includes(item.status))) {
-      return error('package3_probe_already_active', 409);
+    for (const existingScope of existingScopes.values()) {
+      if (!['preparing', 'active'].includes(existingScope.status)) continue;
+      if (Date.parse(existingScope.expires_at) > Date.now()) {
+        return error('package3_probe_already_active', 409);
+      }
+      // A crashed workflow may leave an expired preparing/active scope behind.
+      // Reconcile and revoke it before accepting a new one-shot probe.
+      const cleanup = await this.closePackage3Probe(new Request('https://aria.internal/api/package3/probe/close', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          probe_id: existingScope.probe_id,
+          reason: 'expired_scope_reconciled_before_new_probe'
+        })
+      }));
+      if (!cleanup.ok) return error('package3_expired_scope_cleanup_failed', 503);
+      const cleanupPayload = await cleanup.json().catch(() => ({}));
+      if (cleanupPayload.scope?.status !== 'closed') {
+        return error('package3_expired_scope_cleanup_incomplete', 503);
+      }
     }
     const idempotencyKey = 'mw2p3-' + probeId;
     if (await this.ctx.storage.get('idempotency:mission:' + idempotencyKey)) {
@@ -456,6 +474,12 @@ export class AriaMissionStore {
     const scope = await this.ctx.storage.get(scopeKey);
     if (!scope) return error('package3_probe_not_found', 404);
     if (scope.status === 'closed') return this.package3ProbeReadback(probeId);
+    // Recover mission identity if an isolate restarted after createMission
+    // committed its idempotency record but before the probe scope stored mission_id.
+    if (!scope.mission_id) {
+      const creation = await this.ctx.storage.get('idempotency:mission:mw2p3-' + probeId);
+      if (creation && creation.mission_id) scope.mission_id = String(creation.mission_id);
+    }
     const previousProbeContext = this.package3ProbeContext;
     this.package3ProbeContext = scope;
     try {
