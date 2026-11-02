@@ -108,11 +108,22 @@ if ($null -eq $originalTriggersNode -or $null -eq $originalPrincipalNode -or $nu
 }
 $originalLogonUser = $originalLogonTrigger.SelectSingleNode("./*[local-name()='UserId']")
 $originalLogonDelay = $originalLogonTrigger.SelectSingleNode("./*[local-name()='Delay']")
+$logonUserSid = $null
+if ($null -ne $originalLogonUser) {
+    try {
+        $logonUserSid = (New-Object System.Security.Principal.NTAccount([string]$originalLogonUser.InnerText)).Translate(
+            [System.Security.Principal.SecurityIdentifier]
+        ).Value
+    }
+    catch {
+        try { $logonUserSid = (New-Object System.Security.Principal.SecurityIdentifier([string]$originalLogonUser.InnerText)).Value } catch {}
+    }
+}
 if ($null -eq $originalLogonUser -or
-    [string]$originalLogonUser.InnerText -ine [string]$task.Principal.UserId -or
+    $logonUserSid -ne $currentSid -or
     $null -eq $originalLogonDelay -or
     [string]$originalLogonDelay.InnerText -ne 'PT30S') {
-    throw 'Existing task must retain its user-specific 30-second logon trigger.'
+    throw 'Existing task must retain a user-specific 30-second logon trigger for the current SID.'
 }
 $originalTriggersXml = $originalTriggersNode.OuterXml
 $originalPrincipalXml = $originalPrincipalNode.OuterXml
