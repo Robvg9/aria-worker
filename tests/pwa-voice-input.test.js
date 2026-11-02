@@ -62,6 +62,7 @@ assert.match(handsFree, /recognition\.interimResults = true/, 'hands-free mode m
 assert.match(handsFree, /recognition\.lang = 'es-PR'/, 'hands-free mode must use Puerto Rican Spanish recognition');
 assert.match(handsFree, /extractWakeWordRemainder/, 'hands-free mode must require the ARIA wake phrase before capturing a command');
 assert.match(handsFree, /appendVoiceDiagnostic/, 'hands-free voice must retain local diagnostics for browser and recognition failures');
+assert.match(handsFree, /recordDiagnostic\('restart_scheduled'/, 'diagnostics must record automatic recognizer restart attempts');
 assert.match(handsFree, /No guarda audio ni transcripciones/, 'voice diagnostics must explicitly avoid storing audio and recognized speech');
 assert.match(handsFree, /Copiar diagnóstico/, 'the user must be able to export local voice diagnostics without granting audio access');
 assert.match(handsFree, /SILENCE_TO_SEND_MS = 1650/, 'hands-free mode must submit after a bounded pause in speech');
