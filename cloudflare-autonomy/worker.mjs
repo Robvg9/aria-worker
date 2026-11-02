@@ -78,7 +78,7 @@ function normalizeTasks(rawTasks, priorIds = new Set()) {
     const operation = String(raw.operation || '');
     if (!ALLOWED_OPERATIONS.has(operation)) throw new Error('plan_operation_rejected');
     const depends = Array.isArray(raw.depends_on) ? raw.depends_on.map(String) : [];
-    if (depends.some(dep => !availableIds.has(dep))) throw new Error('plan_dependency_invalid');
+    if (depends.some(dep => !availableIds.has(dep) && !ids.has(dep))) throw new Error('plan_dependency_invalid');
     const payload = raw.payload && typeof raw.payload === 'object' && !Array.isArray(raw.payload) ? raw.payload : {};
     if (JSON.stringify(payload).length > 512 * 1024) throw new Error('plan_payload_too_large');
     const policyRisk = RISK_BY_OPERATION[operation];
@@ -239,7 +239,7 @@ export class AriaMissionStore {
       const records = await this.ctx.storage.list({ prefix: 'notification:' });
       return json({ notifications: Array.from(records.values()).sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, 100) });
     }
-    const missionMatch = url.pathname.match(/^\/api\/missions\/([^/]+)(?:\/(events|resume))?$/);
+    const missionMatch = url.pathname.match(/^\/api\/missions\/([^/]+)(?:\/(events|resume|plan))?$/);
     if (missionMatch) {
       const missionId = decodeURIComponent(missionMatch[1]);
       if (method === 'GET' && !missionMatch[2]) {
@@ -251,6 +251,7 @@ export class AriaMissionStore {
         return json({ events: Array.from(events.values()).sort((a, b) => a.sequence - b.sequence) });
       }
       if (method === 'POST' && missionMatch[2] === 'resume') return this.exclusive(() => this.resume(missionId, request));
+      if (method === 'POST' && missionMatch[2] === 'plan') return this.exclusive(() => this.submitPlan(missionId, request));
     }
     const approvalMatch = url.pathname.match(/^\/api\/approvals\/([^/]+)$/);
     if (method === 'POST' && approvalMatch) return this.exclusive(() => this.decideApproval(decodeURIComponent(approvalMatch[1]), request));
@@ -877,12 +878,73 @@ export class AriaMissionStore {
     return json({ mission }, 201);
   }
 
+  async submitPlan(missionId, request) {
+    this.assertMissionExecutionEnabled();
+    let body;
+    try { body = await request.json(); } catch (_) { return error('invalid_json', 400); }
+    if (!body || !Array.isArray(body.tasks)) return error('plan_tasks_required', 400);
+    const mission = await this.getMission(missionId);
+    if (!mission) return error('mission_not_found', 404);
+    if (mission.status !== 'planning') return error('mission_not_waiting_for_plan', 409);
+
+    const replan = mission.plan_kind === 'replan';
+    let tasks;
+    try {
+      const priorIds = replan ? new Set((mission.tasks || []).map(task => task.task_id)) : new Set();
+      tasks = normalizeTasks(body.tasks, priorIds);
+    } catch (cause) {
+      return error(String(cause && cause.message || cause || 'plan_invalid'), 422);
+    }
+    const maxSteps = Math.max(1, Number(mission.policy && mission.policy.max_steps) || 20);
+    const totalSteps = (replan ? (mission.tasks || []).length : 0) + tasks.length;
+    if (totalSteps > maxSteps) return error('plan_exceeds_mission_max_steps', 422);
+
+    // The cloud planner supplies structured tasks; the Windows executor never
+    // receives an LLM planning job and never needs a local model credential.
+    const jobRecords = await this.ctx.storage.list({ prefix: 'job:' });
+    for (const job of jobRecords.values()) {
+      if (job.mission_id !== missionId ||
+          !['mission.plan', 'mission.replan'].includes(job.operation) ||
+          !ACTIVE_JOB_STATES.has(job.status)) continue;
+      job.status = 'cancelled';
+      job.worker_id = null;
+      job.lease_token = null;
+      job.lease_until = null;
+      job.updated_at = nowIso();
+      job.last_error = 'superseded_by_authenticated_remote_plan';
+      await this.ctx.storage.put('job:' + job.job_id, job);
+    }
+
+    if (replan) {
+      mission.tasks.push(...tasks);
+      mission.replans = (mission.replans || 0) + 1;
+    } else {
+      mission.tasks = tasks;
+    }
+    mission.status = 'running';
+    mission.plan_kind = null;
+    mission.current_task_id = null;
+    mission.last_error = null;
+    await this.saveMission(mission, 'mission_plan_submitted', {
+      source: 'authenticated_remote_planner',
+      task_count: tasks.length,
+      total_task_count: mission.tasks.length,
+      plan_kind: replan ? 'replan' : 'plan'
+    });
+    await this.scheduleNext(mission);
+    await this.scheduleAlarm();
+    return json({ ok: true, mission }, 201);
+  }
+
   async claim(request) {
     this.assertMissionExecutionEnabled();
     let body;
     try { body = await request.json(); } catch (_) { return error('invalid_json', 400); }
     const workerId = String(body.worker_id || '').slice(0, 200);
     if (!workerId) return error('worker_id_required', 400);
+    const claimedCapabilities = new Set(
+      Array.isArray(body.capabilities) ? body.capabilities.map(String).slice(0, 100) : []
+    );
     const now = Date.now();
     const probeScope = this.package3ProbeContext;
     if (probeScope && !package3ProbeWorkerIdAllowed(probeScope, workerId)) {
@@ -897,6 +959,13 @@ export class AriaMissionStore {
           if (!PACKAGE3_PROBE_ALLOWED_JOB_OPERATIONS.has(String(job.operation))) return false;
           if (job.operation === 'task.execute' && job.task?.operation !== 'workspace.write') return false;
         }
+        if (job.operation === 'mission.plan' && !claimedCapabilities.has('mission.plan')) return false;
+        if (job.operation === 'mission.replan' && !claimedCapabilities.has('mission.replan')) return false;
+        if (job.operation === 'task.execute') {
+          const requiredCapability = String(job.task && job.task.operation || '');
+          if (!claimedCapabilities.has(requiredCapability) && !claimedCapabilities.has('workspace')) return false;
+        }
+        if (job.operation === 'mission.verify' && !claimedCapabilities.has('mission.verify')) return false;
         return job.status === 'queued' ||
           (job.status === 'leased' && job.lease_until && Date.parse(job.lease_until) <= now);
       })
