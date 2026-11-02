@@ -2333,9 +2333,9 @@ function Chat({
     return () => window.removeEventListener('beforeinstallprompt', onBefore);
   }, []);
 
-  async function send(voiceTranscript?: string) {
+  async function send(voiceTranscript?: string): Promise<boolean> {
     const clean = (typeof voiceTranscript === 'string' ? voiceTranscript : text).trim();
-    if ((!clean && !file && !audioFile) || sending) return;
+    if ((!clean && !file && !audioFile) || sending) return false;
     const messageText = clean || (audioFile ? 'El usuario adjuntó un audio de voz. Procesa el audio adjunto y responde.' : '');
     const attachments = [file, audioFile].filter(Boolean) as File[];
     chatMutationVersionRef.current += 1;
@@ -2378,7 +2378,10 @@ function Chat({
       setFile(null);
       setAudioFile(null);
       const clientMessageId = crypto.randomUUID();
-      const d = await api('/conversation', session.accessToken, { method: 'POST', body: JSON.stringify({ parts, clientMessageId, conversationId: activeConversationId }) });
+      const d = await api('/conversation', session.accessToken, { method: 'POST', body: JSON.stringify({ parts, clientMessageId, conversationId: activeConversationId, voice_mode: voiceModeRef.current }) });
+      if (voiceModeRef.current && d?.processing) {
+        throw new Error('La respuesta rápida de voz no está activa; se evitó esperar la cola lenta.');
+      }
       let responseData = d;
       if (d?.processing && d?.job_id) {
         const deadline = Date.now() + 130000;
@@ -2430,8 +2433,10 @@ function Chat({
         setPendingMissionConfirmation(null);
         if (responseData.mission?.mission_id) void trackMission(responseData.mission.mission_id);
       }
+      return Boolean(p?.text);
     } catch (x) {
       setError(x instanceof Error ? x.message : 'Error comunicando con ARIA.');
+      return false;
     } finally {
       setSending(false);
       window.setTimeout(() => chatInputRef.current?.focus(), 0);
@@ -2699,8 +2704,7 @@ function Chat({
                     if (voiceMode) {
                       if (pendingMissionConfirmation) {
                         if (isVoiceMissionAffirmative(transcript)) {
-                          void confirmPendingMission();
-                          return;
+                          return confirmPendingMission();
                         }
                         if (isVoiceMissionNegative(transcript)) {
                           dismissPendingMission();
@@ -2711,8 +2715,7 @@ function Chat({
                         speakAssistantText(clarification);
                         return;
                       }
-                      void send(transcript);
-                      return;
+                      return send(transcript);
                     }
                     setText(previous => previous.trim() ? previous.replace(/\s+$/, '') + ' ' + transcript : transcript);
                   }}
