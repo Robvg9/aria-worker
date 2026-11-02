@@ -2693,6 +2693,7 @@ function Chat({
                   onAudio={setAudioFile}
                   buttonLabel={voiceMode ? '🎙️ Hablar' : '🎙️ Audio'}
                   listeningLabel='■ Detener'
+                  disabled={sending}
                   onTranscript={transcript => {
                     if (voiceMode) {
                       if (pendingMissionConfirmation && isVoiceMissionAffirmative(transcript)) {
