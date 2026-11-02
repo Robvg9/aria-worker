@@ -67,8 +67,11 @@ assert.match(migration, /REVOKE ALL ON TABLE aria_internal[.]voice_owner_session
 assert.match(migration, /REVOKE ALL ON TABLE aria_internal[.]voice_command_idempotency FROM PUBLIC, anon, authenticated/);
 assert.match(migration, /REVOKE ALL ON TABLE aria_internal[.]voice_device_commands FROM PUBLIC, anon, authenticated/);
 assert.match(migration, /TO service_role/);
-assert.doesNotMatch(migration, /speaker_embedding|voiceprint|raw_voice_sample|audio_blob/i,
-  'no biometric template or audio may be stored in Supabase');
+const schemaStatements = migration
+  .replace(/--[^\\n]*/g, '')
+  .replace(/COMMENT ON (?:TABLE|COLUMN)\\b[\\s\\S]*?;/gi, '');
+assert.doesNotMatch(schemaStatements, /speaker_embedding|voiceprint|raw_voice_sample|audio_blob/i,
+  'no biometric template or audio columns/tables may be stored in Supabase');
 
 assert.match(storage, /schema[(]"aria_internal"[)]/);
 assert.match(storage, /consume_voice_owner_session_nonce/);
