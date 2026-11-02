@@ -56,7 +56,7 @@ assert.match(workflow, /shortlisted-models\/\*\.json/,
   'CI must upload the matching metadata sidecar');
 assert.match(readme, /eSpeak-generated/,
   'the model evidence must disclose its synthetic TTS provenance');
-assert.match(readme, /does NOT estimate a real-world false activation rate/i,
+assert.match(readme, /does NOT estimate a real-world false[- ]activation rate/i,
   'the synthetic metrics must not be presented as real-world activation rates');
 
 console.log('ARIA Voice V4 Heed model package contract: PASS');
