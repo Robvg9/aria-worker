@@ -173,7 +173,12 @@ jobs:
             if ($document.format -ne 'aria-worker-config-dpapi-v1' -or $document.protectedForSid -ne $sid) {
               throw 'DPAPI config metadata or owner SID does not match the current user.'
             }
-            if ($document.values.ARIA_AUTONOMY_ADAPTER -notmatch 'aria-windows-execution-adapter-v1\.js
+            $adapterValue = [string]$document.values.ARIA_AUTONOMY_ADAPTER
+            if (-not $adapterValue.EndsWith('aria-windows-execution-adapter-v1.js', [System.StringComparison]::OrdinalIgnoreCase) -or
+                $document.values.PSObject.Properties.Name -contains 'ARIA_OLLAMA_MODEL' -or
+                $document.values.PSObject.Properties.Name -contains 'ARIA_OLLAMA_URL') {
+              throw 'DPAPI config is not execution-only or still contains Ollama settings.'
+            }
 
             $secureToken = ConvertTo-SecureString -String ([string]$document.workerTokenDpapi) -ErrorAction Stop
             $pointer = [IntPtr]::Zero
