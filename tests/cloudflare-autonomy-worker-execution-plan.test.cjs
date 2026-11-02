@@ -1,11 +1,6 @@
 'use strict';
 
 const assert = require('node:assert/strict');
-const {
-  AriaMissionStore,
-  MISSION_EXECUTION_PAUSED
-} = await import('../cloudflare-autonomy/worker.mjs');
-
 const CONTROL_TOKEN = 'execution-plan-control-token'.padEnd(48, 'c');
 const WORKER_TOKEN = 'execution-plan-worker-token'.padEnd(48, 'w');
 
@@ -38,6 +33,7 @@ async function call(store, route, { method = 'GET', token = CONTROL_TOKEN, body 
 }
 
 (async () => {
+  const { AriaMissionStore, MISSION_EXECUTION_PAUSED } = await import('../cloudflare-autonomy/worker.mjs');
   assert.equal(MISSION_EXECUTION_PAUSED, true, 'production default freeze must remain true');
   const state = { storage: new MemoryStorage(), waitUntil() {} };
   const store = new AriaMissionStore(state, {
