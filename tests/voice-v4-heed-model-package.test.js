@@ -59,4 +59,13 @@ assert.match(readme, /eSpeak-generated/,
 assert.match(readme, /does NOT estimate a real-world false[- ]activation rate/i,
   'the synthetic metrics must not be presented as real-world activation rates');
 
+assert.match(workflow, /Verify shortlisted model bundle integrity/,
+  'the hosted workflow must verify the exported ONNX and sidecar bundle');
+assert.match(workflow, /hashlib\.sha256/,
+  'the hosted workflow must independently verify artifact SHA-256 hashes');
+assert.match(workflow, /synthetic-only-shortlist/,
+  'synthetic model artifacts must remain explicitly unapproved for production');
+assert.match(workflow, /shortlist_preprocessing_contract_mismatch/,
+  'the artifact gate must verify the exact runtime preprocessing contract');
+
 console.log('ARIA Voice V4 Heed model package contract: PASS');
