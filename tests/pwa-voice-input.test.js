@@ -6,6 +6,8 @@ const root = path.resolve(__dirname, '..');
 const app = fs.readFileSync(path.join(root, 'pwa/src/App.tsx'), 'utf8');
 const project = fs.readFileSync(path.join(root, 'pwa/src/ProjectWorkspace.tsx'), 'utf8');
 const voice = fs.readFileSync(path.join(root, 'pwa/src/VoiceInputButton.tsx'), 'utf8');
+const handsFree = fs.readFileSync(path.join(root, 'pwa/src/HandsFreeVoiceControl.tsx'), 'utf8');
+const wakeWordSource = fs.readFileSync(path.join(root, 'pwa/src/voiceWakeWord.js'), 'utf8');
 const css = fs.readFileSync(path.join(root, 'pwa/src/index.css'), 'utf8');
 
 assert.match(voice, /SpeechRecognitionConstructor/);
@@ -53,6 +55,19 @@ assert.match(css, /\.voiceInputButton/);
 assert.match(css, /\.voiceInputNotice/);
 assert.match(css, /\.voicePromptField/);
 assert.match(css, /\.visualInstructionComposer/);
+assert.match(app, /<HandsFreeVoiceControl onTranscript=\{handleVoiceTranscript\}/, 'voice mode must expose the foreground hands-free listener');
+assert.match(app, /disabled=\{sending \|\| handsFreeActive\}/, 'push-to-talk must be disabled while hands-free recognition is active');
+assert.match(handsFree, /recognition\.continuous = true/, 'hands-free mode must continuously recognize speech while enabled');
+assert.match(handsFree, /recognition\.interimResults = true/, 'hands-free mode must consume partial recognition events');
+assert.match(handsFree, /recognition\.lang = 'es-PR'/, 'hands-free mode must use Puerto Rican Spanish recognition');
+assert.match(handsFree, /extractWakeWordRemainder/, 'hands-free mode must require the ARIA wake phrase before capturing a command');
+assert.match(handsFree, /SILENCE_TO_SEND_MS = 1650/, 'hands-free mode must submit after a bounded pause in speech');
+assert.match(handsFree, /document\.addEventListener\('visibilitychange'/, 'hands-free listening must pause when the PWA is backgrounded');
+assert.match(handsFree, /window\.addEventListener\('pagehide'/, 'hands-free listening must stop when the PWA is closed or navigated away');
+assert.match(handsFree, /wakeLockApi\.request\('screen'\)/, 'hands-free mode should request a screen wake lock while foregrounded when supported');
+assert.match(handsFree, /aria-voice-output-start/, 'recognition must pause while ARIA speaks');
+assert.match(handsFree, /aria-voice-output-end/, 'recognition must resume after ARIA finishes speaking');
+assert.match(wakeWordSource, /aria\(/, 'wake phrase matcher must explicitly use ARIA');
 
 assert.match(app, /VOICE_MODE_KEY = 'aria_voice_conversation_mode_v1'/, 'voice mode preference must persist locally per device');
 assert.match(app, /speakAssistantText\(p\.text\)/, 'assistant replies must be spoken while voice mode is enabled');
@@ -73,6 +88,15 @@ assert.match(app, /voiceModePrivacyNote/, 'PWA must disclose that the browser ma
 
 (async () => {
   const voiceOutput = await import(pathToFileURL(path.join(root, 'pwa/src/voiceOutput.js')).href);
+  const wakeWord = await import(pathToFileURL(path.join(root, 'pwa/src/voiceWakeWord.js')).href);
+  assert.equal(wakeWord.extractWakeWordRemainder('Oye ARIA, ¿cómo estás?'), 'como estas');
+  assert.equal(wakeWord.extractWakeWordRemainder('ARIA'), '');
+  assert.equal(wakeWord.extractWakeWordRemainder('Hablame de economia'), null, 'incidental speech must not activate hands-free mode');
+  assert.equal(wakeWord.extractWakeWordRemainder('Hey ARIA, deja de escuchar'), 'deja de escuchar');
+  assert.equal(wakeWord.classifyHandsFreeCommand('deja de escuchar'), 'stop-listening');
+  assert.equal(wakeWord.classifyHandsFreeCommand('apaga el micrófono'), 'stop-listening');
+  assert.equal(wakeWord.classifyHandsFreeCommand('silencio'), 'stop-speaking');
+  assert.equal(wakeWord.classifyHandsFreeCommand('hola mundo'), null);
   assert.equal(voiceOutput.cleanSpeechText('**Hola** [ARIA](https://aria.example)'), 'Hola ARIA');
   assert.equal(voiceOutput.cleanSpeechText('Consulta https://example.com ahora'), 'Consulta ahora');
   assert.equal(voiceOutput.isVoiceMissionAffirmative('Sí, comenzar la misión.'), true);
@@ -86,7 +110,9 @@ assert.match(app, /voiceModePrivacyNote/, 'PWA must disclose that the browser ma
   class FakeUtterance {
     constructor(text) { this.text = text; }
   }
+  const voiceEvents = [];
   const fakeHost = {
+    dispatchEvent(event) { voiceEvents.push(event.type); return true; },
     SpeechSynthesisUtterance: FakeUtterance,
     speechSynthesis: {
       cancel() { cancelCount += 1; },
@@ -99,6 +125,9 @@ assert.match(app, /voiceModePrivacyNote/, 'PWA must disclose that the browser ma
   assert.equal(spoken[0].text, 'Hola Robert.');
   assert.equal(spoken[0].lang, 'es-PR');
   assert.equal(spoken[0].voice.lang, 'es-MX');
+  assert.ok(voiceEvents.includes('aria-voice-output-start'), 'TTS start must notify the hands-free controller');
+  spoken[0].onend();
+  assert.ok(voiceEvents.includes('aria-voice-output-end'), 'TTS completion must allow hands-free listening to resume');
   voiceOutput.stopAssistantSpeech(fakeHost);
   assert.equal(cancelCount, 2, 'speech can be cancelled when voice mode is disabled or the chat unmounts');
   assert.equal(voiceOutput.speakAssistantText('   ', fakeHost), false);
