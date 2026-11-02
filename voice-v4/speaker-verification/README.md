@@ -18,3 +18,10 @@ Sources:
 ## CI feasibility checkpoint
 
 The repository now includes a hosted-only public-sample smoke workflow at `.github/workflows/aria-voice-v4-speaker-benchmark.yml`. It will compare a small public same-speaker group against different-speaker examples and retain aggregate metrics only. This is an API/model feasibility check; the selected CAM++ model card covers Chinese/English rather than Cuban Spanish, and a passing ranking smoke cannot authorize owner authentication or background listening.
+
+## Hosted feasibility run — 2026-11-02
+
+Run the public-sample CAM++ smoke on an ephemeral GitHub-hosted Linux runner. This checks that the pinned ONNX runtime can load the selected model and rank a tiny same-speaker set above a different-speaker set. It uses no owner audio, records no waveform, and retains only aggregate cosine scores and runtime/memory metadata.
+
+A pass is only a model/runtime sanity check. The selected release model is trained for Chinese/English, so it is not eligible for owner verification on Cuban Spanish without a separate multilingual and real-world evaluation. No model is approved for production by this run.
+
