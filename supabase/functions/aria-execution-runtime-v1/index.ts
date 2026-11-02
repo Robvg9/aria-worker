@@ -248,21 +248,4 @@ if(route.provider_id==="google")return await directGemini(route,input,requestId)
 if(route.provider_id==="xai")return await xaiResponses(route,input,requestId);
 if(route.provider_id!=="openrouter")return out({status:"blocked",reason:"adapter_unavailable"});
 return await openRouterChat(route,input,requestId);
-if(route.capability!=="text_generation")return out({status:"blocked",reason:"capability_missing"});if(route.account_id!=="acct_openrouter_primary")return out({status:"blocked",reason:"route_not_selectable"});const freeOpenRouterModels=new Set([
-"nvidia/nemotron-3-ultra-550b-a55b:free",
-"poolside/laguna-s-2.1:free",
-"inclusionai/ling-3.0-flash-fin:free",
-"nvidia/nemotron-3.5-lightning:free",
-"dots-studio/dots3-note-preview:free",
-"inclusionai/ling-3.0-flash-vl:free",
-"nex-agi/nex-n2.5-pro:free",
-"thinking-machines/inkling:free",
-"nvidia/nemotron-3-super-120b-a12b:free",
-"deepseek/deepseek-v4-flash-0731:free",
-"inclusionai/ling-3.0-flash-sante:free",
-"thinking-machines/inkling-small:free",
-"cohere/north-mini-code:free",
-"nex-agi/nex-n2.5-mini:free",
-"poolside/laguna-xs-2.1:free",
-"nvidia/nemotron-3-nano-omni:free"
-]);if(!freeOpenRouterModels.has(route.model_id))return out({status:"blocked",reason:"model_not_verified"});const sec=await secret("aria_openrouter_primary");if(!sec)return out({status:"failed",error:{code:"credential_unavailable",message:"credential unavailable"}});const p=input?.payload;const messages=Array.isArray(p?.messages)&&p.messages.length?p.messages:(typeof p?.prompt==="string"&&p.prompt.length?[{role:"user",content:p.prompt}]:null);if(!messages)return out({status:"blocked",reason:"input_missing"});const requestedCompletion=Number.isFinite(Number(p.max_completion_tokens))?Number(p.max_completion_tokens):(Number.isFinite(Number(p.max_tokens))?Number(p.max_tokens):1200);const boundedCompletion=Math.max(1,Math.min(Math.floor(requestedCompletion),4000));const reqBody:any={model:route.model_id,messages,max_completion_tokens:boundedCompletion,reasoning:{effort:'none'}};if(typeof p.temperature==="number")reqBody.temperature=p.temperature;let res:Response;const controller=new AbortController();const timeout=setTimeout(()=>controller.abort(),25000);try{res=await fetch("https://openrouter.ai/api/v1/chat/completions",{method:"POST",headers:{Authorization:`Bearer ${sec}`,"Content-Type":"application/json"},body:JSON.stringify(reqBody),signal:controller.signal})}catch(error){return out({status:"failed",error:{code:error instanceof Error&&error.name==="AbortError"?"transport_timeout":"transport_error",message:error instanceof Error&&error.name==="AbortError"?"provider request timed out":"transport failure"}})}finally{clearTimeout(timeout)}const json=await res.json().catch(()=>null);if(!res.ok)return out({status:"failed",error:{code:"provider_error",message:sanitize(json?.error?.message||`provider returned HTTP ${res.status}`),provider_status:res.status}});const c=json?.choices?.[0]?.message?.content;if(typeof c!=="string")return out({status:"failed",error:{code:"invalid_response",message:"no text content in provider response"}});return out({status:"succeeded",response:{modality:"text",content:c,provider_response_id:typeof json?.id==="string"?json.id:null,finish_reason:typeof json?.choices?.[0]?.finish_reason==="string"?json.choices[0].finish_reason:null,provider_model:typeof json?.model==="string"?json.model:null},usage:json?.usage??{status:"unknown"},metadata:{runtime:"aria-execution-runtime-v1",adapter_id:"openrouter_chat_completions",provider_id:"openrouter",route_type:"mediated",attempt:1,canonical_write:false,memory_authority:"none"}})});
+});
