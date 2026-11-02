@@ -145,7 +145,7 @@ assertContains(appApi,'[ARIA-VOICE-PROVIDER-FAILED]','voice backend must disting
 assertContains(appApi,'response_chars:content.length','voice backend diagnostics may retain response length only');
 assertContains(appApi,'error_code:code','voice backend failures must expose a normalized machine error code');
 const voiceExecutionSource=appApi.slice(appApi.indexOf('async function executeVoiceConversation('),appApi.indexOf('async function executeConversationOnly('));
-assert.doesNotMatch(voiceExecutionSource,/console\\.(?:info|warn|error)\\([^;]*(?:prompt|transcript|text)\\s*:\\s*(?:prompt|content)/s,'voice provider logs must never include transcript or generated response text');
+assert.doesNotMatch(voiceExecutionSource,/console\.(?:info|warn|error)\([^;]{0,500}(?:prompt|transcript|text)\s*:\s*(?:prompt|content)/s,'voice provider logs must never include transcript or generated response text');
 assertContains(appApi,'if (MISSION_EXECUTION_PAUSED) {\n          const pausedText','explicit mission confirmation must be refused before canonical DIRECT intake');
 assertContains(executor,'const conversationOnlyAllowed=','runtime must explicitly identify the constrained conversation-only exception');
 assertContains(executor,'body?.task_id==="conversation:"+body?.metadata?.conversation_id','conversation-only runtime access must be bound to the exact conversation task id');
