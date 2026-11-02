@@ -50,8 +50,9 @@ assert.match(migration, /ON CONFLICT \\(owner_user_id, idempotency_key\\) DO NOT
 assert.match(migration, /FOR UPDATE OF c SKIP LOCKED/);
 assert.match(migration, /trusted owner-verified voice device unavailable/);
 assert.match(migration, /command_id uuid PRIMARY KEY/);
-assert.doesNotMatch(migration.slice(migration.indexOf('CREATE TABLE IF NOT EXISTS aria_internal.voice_device_commands')),
-  /mission_id|job_id|shell\\.execute|message\\.send/i,
+const voiceQueueTable = migration.match(/CREATE TABLE IF NOT EXISTS aria_internal\\.voice_device_commands[\\s\\S]*?;/)?.[0] || '';
+assert.ok(voiceQueueTable, 'direct device command table must exist');
+assert.doesNotMatch(voiceQueueTable, /mission_id|job_id|shell\\.execute|message\\.send/i,
   'direct device queue must never contain a mission/job identifier, shell, or message send');
 
 assert.match(migration, /revoke_voice_speaker_policy/);
