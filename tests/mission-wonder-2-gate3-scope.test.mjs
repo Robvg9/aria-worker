@@ -44,4 +44,6 @@ check(executionSource.includes("const MISSION_EXECUTION_PAUSED = true"),"executi
 check(runnerSource.includes("if (!gate3ScopedProbeAllowed)"),"runner denies every other mission");
 check(executionSource.includes("if(!gate3ScopedProbeAllowed)return out"),"execution runtime denies every other request");
 check(runnerSource.includes("routes = [primaryRoute, ...gate3Fallbacks]"),"scoped execution contains exactly two route slots");
+check(runnerSource.includes("model_execution_failures: failures.map((failure: any)"),"scoped success persists sanitized Google 429 evidence");
+check(runnerSource.includes("model_fallback_attempts: failures.length"),"scoped success records exactly one primary route attempt");
 console.log("Mission Wonder 2 Gate 3 supervised scope contract: PASS");

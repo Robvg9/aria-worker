@@ -2362,7 +2362,30 @@ async function modelExecute(missionId: string, step: any, auth: AuthContext, mis
     });
     const body = await response.json().catch(() => null);
     if (response.ok && body?.status === "succeeded") {
-      return { ...body, executor_type: "model", operation: step.operation, provider_id: route.provider_id, account_id: route.account_id, model_id: route.model_id, model_fallback_used: route.model_id !== primary.model_id, model_fallback_attempts: failures.length };
+      return {
+        ...body,
+        executor_type: "model",
+        operation: step.operation,
+        provider_id: route.provider_id,
+        account_id: route.account_id,
+        model_id: route.model_id,
+        model_fallback_used: route.model_id !== primary.model_id,
+        model_fallback_attempts: failures.length,
+        // Preserve the sanitized primary-route failure only for the supervised
+        // Gate 3 probe so persisted evidence proves the synthetic Google 429
+        // was followed by exactly one allowlisted OpenRouter request.
+        ...(gate3ScopedProbe ? {
+          model_execution_failures: failures.map((failure: any) => ({
+            provider_id: failure.provider_id,
+            account_id: failure.account_id,
+            model_id: failure.model_id,
+            http_status: failure.http_status,
+            code: failure.code,
+            message: failure.message,
+            provider_status: failure.provider_status,
+          })),
+        } : {}),
+      };
     }
     const err = body?.error && typeof body.error === "object" ? body.error : { message: String(body?.error || body?.reason || `execution_${response.status}`) };
     failures.push({
