@@ -40,3 +40,10 @@ Repository: https://github.com/voicute/onnx-wakeword (pinned research revision `
 ### Remaining mandatory controls
 
 A wake-word score is not speaker identity. Implement local speaker enrollment/verification as a separate layer, keep replay/deepfake limitations explicit, and require confirmation for sending messages or other high-impact actions. Keep READ, user-approved DEVICE ACTION, and AUTONOMOUS MISSION EXECUTION as separate routes. The mission execution freeze remains unchanged.
+
+
+### Comparison: openWakeWord paths
+
+- The upstream `dscripka/openWakeWord` repository states that its shipped wake models are English-only. Its documented custom pipeline recommends several thousand positive samples and very large negative corpora (the included models were trained with roughly 30,000 hours of speech/noise/music). That is not a dependable zero-cost Spanish ARIA shortcut.
+- A separate site at `openwakeword.com` advertises multilingual custom training; it is not the same thing as the upstream English-only repository. Its public Spanish `Hey Alfred` example reports 32.8% recall and 62.23 false activations/hour on its published benchmark. That result is not suitable for an always-listening owner assistant.
+- Neither route is accepted as ARIA's production wake detector at this checkpoint.
