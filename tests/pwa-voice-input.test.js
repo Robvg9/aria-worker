@@ -59,7 +59,7 @@ assert.match(app, /speakAssistantText\(p\.text\)/, 'assistant replies must be sp
 assert.match(app, /isVoiceMissionAffirmative\(transcript\)/, 'spoken affirmative must only be handled inside the pending mission confirmation gate');
 assert.match(app, /isVoiceMissionNegative\(transcript\)/, 'spoken cancellation must be handled inside the pending mission confirmation gate');
 assert.match(app, /No reconocí una confirmación clara/, 'ambiguous speech must stay in the pending confirmation flow instead of being sent as a new command');
-assert.match(app, /void send\(transcript\)/, 'voice mode must submit the final recognized transcript automatically');
+assert.match(app, /return send\(transcript\)/, 'voice mode must await the final recognized transcript response');
 assert.match(voice, /autoSubmit = false/, 'voice input must preserve manual review mode outside voice conversation');
 assert.ok(voice.includes('Transcripción recibida. ARIA está preparando tu respuesta'), 'automatic voice mode must announce response processing');
 assert.ok(voice.includes('Respuesta recibida. Puedes hablar de nuevo.'), 'voice processing notice must resolve when the assistant reply arrives');
