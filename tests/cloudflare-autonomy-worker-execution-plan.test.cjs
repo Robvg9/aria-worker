@@ -179,7 +179,7 @@ async function call(store, route, { method = 'GET', token = CONTROL_TOKEN, body 
     }
   });
   assert.equal(unsafePlan.status, 422);
-  assert.equal((await unsafePlan.json()).error, 'plan_operation_rejected:shell.execute');
+  assert.equal((await unsafePlan.json()).error, 'plan_operation_rejected');
   assert.equal((await store.getMission(badMissionId)).status, 'planning');
 
   process.stdout.write('cloudflare execution-only remote-plan contract: PASS\n');
