@@ -92,7 +92,7 @@ jobs:
           }
           $secretPath=Join-Path $PWD ('.aria-package3-secrets-' + $env:GITHUB_RUN_ID + '.json')
           try {
-            $utf8=New-Object System.Text.UTF8Encoding($false)
+            $utf8=[System.Text.UTF8Encoding]::new($false)
             [System.IO.File]::WriteAllText($secretPath,($payload | ConvertTo-Json -Compress),$utf8)
             wrangler deploy --config wrangler.aria-autonomy.toml --secrets-file $secretPath
             if($LASTEXITCODE -ne 0){throw "WRANGLER_DEPLOY_FAILED=$LASTEXITCODE"}
@@ -108,7 +108,7 @@ jobs:
           ARIA_CONTROL_TOKEN: ${{ secrets.ARIA_AUTONOMY_CONTROL_TOKEN }}
           ARIA_WORKER_TOKEN: ${{ secrets.ARIA_AUTONOMY_WORKER_TOKEN }}
           ARIA_PACKAGE3_PROBE_ID: gh-${{ github.run_id }}-${{ github.run_attempt }}
-          ARIA_PACKAGE3_EVIDENCE_PATH: "${{ runner.temp }}\aria-package3-live\evidence.json"
+          ARIA_PACKAGE3_EVIDENCE_PATH: ${{ runner.temp }}/aria-package3-live/evidence.json
         run: |
           $ErrorActionPreference='Stop'
           node scripts/mission-wonder-2-package3-live-e2e.cjs
