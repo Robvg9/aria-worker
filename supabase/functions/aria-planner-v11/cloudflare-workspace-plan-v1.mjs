@@ -249,3 +249,13 @@ export const CLOUDflarePlanProducerContract = Object.freeze({
   allowedOperations: Object.freeze(Array.from(OPERATIONS)),
   readOnlyOperations: READ_ONLY_OPERATIONS
 });
+
+export function sanitizeCloudflarePlanFailureReason(value) {
+  const normalized = String(value || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9_.:-]+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^[_:.]+|[_:.]+$/g, '')
+    .slice(0, 160);
+  return normalized || 'remote_plan_producer_rejected';
+}
