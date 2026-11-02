@@ -47,3 +47,23 @@ A wake-word score is not speaker identity. Implement local speaker enrollment/ve
 - The upstream `dscripka/openWakeWord` repository states that its shipped wake models are English-only. Its documented custom pipeline recommends several thousand positive samples and very large negative corpora (the included models were trained with roughly 30,000 hours of speech/noise/music). That is not a dependable zero-cost Spanish ARIA shortcut.
 - A separate site at `openwakeword.com` advertises multilingual custom training; it is not the same thing as the upstream English-only repository. Its public Spanish `Hey Alfred` example reports 32.8% recall and 62.23 false activations/hour on its published benchmark. That result is not suitable for an always-listening owner assistant.
 - Neither route is accepted as ARIA's production wake detector at this checkpoint.
+
+
+## Direct command lane checkpoint — 2026-11-02
+
+An isolated policy module now exists at `voice-v4/command-router.js`, with root test `tests/voice-v4-command-router.test.js` and specification `voice-v4/COMMAND-LANES.md`.
+
+The module separates:
+- `read`: only `aria.status` and `device.status`, no mutating execution.
+- `device.action`: initial allowlist only: brightness 0–100, pre-approved app ID, or HTTPS URL on a pre-approved host. Requires a fresh owner session, a trusted speaker-verification result from an injected native verifier, capability authorization, trusted/healthy explicitly targeted device, a short expiry and shared atomic idempotency key.
+- `mission.execute`: hard blocked while mission freeze is active; outside freeze it still only returns a human-confirmation-required state.
+
+`message.send` returns a recipient/body preview that requires confirmation in a visible authenticated UI. It never calls an executor. Raw shell, PowerShell, arbitrary code, mission IDs/jobs on the direct action lane and implicit target selection are rejected.
+
+This is a pure policy contract, not a connected runtime. No API, Supabase, Android service, Windows agent, or device adapter invokes it yet. The injected owner-session verifier must verify a cryptographically signed local assertion; a caller-provided boolean is not sufficient. The idempotency adapter must be atomic/shared across Android and Windows. Speaker verification must be calibrated against replay and non-owner voices. The module never calls the mission dispatcher or creates jobs.
+
+## Speaker verification candidate
+
+A separate hosted-only smoke test evaluates the public sherpa-onnx / 3D-Speaker CAM++ model (about 28.3 MB). The workflow uses public sample clips only; it reports aggregate embeddings similarity, model load/latency and peak memory. It never downloads, records or uploads Robert's voice. The model card covers Chinese/English, so its transfer to Cuban Spanish is not assumed. Model and runtime license review is documented in `voice-v4/speaker-verification/README.md`.
+
+The candidate test is preliminary and must not be treated as identity authentication acceptance. A production enrollment would need owner-consented samples, local encrypted storage via Android Keystore / Windows DPAPI, owner-controlled erase/reset, per-device threshold calibration, replay/deepfake defenses and separate human confirmation for high-impact actions.
