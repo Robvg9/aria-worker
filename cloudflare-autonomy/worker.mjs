@@ -940,8 +940,29 @@ export class AriaMissionStore {
         redirect: 'error',
         signal: AbortSignal.timeout(20000)
       });
-    } catch (_) {
-      return { ok: false, status: 503, reason: 'remote_plan_producer_unreachable' };
+    } catch (cause) {
+      const causeName = String(cause && cause.name || 'Error').toLowerCase();
+      const safeName = ['aborterror', 'timeouterror', 'typeerror', 'error'].includes(causeName)
+        ? causeName
+        : 'unknown';
+      const rawCode = String(cause && cause.cause && cause.cause.code || cause && cause.code || '').toUpperCase();
+      const safeCodes = new Set([
+        'ECONNREFUSED',
+        'ECONNRESET',
+        'ETIMEDOUT',
+        'ENOTFOUND',
+        'EHOSTUNREACH',
+        'UND_ERR_CONNECT_TIMEOUT',
+        'UND_ERR_HEADERS_TIMEOUT',
+        'UND_ERR_SOCKET',
+        'ERR_CERT_AUTHORITY_INVALID'
+      ]);
+      const safeCode = safeCodes.has(rawCode) ? '_' + rawCode.toLowerCase() : '';
+      return {
+        ok: false,
+        status: 503,
+        reason: 'remote_plan_producer_unreachable_' + safeName + safeCode
+      };
     }
     const payload = await response.json().catch(() => null);
     if (!response.ok) {
