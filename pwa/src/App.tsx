@@ -2333,9 +2333,9 @@ function Chat({
     return () => window.removeEventListener('beforeinstallprompt', onBefore);
   }, []);
 
-  async function send(voiceTranscript?: string) {
+  async function send(voiceTranscript?: string): Promise<boolean> {
     const clean = (typeof voiceTranscript === 'string' ? voiceTranscript : text).trim();
-    if ((!clean && !file && !audioFile) || sending) return;
+    if ((!clean && !file && !audioFile) || sending) return false;
     const messageText = clean || (audioFile ? 'El usuario adjuntó un audio de voz. Procesa el audio adjunto y responde.' : '');
     const attachments = [file, audioFile].filter(Boolean) as File[];
     chatMutationVersionRef.current += 1;
@@ -2430,8 +2430,10 @@ function Chat({
         setPendingMissionConfirmation(null);
         if (responseData.mission?.mission_id) void trackMission(responseData.mission.mission_id);
       }
+      return Boolean(p?.text);
     } catch (x) {
       setError(x instanceof Error ? x.message : 'Error comunicando con ARIA.');
+      return false;
     } finally {
       setSending(false);
       window.setTimeout(() => chatInputRef.current?.focus(), 0);
