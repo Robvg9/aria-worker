@@ -715,21 +715,21 @@ CREATE TABLE IF NOT EXISTS aria_internal.voice_device_commands (
         AND params ? 'brightness'
         AND jsonb_typeof(params->'brightness') = 'number'
         AND (params->>'brightness')::numeric BETWEEN 0 AND 100
-        AND (SELECT count(*) FROM jsonb_object_keys(params)) = 1
+        AND jsonb_object_length(params) = 1
       WHEN 'app.open' THEN
         jsonb_typeof(params) = 'object'
         AND params ? 'app_id'
         AND jsonb_typeof(params->'app_id') = 'string'
         AND length(params->>'app_id') BETWEEN 1 AND 120
         AND params->>'app_id' ~ '^[A-Za-z0-9._-]+$'
-        AND (SELECT count(*) FROM jsonb_object_keys(params)) = 1
+        AND jsonb_object_length(params) = 1
       WHEN 'browser.open_url' THEN
         jsonb_typeof(params) = 'object'
         AND params ? 'url'
         AND jsonb_typeof(params->'url') = 'string'
         AND length(params->>'url') BETWEEN 9 AND 2048
         AND params->>'url' ~ '^https://'
-        AND (SELECT count(*) FROM jsonb_object_keys(params)) = 1
+        AND jsonb_object_length(params) = 1
       ELSE false
     END
   ),
@@ -920,10 +920,18 @@ BEGIN
   IF p_command_id IS NULL
      OR p_device_id IS NULL OR length(p_device_id) NOT BETWEEN 8 AND 160
      OR p_device_token IS NULL OR length(p_device_token) < 32
-     OR p_status NOT IN ('succeeded','failed')
-     OR coalesce(p_result,'{}'::jsonb) <> coalesce(p_result,'{}'::jsonb)
+     OR p_status IS NULL OR p_status NOT IN ('succeeded','failed')
      OR jsonb_typeof(coalesce(p_result,'{}'::jsonb)) <> 'object'
-     OR (coalesce(p_result,'{}'::jsonb) ?| ARRAY['token','access_token','authorization','secret','password','shell','command','transcript','audio','message_body'])
+     OR (p_status = 'succeeded' AND p_error_code IS NOT NULL)
+     OR EXISTS (
+       SELECT 1 FROM jsonb_object_keys(coalesce(p_result,'{}'::jsonb)) AS item(key)
+       WHERE item.key NOT IN ('ok','brightness','app_id','url','title','opened','verified','state')
+     )
+     OR EXISTS (
+       SELECT 1 FROM jsonb_each(coalesce(p_result,'{}'::jsonb)) AS item(key,value)
+       WHERE jsonb_typeof(item.value) NOT IN ('string','number','boolean')
+          OR (jsonb_typeof(item.value) = 'string' AND length(item.value #>> '{}') > 160)
+     )
      OR (p_error_code IS NOT NULL AND p_error_code NOT IN (
        'device_unavailable','permission_denied','operation_unsupported',
        'app_not_allowlisted','url_not_allowlisted','native_api_failed',
@@ -932,6 +940,19 @@ BEGIN
     RAISE EXCEPTION 'invalid voice command completion';
   END IF;
   v_token_hash := encode(extensions.digest(p_device_token, 'sha256'), 'hex');
+
+  IF EXISTS (
+    SELECT 1
+    FROM jsonb_each(coalesce(p_result,'{}'::jsonb)) AS item(key,value)
+    WHERE (item.key = 'brightness' AND (
+             jsonb_typeof(item.value) <> 'number'
+             OR (item.value #>> '{}')::numeric NOT BETWEEN 0 AND 100
+          ))
+       OR (item.key IN ('opened','verified','ok') AND jsonb_typeof(item.value) <> 'boolean')
+       OR (item.key IN ('app_id','url','title','state') AND jsonb_typeof(item.value) <> 'string')
+  ) THEN
+    RAISE EXCEPTION 'voice command result value invalid';
+  END IF;
 
   UPDATE aria_internal.voice_device_commands c
   SET status = p_status,
