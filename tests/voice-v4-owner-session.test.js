@@ -82,6 +82,7 @@ const {
   const verify = createVerifier();
   const validSession = await signedSession(makePayload());
   const valid = await verify(validSession, {
+    expectedOwnerId: 'owner-12345678',
     requireSpeaker: true,
     requestId: 'req-voice-0001',
     expiresAt: now + 20000,
@@ -105,6 +106,11 @@ const {
   });
   assert.equal(replay.valid, false);
   assert.equal(replay.reason, 'owner_session_replayed');
+
+  const wrongAuthenticatedOwner = await verify(await signedSession(makePayload({
+    nonce: 'nonce-wrong-owner-0000000001'
+  })), { expectedOwnerId: 'another-owner-123' });
+  assert.equal(wrongAuthenticatedOwner.reason, 'session_owner_mismatch');
 
   const differentRequest = await verify(await signedSession(makePayload({
     nonce: 'nonce-different-request-000001'
