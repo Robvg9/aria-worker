@@ -125,7 +125,7 @@ jobs:
             -X POST "$base/api/plan-preview" \
             -H "Authorization: Bearer $ARIA_CONTROL_TOKEN" \
             -H 'content-type: application/json' \
-            --data '{"goal":"Read-only verification of the canonical workspace plan bridge","cloudflare_workspace_request":{"version":"v1","tasks":[{"task_id":"bridge_git_status","operation":"git.status","payload":{},"depends_on":[]}]}}')"
+            --data '{"goal":"Read-only verification of the canonical workspace plan bridge","cloudflare_workspace_request":{"version":"v1","allowed_operations":["git.status"],"workspace_context":{"root":"workspace"}}}')"
           test "$preview_code" = "200"
           PREVIEW_FILE="$preview_file" python - <<'PY'
           import json, os
@@ -133,7 +133,12 @@ jobs:
               data = json.load(handle)
           assert data.get("ok") is True
           assert data.get("source") == "supabase:aria-planner-v11"
-          assert data.get("read_only_preview") is True
+          assert data.get("durable_state_mutated") is False
+          model = data.get("model") or {}
+          assert model.get("provider_id") == "openrouter"
+          assert model.get("account_id") == "acct_openrouter_primary"
+          assert model.get("model_id") == "nvidia/nemotron-3.5-lightning:free"
+          assert model.get("executor") == "aria-execution-runtime-v1"
           tasks = data.get("tasks") or []
           assert len(tasks) == 1
           assert tasks[0].get("operation") == "git.status"
