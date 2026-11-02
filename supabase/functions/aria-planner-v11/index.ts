@@ -1544,7 +1544,7 @@ Deno.serve(async r=>{
   if(r.headers.has("x-aria-plan-producer")){
     if(!(await isCloudflarePlanProducerRequest(r,SECRET)))return out({error:"unauthorized_plan_producer"},401);
     if(r.method!=="POST")return out({error:"method_not_allowed"},405);
-    const pathname=new globalThis.URL(r.url).pathname.replace(/\\/+$/,"");
+    const pathname=new globalThis.URL(r.url).pathname.replace(/\/+$/,"");
     if(!pathname.endsWith("/functions/v1/aria-planner-v11"))return out({error:"not_found"},404);
     const producerBody=await r.json().catch(()=>null);
     const producerGoal=typeof producerBody?.goal==="string"?producerBody.goal.trim():"";
