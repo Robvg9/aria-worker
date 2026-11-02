@@ -11,17 +11,6 @@ on:
       - 'scripts/aria-worker-console-probe.cs'
       - 'tests/aria-worker-task-host.test.ps1'
       - 'tests/fixtures/aria-frozen-worker-probe-adapter.js'
-      - 'autonomy/aria-windows-execution-adapter-v1.js'
-      - 'scripts/aria-persistent-windows-worker-v1.js'
-      - 'scripts/aria-persistent-windows-worker-preflight-v1.js'
-      - 'scripts/aria-persistent-windows-worker-preflight-v1.test.js'
-      - 'scripts/Protect-ARIA-Persistent-Worker-Config.ps1'
-      - 'scripts/Update-ARIA-Persistent-Worker-ExecutionOnly.ps1'
-      - 'tests/aria-windows-execution-adapter-v1.test.js'
-      - 'tests/cloudflare-autonomy-worker-execution-plan.test.cjs'
-      - 'cloudflare-autonomy/worker.mjs'
-      - 'tests/cloudflare-autonomy-package3-scope.test.cjs'
-      - 'scripts/mission-wonder-2-package3-live-e2e.cjs'
   pull_request:
     branches:
       - main
@@ -29,7 +18,6 @@ on:
       - 'Dockerfile.aria-coordinator'
       - 'autonomy/persistent-control-plane-v1.js'
       - 'autonomy/ollama-persistent-adapter-v1.js'
-      - 'autonomy/aria-windows-execution-adapter-v1.js'
       - 'cloudflare-autonomy/worker.mjs'
       - 'cloudflare-autonomy/assets/index.html'
       - 'wrangler.aria-autonomy.toml'
@@ -60,9 +48,6 @@ on:
       - 'tests/persistent-worker-supervisor-policy-v1.test.ps1'
       - 'tests/fixtures/aria-frozen-worker-probe-adapter.js'
       - 'scripts/Protect-ARIA-Persistent-Worker-Config.ps1'
-      - 'scripts/Update-ARIA-Persistent-Worker-ExecutionOnly.ps1'
-      - 'tests/aria-windows-execution-adapter-v1.test.js'
-      - 'tests/cloudflare-autonomy-worker-execution-plan.test.cjs'
       - 'tests/persistent-control-plane-v1.test.js'
       - 'tests/persistent-http-server-v1.test.js'
       - 'tests/persistent-worker-bridge-v1.test.js'
@@ -92,9 +77,6 @@ jobs:
       - run: node --check scripts/aria-persistent-windows-worker-v1.js
       - run: node --check scripts/aria-persistent-windows-worker-preflight-v1.js
       - run: node scripts/aria-persistent-windows-worker-preflight-v1.test.js
-      - run: node --check autonomy/aria-windows-execution-adapter-v1.js
-      - run: node tests/aria-windows-execution-adapter-v1.test.js
-      - run: node tests/cloudflare-autonomy-worker-execution-plan.test.cjs
       - run: node --check autonomy/ollama-persistent-adapter-v1.js
       - run: node --check cloudflare-autonomy/worker.mjs
       - run: node tests/cloudflare-autonomy-worker.test.js
@@ -123,8 +105,7 @@ jobs:
           $paths = @(
             'scripts/Start-ARIA-Persistent-Worker.ps1',
             'scripts/aria-worker-supervisor-policy-v1.ps1',
-            'scripts/Protect-ARIA-Persistent-Worker-Config.ps1',
-            'scripts/Update-ARIA-Persistent-Worker-ExecutionOnly.ps1'
+            'scripts/Protect-ARIA-Persistent-Worker-Config.ps1'
           )
           foreach ($relativePath in $paths) {
             $tokens = $null
@@ -161,7 +142,7 @@ jobs:
 
           try {
             $scriptPath = Join-Path $env:GITHUB_WORKSPACE 'scripts/Protect-ARIA-Persistent-Worker-Config.ps1'
-            & $scriptPath -InstallDir $env:GITHUB_WORKSPACE -WorkspaceRoot $workspace
+            & $scriptPath -InstallDir $env:GITHUB_WORKSPACE -WorkspaceRoot $workspace -OllamaModel 'ci-test-model:latest'
             $configPath = Join-Path $env:LOCALAPPDATA 'ARIA/worker/worker.config.json'
             if (-not (Test-Path -LiteralPath $configPath -PathType Leaf)) {
               throw 'DPAPI config file was not created.'
@@ -172,12 +153,6 @@ jobs:
             $sid = $identity.User.Value
             if ($document.format -ne 'aria-worker-config-dpapi-v1' -or $document.protectedForSid -ne $sid) {
               throw 'DPAPI config metadata or owner SID does not match the current user.'
-            }
-            $adapterValue = [string]$document.values.ARIA_AUTONOMY_ADAPTER
-            if (-not $adapterValue.EndsWith('aria-windows-execution-adapter-v1.js', [System.StringComparison]::OrdinalIgnoreCase) -or
-                $document.values.PSObject.Properties.Name -contains 'ARIA_OLLAMA_MODEL' -or
-                $document.values.PSObject.Properties.Name -contains 'ARIA_OLLAMA_URL') {
-              throw 'DPAPI config is not execution-only or still contains Ollama settings.'
             }
 
             $secureToken = ConvertTo-SecureString -String ([string]$document.workerTokenDpapi) -ErrorAction Stop
@@ -221,7 +196,7 @@ jobs:
           }
 
   windows-physical-readonly-preflight:
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (github.event.pull_request.head.ref == 'feat/aria-windows-worker-preflight-20261031' || github.event.pull_request.head.ref == 'feat/aria-worker-remote-plan-execution-only-20261102')
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'feat/aria-windows-worker-preflight-20261031'
     runs-on: [self-hosted, Windows, X64]
     timeout-minutes: 5
     steps:
@@ -233,7 +208,7 @@ jobs:
             scripts/aria-worker-supervisor-policy-v1.ps1
             scripts/aria-persistent-windows-worker-v1.js
             scripts/aria-persistent-windows-worker-preflight-v1.js
-            autonomy/aria-windows-execution-adapter-v1.js
+            autonomy/ollama-persistent-adapter-v1.js
           sparse-checkout-cone-mode: false
       - name: Run the actual Windows supervisor in read-only preflight mode
         shell: powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
@@ -264,8 +239,10 @@ jobs:
             $values = @(
               'ARIA_CONTROL_URL=https://aria-autonomy-coordinator.robvg9.workers.dev'
               "ARIA_WORKER_TOKEN=$env:ARIA_WORKER_TOKEN"
-              "ARIA_AUTONOMY_ADAPTER=$(Join-Path $env:GITHUB_WORKSPACE 'autonomy\aria-windows-execution-adapter-v1.js')"
+              "ARIA_AUTONOMY_ADAPTER=$(Join-Path $env:GITHUB_WORKSPACE 'autonomy\ollama-persistent-adapter-v1.js')"
               "ARIA_WORKSPACE_ROOT=$workspace"
+              'ARIA_OLLAMA_URL=http://127.0.0.1:11434'
+              'ARIA_OLLAMA_MODEL=qwen3:4b'
             )
             [System.IO.File]::WriteAllLines($config, $values, [System.Text.Encoding]::ASCII)
             Write-Host "WINDOWS_NODE_VERSION=$nodeVersion"
@@ -280,7 +257,7 @@ jobs:
           }
 
   windows-physical-frozen-worker-stop:
-    if: (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (github.event.pull_request.head.ref == 'fix/package2-robvg-probe-diagnostics-main-20261031' || github.event.pull_request.head.ref == 'feat/aria-worker-remote-plan-execution-only-20261102')) || (github.event_name == 'push' && github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, 'Diagnose and harden frozen-worker probe on ROBVG'))
+    if: (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'fix/package2-robvg-probe-diagnostics-main-20261031') || (github.event_name == 'push' && github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, 'Diagnose and harden frozen-worker probe on ROBVG'))
     needs: [contract-tests, windows-supervisor-syntax, live-security-readonly-check]
     runs-on: [self-hosted, Windows, X64]
     timeout-minutes: 5
@@ -785,7 +762,7 @@ jobs:
 
           Write-Output 'TASK_INSPECTION_ONLY=true'
   windows-physical-detached-host-probe:
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (github.event.pull_request.head.ref == 'fix/package2-windows-no-console-worker-host-20261031' || github.event.pull_request.head.ref == 'feat/aria-worker-remote-plan-execution-only-20261102')
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'fix/package2-windows-no-console-worker-host-20261031'
     needs: [contract-tests, windows-supervisor-syntax, live-security-readonly-check]
     runs-on: [self-hosted, Windows, X64]
     timeout-minutes: 5
