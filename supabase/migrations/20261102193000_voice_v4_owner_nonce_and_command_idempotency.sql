@@ -866,9 +866,17 @@ BEGIN
     SELECT c.command_id
     FROM aria_internal.voice_device_commands c
     JOIN aria_internal.device_registry d ON d.device_id = c.device_id
+    JOIN aria_internal.voice_trusted_device_keys k
+      ON k.owner_user_id = c.owner_user_id AND k.device_id = c.device_id
+    JOIN aria_internal.voice_speaker_policies s
+      ON s.owner_user_id = c.owner_user_id AND s.device_id = c.device_id
+    JOIN aria_internal.voice_speaker_model_catalog m
+      ON m.model_id = s.speaker_model_id AND m.status = 'approved'
     WHERE c.device_id = p_device_id
       AND c.status = 'queued'
       AND c.expires_at > now()
+      AND k.enabled = true AND k.security = 'trusted' AND k.revoked_at IS NULL
+      AND s.enabled = true AND s.revoked_at IS NULL
       AND d.token_hash = v_token_hash
       AND d.status = 'online'
       AND d.last_seen_at >= now() - interval '90 seconds'
@@ -965,6 +973,19 @@ BEGIN
     AND c.device_id = d.device_id
     AND d.token_hash = v_token_hash
     AND d.status = 'online'
+    AND d.last_seen_at >= now() - interval '90 seconds'
+    AND EXISTS (
+      SELECT 1
+      FROM aria_internal.voice_trusted_device_keys k
+      JOIN aria_internal.voice_speaker_policies s
+        ON s.owner_user_id = k.owner_user_id AND s.device_id = k.device_id
+      JOIN aria_internal.voice_speaker_model_catalog m
+        ON m.model_id = s.speaker_model_id AND m.status = 'approved'
+      WHERE k.owner_user_id = c.owner_user_id
+        AND k.device_id = c.device_id
+        AND k.enabled = true AND k.security = 'trusted' AND k.revoked_at IS NULL
+        AND s.enabled = true AND s.revoked_at IS NULL
+    )
     AND c.status IN ('claimed','running')
     AND c.expires_at > now()
   RETURNING 1 INTO affected;
