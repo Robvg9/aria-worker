@@ -6,6 +6,11 @@ on:
     paths:
       - '.github/workflows/package2-execution-only.yml'
       - 'cloudflare-autonomy/worker.mjs'
+      - 'supabase/functions/aria-planner-v11/index.ts'
+      - 'supabase/functions/aria-planner-v11/cloudflare-workspace-plan-v1.mjs'
+      - 'tests/cloudflare-workspace-plan-contract.test.cjs'
+      - 'tests/cloudflare-autonomy-remote-plan-producer.test.cjs'
+      - '.github/workflows/aria-autonomy-coordinator-deploy.yml'
       - 'autonomy/aria-windows-execution-adapter-v1.js'
       - 'autonomy/persistent-worker-error-policy-v1.js'
       - 'scripts/aria-persistent-windows-worker-v1.js'
@@ -44,6 +49,7 @@ jobs:
       - name: Syntax checks
         run: |
           node --check cloudflare-autonomy/worker.mjs
+          node --check supabase/functions/aria-planner-v11/cloudflare-workspace-plan-v1.mjs
           node --check scripts/aria-persistent-windows-worker-v1.js
           node --check scripts/aria-persistent-windows-worker-preflight-v1.js
           node --check autonomy/aria-windows-execution-adapter-v1.js
@@ -55,6 +61,8 @@ jobs:
       - name: Remote-plan handoff and frozen-scope contracts
         run: |
           node tests/cloudflare-autonomy-worker-execution-plan.test.cjs
+          node tests/cloudflare-workspace-plan-contract.test.cjs
+          node tests/cloudflare-autonomy-remote-plan-producer.test.cjs
           node tests/cloudflare-autonomy-package3-scope.test.cjs
           node tests/cloudflare-autonomy-worker.test.js
           node tests/cloudflare-autonomy-restart-recovery-v1.test.cjs
