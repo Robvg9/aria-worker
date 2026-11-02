@@ -2,6 +2,7 @@
 
 const assert = require('node:assert/strict');
 const { isCloudflarePlanProducerPath } = require('../supabase/functions/aria-planner-v11/cloudflare-plan-producer-path-v1.mjs');
+const { sanitizeCloudflarePlanFailureReason } = require('../supabase/functions/aria-planner-v11/cloudflare-workspace-plan-v1.mjs');
 const {
   buildCloudflareWorkspacePlan,
   buildCloudflareWorkspacePrompt,
@@ -32,6 +33,9 @@ const {
     isCloudflarePlanProducerPath('/functions/v1/aria-execution-runtime-v1'),
     isCloudflarePlanProducerPath('/functions/v1/aria-planner-v11/extra')
   ], [true, true, true, false, false], 'only the canonical planner endpoint forms are accepted');
+  assert.equal(sanitizeCloudflarePlanFailureReason('Model output rejected: Unexpected <token> in JSON'), 'model_output_rejected_unexpected_token_in_json');
+  assert.equal(sanitizeCloudflarePlanFailureReason(''), 'remote_plan_producer_rejected');
+  assert.equal(sanitizeCloudflarePlanFailureReason('x'.repeat(240)).length, 160);
 
   // The narrow plan bridge has its own secret; runtime root auth remains separate.
   assert.ok(plannerSource.includes('Deno.env.get("ARIA_PLAN_PRODUCER_SHARED_SECRET")??"";'));
