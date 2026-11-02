@@ -130,10 +130,10 @@ assertContains(appApi,'if(voiceMode){','voice requests must return synchronously
 assert.match(appApi,/async function internal\(url: string, payload: unknown, timeoutMs\?: number\)/,'internal requests must support a caller-supplied timeout');
 assertContains(appApi,'internal_request_timeout_','aborted executor requests must be surfaced as transient timeout failures');
 assertContains(appApi,'return !seen.has(key);','provider fallback must exclude the already-failed route before selecting its next cloud alternative');
-assertContains(appApi,'multimodal}},requestTimeoutMs);','cloud model execution must use an explicit bounded request timeout');
+assertContains(appApi,'multimodal,...(voiceMode?{voice_mode:true,voice_provider_timeout_ms:6000}:{})}},requestTimeoutMs);','cloud model execution must use an explicit bounded request timeout');
 assert.match(appApi,/async function internal\(url: string, payload: unknown, timeoutMs\?: number\)/,'internal executor calls must support an explicit bounded timeout');
 assertContains(appApi,'internal_request_timeout_','internal fetch timeout must be observable so transient provider failures can trigger fallback');
-assertContains(appApi,'multimodal}},requestTimeoutMs);','cloud model execution must use an explicit bounded request timeout');
+assertContains(appApi,'multimodal,...(voiceMode?{voice_mode:true,voice_provider_timeout_ms:6000}:{})}},requestTimeoutMs);','cloud model execution must use an explicit bounded request timeout');
 assertContains(appApi,'input:{payload}','conversation execution payload wrapper missing');
 assertContains(appApi,'prompt,max_tokens:maxTokens,temperature:0.3','conversation payload must use the explicit output-token budget');
 assertContains(appApi,'/v1/meditation/tick-service','Meditation activation must trigger the canonical cloud tick');
