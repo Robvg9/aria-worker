@@ -55,7 +55,7 @@ async function claim(store, workerId) {
   const response = await store.fetch(request('/api/worker/claim', {
     method: 'POST',
     token: WORKER_TOKEN,
-    body: { worker_id: workerId, capabilities: ['ollama', 'workspace'] }
+    body: { worker_id: workerId, capabilities: ['mission.plan', 'mission.replan', 'workspace', 'mission.verify'] }
   }));
   assert.equal(response.status, 200);
   return (await json(response)).job;
