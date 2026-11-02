@@ -8,7 +8,7 @@ export type TestCatalogItem = {
   capabilities: string;
 };
 
-export const TEST_CATALOG_VERSION = '2026-10-30-mission-freeze-v1';
+export const TEST_CATALOG_VERSION = '2026-11-02-package2-execution-only-v1';
 export const TEST_CATALOG: TestCatalogItem[] = [
   {
     "id": "mission-job-authorization-fence",
