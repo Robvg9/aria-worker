@@ -675,3 +675,295 @@ END;
 $$;
 
 COMMIT;
+
+
+-- Direct device-command queue. Deliberately independent of execution_jobs:
+-- no mission_id, job_id, shell, transcript, audio, message body, or arbitrary code.
+BEGIN;
+
+CREATE TABLE IF NOT EXISTS aria_internal.voice_device_commands (
+  command_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  owner_user_id uuid NOT NULL,
+  device_id text NOT NULL REFERENCES aria_internal.device_registry(device_id) ON DELETE CASCADE,
+  request_id text NOT NULL,
+  idempotency_key text NOT NULL,
+  operation text NOT NULL CHECK (
+    operation IN ('display.brightness.set','app.open','browser.open_url')
+  ),
+  params jsonb NOT NULL,
+  status text NOT NULL DEFAULT 'queued' CHECK (
+    status IN ('queued','claimed','running','succeeded','failed','expired','cancelled')
+  ),
+  requested_at timestamptz NOT NULL DEFAULT now(),
+  expires_at timestamptz NOT NULL,
+  claimed_at timestamptz,
+  started_at timestamptz,
+  completed_at timestamptz,
+  result jsonb NOT NULL DEFAULT '{}'::jsonb,
+  error_code text,
+  CONSTRAINT voice_device_command_request_format CHECK (
+    length(request_id) BETWEEN 8 AND 128
+  ),
+  CONSTRAINT voice_device_command_idempotency_format CHECK (
+    length(idempotency_key) BETWEEN 16 AND 128
+    AND idempotency_key ~ '^[A-Za-z0-9._:-]+$'
+  ),
+  CONSTRAINT voice_device_command_params_shape CHECK (
+    CASE operation
+      WHEN 'display.brightness.set' THEN
+        jsonb_typeof(params) = 'object'
+        AND params ? 'brightness'
+        AND jsonb_typeof(params->'brightness') = 'number'
+        AND (params->>'brightness')::numeric BETWEEN 0 AND 100
+        AND (SELECT count(*) FROM jsonb_object_keys(params)) = 1
+      WHEN 'app.open' THEN
+        jsonb_typeof(params) = 'object'
+        AND params ? 'app_id'
+        AND jsonb_typeof(params->'app_id') = 'string'
+        AND length(params->>'app_id') BETWEEN 1 AND 120
+        AND params->>'app_id' ~ '^[A-Za-z0-9._-]+$'
+        AND (SELECT count(*) FROM jsonb_object_keys(params)) = 1
+      WHEN 'browser.open_url' THEN
+        jsonb_typeof(params) = 'object'
+        AND params ? 'url'
+        AND jsonb_typeof(params->'url') = 'string'
+        AND length(params->>'url') BETWEEN 9 AND 2048
+        AND params->>'url' ~ '^https://'
+        AND (SELECT count(*) FROM jsonb_object_keys(params)) = 1
+      ELSE false
+    END
+  ),
+  CONSTRAINT voice_device_command_expiry_window CHECK (
+    expires_at > requested_at
+    AND expires_at <= requested_at + interval '30 seconds'
+  ),
+  CONSTRAINT voice_device_command_result_shape CHECK (
+    jsonb_typeof(result) = 'object'
+    AND NOT (result ?| ARRAY['token','access_token','authorization','secret','password','shell','command','transcript','audio','message_body'])
+  ),
+  CONSTRAINT voice_device_command_error_code_allowlist CHECK (
+    error_code IS NULL OR error_code IN (
+      'device_unavailable','permission_denied','operation_unsupported',
+      'app_not_allowlisted','url_not_allowlisted','native_api_failed',
+      'command_expired','command_cancelled','device_busy'
+    )
+  ),
+  CONSTRAINT voice_device_command_completion_consistency CHECK (
+    (status IN ('succeeded','failed','expired','cancelled') AND completed_at IS NOT NULL)
+    OR (status IN ('queued','claimed','running') AND completed_at IS NULL)
+  )
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS voice_device_commands_owner_idempotency_idx
+  ON aria_internal.voice_device_commands(owner_user_id, idempotency_key);
+CREATE INDEX IF NOT EXISTS voice_device_commands_claim_idx
+  ON aria_internal.voice_device_commands(device_id, status, requested_at);
+
+COMMENT ON TABLE aria_internal.voice_device_commands IS
+  'Direct, short-lived, allowlisted device actions. Separate from mission execution_jobs. Never stores mission/job IDs, arbitrary commands, audio, transcripts, or message bodies.';
+
+CREATE OR REPLACE FUNCTION aria_internal.enqueue_voice_device_command(
+  p_owner_user_id uuid,
+  p_device_id text,
+  p_request_id text,
+  p_idempotency_key text,
+  p_operation text,
+  p_params jsonb,
+  p_expires_at timestamptz
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = aria_internal, pg_catalog
+AS $$
+DECLARE
+  v_device aria_internal.device_registry%ROWTYPE;
+  v_command aria_internal.voice_device_commands%ROWTYPE;
+BEGIN
+  IF p_owner_user_id IS NULL
+     OR p_device_id IS NULL OR length(p_device_id) NOT BETWEEN 8 AND 160
+     OR p_request_id IS NULL OR length(p_request_id) NOT BETWEEN 8 AND 128
+     OR p_idempotency_key IS NULL OR length(p_idempotency_key) NOT BETWEEN 16 AND 128
+     OR p_idempotency_key !~ '^[A-Za-z0-9._:-]+$'
+     OR p_operation IS NULL
+     OR p_operation NOT IN ('display.brightness.set','app.open','browser.open_url')
+     OR p_expires_at IS NULL
+     OR p_expires_at <= now()
+     OR p_expires_at > now() + interval '30 seconds' THEN
+    RAISE EXCEPTION 'invalid direct voice command';
+  END IF;
+
+  SELECT d.* INTO v_device
+  FROM aria_internal.device_registry d
+  JOIN aria_internal.voice_trusted_device_keys k
+    ON k.device_id = d.device_id
+  JOIN aria_internal.voice_speaker_policies s
+    ON s.owner_user_id = k.owner_user_id AND s.device_id = k.device_id
+  JOIN aria_internal.voice_speaker_model_catalog m
+    ON m.model_id = s.speaker_model_id AND m.status = 'approved'
+  WHERE k.owner_user_id = p_owner_user_id
+    AND d.device_id = p_device_id
+    AND d.status = 'online'
+    AND d.last_seen_at >= now() - interval '90 seconds'
+    AND d.capabilities @> '["audio.wake_word"]'::jsonb
+    AND k.enabled = true AND k.security = 'trusted' AND k.revoked_at IS NULL
+    AND s.enabled = true AND s.revoked_at IS NULL
+  LIMIT 1
+  FOR UPDATE OF d;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'trusted owner-verified voice device unavailable';
+  END IF;
+
+  INSERT INTO aria_internal.voice_device_commands (
+    owner_user_id, device_id, request_id, idempotency_key,
+    operation, params, expires_at
+  ) VALUES (
+    p_owner_user_id, p_device_id, p_request_id, p_idempotency_key,
+    p_operation, coalesce(p_params, '{}'::jsonb), p_expires_at
+  )
+  ON CONFLICT (owner_user_id, idempotency_key) DO NOTHING
+  RETURNING * INTO v_command;
+
+  IF v_command.command_id IS NULL THEN
+    RETURN jsonb_build_object('status','duplicate');
+  END IF;
+
+  RETURN jsonb_build_object(
+    'status','queued',
+    'command_id',v_command.command_id,
+    'device_id',v_command.device_id,
+    'operation',v_command.operation,
+    'expires_at',v_command.expires_at
+  );
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION aria_internal.claim_voice_device_command(
+  p_device_id text,
+  p_device_token text
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = aria_internal, pg_catalog
+AS $$
+DECLARE
+  v_token_hash text;
+  v_command aria_internal.voice_device_commands%ROWTYPE;
+BEGIN
+  IF p_device_id IS NULL OR length(p_device_id) NOT BETWEEN 8 AND 160
+     OR p_device_token IS NULL OR length(p_device_token) < 32 THEN
+    RETURN NULL;
+  END IF;
+  v_token_hash := encode(extensions.digest(p_device_token, 'sha256'), 'hex');
+
+  UPDATE aria_internal.voice_device_commands
+  SET status = 'expired', completed_at = now(), error_code = 'command_expired'
+  WHERE device_id = p_device_id AND status = 'queued' AND expires_at <= now();
+
+  WITH next_command AS (
+    SELECT c.command_id
+    FROM aria_internal.voice_device_commands c
+    JOIN aria_internal.device_registry d ON d.device_id = c.device_id
+    WHERE c.device_id = p_device_id
+      AND c.status = 'queued'
+      AND c.expires_at > now()
+      AND d.token_hash = v_token_hash
+      AND d.status = 'online'
+      AND d.last_seen_at >= now() - interval '90 seconds'
+      AND (
+        (c.operation = 'display.brightness.set' AND d.capabilities @> '["display.brightness.write"]'::jsonb)
+        OR (c.operation = 'app.open' AND d.capabilities @> '["app.open"]'::jsonb)
+        OR (c.operation = 'browser.open_url' AND d.capabilities @> '["browser.open_url"]'::jsonb)
+      )
+    ORDER BY c.requested_at, c.command_id
+    FOR UPDATE OF c SKIP LOCKED
+    LIMIT 1
+  )
+  UPDATE aria_internal.voice_device_commands c
+  SET status = 'claimed', claimed_at = now()
+  FROM next_command n
+  WHERE c.command_id = n.command_id
+  RETURNING c.* INTO v_command;
+
+  IF v_command.command_id IS NULL THEN RETURN NULL; END IF;
+
+  RETURN jsonb_build_object(
+    'command_id',v_command.command_id,
+    'device_id',v_command.device_id,
+    'operation',v_command.operation,
+    'params',v_command.params,
+    'expires_at',v_command.expires_at,
+    'status',v_command.status
+  );
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION aria_internal.complete_voice_device_command(
+  p_command_id uuid,
+  p_device_id text,
+  p_device_token text,
+  p_status text,
+  p_result jsonb DEFAULT '{}'::jsonb,
+  p_error_code text DEFAULT NULL
+)
+RETURNS boolean
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = aria_internal, pg_catalog
+AS $$
+DECLARE
+  v_token_hash text;
+  affected integer;
+BEGIN
+  IF p_command_id IS NULL
+     OR p_device_id IS NULL OR length(p_device_id) NOT BETWEEN 8 AND 160
+     OR p_device_token IS NULL OR length(p_device_token) < 32
+     OR p_status NOT IN ('succeeded','failed')
+     OR coalesce(p_result,'{}'::jsonb) <> coalesce(p_result,'{}'::jsonb)
+     OR jsonb_typeof(coalesce(p_result,'{}'::jsonb)) <> 'object'
+     OR (coalesce(p_result,'{}'::jsonb) ?| ARRAY['token','access_token','authorization','secret','password','shell','command','transcript','audio','message_body'])
+     OR (p_error_code IS NOT NULL AND p_error_code NOT IN (
+       'device_unavailable','permission_denied','operation_unsupported',
+       'app_not_allowlisted','url_not_allowlisted','native_api_failed',
+       'command_expired','command_cancelled','device_busy'
+     )) THEN
+    RAISE EXCEPTION 'invalid voice command completion';
+  END IF;
+  v_token_hash := encode(extensions.digest(p_device_token, 'sha256'), 'hex');
+
+  UPDATE aria_internal.voice_device_commands c
+  SET status = p_status,
+      result = coalesce(p_result,'{}'::jsonb),
+      error_code = p_error_code,
+      completed_at = now()
+  FROM aria_internal.device_registry d
+  WHERE c.command_id = p_command_id
+    AND c.device_id = p_device_id
+    AND c.device_id = d.device_id
+    AND d.token_hash = v_token_hash
+    AND d.status = 'online'
+    AND c.status IN ('claimed','running')
+    AND c.expires_at > now()
+  RETURNING 1 INTO affected;
+
+  RETURN coalesce(affected,0) = 1;
+END;
+$$;
+
+REVOKE ALL ON TABLE aria_internal.voice_device_commands FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION aria_internal.enqueue_voice_device_command(uuid,text,text,text,text,jsonb,timestamptz)
+  FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION aria_internal.claim_voice_device_command(text,text)
+  FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION aria_internal.complete_voice_device_command(uuid,text,text,text,jsonb,text)
+  FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION aria_internal.enqueue_voice_device_command(uuid,text,text,text,text,jsonb,timestamptz)
+  TO service_role;
+GRANT EXECUTE ON FUNCTION aria_internal.claim_voice_device_command(text,text)
+  TO service_role;
+GRANT EXECUTE ON FUNCTION aria_internal.complete_voice_device_command(uuid,text,text,text,jsonb,text)
+  TO service_role;
+
+COMMIT;
