@@ -49,7 +49,7 @@ async function createMission(store, goal = 'Inspect and verify') {
   return (await body(response)).mission;
 }
 async function claim(store, expectedOperation) {
-  const response = await store.fetch(request('/api/worker/claim', { method: 'POST', token: workerToken, body: { worker_id: 'test-worker', capabilities: ['ollama', 'workspace'] } }));
+  const response = await store.fetch(request('/api/worker/claim', { method: 'POST', token: workerToken, body: { worker_id: 'test-worker', capabilities: ['mission.plan', 'mission.replan', 'workspace', 'mission.verify'] } }));
   assert.equal(response.status, 200);
   const result = await body(response);
   assert.equal(result.job && result.job.operation, expectedOperation);
