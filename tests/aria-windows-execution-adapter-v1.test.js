@@ -75,10 +75,26 @@ const {
     assert.equal(incomplete.passed, false);
 
     const verified = await adapter.verifyCompletion({
-      tasks: [{ task_id: 'write-note', status: 'succeeded', evidence: [write.evidence] }]
+      tasks: [{
+        task_id: 'edit-note',
+        operation: 'workspace.edit',
+        status: 'succeeded',
+        evidence: [edited.evidence]
+      }]
     });
     assert.equal(verified.passed, true);
     assert.equal(verified.verifier, 'local-execution-evidence-v1');
+
+    const forged = await adapter.verifyCompletion({
+      tasks: [{
+        task_id: 'forged-write',
+        operation: 'workspace.write',
+        status: 'succeeded',
+        evidence: [{ path: 'notes/result.txt', sha256: '0'.repeat(64) }]
+      }]
+    });
+    assert.equal(forged.passed, false);
+    assert.deepEqual(forged.invalid_evidence, ['forged-write']);
 
     process.stdout.write('aria-windows-execution-adapter-v1: PASS; local inference disabled\n');
   } finally {
