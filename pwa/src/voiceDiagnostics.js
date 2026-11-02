@@ -24,7 +24,15 @@ const EVENTS = new Set([
   'restart_scheduled',
   'conversation_request_started',
   'conversation_response_received',
-  'conversation_request_failed'
+  'conversation_request_failed',
+  'speech_output_requested',
+  'speech_api_missing',
+  'speech_utterance_queued',
+  'speech_output_started',
+  'speech_output_ended',
+  'speech_output_error',
+  'speech_output_start_failed',
+  'speech_output_cancelled'
 ]);
 
 const DETAIL_FIELDS = new Set([
@@ -42,7 +50,9 @@ const DETAIL_FIELDS = new Set([
   'duration_ms',
   'response_chars',
   'processing',
-  'error_code'
+  'error_code',
+  'voice_available',
+  'voice_count'
 ]);
 
 function getStorage(host) {

@@ -9,6 +9,7 @@ const voice = fs.readFileSync(path.join(root, 'pwa/src/VoiceInputButton.tsx'), '
 const handsFree = fs.readFileSync(path.join(root, 'pwa/src/HandsFreeVoiceControl.tsx'), 'utf8');
 const wakeWordSource = fs.readFileSync(path.join(root, 'pwa/src/voiceWakeWord.js'), 'utf8');
 const css = fs.readFileSync(path.join(root, 'pwa/src/index.css'), 'utf8');
+const voiceOutputSource = fs.readFileSync(path.join(root, 'pwa/src/voiceOutput.js'), 'utf8');
 
 assert.match(voice, /SpeechRecognitionConstructor/);
 assert.match(voice, /webkitSpeechRecognition/);
@@ -98,6 +99,10 @@ assert.match(app, /return send\(transcript\)/, 'voice input must await the assis
 assert.match(voice, /disabled = false/, 'voice input must support a busy-state guard');
 assert.ok(app.includes('disabled={sending}'), 'chat must prevent overlapping voice submissions');
 assert.match(css, /\.voiceModeToggle/, 'PWA must expose the voice mode control');
+assert.match(voiceOutputSource, /appendVoiceDiagnostic/, 'speech output must publish local diagnostic events');
+for (const event of ['speech_output_requested', 'speech_api_missing', 'speech_utterance_queued', 'speech_output_started', 'speech_output_ended', 'speech_output_error', 'speech_output_start_failed', 'speech_output_cancelled']) {
+  assert.ok(voiceOutputSource.includes(event), 'speech output diagnostic missing: ' + event);
+}
 assert.match(app, /voiceModePrivacyNote/, 'PWA must disclose that the browser may process audio for recognition');
 
 (async () => {
@@ -161,6 +166,7 @@ assert.match(app, /voiceModePrivacyNote/, 'PWA must disclose that the browser ma
   assert.equal(voiceOutput.isVoiceMissionNegative('No estoy seguro.'), false, 'ambiguous speech must not dismiss a mission');
   assert.equal(voiceOutput.isVoiceMissionAffirmative('adelante'), true);
 
+  const voiceDiagnosticHost = { storage: diagnosticStorage };
   const spoken = [];
   let cancelCount = 0;
   class FakeUtterance {
@@ -176,18 +182,31 @@ assert.match(app, /voiceModePrivacyNote/, 'PWA must disclose that the browser ma
       speak(utterance) { spoken.push(utterance); }
     }
   };
-  assert.equal(voiceOutput.speakAssistantText('Hola **Robert**.', fakeHost), true);
+  assert.equal(voiceOutput.speakAssistantText('Hola **Robert**.', fakeHost, voiceDiagnosticHost), true);
   assert.equal(spoken.length, 1);
   assert.equal(spoken[0].text, 'Hola Robert.');
   assert.equal(spoken[0].lang, 'es-PR');
   assert.equal(spoken[0].voice.lang, 'es-MX');
   assert.ok(voiceEvents.includes('aria-voice-output-start'), 'TTS start must notify the hands-free controller');
+  spoken[0].onstart();
   spoken[0].onend();
   assert.ok(voiceEvents.includes('aria-voice-output-end'), 'TTS completion must allow hands-free listening to resume');
-  voiceOutput.stopAssistantSpeech(fakeHost);
+  const outputEvents = voiceDiagnostics.readVoiceDiagnostics({ storage: diagnosticStorage }).map(item => item.event);
+  assert.ok(outputEvents.includes('speech_output_requested'));
+  assert.ok(outputEvents.includes('speech_utterance_queued'));
+  assert.ok(outputEvents.includes('speech_output_started'));
+  assert.ok(outputEvents.includes('speech_output_ended'));
+  voiceOutput.stopAssistantSpeech(fakeHost, voiceDiagnosticHost);
   assert.equal(cancelCount, 2, 'speech can be cancelled when voice mode is disabled or the chat unmounts');
+  assert.equal(voiceOutput.speakAssistantText('Error test', fakeHost, voiceDiagnosticHost), true);
+  spoken[1].onerror({ error: 'not-allowed' });
+  const speechFailure = voiceDiagnostics.readVoiceDiagnostics({ storage: diagnosticStorage }).find(item => item.event === 'speech_output_error');
+  assert.equal(speechFailure?.details?.error, 'not-allowed', 'speech synthesis failures must expose only the browser error code');
+  assert.equal(JSON.stringify(voiceDiagnostics.readVoiceDiagnostics({ storage: diagnosticStorage })).includes('Hola Robert'), false, 'speech diagnostics must never persist spoken text');
   assert.equal(voiceOutput.speakAssistantText('   ', fakeHost), false);
-  assert.equal(voiceOutput.speakAssistantText('Hola', {}), false, 'missing browser speech APIs must fail safely');
+  assert.equal(voiceOutput.speakAssistantText('Hola', {}, voiceDiagnosticHost), false, 'missing browser speech APIs must fail safely');
+  const missingSpeechApi = voiceDiagnostics.readVoiceDiagnostics({ storage: diagnosticStorage }).find(item => item.event === 'speech_api_missing');
+  assert.equal(missingSpeechApi?.details?.reason, 'speech_synthesis_unsupported');
 
   console.log('PWA AUDIO + ARIA VOICE CONVERSATION + SPEECH OUTPUT CONTRACT: PASS');
 })().catch(error => {
