@@ -1,7 +1,6 @@
 'use strict';
 
 const assert = require('node:assert/strict');
-const { createVoiceCommandRouter, LANES } = require('../voice-v4/command-router');
 
 function fixture(overrides = {}) {
   const calls = { read: [], action: [], claim: [], auth: [], capability: [] };
@@ -69,6 +68,7 @@ function request(overrides = {}) {
 }
 
 (async () => {
+  const { createVoiceCommandRouter, LANES } = await import('../supabase/functions/_shared/voice-command-router.mjs');
   const fx = fixture();
   const allowed = await fx.router.route(request());
   assert.equal(allowed.status, 'succeeded');
