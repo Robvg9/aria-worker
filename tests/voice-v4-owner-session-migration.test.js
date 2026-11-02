@@ -21,6 +21,21 @@ assert.match(migration, /CREATE TABLE IF NOT EXISTS aria_internal\.voice_owner_s
 assert.match(migration, /PRIMARY KEY \(owner_user_id, nonce\)/,
   'the nonce must be atomically single-use per authenticated owner');
 assert.match(migration, /CREATE TABLE IF NOT EXISTS aria_internal\.voice_command_idempotency/);
+assert.match(migration, /CREATE TABLE IF NOT EXISTS aria_internal\\.voice_trusted_device_keys/);
+assert.match(migration, /PRIMARY KEY \\(owner_user_id, device_id\\)/,
+  'trusted device public keys must be owner-scoped');
+assert.match(migration, /register_voice_trusted_device_key/);
+assert.match(migration, /resolve_voice_trusted_device_key/);
+assert.match(migration, /revoke_voice_trusted_device_key/);
+assert.match(migration, /CREATE TABLE IF NOT EXISTS aria_internal\\.voice_speaker_model_catalog/);
+assert.match(migration, /status = 'approved'/,
+  'speaker verification can only use an approved server-side model');
+assert.match(migration, /speaker model is not approved for production/);
+assert.match(migration, /voice_speaker_model_catalog/);
+assert.match(migration, /resolve_voice_speaker_policy/);
+assert.match(migration, /revoke_voice_speaker_policy/);
+assert.doesNotMatch(migration, /speaker_embedding|voiceprint|raw_voice_sample|audio_blob/i,
+  'no biometric template or audio may enter the database');
 assert.match(migration, /PRIMARY KEY \(owner_user_id, idempotency_key\)/,
   'idempotency must deduplicate the same owner command across devices');
 assert.match(migration, /p_expires_at > now\(\) \+ interval '30 seconds'/,
@@ -39,6 +54,13 @@ assert.doesNotMatch(migration, /CREATE TABLE[^;]*(?:mission_id|job_id|raw_audio|
 assert.match(storage, /schema\("aria_internal"\)/);
 assert.match(storage, /consume_voice_owner_session_nonce/);
 assert.match(storage, /claim_voice_command_idempotency/);
+assert.match(storage, /register_voice_trusted_device_key/);
+assert.match(storage, /resolve_voice_trusted_device_key/);
+assert.match(storage, /revoke_voice_trusted_device_key/);
+assert.match(storage, /resolve_voice_speaker_policy/);
+assert.match(storage, /revoke_voice_speaker_policy/);
+assert.match(storage, /input\\.ownerId !== authenticatedOwnerId/);
+assert.match(storage, /authenticated owner id/);
 assert.match(storage, /input\.ownerId !== authenticatedOwnerId/);
 assert.match(storage, /new Date\(input\.expiresAt\)\.toISOString\(\)/);
 assert.doesNotMatch(storage, /enqueue_execution_job_gateway|execution_jobs|mission_id|job_id|raw_audio|transcript|speaker_template/i,
