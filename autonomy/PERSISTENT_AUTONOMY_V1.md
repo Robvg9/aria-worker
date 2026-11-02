@@ -24,8 +24,21 @@ Provide durable, resumable mission execution without calling Supabase. The first
 - `autonomy/persistent-notifications-v1.js`: durable notification outbox with webhook delivery, retryable pending notifications, and a waiting-configuration state when no channel is authorized yet.
 
 - `autonomy/persistent-worker-bridge-v1.js`: durable queued jobs, lease tokens, heartbeat renewal, and result reporting for a Windows worker that connects outward to the cloud coordinator.
-- `scripts/aria-persistent-windows-worker-v1.js`: Windows-side poll/execute/report loop; performs model calls locally and makes outbound HTTPS requests only.
-- `autonomy/ollama-persistent-adapter-v1.js`: local Ollama planner/verifier plus a bounded workspace adapter. It supports file listing/reading/search, backed-up file writes/edits, Git status/diff and allowlisted Node.js tests; it does not execute arbitrary shell commands.
+- `scripts/aria-persistent-windows-worker-v1.js`: Windows-side poll/execute/report loop; performs bounded workspace operations and makes outbound HTTPS requests only. It rejects adapters that do not explicitly declare `localInference: false`.
+- `autonomy/aria-windows-execution-adapter-v1.js`: execution-only Windows adapter. It supports file listing/reading/search, backed-up file writes/edits, Git status/diff and allowlisted Node.js tests. It exposes no planner or replan method, executes no arbitrary shell, and performs no model inference or local AI calls.
+- `autonomy/ollama-persistent-adapter-v1.js`: retained as a legacy/isolated test adapter only. It is not approved for ROBVG Package 2 and must not be loaded by the persistent Windows task.
+
+## Package 2 — remote planning / local execution boundary (2026-11-02)
+
+ROBVG previously suffered sustained CPU saturation and high RAM consumption when local Ollama models were tested. Therefore the persistent Windows worker is **inference-free by design**:
+
+- Do not start or install a local Ollama service on ROBVG. Do not run `ollama serve`, `ollama run`, `ollama pull`, load Qwen, or run any local model benchmark there.
+- The Windows execution adapter is `autonomy/aria-windows-execution-adapter-v1.js`; its exported contract is `supabaseIndependent: true`, `localInference: false`, `executeTask`, `verifyCompletion`, and a workspace-only capability list. It has no `plan` or `replan`.
+- The cloud coordinator exposes an authenticated control-plane handoff `POST /api/missions/:mission_id/plan`. It accepts a structured, validated task plan, cancels the obsolete queued planner job, then schedules bounded execution jobs. This route requires the distinct coordinator control token, not the Windows worker token.
+- Worker claims are capability-filtered: a worker without `mission.plan` / `mission.replan` cannot claim planner jobs. The execution-only adapter advertises only allowed workspace operations and deterministic `mission.verify`.
+- The coordinator itself remains Supabase-independent. The canonical ARIA model executor / OpenRouter Vault credential is a separate existing service and is not duplicated in this worker package. No key is copied to the PC, repository, or DPAPI file.
+- The remote planner-to-coordinator caller must be separately wired to this handoff and verified before describing full autonomous remote planning as operational. A unit contract proving the handoff does not prove the production canonical planner has been connected.
+- The migration script `scripts/Update-ARIA-Persistent-Worker-ExecutionOnly.ps1` is dry-run by default. With `-Apply`, it preserves the encrypted DPAPI token, current user/SID, existing GUI task host, Node path, trigger XML and principal XML; it changes the adapter/config and task working directory only. It refuses to proceed unless the task is already Disabled, and verifies it remains Disabled. It never enables or starts the task.
 
 ## Storage and deployment boundary
 
