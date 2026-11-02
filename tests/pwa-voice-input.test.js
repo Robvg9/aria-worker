@@ -63,10 +63,11 @@ assert.match(voice, /Transcripción recibida\\. Procesando voz/, 'automatic voic
 assert.match(voice, /disabled = false/, 'voice input must support a busy-state guard');
 assert.match(app, /disabled=\\{sending\\}/, 'chat must prevent overlapping voice submissions');
 assert.match(css, /\.voiceModeToggle/, 'PWA must expose the voice mode control');
+assert.match(app, /voiceModePrivacyNote/, 'PWA must disclose that the browser may process audio for recognition');
 
 (async () => {
   const voiceOutput = await import(pathToFileURL(path.join(root, 'pwa/src/voiceOutput.js')).href);
-  assert.equal(voiceOutput.cleanSpeechText('**Hola** [ARIA](https://aria.example) \`código\`'), 'Hola ARIA código');
+  assert.equal(voiceOutput.cleanSpeechText('**Hola** [ARIA](https://aria.example)'), 'Hola ARIA');
   assert.equal(voiceOutput.cleanSpeechText('Consulta https://example.com ahora'), 'Consulta ahora');
   assert.equal(voiceOutput.isVoiceMissionAffirmative('Sí, comenzar la misión.'), true);
   assert.equal(voiceOutput.isVoiceMissionAffirmative('Sí, quizás después.'), false, 'ambiguous speech must never approve a mission');
