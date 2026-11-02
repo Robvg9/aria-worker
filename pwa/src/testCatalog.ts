@@ -2968,6 +2968,25 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "capabilities": "Detecta comandos shell arbitrarios, destinos ambiguos, equipos no confiables, capacidades ausentes, repetición entre dispositivos y envíos de mensajes sin confirmación."
   },
   {
+    "id": "voice-v4-owner-session",
+    "file": "tests/voice-v4-owner-session.test.js",
+    "title": "ARIA Voice V4 Signed Owner Session",
+    "category": "Seguridad / voz / identidad",
+    "includedInNpmTest": true,
+    "how": "Comprueba la sesión firmada de propietario, caducidad breve, vinculación al dispositivo y consumo de nonce de un solo uso.",
+    "capabilities": "Detecta replay, sesión vencida, identidad o dispositivo discordante, firma inválida y verificación de voz ausente."
+  },
+  {
+    "id": "voice-v4-owner-session-migration",
+    "file": "tests/voice-v4-owner-session-migration.test.js",
+    "title": "ARIA Voice V4 Owner Session Storage Boundary",
+    "category": "Seguridad / voz / datos",
+    "includedInNpmTest": true,
+    "how": "Comprueba permisos de almacenamiento, adaptadores de sesión y límites de separación entre acciones directas y el motor de misiones.",
+    "capabilities": "Impide persistir audio o plantillas biométricas, introducir datos de voz en jobs de misión o exponer RPC privados."
+  },
+
+  {
     "id": "aria-autonomy-supabase-boundary",
     "file": "tests/aria-autonomy-supabase-boundary.test.js",
     "title": "ARIA Autonomy Supabase Boundary",
