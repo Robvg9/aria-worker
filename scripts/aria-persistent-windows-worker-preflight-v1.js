@@ -104,9 +104,10 @@ async function runPreflight({
     throw new Error('coordinator_health_contract_invalid');
   }
 
-  // Both requests are GETs to the claim route. The coordinator checks worker
-  // auth before returning 405 for the authenticated wrong method; no body is
-  // read, no Durable Object storage is mutated, and no lease can be created.
+  // Both requests are GETs to the claim route. An unauthenticated worker is
+  // rejected with 401; the authenticated worker reaches the global freeze gate
+  // and receives 423 mission_execution_paused before method dispatch. GET never
+  // reads a request body, mutates Durable Object storage, or creates a lease.
   await expectStatus(
     fetchImpl,
     config.baseUrl + '/api/worker/claim',
@@ -114,13 +115,19 @@ async function runPreflight({
     {},
     'worker_auth_required'
   );
-  await expectStatus(
+  const authenticatedClaimResponse = await expectStatus(
     fetchImpl,
     config.baseUrl + '/api/worker/claim',
-    405,
+    423,
     { authorization: 'Bearer ' + config.token },
-    'worker_token_accepted_read_only'
+    'worker_token_accepted_and_global_freeze_enforced'
   );
+  let claimGate;
+  try { claimGate = await authenticatedClaimResponse.json(); }
+  catch (_) { throw new Error('worker_claim_freeze_json_invalid'); }
+  if (!claimGate || claimGate.error !== 'mission_execution_paused') {
+    throw new Error('worker_claim_freeze_contract_invalid');
+  }
 
   return Object.freeze({
     ok: true,
