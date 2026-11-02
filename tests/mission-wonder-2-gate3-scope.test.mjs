@@ -59,6 +59,9 @@ check(liveScript.includes("GATE3_SCOPE_REVOKE_VERIFY_PASS")&&liveScript.includes
 check(liveScript.includes("freeze_error = None")&&liveScript.includes("verify_global_freeze()"),"global freeze verification runs even when cleanup fails");
 check(!liveScript.toLowerCase().includes("mistral"),"live probe has no Mistral route");
 check(liveScript.indexOf("mission_created = True") < liveScript.indexOf("supabase_sql(insert)"),"cleanup is armed before mission insert can commit");
-check(liveScript.indexOf('supabase", "link"') < liveScript.indexOf('route_preflight()'),"Supabase is linked before registry preflight");
+const probeMain=liveScript.indexOf("def main():");
+const supabaseLink=liveScript.indexOf('["supabase", "link"',probeMain);
+const routePreflightCall=liveScript.indexOf("route_preflight()",probeMain);
+check(probeMain>=0&&supabaseLink>probeMain&&routePreflightCall>supabaseLink,"Supabase is linked before registry preflight in main");
 check(workflowSource.includes("python3 -m py_compile"),"workflow compiles the live probe before any request");
 console.log("Mission Wonder 2 Gate 3 supervised scope contract: PASS");
