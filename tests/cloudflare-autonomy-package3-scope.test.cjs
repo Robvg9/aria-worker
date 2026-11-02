@@ -360,6 +360,11 @@ async function payload(response) {
   });
   assert.equal(expiryStart.status, 201);
   const expiredScope = await state.storage.get('package3:probe:' + expiryProbeId);
+  // Simulate an isolate crash after createMission committed, but before the
+  // probe scope copied the mission ID and changed preparing -> active.
+  const orphanedMissionId = expiredScope.mission_id;
+  expiredScope.status = 'preparing';
+  expiredScope.mission_id = null;
   expiredScope.expires_at = new Date(Date.now() - 1000).toISOString();
   await state.storage.put('package3:probe:' + expiryProbeId, expiredScope);
   const expiredWorker = await call(store, '/api/worker/claim', {
@@ -370,15 +375,33 @@ async function payload(response) {
     body: { worker_id: 'mw2p3-' + expiryProbeId + '-before' }
   });
   assert.equal(expiredWorker.status, 423);
-  const expireClose = await call(store, '/api/package3/probe/close', {
+
+  const nextProbeId = 'unit-probe-package3-after-expiry';
+  const nextProbeToken = crypto.randomBytes(48).toString('base64url');
+  const nextProbeStart = await call(store, '/api/package3/probe/start', {
     method: 'POST',
-    body: { probe_id: expiryProbeId, reason: 'expired_scope_test_cleanup' }
+    body: {
+      confirm: 'RUN_ONE_MISSION_WONDER_2_PACKAGE3_PROBE',
+      probe_id: nextProbeId,
+      scope_token: nextProbeToken
+    }
   });
-  assert.equal(expireClose.status, 200);
-  const expiredReadback = await payload(expireClose);
+  assert.equal(nextProbeStart.status, 201, 'expired stale scope must not permanently block a new probe');
+
+  const expiredReadback = await payload(await call(store, '/api/package3/probes/' + expiryProbeId));
   assert.equal(expiredReadback.scope.status, 'closed');
+  assert.equal(expiredReadback.scope.mission_id, orphanedMissionId);
+  assert.equal(expiredReadback.scope.scope_token_revoked_at != null, true);
   assert.equal(expiredReadback.mission.status, 'cancelled');
+  assert.equal(expiredReadback.jobs.length, 1);
   assert.equal(expiredReadback.jobs[0].status, 'cancelled');
+
+  const nextProbeClose = await call(store, '/api/package3/probe/close', {
+    method: 'POST',
+    body: { probe_id: nextProbeId, reason: 'expired_scope_recovery_test_cleanup' }
+  });
+  assert.equal(nextProbeClose.status, 200);
+  assert.equal((await payload(nextProbeClose)).scope.status, 'closed');
 
   process.stdout.write('PACKAGE3_SCOPE_ONLY_ONE_MISSION=PASS\n');
   process.stdout.write('PACKAGE3_SCOPE_ONLY_ONE_WORKER_PAIR=PASS\n');
