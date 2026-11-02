@@ -126,7 +126,9 @@ assertContains(executor,'openRouterChat(route,input,requestId,voiceProviderTimeo
 assertContains(executor,'Math.max(1000,Math.min(8000,Number.isFinite(rawVoiceTimeout)','provider timeout must be clamped to a safe upper bound');
 assertContains(executor,'providerTimeoutMs?Math.min(3000,providerTimeoutMs):8000','voice quota snapshot must have a bounded preflight timeout');
 assertContains(appApi,'voice_low_latency:true','successful voice responses must identify the low-latency path');
-assertContains(appApi,'if(voiceMode){','voice requests must return synchronously instead of using the background 130-second readback loop');
+assertContains(appApi,'if(voiceMode || MISSION_EXECUTION_PAUSED){','voice and paused-mode text conversations must return synchronously instead of entering the background readback loop');
+assertContains(appApi,'async function executeConversationOnly(','paused-mode typed conversations must use a dedicated cloud-only, bounded inference path');
+assertContains(appApi,': await executeConversationOnly(step,prompt,conversationId,visual_context,clientMessageId)','paused-mode text conversations must use the independent read-only path');
 assertContains(appApi,'authorization:{status:"approved",risk_class:"READ",evidence_ref:"aria-app-conversation-v1"}','conversation inference must carry a dedicated read-only authorization marker');
 assertContains(appApi,'policy:{conversation_only:true}','conversation inference must carry an explicit no-tools/no-mission policy marker');
 assertContains(appApi,'metadata:{conversation_only:true,conversation_id:conversationId','conversation runtime exception must be scoped to a single identified conversation');
