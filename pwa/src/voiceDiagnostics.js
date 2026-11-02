@@ -21,7 +21,10 @@ const EVENTS = new Set([
   'page_hidden',
   'page_visible',
   'page_hide',
-  'restart_scheduled'
+  'restart_scheduled',
+  'conversation_request_started',
+  'conversation_response_received',
+  'conversation_request_failed'
 ]);
 
 const DETAIL_FIELDS = new Set([
@@ -34,7 +37,12 @@ const DETAIL_FIELDS = new Set([
   'language',
   'reason',
   'recognition_api',
-  'wake_matched'
+  'wake_matched',
+  'voice_mode',
+  'duration_ms',
+  'response_chars',
+  'processing',
+  'error_code'
 ]);
 
 function getStorage(host) {
