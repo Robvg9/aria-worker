@@ -5,6 +5,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { hasExplicitBattleCruiserGitHubWriteIntent } from "../_shared/battlecruiser-github-write-intent.mjs";
 import { explicitPhysicalExecutionRequirement, validatePhysicalExecutionPlan } from "../_shared/physical-execution-contract.mjs";
 import { buildCloudflareWorkspacePlan, isCloudflarePlanProducerRequest } from "./cloudflare-workspace-plan-v1.mjs";
+import { isCloudflarePlanProducerPath } from "./cloudflare-plan-producer-path-v1.mjs";
 import { deriveCloudflarePlanPreviewToken } from "../_shared/cloudflare-plan-preview-auth-v1.mjs";
 const URL=Deno.env.get("SUPABASE_URL")!, KEY=Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, SECRET=Deno.env.get("ARIA_RUNTIME_SHARED_SECRET")!; const PLAN_BRIDGE_SECRET=Deno.env.get("ARIA_PLAN_PRODUCER_SHARED_SECRET")??"";
 const ROOT=createClient(URL,KEY,{auth:{persistSession:false,autoRefreshToken:false,autoRefreshSession:false}});
@@ -1544,8 +1545,8 @@ Deno.serve(async r=>{
   if(r.headers.has("x-aria-plan-producer")){
     if(!(await isCloudflarePlanProducerRequest(r,PLAN_BRIDGE_SECRET)))return out({error:"unauthorized_plan_producer"},401);
     if(r.method!=="POST")return out({error:"method_not_allowed"},405);
-    const pathname=new globalThis.URL(r.url).pathname.replace(/\/+$/,"");
-    if(!pathname.endsWith("/functions/v1/aria-planner-v11"))return out({error:"not_found"},404);
+    const pathname=new globalThis.URL(r.url).pathname;
+    if(!isCloudflarePlanProducerPath(pathname))return out({error:"not_found"},404);
     const producerBody=await r.json().catch(()=>null);
     const producerGoal=typeof producerBody?.goal==="string"?producerBody.goal.trim():"";
     const producerContext=producerBody?.context&&typeof producerBody.context==="object"&&!Array.isArray(producerBody.context)?producerBody.context:{};

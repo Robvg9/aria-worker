@@ -1,6 +1,7 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+const { isCloudflarePlanProducerPath } = require('../supabase/functions/aria-planner-v11/cloudflare-plan-producer-path-v1.mjs');
 const {
   buildCloudflareWorkspacePlan,
   buildCloudflareWorkspacePrompt,
@@ -23,8 +24,14 @@ const {
   const deployWorkflowSource = fs.readFileSync(deployWorkflowPath, 'utf8');
   const supabaseDeployWorkflowPath = path.join(__dirname, '..', '.github', 'workflows', 'supabase-canonical-deploy.yml');
   const supabaseDeployWorkflowSource = fs.readFileSync(supabaseDeployWorkflowPath, 'utf8');
-  assert.ok(plannerSource.includes('const pathname=new globalThis.URL(r.url).pathname.replace(/\\/+$/,"");'), 'planner producer URL normalization must be Deno-parseable');
-  assert.equal(plannerSource.includes('replace(/\\\\/+$/,"")'), false, 'planner must not retain the invalid escaped-slash regex');
+  assert.ok(plannerSource.includes('isCloudflarePlanProducerPath(pathname)'), 'producer route guard must use the canonical runtime path matcher');
+  assert.deepEqual([
+    isCloudflarePlanProducerPath('/functions/v1/aria-planner-v11'),
+    isCloudflarePlanProducerPath('/aria-planner-v11'),
+    isCloudflarePlanProducerPath('/aria-planner-v11/'),
+    isCloudflarePlanProducerPath('/functions/v1/aria-execution-runtime-v1'),
+    isCloudflarePlanProducerPath('/functions/v1/aria-planner-v11/extra')
+  ], [true, true, true, false, false], 'only the canonical planner endpoint forms are accepted');
 
   // The narrow plan bridge has its own secret; runtime root auth remains separate.
   assert.ok(plannerSource.includes('Deno.env.get("ARIA_PLAN_PRODUCER_SHARED_SECRET")??"";'));
