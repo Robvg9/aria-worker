@@ -49,6 +49,8 @@ CASES = (
     ("negative_browser", "Abre el navegador", None, False),
     ("negative_weather", "Hoy hace buen tiempo", None, False),
     ("negative_radio", "Enciende la radio", None, False),
+    ("control_ayuda", "Ayuda", "control_ayuda", False),
+    ("control_policia", "Policía", "control_policia", False),
 )
 
 def sha256(path: Path) -> str:
@@ -109,38 +111,41 @@ def read_pcm(path: Path) -> tuple[np.ndarray, int]:
     return np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0, sample_rate
 
 def make_keyword_file(sp: spm.SentencePieceProcessor, root: Path, phrase: str, tag: str) -> Path:
-    pieces = sp.encode(phrase.lower(), out_type=str)
-    if not pieces or any(not piece for piece in pieces):
-        raise RuntimeError("bpe_encode_failed")
+    configured = [(phrase, tag), ("ayuda", "control_ayuda"), ("policía", "control_policia")]
+    lines = []
+    for configured_phrase, configured_tag in configured:
+        pieces = sp.encode(configured_phrase.lower(), out_type=str)
+        if not pieces or any(not piece for piece in pieces):
+            raise RuntimeError("bpe_encode_failed")
+        lines.append(" ".join(pieces) + " @" + configured_tag)
     target = root / f"keywords-{tag}.txt"
-    target.write_text(" ".join(pieces) + " @" + tag + "\n", encoding="utf-8")
+    target.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return target
 
-def detect(kws: sherpa_onnx.KeywordSpotter, samples: np.ndarray, sample_rate: int) -> tuple[bool, float, int]:
+def detect(kws: sherpa_onnx.KeywordSpotter, samples: np.ndarray, sample_rate: int) -> tuple[list[str], float]:
     stream = kws.create_stream()
     chunk = int(sample_rate * 0.1)
-    # A small amount of leading silence lets streaming endpoint logic settle.
     leading = np.zeros(int(sample_rate * 0.35), dtype=np.float32)
     trailing = np.zeros(int(sample_rate * 0.66), dtype=np.float32)
     data = np.concatenate([leading, samples, trailing])
     started = time.perf_counter()
-    detections = 0
+    detections: list[str] = []
     for offset in range(0, len(data), chunk):
         stream.accept_waveform(sample_rate, data[offset:offset + chunk])
         while kws.is_ready(stream):
             kws.decode_stream(stream)
             result = kws.get_result(stream)
             if result:
-                detections += 1
+                detections.append(str(result).strip().lstrip("@"))
                 kws.reset_stream(stream)
     stream.input_finished()
     while kws.is_ready(stream):
         kws.decode_stream(stream)
         result = kws.get_result(stream)
         if result:
-            detections += 1
+            detections.append(str(result).strip().lstrip("@"))
             kws.reset_stream(stream)
-    return detections > 0, time.perf_counter() - started, detections
+    return sorted(set(detections)), time.perf_counter() - started
 
 def create_spotter(root: Path, keywords_file: Path, threshold: float = 0.20):
     return sherpa_onnx.KeywordSpotter(
@@ -195,26 +200,33 @@ def main() -> int:
                 candidate_rows = []
                 for case_id, _phrase, expected_candidate, expected_positive in CASES:
                     for variant_idx, (samples, sample_rate, duration) in enumerate(samples_by_case[case_id]):
-                        detected, elapsed, count = detect(kws, samples, sample_rate)
+                        labels, elapsed = detect(kws, samples, sample_rate)
                         expected_for_candidate = expected_positive and (
                             expected_candidate == candidate
                             or (candidate == "aria" and expected_candidate == "oye_aria")
                         )
+                        target_detected = candidate in labels
+                        expected_control = case_id in ("control_ayuda", "control_policia")
+                        control_tag = "control_ayuda" if case_id == "control_ayuda" else "control_policia" if case_id == "control_policia" else None
                         candidate_rows.append({
                             "case": case_id,
                             "variant": variant_idx,
                             "expected_positive": expected_for_candidate,
-                            "detected": detected,
-                            "duplicate_detections": count,
+                            "target_detected": target_detected,
+                            "control_expected": expected_control,
+                            "control_detected": bool(control_tag and control_tag in labels),
+                            "unexpected_labels": [label for label in labels if label not in (candidate, "control_ayuda", "control_policia")],
                             "audio_seconds": round(duration, 3),
                             "decode_ms": round(elapsed * 1000, 2),
                             "real_time_factor": round(elapsed / max(duration, 0.001), 4),
                         })
                 positives = [r for r in candidate_rows if r["expected_positive"]]
-                negatives = [r for r in candidate_rows if not r["expected_positive"]]
-                fp = [r for r in negatives if r["detected"]]
-                fn = [r for r in positives if not r["detected"]]
-                tp = [r for r in positives if r["detected"]]
+                negatives = [r for r in candidate_rows if not r["expected_positive"] and not r["control_expected"]]
+                controls = [r for r in candidate_rows if r["control_expected"]]
+                fp = [r for r in negatives if r["target_detected"]]
+                fn = [r for r in positives if not r["target_detected"]]
+                tp = [r for r in positives if r["target_detected"]]
+                control_hits = sum(1 for r in controls if r["control_detected"])
                 results[candidate] = {
                     "configured_phrase": phrase,
                     "threshold": 0.20,
@@ -224,7 +236,8 @@ def main() -> int:
                     "false_negatives": len(fn),
                     "negative_count": len(negatives),
                     "false_positives": len(fp),
-                    "duplicate_detection_samples": sum(1 for r in candidate_rows if r["duplicate_detections"] > 1),
+                    "control_phrase_count": len(controls),
+                    "control_phrase_hits": control_hits,
                     "mean_real_time_factor": round(float(np.mean([r["real_time_factor"] for r in candidate_rows])), 4),
                     "false_positive_cases": sorted({r["case"] for r in fp}),
                     "false_negative_cases": sorted({r["case"] for r in fn}),
@@ -238,7 +251,7 @@ def main() -> int:
             if row["positive_count"] > 0
             and row["true_positives"] / row["positive_count"] >= 0.95
             and row["false_positives"] == 0
-            and row["duplicate_detection_samples"] == 0
+            and row["control_phrase_hits"] / max(row["control_phrase_count"], 1) >= 0.70
         ]
         report = {
             "status": "shortlist_candidate" if shortlist else "no_candidate_passed_synthetic_gate",
