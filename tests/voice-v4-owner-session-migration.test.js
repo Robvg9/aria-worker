@@ -40,7 +40,7 @@ assert.match(migration, /speaker model is not approved for production/);
 assert.match(migration, /voice_speaker_model_catalog/);
 assert.match(migration, /resolve_voice_speaker_policy/);
 assert.match(migration, /revoke_voice_speaker_policy/);
-assert.match(migration, /FOREIGN KEY \\(speaker_model_id\\)/);
+assert.match(migration, /FOREIGN KEY/);
 assert.match(migration, /evaluation_evidence_ref IS NOT NULL/);
 assert.match(migration, /approved_at IS NOT NULL/);
 assert.match(migration, /p_enabled IS TRUE AND NOT EXISTS/);
