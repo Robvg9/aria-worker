@@ -6,12 +6,9 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$WorkspaceRoot,
 
-    [Parameter(Mandatory = $true)]
-    [string]$OllamaModel,
-
     [string]$ControlUrl = 'https://aria-autonomy-coordinator.robvg9.workers.dev',
 
-    [string]$OllamaUrl = 'http://127.0.0.1:11434',
+    [string]$AdapterPath,
 
     [string]$WorkerId = ($env:COMPUTERNAME + '-aria-worker'),
 
@@ -28,9 +25,13 @@ if ($env:OS -ne 'Windows_NT') {
 
 $installRoot = (Resolve-Path -LiteralPath $InstallDir).Path
 $workspace = (Resolve-Path -LiteralPath $WorkspaceRoot).Path
-$adapterPath = Join-Path $installRoot 'autonomy\ollama-persistent-adapter-v1.js'
-if (-not (Test-Path -LiteralPath $adapterPath -PathType Leaf)) {
-    throw 'Approved Ollama adapter was not found under InstallDir.'
+if (-not $AdapterPath) {
+    $AdapterPath = Join-Path $installRoot 'autonomy\aria-windows-execution-adapter-v1.js'
+}
+$adapterPath = (Resolve-Path -LiteralPath $AdapterPath).Path
+$adapterRelative = [System.IO.Path]::GetRelativePath($installRoot, $adapterPath)
+if ($adapterRelative -eq '..' -or $adapterRelative.StartsWith('..' + [System.IO.Path]::DirectorySeparatorChar) -or [System.IO.Path]::IsPathRooted($adapterRelative)) {
+    throw 'Execution adapter must remain inside InstallDir.'
 }
 
 $controlUri = $null
@@ -41,10 +42,6 @@ if (-not [Uri]::TryCreate($ControlUrl, [UriKind]::Absolute, [ref]$controlUri) -o
     $controlUri.Fragment -or
     ($controlUri.AbsolutePath -ne '/' -and $controlUri.AbsolutePath -ne '')) {
     throw 'ControlUrl must be an HTTPS origin without credentials, query, fragment, or path.'
-}
-
-if ([string]::IsNullOrWhiteSpace($OllamaModel)) {
-    throw 'OllamaModel is required. Select a model that this PC can run without unacceptable slowdown.'
 }
 
 if ([string]::IsNullOrWhiteSpace($WorkerId) -or $WorkerId -match '[\r\n]') {
@@ -103,8 +100,6 @@ $document = [ordered]@{
         ARIA_CONTROL_URL = $controlUri.GetLeftPart([UriPartial]::Authority)
         ARIA_AUTONOMY_ADAPTER = $adapterPath
         ARIA_WORKSPACE_ROOT = $workspace
-        ARIA_OLLAMA_URL = $OllamaUrl
-        ARIA_OLLAMA_MODEL = $OllamaModel
         ARIA_WORKER_ID = $WorkerId
         ARIA_WORKER_POLL_MS = '2000'
         ARIA_WORKER_HEARTBEAT_MS = '15000'
