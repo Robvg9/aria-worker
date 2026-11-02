@@ -155,6 +155,7 @@ assertContains(appApi,'aria-execution-runtime-v1','canonical execution runtime m
 assertContains(appApi,'aria-app-v1','app provenance missing');
 if(appApi.includes('SUPABASE_ANON_KEY'))throw new Error('v3 must not depend on legacy anon-key reauthentication');
 assertContains(appWorkflow,'supabase functions deploy aria-app-api-v3 --project-ref','app v3 deployment command missing');
+assertContains(appWorkflow,'supabase functions deploy aria-app-api-v3 --project-ref "$SUPABASE_PROJECT_REF" --yes','app v3 deployment must confirm non-interactively in CI');
 if(appWorkflow.includes('--verify-jwt'))throw new Error('app v3 workflow uses removed Supabase CLI verify-jwt flag');
 assertContains(memory,'x-aria-user-id','memory user-scope header missing');
 assertContains(memory,'aria_memory_search_hybrid_user_scoped','scoped memory search RPC missing');
