@@ -81,4 +81,12 @@ check(liveScript.includes('if not re.match(r"(?is)^SELECT\\b", statement) or ";"
 check(!liveScript.includes('"--read-only"'),"unsupported Supabase CLI read-only flag is absent");
 check(liveScript.includes("supabase_sql(insert, allow_write=True)"),"mission INSERT requires explicit CLI consent");
 check(liveScript.includes("allow_write=True)"),"Human Gate approval and scope revocation require explicit CLI consent");
+check(liveScript.includes("model_id IS NULL AND status <> 'disabled'"),"Gate 3 preflight requires the account-wide OpenRouter free quota row");
+check(liveScript.includes("GATE3_QUOTA_BASELINE="),"Gate 3 captures request/token counters before its one provider call");
+check(liveScript.includes("quota_request_reservations_v1"),"Gate 3 reads the atomic provider reservation ledger after execution");
+check(liveScript.includes("reservation_count FROM quota_proof)=1"),"Gate 3 requires exactly one persisted provider reservation");
+check(liveScript.includes("settled_count FROM quota_proof)=1"),"Gate 3 requires that reservation to be settled with provider response and tokens");
+check(liveScript.includes('QUOTA_BASELINE["model_requests"] + 1'),"Gate 3 proves the exact-model request counter incremented once");
+check(liveScript.includes('QUOTA_BASELINE["account_requests"] + 1'),"Gate 3 proves the shared account request counter incremented");
+check(!liveScript.includes("limits_requests > usage_requests"),"Gate 3 no longer assumes a per-model daily request limit");
 console.log("Mission Wonder 2 Gate 3 supervised scope contract: PASS");
