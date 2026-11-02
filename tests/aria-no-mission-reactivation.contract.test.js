@@ -138,11 +138,15 @@ test('consistency checker flags terminal missions with open steps and missing ca
   assert.equal(withEvent.version, 'aria-mission-consistency-v1.2.0');
 });
 
-test('Cloudflare Worker blocks authenticated mission and runtime proxy routes during the global freeze', () => {
+test('Cloudflare Worker keeps chat forwarding available while blocking mission and runtime proxy routes during the global freeze', () => {
   const worker = read('worker.js');
   const appApi = worker.slice(worker.indexOf('async function proxyAppApi'), worker.indexOf('async function proxyPasswordSignIn'));
   const apiGate = appApi.indexOf('MISSION_EXECUTION_PAUSED && pausedMissionMutation');
+  const mutationListStart = appApi.indexOf('const pausedMissionMutation');
+  const mutationList = appApi.slice(mutationListStart, apiGate);
   assert.ok(apiGate > 0 && apiGate < appApi.indexOf('const upstreamUrl=SUPABASE_APP_API'), 'Worker API proxy must block mission routes before forwarding');
+  assert.doesNotMatch(mutationList, /suffix\.endsWith\("\/conversation"\)/, 'normal chat must reach the independent conversational API while missions are frozen');
+  assert.match(mutationList, /suffix\.endsWith\("\/missions"\)/, 'mission creation remains blocked at the Worker boundary');
   for (const name of ['proxyRuntime', 'startMission', 'directAria']) {
     const start = worker.indexOf('async function ' + name);
     const gate = worker.indexOf('if(MISSION_EXECUTION_PAUSED)', start);
@@ -174,16 +178,26 @@ test('runtime gateway pauses every mutating goal or job action but retains get_j
   assert.ok(readJob > gate, 'read-only job lookup must remain available');
 });
 
-test('app API fail-closes chat, mission mutations, and meditation execution controls while frozen', () => {
+test('app API separates conversation from mission mutations while the global mission freeze remains active', () => {
   const source = read('supabase/functions/aria-app-api-v3/index.ts');
   const gate = source.indexOf('const pausedMissionMutation');
   const guard = source.indexOf('if (MISSION_EXECUTION_PAUSED && pausedMissionMutation)', gate);
-  const conversation = source.indexOf('path.endsWith("/conversation")', gate);
-  const missionCreate = source.indexOf('path.endsWith("/missions")', gate);
-  const retry = source.indexOf('verify-retry|invalidate-unverified-success|retry|human-gate', gate);
+  const mutationList = source.slice(gate, guard);
+  const conversation = mutationList.indexOf('path.endsWith("/conversation")');
+  const missionCreate = mutationList.indexOf('path.endsWith("/missions")');
+  const retry = mutationList.indexOf('verify-retry|invalidate-unverified-success|retry|human-gate');
   const handler = source.indexOf('if (req.method === "POST" && path.endsWith("/conversation"))', gate);
-  assert.ok(gate > 0 && guard > gate && conversation > gate && missionCreate > gate && retry > gate);
-  assert.ok(handler > guard, 'route guard must run before any conversation or mission handler');
+  assert.ok(gate > 0 && guard > gate && missionCreate >= 0 && retry >= 0);
+  assert.equal(conversation, -1, 'ordinary chat must bypass the mission-mutation pause guard');
+  assert.ok(handler > guard, 'conversation handler must remain behind authentication and route dispatch');
+  assert.match(source, /const MISSION_EXECUTION_PAUSED = true;/, 'the global mission freeze must remain enabled');
+  assert.match(source, /const lane = \(voiceMode \|\| MISSION_EXECUTION_PAUSED\)/, 'conversation during the freeze must use the cloud-only fast lane');
+  assert.match(source, /allowLocalFallback=!MISSION_EXECUTION_PAUSED/, 'conversation fallback must not enqueue jobs on local Windows devices while frozen');
+  assert.match(source, /const pausedText = "Las misiones de ARIA están pausadas/);
+  const confirmation = source.indexOf('if (confirmedMissionGoal) {', handler);
+  const direct = source.indexOf('const direct = await internal(DIRECT, {', confirmation);
+  const refusal = source.indexOf('if (MISSION_EXECUTION_PAUSED) {', confirmation);
+  assert.ok(confirmation > handler && refusal > confirmation && direct > refusal, 'confirmed mission intake must refuse before canonical DIRECT handoff');
   assert.match(source, /path\.endsWith\("\/meditation\/idea-to-mission"\)/);
   assert.match(source, /path\.endsWith\("\/meditation\/control"\)/);
 });
@@ -251,7 +265,7 @@ test('legacy mission and execution endpoints stay frozen before parsing or dispa
   const executionBodyRead = execution.indexOf('await r.json()', executionHandler);
   const executionPause = execution.indexOf('if(MISSION_EXECUTION_PAUSED)', executionHandler);
   const executionScopeValidator = execution.indexOf('m22MissionWonder2ScopedProbeAllowed', executionHandler);
-  const executionDenied = execution.indexOf('if(!gate3ScopedProbeAllowed&&!cloudflarePlanPreviewAllowed){', executionHandler);
+  const executionDenied = execution.indexOf('if(!gate3ScopedProbeAllowed&&!cloudflarePlanPreviewAllowed&&!conversationOnlyAllowed){', executionHandler);
   assert.ok(execution.includes('"google/gemini-3.5-flash-direct":"gemini-3.5-flash"'), 'execution provider contract must remain intact');
   assert.ok(executionBodyRead > executionHandler && executionPause > executionBodyRead, 'execution runtime must parse only to inspect the exact scoped mission after authentication');
   assert.ok(executionScopeValidator > executionPause && executionDenied > executionScopeValidator, 'execution runtime must deny every non-allowlisted request with 423');
@@ -259,6 +273,15 @@ test('legacy mission and execution endpoints stay frozen before parsing or dispa
   assert.ok(execution.includes('policy?.read_only===true') && execution.includes('policy?.tool_use===false'), 'the scoped plan-preview exception must remain read-only and tool-free');
   assert.ok(execution.includes('route?.model_id==="nvidia/nemotron-3.5-lightning:free"'), 'the scoped plan-preview exception must remain pinned to the verified free model');
   assert.ok(execution.includes('const MISSION_EXECUTION_PAUSED = true;'), 'execution runtime global pause must remain true');
+  const conversationOnly = execution.slice(execution.indexOf('const conversationOnlyAllowed='), execution.indexOf('let gate3ScopedProbeAllowed=false;'));
+  assert.match(conversationOnly, /metadata\?\.conversation_only===true/);
+  assert.match(conversationOnly, /policy\?\.conversation_only===true/);
+  assert.match(conversationOnly, /risk_class==="READ"/);
+  assert.match(conversationOnly, /evidence_ref==="aria-app-conversation-v1"/);
+  assert.match(conversationOnly, /!body\?\.metadata\?\.mission_id&&!body\?\.metadata\?\.step_id&&!body\?\.metadata\?\.job_id/);
+  assert.match(conversationOnly, /route\?\.capability==="text_generation"/);
+  assert.match(conversationOnly, /\["google","xai","openrouter"\]/);
+  assert.match(conversationOnly, /!Array\.isArray\(input\?\.payload\?\.tools\)/);
 
   const supervisor = read('supabase/functions/aria-autonomy-supervisor-v10/index.ts');
   assert.match(supervisor, /aria-autonomy-supervisor-v5/, 'legacy supervisor must preserve its canonical route contract');
