@@ -132,6 +132,29 @@ function request(overrides = {}) {
   assert.equal(blockedMission.reason, 'mission_execution_paused');
   assert.equal(fx.calls.action.length, 1, 'mission lane must never reach the device action executor');
 
+  const missionMissingId = await fx.router.route(request({
+    lane: LANES.MISSION_EXECUTE,
+    operation: 'mission.start',
+    mission_id: undefined,
+    params: {}
+  }));
+  assert.equal(missionMissingId.reason, 'mission_id_required');
+  const missionWrongOperation = await fx.router.route(request({
+    lane: LANES.MISSION_EXECUTE,
+    operation: 'shell.execute',
+    mission_id: 'mission-voice-005',
+    params: {}
+  }));
+  assert.equal(missionWrongOperation.reason, 'mission_operation_not_allowed');
+  const missionJobInjection = await fx.router.route(request({
+    lane: LANES.MISSION_EXECUTE,
+    operation: 'mission.start',
+    mission_id: 'mission-voice-006',
+    job_id: 'job-injected-001',
+    params: {}
+  }));
+  assert.equal(missionJobInjection.reason, 'mission_job_context_forbidden');
+
   const noSpeakerFx = fixture();
   const noSpeaker = await noSpeakerFx.router.route(request({
     owner_session: { valid: true, speakerVerified: false }
