@@ -7,9 +7,11 @@ recordings, or device is accessed. Synthetic results are shortlist evidence only
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import numpy as np
 import resource
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -112,7 +114,8 @@ def make_phrase_set(candidate: str, positive_dir: Path, negative_dir: Path,
 
 
 def run_candidate(candidate: str, root: Path, train_voices: list[str],
-                  test_voices: list[str], fallback_single_voice: bool) -> dict:
+                  test_voices: list[str], fallback_single_voice: bool,
+                  model_artifact_dir: Path) -> dict:
     candidate_root = root / candidate
     train_pos = candidate_root / "train" / "positive"
     train_neg = candidate_root / "train" / "negative"
@@ -262,6 +265,21 @@ def run_candidate(candidate: str, root: Path, train_voices: list[str],
                 if exported.max_abs_error_int8 is not None else None
             ),
         }
+
+        # Preserve only the small inference model, never the synthetic WAVs or
+        # training dataset. The artifact is a shortlist candidate, not release.
+        model_artifact_dir.mkdir(parents=True, exist_ok=True)
+        artifact_name = f"{candidate}-{result['onnx_runtime_eval']['format']}.onnx"
+        artifact_path = model_artifact_dir / artifact_name
+        shutil.copy2(runtime_model, artifact_path)
+        digest = hashlib.sha256(artifact_path.read_bytes()).hexdigest()
+        result["model_artifact"] = {
+            "file": str(artifact_path),
+            "bytes": artifact_path.stat().st_size,
+            "sha256": digest,
+            "release_approved": False,
+            "approval_reason": "synthetic-only-shortlist",
+        }
     return result
 
 
@@ -299,9 +317,10 @@ def main() -> int:
 
         with tempfile.TemporaryDirectory(prefix="aria-heed-data-") as data_dir:
             root = Path(data_dir)
+            model_artifact_dir = workdir / "shortlisted-models"
             results = [
-                run_candidate("aria", root, train_voices, test_voices, fallback_single_voice),
-                run_candidate("oye_aria", root, train_voices, test_voices, fallback_single_voice),
+                run_candidate("aria", root, train_voices, test_voices, fallback_single_voice, model_artifact_dir),
+                run_candidate("oye_aria", root, train_voices, test_voices, fallback_single_voice, model_artifact_dir),
             ]
 
         passed = [row["candidate"] for row in results if row["status"] == "synthetic_shortlist_candidate"]
