@@ -60,7 +60,7 @@ check(workflowSource.includes("github.ref == 'refs/heads/main'"),"live probe onl
 check(liveScript.includes("Deploy ARIA Supabase Runtime"),"live probe requires a successful canonical runtime deployment");
 check(liveScript.includes("CANONICAL_RUNTIME_SHA_REUSE=PASS"),"live probe may reuse a deployed runtime after an ancestry check");
 check(liveScript.includes("safe_post_deploy_files"),"runtime deploy reuse has a strict post-deploy allowlist");
-check(liveScript.includes("supabase/functions") === false && liveScript.includes("safe_post_deploy_files"),"any non-harness change since deploy fails closed");
+check(liveScript.includes("not changed_files.issubset(safe_post_deploy_files)"),"any non-harness change since deploy fails closed");
 check(liveScript.includes("max_provider_calls")&&liveScript.includes("retryable")&&liveScript.includes("max_attempts"),"live probe is limited to one non-retryable provider call");
 check(liveScript.includes("GATE3_SCOPE_REVOKED=PASS")&&liveScript.includes("verify_global_freeze"),"live probe revokes scope and verifies global freeze afterward");
 check(liveScript.includes("GATE3_SCOPE_REVOKE_VERIFY_PASS")&&liveScript.includes("approval_token"),"live probe reads back disabled scope and cleared approval token");

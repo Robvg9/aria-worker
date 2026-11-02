@@ -98,6 +98,19 @@ def qjson(value):
     return q(json.dumps(value, separators=(",", ":"), ensure_ascii=False)) + "::jsonb"
 
 
+def github_api_json(url):
+    request = urllib.request.Request(
+        url,
+        headers={
+            "Authorization": "Bearer " + GH_TOKEN,
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+        },
+    )
+    with urllib.request.urlopen(request, timeout=25) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
 def github_deploy_exact_sha():
     # Prefer a successful canonical deploy for this exact SHA. If main has
     # advanced only by the isolated harness/test changes, reuse the most recent
