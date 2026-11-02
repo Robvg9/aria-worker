@@ -307,7 +307,11 @@ async function readJson(response, expectedStatus = 200) {
     let missions = await storage.list({ prefix: 'mission:' });
     let jobs = await storage.list({ prefix: 'job:' });
     assert.equal(missions.size, 1, 'idempotent create replay must not duplicate a mission');
-    assert.equal(jobs.size, 1, 'idempotent create replay must not duplicate the plan job');
+    assert.equal(jobs.size, 2, 'idempotent replay plus remote handoff must retain exactly one planner and one execution job');
+    const originalPlannerJob = Array.from(jobs.values()).find(job => job.operation === 'mission.plan');
+    assert.ok(originalPlannerJob, 'the original planner job must remain auditable');
+    assert.equal(originalPlannerJob.status, 'cancelled', 'remote plan handoff must cancel the obsolete local planner job');
+    assert.equal(Array.from(jobs.values()).filter(job => job.operation === 'task.execute').length, 1);
 
     workerBefore = startWorker('package3-worker-before-restart');
     await waitUntil(() => fsSync.existsSync(firstSignal), 'first_worker_task_execution_started');
