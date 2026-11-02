@@ -30,7 +30,7 @@ function fixture(overrides = {}) {
     },
     executeAction: async input => {
       calls.action.push(input);
-      return { ok: true, brightness: input.params.brightness, status: 'ok', shell: 'MUST_NOT_ESCAPE' };
+      return { ok: true, status: 'queued', command_id: '123e4567-e89b-42d3-a456-426614174000' };
     },
     idempotencyStore: {
       claim: async input => {
@@ -71,10 +71,12 @@ function request(overrides = {}) {
   const { createVoiceCommandRouter, LANES } = await import('../supabase/functions/_shared/voice-command-router.mjs');
   const fx = fixture();
   const allowed = await fx.router.route(request());
-  assert.equal(allowed.status, 'succeeded');
-  assert.equal(allowed.executed, true);
-  assert.equal(allowed.result.brightness, 100);
-  assert.equal(Object.hasOwn(allowed.result, 'shell'), false, 'adapter command text must never escape');
+  assert.equal(allowed.status, 'queued', 'the API must not claim execution before a target agent confirms it');
+  assert.equal(allowed.executed, false);
+  assert.equal(allowed.command_id, '123e4567-e89b-42d3-a456-426614174000');
+  assert.equal(allowed.device_id, 'device-robvg');
+  assert.equal(allowed.operation, 'display.brightness.set');
+  assert.equal(Object.hasOwn(allowed, 'result'), false);
   assert.equal(fx.calls.action.length, 1);
   assert.equal(fx.calls.claim.length, 1);
   assert.equal(fx.calls.auth[0].options.requireSpeaker, true);
@@ -82,6 +84,17 @@ function request(overrides = {}) {
   assert.equal(fx.calls.auth[0].options.deviceId, 'device-android');
   assert.equal(fx.calls.action[0].sourceDeviceId, 'device-android', 'signature source and action target must remain separate');
 
+  const queuedDuplicate = await fixture({
+    executeAction: async () => ({ ok: true, status: 'duplicate' })
+  }).router.route(request());
+  assert.equal(queuedDuplicate.status, 'duplicate');
+  assert.equal(queuedDuplicate.executed, false);
+
+  const invalidQueueAck = await fixture({
+    executeAction: async () => ({ ok: true, status: 'queued', command_id: 'not-a-uuid' })
+  }).router.route(request());
+  assert.equal(invalidQueueAck.status, 'failed');
+  assert.equal(invalidQueueAck.reason, 'device_queue_ack_invalid');
   const duplicate = await fx.router.route(request({ request_id: 'req-voice-0002' }));
   assert.equal(duplicate.status, 'duplicate');
   assert.equal(fx.calls.action.length, 1, 'idempotency must prevent a second device action');
