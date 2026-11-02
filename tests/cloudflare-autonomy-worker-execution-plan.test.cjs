@@ -180,6 +180,7 @@ async function call(store, route, { method = 'GET', token = CONTROL_TOKEN, body 
   const badMissionId = (await badPlanMission.json()).mission.mission_id;
   const unsafePlan = await call(store, '/api/missions/' + badMissionId + '/plan', {
     method: 'POST',
+    token: PLAN_PRODUCER_TOKEN,
     body: {
       tasks: [{
         task_id: 'unsafe-shell',
