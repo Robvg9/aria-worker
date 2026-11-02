@@ -50,6 +50,7 @@ on:
       - 'autonomy/persistent-worker-error-policy-v1.js'
       - 'autonomy/persistent-worker-coordinator-adapter-v1.js'
       - 'cloudflare-autonomy/**'
+      - 'tests/cloudflare-autonomy-remote-plan-producer.test.cjs'
       - '.github/workflows/mission-wonder-2-package3-live-e2e.yml'
       - 'scripts/mission-wonder-2-package3-live-e2e.cjs'
       - 'tests/cloudflare-autonomy-package3-scope.test.cjs'
