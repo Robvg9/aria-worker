@@ -10,9 +10,9 @@ const numericStatus = (value) => {
 };
 
 /**
- * Fail closed unless exactly one available quota row proves capacity for this
- * exact provider/account/model route. Account-wide (model_id NULL) rows do not
- * authorize a model route because they may describe a different quota scope.
+ * Model eligibility remains model-scoped. OpenRouter free variants additionally
+ * require one account-wide daily quota row; its live used/limit values are
+ * refreshed and reserved atomically by aria-execution-runtime before each call.
  */
 export function m22QuotaAllowsModelRoute(rows, expected) {
   if (!Array.isArray(rows) || !expected) return false;
@@ -31,17 +31,44 @@ export function m22QuotaAllowsModelRoute(rows, expected) {
   const quota = matches[0];
   if (String(quota?.status ?? "").toLowerCase() !== "available") return false;
 
+  const isOpenRouterFree = providerId === "openrouter" && modelId.endsWith(":free");
+  if (isOpenRouterFree) {
+    const accountRows = rows.filter((row) =>
+      String(row?.provider_id ?? "") === providerId &&
+      String(row?.account_id ?? "") === accountId &&
+      row?.model_id === null
+    );
+    if (accountRows.length !== 1) return false;
+    if (String(accountRows[0]?.status ?? "").toLowerCase() === "disabled") return false;
+  }
+
   const counters = [
     ["limits_requests", "usage_requests"],
     ["limits_tokens_input", "usage_tokens_input"],
     ["limits_tokens_output", "usage_tokens_output"],
     ["limits_tokens_total", "usage_tokens_total"],
   ];
+  const expiredWindow = quota?.limits_period === "day" &&
+    typeof quota?.usage_period_end === "string" &&
+    Number.isFinite(Date.parse(quota.usage_period_end)) &&
+    Date.parse(quota.usage_period_end) <= Date.now();
+
   for (const [limitField, usageField] of counters) {
+    // The OpenRouter API key's live free_model_daily_requests is authoritative
+    // for all free model variants. Never gate on a stale per-model counter.
+    if (isOpenRouterFree && limitField === "limits_requests") {
+      const rawRequestUsage = quota[usageField];
+      if (rawRequestUsage !== null && rawRequestUsage !== undefined &&
+          rawRequestUsage !== "" && (!Number.isFinite(Number(rawRequestUsage)) || Number(rawRequestUsage) < 0)) {
+        return false;
+      }
+      continue;
+    }
+
     const limit = numericLimit(quota[limitField]);
     if (Number.isNaN(limit)) return false;
     if (limit === null) continue;
-    const rawUsage = quota[usageField];
+    const rawUsage = expiredWindow ? 0 : quota[usageField];
     // If a provider declares a capacity but its usage counter is missing,
     // treat the quota state as unknown instead of assuming zero usage.
     if (rawUsage === null || rawUsage === undefined || rawUsage === "") return false;
