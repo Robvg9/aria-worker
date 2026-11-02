@@ -39,6 +39,21 @@ assert.match(migration, /status = 'approved'/,
 assert.match(migration, /speaker model is not approved for production/);
 assert.match(migration, /voice_speaker_model_catalog/);
 assert.match(migration, /resolve_voice_speaker_policy/);
+assert.match(migration, /CREATE TABLE IF NOT EXISTS aria_internal\\.voice_device_commands/);
+assert.match(migration, /enqueue_voice_device_command/);
+assert.match(migration, /claim_voice_device_command/);
+assert.match(migration, /complete_voice_device_command/);
+assert.match(migration, /display\\.brightness\\.set/);
+assert.match(migration, /app\\.open/);
+assert.match(migration, /browser\\.open_url/);
+assert.match(migration, /ON CONFLICT \\(owner_user_id, idempotency_key\\) DO NOTHING/);
+assert.match(migration, /FOR UPDATE OF c SKIP LOCKED/);
+assert.match(migration, /trusted owner-verified voice device unavailable/);
+assert.match(migration, /command_id uuid PRIMARY KEY/);
+assert.doesNotMatch(migration.slice(migration.indexOf('CREATE TABLE IF NOT EXISTS aria_internal.voice_device_commands')),
+  /mission_id|job_id|shell\\.execute|message\\.send/i,
+  'direct device queue must never contain a mission/job identifier, shell, or message send');
+
 assert.match(migration, /revoke_voice_speaker_policy/);
 assert.match(migration, /FOREIGN KEY/);
 assert.match(migration, /evaluation_evidence_ref IS NOT NULL/);
