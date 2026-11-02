@@ -112,7 +112,7 @@ async function api(store, route, { method = 'GET', token, body } = {}) {
     assert.equal(requests[0].headers.get('authorization'), null, 'root Supabase credentials must not be forwarded');
 
     // Redirects are surfaced by status only; producer credentials are never forwarded to a redirect target.
-    const successFetch = globalThis.fetch;
+    const redirectRestoreFetch = globalThis.fetch;
     globalThis.fetch = async (_url, init = {}) => {
       assert.equal(init.redirect, 'manual');
       return new Response('redirect target must not be exposed', {
@@ -132,7 +132,7 @@ async function api(store, route, { method = 'GET', token, body } = {}) {
       assert.equal(JSON.stringify(redirectBody).includes('sensitive.example'), false);
       assert.equal(JSON.stringify(redirectBody).includes('redirect target'), false);
     } finally {
-      globalThis.fetch = successFetch;
+      globalThis.fetch = redirectRestoreFetch;
     }
 
     // Transport diagnostics expose only a small allowlist, never the error message, URL or credentials.
