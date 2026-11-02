@@ -1007,7 +1007,11 @@ function canonicalGateStep(step: any) {
 }
 
 async function humanGateActionHash(step: any) {
-  return m22Gate3HumanGateActionHash(step);
+  // Preserve the canonical hash contract for every pre-existing Human Gate.
+  // The shared helper computes the same hash for this probe's explicit model step.
+  const raw = JSON.stringify(canonicalGateStep(step));
+  const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(raw));
+  return Array.from(new Uint8Array(bytes)).map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 async function strategyFingerprint(steps: any[]) {
