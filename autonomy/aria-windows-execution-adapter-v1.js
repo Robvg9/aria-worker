@@ -204,22 +204,81 @@ function createAriaWindowsExecutionAdapter({ workspaceRoot = process.env.ARIA_WO
     return executeOperation(task);
   }
 
+  async function verifyTaskEvidence(task) {
+    if (!task || !task.operation || !Array.isArray(task.evidence) || task.evidence.length === 0) return false;
+    const evidence = task.evidence[task.evidence.length - 1];
+    if (!evidence || typeof evidence !== 'object') return false;
+
+    if (task.operation === 'workspace.write' || task.operation === 'workspace.edit') {
+      if (typeof evidence.path !== 'string' || !/^[a-f0-9]{64}$/.test(String(evidence.sha256 || ''))) return false;
+      const { target } = safeRelativePath(evidence.path);
+      await ensureNoSymlink(target);
+      const bytes = await fs.readFile(target);
+      const actualHash = crypto.createHash('sha256').update(bytes).digest('hex');
+      return actualHash === evidence.sha256 &&
+        (evidence.bytes_written === undefined || Number(evidence.bytes_written) === bytes.length);
+    }
+
+    if (task.operation === 'workspace.read') {
+      if (typeof evidence.path !== 'string' || typeof evidence.content !== 'string' ||
+          !Number.isFinite(Number(evidence.bytes)) || Number(evidence.bytes) < 0) return false;
+      const { target } = safeRelativePath(evidence.path);
+      await ensureNoSymlink(target);
+      const bytes = await fs.readFile(target);
+      if (bytes.length !== Number(evidence.bytes)) return false;
+      const current = bytes.toString('utf8');
+      return evidence.truncated === true
+        ? current.startsWith(evidence.content)
+        : current === evidence.content;
+    }
+
+    if (task.operation === 'workspace.list') {
+      return Array.isArray(evidence.entries) &&
+        Number.isInteger(Number(evidence.count)) &&
+        Number(evidence.count) >= evidence.entries.length &&
+        Number(evidence.count) <= 1000;
+    }
+
+    if (task.operation === 'workspace.search') {
+      return typeof evidence.query === 'string' &&
+        Array.isArray(evidence.matches) &&
+        Number(evidence.count) === evidence.matches.length;
+    }
+
+    if (task.operation === 'tests.run') {
+      return typeof evidence.test_file === 'string' && Number(evidence.exit_code) === 0;
+    }
+
+    if (task.operation === 'git.status' || task.operation === 'git.diff') {
+      return typeof evidence.output === 'string';
+    }
+
+    return false;
+  }
+
   async function verifyCompletion(mission) {
     const tasks = Array.isArray(mission && mission.tasks) ? mission.tasks : [];
     const unresolved = tasks.filter(task => !['succeeded', 'skipped'].includes(task.status));
-    const missingEvidence = tasks.filter(task => task.status === 'succeeded' &&
-      (!Array.isArray(task.evidence) || task.evidence.length === 0));
-    if (!tasks.length || unresolved.length || missingEvidence.length) {
+    const invalidEvidence = [];
+    for (const task of tasks) {
+      if (task.status !== 'succeeded') continue;
+      try {
+        if (!await verifyTaskEvidence(task)) invalidEvidence.push(task.task_id);
+      } catch (_) {
+        invalidEvidence.push(task.task_id);
+      }
+    }
+    if (!tasks.length || unresolved.length || invalidEvidence.length) {
       return {
         passed: false,
-        reason: 'unresolved_tasks_or_missing_evidence',
+        reason: 'unresolved_tasks_or_invalid_execution_evidence',
         unresolved: unresolved.map(task => task.task_id),
-        missing_evidence: missingEvidence.map(task => task.task_id)
+        invalid_evidence: invalidEvidence
       };
     }
     return {
       passed: true,
-      reason: 'all_tasks_terminal_with_execution_evidence',
+      reason: 'all_tasks_terminal_and_workspace_evidence_read_back',
       verifier: 'local-execution-evidence-v1',
       verified_at: new Date().toISOString()
     };
