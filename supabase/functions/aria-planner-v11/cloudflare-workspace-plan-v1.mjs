@@ -209,7 +209,7 @@ export function buildCloudflareWorkspacePlan(goal, request, modelOutput) {
 }
 
 export async function deriveCloudflarePlanProducerToken(secret) {
-  if (typeof secret !== 'string' || secret.length < 32) throw new Error('aria_runtime_shared_secret_invalid');
+  if (typeof secret !== 'string' || secret.length < 32) throw new Error('aria_plan_producer_secret_invalid');
   const key = await globalThis.crypto.subtle.importKey(
     'raw',
     encoder.encode(secret),

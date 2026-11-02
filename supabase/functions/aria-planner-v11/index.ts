@@ -6,7 +6,7 @@ import { hasExplicitBattleCruiserGitHubWriteIntent } from "../_shared/battlecrui
 import { explicitPhysicalExecutionRequirement, validatePhysicalExecutionPlan } from "../_shared/physical-execution-contract.mjs";
 import { buildCloudflareWorkspacePlan, isCloudflarePlanProducerRequest } from "./cloudflare-workspace-plan-v1.mjs";
 import { deriveCloudflarePlanPreviewToken } from "../_shared/cloudflare-plan-preview-auth-v1.mjs";
-const URL=Deno.env.get("SUPABASE_URL")!, KEY=Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, SECRET=Deno.env.get("ARIA_RUNTIME_SHARED_SECRET")!;
+const URL=Deno.env.get("SUPABASE_URL")!, KEY=Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, SECRET=Deno.env.get("ARIA_RUNTIME_SHARED_SECRET")!; const PLAN_BRIDGE_SECRET=Deno.env.get("ARIA_PLAN_PRODUCER_SHARED_SECRET")??"";
 const ROOT=createClient(URL,KEY,{auth:{persistSession:false,autoRefreshToken:false,autoRefreshSession:false}});
 const EAS_PROJECT_ID="1b23b091-f7b6-4dc2-b328-c8e5ec07de57"; const db=ROOT.schema("aria_internal");
 const TOOL_UNIVERSE_V1={
@@ -1480,7 +1480,7 @@ async function generateCloudflareWorkspacePlan(goal:string,workspaceRequest:any)
   if(!route)return {ok:false,status:503,reason:"verified_free_plan_model_unavailable"};
   let previewToken:string;
   try{
-    previewToken=await deriveCloudflarePlanPreviewToken(SECRET);
+    previewToken=await deriveCloudflarePlanPreviewToken(PLAN_BRIDGE_SECRET);
   }catch{
     return {ok:false,status:503,reason:"plan_preview_auth_unavailable"};
   }
@@ -1542,7 +1542,7 @@ Deno.serve(async r=>{
   // The derived Cloudflare producer credential is accepted only on this exact
   // structured workspace-plan contract. It does not authorize normal planner routes.
   if(r.headers.has("x-aria-plan-producer")){
-    if(!(await isCloudflarePlanProducerRequest(r,SECRET)))return out({error:"unauthorized_plan_producer"},401);
+    if(!(await isCloudflarePlanProducerRequest(r,PLAN_BRIDGE_SECRET)))return out({error:"unauthorized_plan_producer"},401);
     if(r.method!=="POST")return out({error:"method_not_allowed"},405);
     const pathname=new globalThis.URL(r.url).pathname.replace(/\/+$/,"");
     if(!pathname.endsWith("/functions/v1/aria-planner-v11"))return out({error:"not_found"},404);

@@ -33,6 +33,12 @@ on:
       - '!autonomy/persistent-worker-coordinator-adapter-v1.js'
       - '!.github/workflows/supabase-canonical-deploy.yml'
   workflow_dispatch:
+    inputs:
+      confirm_plan_bridge_secret_sync:
+        description: "Authorize syncing the dedicated plan-bridge secret and publishing the planner/runtime bridge."
+        type: boolean
+        required: true
+        default: false
 
 permissions:
   contents: read
@@ -177,6 +183,28 @@ jobs:
             echo "APPLYING_PENDING_MIGRATIONS=false"
             echo "SUPABASE_MIGRATION_NOOP=true"
           fi
+      - name: Sync dedicated plan-bridge secret and deploy planner/runtime
+        if: inputs.confirm_plan_bridge_secret_sync == true
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          ARIA_PLAN_PRODUCER_SHARED_SECRET: ${{ secrets.ARIA_PLAN_PRODUCER_SHARED_SECRET }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$SUPABASE_PROJECT_REF" = "icuqsstxfdbvjytkhlog"
+          test "${#ARIA_PLAN_PRODUCER_SHARED_SECRET}" -ge 32
+          tmp_env="$(mktemp)"
+          trap 'rm -f "$tmp_env"' EXIT
+          umask 077
+          printf 'ARIA_PLAN_PRODUCER_SHARED_SECRET=%s\\n' "$ARIA_PLAN_PRODUCER_SHARED_SECRET" > "$tmp_env"
+          supabase secrets set --project-ref "$SUPABASE_PROJECT_REF" --env-file "$tmp_env" --yes
+          rm -f "$tmp_env"
+          echo "ARIA_PLAN_BRIDGE_SECRET_SYNC_PASS=true"
+          supabase functions deploy aria-planner-v11 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt --yes
+          supabase functions deploy aria-execution-runtime-v1 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt --yes
+          echo "ARIA_PLAN_BRIDGE_FUNCTION_DEPLOY_PASS=true"
+
       - name: Deploy canonical ARIA functions
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
@@ -188,11 +216,9 @@ jobs:
           node scripts/patch-eas-into-mission-runner-v22.js supabase/functions/aria-mission-runner-v22/index.ts
           # Phase 3: only the canonical execution chain is release-bearing.
           # Legacy planner/runner/supervisor slots remain compatibility-only and are not re-deployed.
-          supabase functions deploy aria-planner-v11 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt --yes
           supabase functions deploy aria-canonical-runtime-v1 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt --yes
           supabase functions deploy aria-mission-runner-v22 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt --yes
           supabase functions deploy aria-runtime-gateway-v1 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt --yes
-          supabase functions deploy aria-execution-runtime-v1 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt --yes
           supabase functions deploy aria-device-gateway --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt --yes
           supabase functions deploy aria-smart-verifier-v1 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt --yes
           supabase functions deploy aria-agent-runtime-v1 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt --yes

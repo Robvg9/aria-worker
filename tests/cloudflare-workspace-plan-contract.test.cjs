@@ -17,10 +17,38 @@ const {
   const path = require('node:path');
   const plannerSourcePath = path.join(__dirname, '..', 'supabase', 'functions', 'aria-planner-v11', 'index.ts');
   const plannerSource = fs.readFileSync(plannerSourcePath, 'utf8');
+  const executionRuntimePath = path.join(__dirname, '..', 'supabase', 'functions', 'aria-execution-runtime-v1', 'index.ts');
+  const executionRuntimeSource = fs.readFileSync(executionRuntimePath, 'utf8');
+  const deployWorkflowPath = path.join(__dirname, '..', '.github', 'workflows', 'aria-autonomy-coordinator-deploy.yml');
+  const deployWorkflowSource = fs.readFileSync(deployWorkflowPath, 'utf8');
+  const supabaseDeployWorkflowPath = path.join(__dirname, '..', '.github', 'workflows', 'supabase-canonical-deploy.yml');
+  const supabaseDeployWorkflowSource = fs.readFileSync(supabaseDeployWorkflowPath, 'utf8');
   assert.ok(plannerSource.includes('const pathname=new globalThis.URL(r.url).pathname.replace(/\\/+$/,"");'), 'planner producer URL normalization must be Deno-parseable');
   assert.equal(plannerSource.includes('replace(/\\\\/+$/,"")'), false, 'planner must not retain the invalid escaped-slash regex');
 
+  // The narrow plan bridge has its own secret; runtime root auth remains separate.
+  assert.ok(plannerSource.includes('Deno.env.get("ARIA_PLAN_PRODUCER_SHARED_SECRET")??"";'));
+  assert.ok(plannerSource.includes('deriveCloudflarePlanPreviewToken(PLAN_BRIDGE_SECRET)'));
+  assert.ok(plannerSource.includes('isCloudflarePlanProducerRequest(r,PLAN_BRIDGE_SECRET)'));
+  assert.ok(executionRuntimeSource.includes('Deno.env.get("ARIA_PLAN_PRODUCER_SHARED_SECRET")??"";'));
+  assert.ok(executionRuntimeSource.includes('isCloudflarePlanPreviewRequest(r,PLAN_BRIDGE_SECRET)'));
+  assert.equal(executionRuntimeSource.includes('isCloudflarePlanPreviewRequest(r,SECRET)'), false);
+  assert.ok(deployWorkflowSource.includes('secrets.ARIA_PLAN_PRODUCER_SHARED_SECRET'), 'Cloudflare coordinator must use the dedicated bridge secret');
+  assert.equal(deployWorkflowSource.includes('secrets.ARIA_RUNTIME_SHARED_SECRET'), false, 'coordinator deploy must not depend on the legacy runtime root secret');
+  assert.doesNotMatch(deployWorkflowSource, /SUPABASE_ACCESS_TOKEN|SUPABASE_PROJECT_REF|supabase secrets set|supabase functions deploy/i, 'Cloudflare coordinator must not operate the Supabase control plane');
+  assert.ok(deployWorkflowSource.includes('"ARIA_PLAN_PRODUCER_TOKEN": derived'), 'only the derived HMAC token may be forwarded to Cloudflare');
+  assert.equal(deployWorkflowSource.includes('"ARIA_PLAN_PRODUCER_SHARED_SECRET": derived'), false, 'the shared secret must never be forwarded to Cloudflare');
+  assert.ok(supabaseDeployWorkflowSource.includes('confirm_plan_bridge_secret_sync == true'), 'canonical Supabase deploy must require a separate human confirmation');
+  assert.ok(supabaseDeployWorkflowSource.includes('secrets.ARIA_PLAN_PRODUCER_SHARED_SECRET'));
+  assert.ok(supabaseDeployWorkflowSource.includes('supabase secrets set --project-ref "$SUPABASE_PROJECT_REF" --env-file "$tmp_env" --yes'));
+  assert.ok(supabaseDeployWorkflowSource.includes('supabase functions deploy aria-planner-v11'));
+  assert.ok(supabaseDeployWorkflowSource.includes('supabase functions deploy aria-execution-runtime-v1'));
+  assert.ok(supabaseDeployWorkflowSource.indexOf('Sync dedicated plan-bridge secret and deploy planner/runtime') < supabaseDeployWorkflowSource.indexOf('Deploy canonical ARIA functions'), 'bridge secret must sync before planner/runtime publication');
+  assert.ok(deployWorkflowSource.includes('if: inputs.send_telegram_test == true'));
+
   const secret = 'test-only-aria-runtime-secret-'.padEnd(48, 'x');
+  await assert.rejects(() => deriveCloudflarePlanProducerToken('short'), /aria_plan_producer_secret_invalid/);
+  await assert.rejects(() => deriveCloudflarePlanPreviewToken('short'), /aria_plan_producer_secret_invalid/);
   const producerToken = await deriveCloudflarePlanProducerToken(secret);
   assert.match(producerToken, /^[a-f0-9]{64}$/);
   assert.equal(await deriveCloudflarePlanProducerToken(secret), producerToken);

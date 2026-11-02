@@ -6,7 +6,7 @@ const encoder = new TextEncoder();
 
 export async function deriveCloudflarePlanPreviewToken(secret) {
   if (typeof secret !== 'string' || secret.length < 32) {
-    throw new Error('aria_runtime_shared_secret_invalid');
+    throw new Error('aria_plan_producer_secret_invalid');
   }
   const key = await globalThis.crypto.subtle.importKey(
     'raw',

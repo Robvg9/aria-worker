@@ -21,6 +21,7 @@ jobs:
   deploy:
     if: inputs.confirm_public_deploy == true
     runs-on: ubuntu-latest
+    environment: production
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
@@ -38,7 +39,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           ARIA_CONTROL_TOKEN: ${{ secrets.ARIA_AUTONOMY_CONTROL_TOKEN }}
           ARIA_WORKER_TOKEN: ${{ secrets.ARIA_AUTONOMY_WORKER_TOKEN }}
-          ARIA_RUNTIME_SHARED_SECRET: ${{ secrets.ARIA_RUNTIME_SHARED_SECRET }}
+          ARIA_PLAN_PRODUCER_SHARED_SECRET: ${{ secrets.ARIA_PLAN_PRODUCER_SHARED_SECRET }}
           ARIA_NOTIFICATION_WEBHOOK_URL: ${{ secrets.ARIA_AUTONOMY_NOTIFICATION_WEBHOOK_URL }}
           ARIA_NOTIFICATION_TOKEN: ${{ secrets.ARIA_AUTONOMY_NOTIFICATION_TOKEN }}
         run: |
@@ -49,7 +50,7 @@ jobs:
 
           control = os.environ.get("ARIA_CONTROL_TOKEN", "")
           worker = os.environ.get("ARIA_WORKER_TOKEN", "")
-          shared = os.environ.get("ARIA_RUNTIME_SHARED_SECRET", "")
+          bridge = os.environ.get("ARIA_PLAN_PRODUCER_SHARED_SECRET", "")
           webhook = os.environ.get("ARIA_NOTIFICATION_WEBHOOK_URL", "")
 
           checks = {
@@ -57,7 +58,8 @@ jobs:
               "CLOUDFLARE_ACCOUNT_ID_PRESENT": bool(os.environ.get("CLOUDFLARE_ACCOUNT_ID", "")),
               "ARIA_CONTROL_TOKEN_LENGTH_GE_32": len(control) >= 32,
               "ARIA_WORKER_TOKEN_LENGTH_GE_32": len(worker) >= 32,
-              "ARIA_RUNTIME_SHARED_SECRET_LENGTH_GE_32": len(shared) >= 32,
+              "ARIA_PLAN_PRODUCER_SHARED_SECRET_LENGTH_GE_32": len(bridge) >= 32,
+              "ARIA_PLAN_SECRET_DISTINCT_FROM_CONTROL_AND_WORKER": bool(bridge and bridge != control and bridge != worker),
               "ARIA_CONTROL_WORKER_TOKENS_DISTINCT": bool(control and worker and control != worker),
               "OPTIONAL_NOTIFICATION_WEBHOOK_HTTPS": not webhook or webhook.startswith("https://"),
           }
@@ -77,7 +79,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           ARIA_CONTROL_TOKEN: ${{ secrets.ARIA_AUTONOMY_CONTROL_TOKEN }}
           ARIA_WORKER_TOKEN: ${{ secrets.ARIA_AUTONOMY_WORKER_TOKEN }}
-          ARIA_RUNTIME_SHARED_SECRET: ${{ secrets.ARIA_RUNTIME_SHARED_SECRET }}
+          ARIA_PLAN_PRODUCER_SHARED_SECRET: ${{ secrets.ARIA_PLAN_PRODUCER_SHARED_SECRET }}
           ARIA_NOTIFICATION_WEBHOOK_URL: ${{ secrets.ARIA_AUTONOMY_NOTIFICATION_WEBHOOK_URL }}
           ARIA_NOTIFICATION_TOKEN: ${{ secrets.ARIA_AUTONOMY_NOTIFICATION_TOKEN }}
         shell: bash
@@ -86,10 +88,10 @@ jobs:
           trap 'rm -f .aria-autonomy-secrets.json' EXIT
           python - <<'PY'
           import hashlib, hmac, json, os
-          root_secret = os.environ["ARIA_RUNTIME_SHARED_SECRET"]
-          if len(root_secret) < 32:
-              raise SystemExit("ARIA_RUNTIME_SHARED_SECRET_INVALID")
-          derived = hmac.new(root_secret.encode("utf-8"), b"aria-cloudflare-plan-producer:v1", hashlib.sha256).hexdigest()
+          bridge_secret = os.environ["ARIA_PLAN_PRODUCER_SHARED_SECRET"]
+          if len(bridge_secret) < 32:
+              raise SystemExit("ARIA_PLAN_PRODUCER_SHARED_SECRET_INVALID")
+          derived = hmac.new(bridge_secret.encode("utf-8"), b"aria-cloudflare-plan-producer:v1", hashlib.sha256).hexdigest()
           payload = {
               "ARIA_CONTROL_TOKEN": os.environ["ARIA_CONTROL_TOKEN"],
               "ARIA_WORKER_TOKEN": os.environ["ARIA_WORKER_TOKEN"],
@@ -107,13 +109,13 @@ jobs:
         env:
           ARIA_CONTROL_TOKEN: ${{ secrets.ARIA_AUTONOMY_CONTROL_TOKEN }}
           ARIA_WORKER_TOKEN: ${{ secrets.ARIA_AUTONOMY_WORKER_TOKEN }}
-          ARIA_RUNTIME_SHARED_SECRET: ${{ secrets.ARIA_RUNTIME_SHARED_SECRET }}
+          ARIA_PLAN_PRODUCER_SHARED_SECRET: ${{ secrets.ARIA_PLAN_PRODUCER_SHARED_SECRET }}
         run: |
           set -euo pipefail
           base="https://aria-autonomy-coordinator.robvg9.workers.dev"
           PLAN_PRODUCER_TOKEN="$(python - <<'PY'
           import hashlib, hmac, os
-          print(hmac.new(os.environ["ARIA_RUNTIME_SHARED_SECRET"].encode("utf-8"), b"aria-cloudflare-plan-producer:v1", hashlib.sha256).hexdigest())
+          print(hmac.new(os.environ["ARIA_PLAN_PRODUCER_SHARED_SECRET"].encode("utf-8"), b"aria-cloudflare-plan-producer:v1", hashlib.sha256).hexdigest())
           PY
           )"
           health="$(curl --fail --silent --show-error --max-time 15 "$base/health")"
