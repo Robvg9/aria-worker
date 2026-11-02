@@ -390,7 +390,9 @@ async function readJson(response, expectedStatus = 200) {
     assert.equal(jobs.size, 3, 'exactly one plan, one task, and one verification job must exist');
     const jobValues = Array.from(jobs.values());
     assert.deepEqual(jobValues.map(job => job.operation).sort(), ['mission.plan', 'mission.verify', 'task.execute']);
-    assert.ok(jobValues.every(job => job.status === 'completed'));
+    assert.equal(jobValues.find(job => job.operation === 'mission.plan').status, 'cancelled',
+      'the local planner job must remain cancelled after remote planning');
+    assert.ok(jobValues.filter(job => job.operation !== 'mission.plan').every(job => job.status === 'completed'));
     assert.equal(jobValues.find(job => job.operation === 'task.execute').attempts, 2);
 
     missions = await storage.list({ prefix: 'mission:' });
