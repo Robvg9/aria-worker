@@ -11,6 +11,17 @@ on:
       - 'scripts/aria-worker-console-probe.cs'
       - 'tests/aria-worker-task-host.test.ps1'
       - 'tests/fixtures/aria-frozen-worker-probe-adapter.js'
+      - 'autonomy/aria-windows-execution-adapter-v1.js'
+      - 'scripts/aria-persistent-windows-worker-v1.js'
+      - 'scripts/aria-persistent-windows-worker-preflight-v1.js'
+      - 'scripts/aria-persistent-windows-worker-preflight-v1.test.js'
+      - 'scripts/Protect-ARIA-Persistent-Worker-Config.ps1'
+      - 'scripts/Update-ARIA-Persistent-Worker-ExecutionOnly.ps1'
+      - 'tests/aria-windows-execution-adapter-v1.test.js'
+      - 'tests/cloudflare-autonomy-worker-execution-plan.test.cjs'
+      - 'cloudflare-autonomy/worker.mjs'
+      - 'tests/cloudflare-autonomy-package3-scope.test.cjs'
+      - 'scripts/mission-wonder-2-package3-live-e2e.cjs'
   pull_request:
     branches:
       - main
@@ -162,7 +173,1799 @@ jobs:
             if ($document.format -ne 'aria-worker-config-dpapi-v1' -or $document.protectedForSid -ne $sid) {
               throw 'DPAPI config metadata or owner SID does not match the current user.'
             }
-            if ($document.values.ARIA_AUTONOMY_ADAPTER -notmatch 'aria-windows-execution-adapter-v1\\.js
+            if ($document.values.ARIA_AUTONOMY_ADAPTER -notmatch 'aria-windows-execution-adapter-v1\.js
+
+            $secureToken = ConvertTo-SecureString -String ([string]$document.workerTokenDpapi) -ErrorAction Stop
+            $pointer = [IntPtr]::Zero
+            try {
+              $pointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secureToken)
+              $decodedToken = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($pointer)
+              if ($decodedToken -cne $testToken) { throw 'DPAPI round-trip did not preserve the test token.' }
+            }
+            finally {
+              if ($pointer -ne [IntPtr]::Zero) {
+                [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($pointer)
+              }
+              $decodedToken = $null
+              $secureToken.Dispose()
+            }
+
+            foreach ($protectedPath in @((Split-Path -Parent $configPath), $configPath)) {
+              $acl = Get-Acl -LiteralPath $protectedPath
+              $ownerSid = $acl.GetOwner([System.Security.Principal.SecurityIdentifier]).Value
+              if ($ownerSid -ne $sid) {
+                throw "Protected path owner does not match current SID: $protectedPath"
+              }
+              $rules = $acl.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier])
+              if ($rules.Count -ne 1 -or $rules[0].IdentityReference.Value -ne $sid -or
+                  $rules[0].AccessControlType -ne [System.Security.AccessControl.AccessControlType]::Allow -or
+                  ($rules[0].FileSystemRights -band [System.Security.AccessControl.FileSystemRights]::FullControl) -ne [System.Security.AccessControl.FileSystemRights]::FullControl) {
+                throw "Protected path ACL is not restricted to current-user FullControl: $protectedPath"
+              }
+            }
+
+            Write-Output 'WINDOWS_DPAPI_CONFIG_CREATE=PASS'
+            Write-Output 'WINDOWS_DPAPI_TOKEN_ROUNDTRIP=PASS'
+            Write-Output 'WINDOWS_DPAPI_CURRENT_USER_ACL=PASS'
+          }
+          finally {
+            Remove-Item Function:\Read-Host -ErrorAction SilentlyContinue
+            $global:Package4CiTestToken = $null
+            $env:LOCALAPPDATA = $originalLocalAppData
+            Remove-Item -LiteralPath $testRoot -Recurse -Force -ErrorAction SilentlyContinue
+          }
+
+  windows-physical-readonly-preflight:
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (github.event.pull_request.head.ref == 'feat/aria-windows-worker-preflight-20261031' || github.event.pull_request.head.ref == 'feat/aria-worker-remote-plan-execution-only-20261102')
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          sparse-checkout: |
+            scripts/Start-ARIA-Persistent-Worker.ps1
+            scripts/aria-worker-supervisor-policy-v1.ps1
+            scripts/aria-persistent-windows-worker-v1.js
+            scripts/aria-persistent-windows-worker-preflight-v1.js
+            autonomy/aria-windows-execution-adapter-v1.js
+          sparse-checkout-cone-mode: false
+      - name: Run the actual Windows supervisor in read-only preflight mode
+        shell: powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
+        env:
+          ARIA_WORKER_TOKEN: ${{ secrets.ARIA_AUTONOMY_WORKER_TOKEN }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $node = 'D:\Databank\node\node.exe'
+          if (-not (Test-Path -LiteralPath $node -PathType Leaf)) {
+            $node = (Get-Command node -ErrorAction Stop).Source
+          }
+          $nodeVersion = (& $node --version).Trim()
+          if ([version]($nodeVersion.TrimStart('v')) -lt [version]'20.0.0') {
+            throw "Node 20+ required; found $nodeVersion"
+          }
+          if ([string]::IsNullOrWhiteSpace($env:ARIA_WORKER_TOKEN) -or $env:ARIA_WORKER_TOKEN.Length -lt 32) {
+            throw 'ARIA_AUTONOMY_WORKER_TOKEN repository secret is missing or invalid'
+          }
+
+          $scratch = Join-Path $env:RUNNER_TEMP 'aria-windows-worker-preflight'
+          $workspace = Join-Path $scratch 'workspace'
+          $config = Join-Path $scratch 'worker.env'
+          $supervisor = Join-Path $env:GITHUB_WORKSPACE 'scripts\Start-ARIA-Persistent-Worker.ps1'
+          $powershell = (Get-Process -Id $PID).Path
+          New-Item -ItemType Directory -Force -Path $workspace | Out-Null
+
+          try {
+            $values = @(
+              'ARIA_CONTROL_URL=https://aria-autonomy-coordinator.robvg9.workers.dev'
+              "ARIA_WORKER_TOKEN=$env:ARIA_WORKER_TOKEN"
+              "ARIA_AUTONOMY_ADAPTER=$(Join-Path $env:GITHUB_WORKSPACE 'autonomy\aria-windows-execution-adapter-v1.js')"
+              "ARIA_WORKSPACE_ROOT=$workspace"
+            )
+            [System.IO.File]::WriteAllLines($config, $values, [System.Text.Encoding]::ASCII)
+            Write-Host "WINDOWS_NODE_VERSION=$nodeVersion"
+            & $powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $supervisor -ConfigPath $config -InstallDir $env:GITHUB_WORKSPACE -NodePath $node -PreflightOnly
+            if ($LASTEXITCODE -ne 0) { throw "WINDOWS_SUPERVISOR_PREFLIGHT_EXIT=$LASTEXITCODE" }
+            Write-Host 'WINDOWS_SUPERVISOR_PREFLIGHT=PASS'
+          }
+          finally {
+            Remove-Item -LiteralPath $config -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $workspace -Recurse -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $scratch -Force -ErrorAction SilentlyContinue
+          }
+
+  windows-physical-frozen-worker-stop:
+    if: (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (github.event.pull_request.head.ref == 'fix/package2-robvg-probe-diagnostics-main-20261031' || github.event.pull_request.head.ref == 'feat/aria-worker-remote-plan-execution-only-20261102')) || (github.event_name == 'push' && github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, 'Diagnose and harden frozen-worker probe on ROBVG'))
+    needs: [contract-tests, windows-supervisor-syntax, live-security-readonly-check]
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          sparse-checkout: |
+            scripts/Start-ARIA-Persistent-Worker.ps1
+            scripts/aria-worker-supervisor-policy-v1.ps1
+            scripts/aria-persistent-windows-worker-v1.js
+            autonomy/persistent-worker-error-policy-v1.js
+            tests/fixtures/aria-frozen-worker-probe-adapter.js
+            cloudflare-autonomy/worker.mjs
+          sparse-checkout-cone-mode: false
+      - name: Start the real worker once against the frozen coordinator and verify clean stop
+        shell: powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
+        env:
+          ARIA_AUTONOMY_WORKER_TOKEN: ${{ secrets.ARIA_AUTONOMY_WORKER_TOKEN }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:COMPUTERNAME -ne 'ROBVG') {
+            throw "Refusing physical worker probe on unexpected machine '$env:COMPUTERNAME'; expected ROBVG. No worker was started."
+          }
+
+          $workerSource = Get-Content -LiteralPath (Join-Path $env:GITHUB_WORKSPACE 'cloudflare-autonomy/worker.mjs') -Raw
+          if ($workerSource -notmatch 'MISSION_EXECUTION_PAUSED\s*=\s*true') {
+            throw 'Main source does not hard-lock mission execution. Refusing worker probe.'
+          }
+          if ([string]::IsNullOrWhiteSpace($env:ARIA_AUTONOMY_WORKER_TOKEN) -or $env:ARIA_AUTONOMY_WORKER_TOKEN.Length -lt 32) {
+            throw 'Worker token secret is missing or invalid.'
+          }
+
+          $node = 'D:\Databank\node\node.exe'
+          if (-not (Test-Path -LiteralPath $node -PathType Leaf)) {
+            $node = (Get-Command node -ErrorAction Stop).Source
+          }
+          $nodeVersion = (& $node --version).Trim()
+          if ([version]($nodeVersion.TrimStart('v')) -lt [version]'20.0.0') {
+            throw "Node 20+ required; found $nodeVersion"
+          }
+
+          function Invoke-AriaProbeHttp {
+            param(
+              [Parameter(Mandatory = $true)][string]$Uri,
+              [Parameter(Mandatory = $true)][ValidateSet('GET', 'POST')][string]$Method,
+              [string]$Body
+            )
+            $request = [System.Net.HttpWebRequest]::Create($Uri)
+            $request.Method = $Method
+            $request.Timeout = 10000
+            $request.ReadWriteTimeout = 10000
+            $request.KeepAlive = $false
+            if ($Method -eq 'POST') {
+              $request.ContentType = 'application/json'
+              $request.Headers['Authorization'] = 'Bearer ' + $env:ARIA_AUTONOMY_WORKER_TOKEN
+              $bytes = [System.Text.Encoding]::UTF8.GetBytes($Body)
+              $request.ContentLength = $bytes.Length
+              $requestStream = $request.GetRequestStream()
+              try { $requestStream.Write($bytes, 0, $bytes.Length) }
+              finally { $requestStream.Dispose() }
+            }
+
+            $response = $null
+            try {
+              $response = $request.GetResponse()
+            }
+            catch [System.Net.WebException] {
+              $response = $_.Exception.Response
+              if (-not $response) {
+                throw "ARIA_PROBE_HTTP_NO_RESPONSE method=$Method uri=$Uri error=$($_.Exception.Message)"
+              }
+            }
+
+            try {
+              $reader = New-Object System.IO.StreamReader($response.GetResponseStream())
+              try { $responseBody = $reader.ReadToEnd() }
+              finally { $reader.Dispose() }
+              return [pscustomobject]@{
+                StatusCode = [int]$response.StatusCode
+                Body = $responseBody
+              }
+            }
+            finally {
+              if ($response) { $response.Close() }
+            }
+          }
+
+          $controlBase = 'https://aria-autonomy-coordinator.robvg9.workers.dev'
+          $controlHost = 'aria-autonomy-coordinator.robvg9.workers.dev'
+          try {
+            $healthProbe = Invoke-AriaProbeHttp -Uri ($controlBase + '/health') -Method GET
+          }
+          catch {
+            Write-Output ('ROBVG_SERVICE_IDENTITY=' + [System.Security.Principal.WindowsIdentity]::GetCurrent().Name)
+            Write-Output ('ROBVG_HEALTH_HTTP_ERROR=' + $_.Exception.Message)
+
+            try {
+              $addresses = [System.Net.Dns]::GetHostAddresses($controlHost)
+              Write-Output ('ROBVG_DNS_ADDRESSES=' + (($addresses | ForEach-Object { $_.IPAddressToString }) -join ','))
+              Write-Output 'ROBVG_DNS=PASS'
+            }
+            catch {
+              Write-Output ('ROBVG_DNS=FAIL;ERROR=' + $_.Exception.Message)
+            }
+
+            try {
+              $tcpOk = Test-NetConnection -ComputerName $controlHost -Port 443 -InformationLevel Quiet -WarningAction SilentlyContinue
+              Write-Output ('ROBVG_TCP_443=' + [string]$tcpOk)
+            }
+            catch {
+              Write-Output ('ROBVG_TCP_443=ERROR;DETAIL=' + $_.Exception.Message)
+            }
+
+            try {
+              $proxyOutput = (& netsh winhttp show proxy 2>&1 | Out-String)
+              if ($proxyOutput -match 'Direct access') {
+                Write-Output 'ROBVG_WINHTTP_PROXY_MODE=DIRECT'
+              }
+              else {
+                Write-Output 'ROBVG_WINHTTP_PROXY_MODE=CONFIGURED'
+              }
+            }
+            catch {
+              Write-Output ('ROBVG_WINHTTP_PROXY_MODE=ERROR;DETAIL=' + $_.Exception.Message)
+            }
+
+            $curlCommand = Get-Command curl.exe -ErrorAction SilentlyContinue
+            if ($curlCommand) {
+              $curlBody = Join-Path $env:RUNNER_TEMP 'aria-package2-curl-health.txt'
+              $curlOutput = & $curlCommand.Source --silent --show-error --max-time 12 --connect-timeout 5 --output $curlBody --write-out 'http=%{http_code};remote=%{remote_ip};connect=%{time_connect};tls=%{time_appconnect}' ($controlBase + '/health') 2>&1
+              Write-Output ('ROBVG_CURL_HEALTH=' + ($curlOutput -join ' '))
+              Write-Output ('ROBVG_CURL_EXIT=' + $LASTEXITCODE)
+              Remove-Item -LiteralPath $curlBody -Force -ErrorAction SilentlyContinue
+            }
+            else {
+              Write-Output 'ROBVG_CURL_HEALTH=UNAVAILABLE'
+            }
+
+            $nodeProbe = Join-Path $env:RUNNER_TEMP 'aria-package2-node-fetch-health.js'
+            $nodeSource = @'
+          fetch("https://aria-autonomy-coordinator.robvg9.workers.dev/health", { signal: AbortSignal.timeout(10000) })
+            .then(async (response) => {
+              console.log("ROBVG_NODE_FETCH_HTTP=" + response.status);
+              const body = await response.json().catch(() => ({}));
+              console.log("ROBVG_NODE_FETCH_SUPABASE_INDEPENDENT=" + String(body.supabase_independent === true));
+              process.exitCode = response.status === 200 && body.ok === true ? 0 : 2;
+            })
+            .catch((error) => {
+              console.log("ROBVG_NODE_FETCH_ERROR=" + String(error && error.name || "Error") + ":" + String(error && error.message || error));
+              const cause = error && error.cause;
+              if (cause) console.log("ROBVG_NODE_FETCH_CAUSE=" + JSON.stringify({ code: cause.code, syscall: cause.syscall, hostname: cause.hostname }));
+              process.exitCode = 3;
+            });
+          '@
+            [System.IO.File]::WriteAllText($nodeProbe, $nodeSource, ([System.Text.UTF8Encoding]::new($false)))
+            & $node $nodeProbe
+            Write-Output ('ROBVG_NODE_FETCH_EXIT=' + $LASTEXITCODE)
+            Remove-Item -LiteralPath $nodeProbe -Force -ErrorAction SilentlyContinue
+
+            throw 'ROBVG_COORDINATOR_HEALTH_UNREACHABLE; no worker was started.'
+          }
+
+          if ($healthProbe.StatusCode -ne 200) {
+            throw "ARIA_PROBE_HEALTH_STATUS=$($healthProbe.StatusCode)"
+          }
+          $healthData = $healthProbe.Body | ConvertFrom-Json
+          if ($healthData.ok -ne $true -or $healthData.supabase_independent -ne $true) {
+            throw 'ARIA_PROBE_HEALTH_CONTRACT_FAILED'
+          }
+          Write-Output 'ROBVG_COORDINATOR_HEALTH=PASS'
+
+          $claimBody = @{
+            worker_id = ('package2-frozen-precheck-' + $env:COMPUTERNAME)
+            capabilities = @()
+          } | ConvertTo-Json -Compress
+          $claimProbe = Invoke-AriaProbeHttp -Uri ($controlBase + '/api/worker/claim') -Method POST -Body $claimBody
+          if ($claimProbe.StatusCode -ne 423 -or $claimProbe.Body -notmatch 'mission_execution_paused') {
+            throw "ROBVG_CLAIM_PRECHECK_EXPECTED_423_ACTUAL_$($claimProbe.StatusCode)"
+          }
+          Write-Output 'ROBVG_CLAIM_PREFLIGHT_423=PASS'
+          Write-Output 'ROBVG_PREFLIGHT_CREATED_NO_LEASE=true'
+
+          $oldLocalAppData = $env:LOCALAPPDATA
+          $profileRoot = Join-Path $env:RUNNER_TEMP 'aria-package2-frozen-worker-profile'
+          $workspace = Join-Path $env:RUNNER_TEMP 'aria-package2-frozen-worker-workspace'
+          $configDirectory = Join-Path $profileRoot 'ARIA\worker'
+          $configPath = Join-Path $configDirectory 'worker.config.json'
+          $logFile = Join-Path $profileRoot 'ARIA\logs\persistent-worker-supervisor.log'
+          $adapterPath = Join-Path $env:GITHUB_WORKSPACE 'tests\fixtures\aria-frozen-worker-probe-adapter.js'
+          $supervisor = Join-Path $env:GITHUB_WORKSPACE 'scripts\Start-ARIA-Persistent-Worker.ps1'
+          $powershell = (Get-Process -Id $PID).Path
+          New-Item -ItemType Directory -Force -Path $configDirectory, $workspace | Out-Null
+          $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+          $secureToken = ConvertTo-SecureString -String $env:ARIA_AUTONOMY_WORKER_TOKEN -AsPlainText -Force
+
+          try {
+            $protectedToken = ConvertFrom-SecureString -SecureString $secureToken
+            $directoryAcl = [System.Security.AccessControl.DirectorySecurity]::new()
+            $directoryAcl.SetAccessRuleProtection($true, $false)
+            $directoryAcl.SetOwner($identity.User)
+            $directoryRule = [System.Security.AccessControl.FileSystemAccessRule]::new(
+              $identity.User,
+              [System.Security.AccessControl.FileSystemRights]::FullControl,
+              ([System.Security.AccessControl.InheritanceFlags]::ContainerInherit -bor [System.Security.AccessControl.InheritanceFlags]::ObjectInherit),
+              [System.Security.AccessControl.PropagationFlags]::None,
+              [System.Security.AccessControl.AccessControlType]::Allow
+            )
+            [void]$directoryAcl.AddAccessRule($directoryRule)
+            Set-Acl -LiteralPath $configDirectory -AclObject $directoryAcl
+
+            $document = [ordered]@{
+              format = 'aria-worker-config-dpapi-v1'
+              protectedForSid = $identity.User.Value
+              createdAtUtc = [DateTime]::UtcNow.ToString('o')
+              workerTokenDpapi = $protectedToken
+              values = [ordered]@{
+                ARIA_CONTROL_URL = 'https://aria-autonomy-coordinator.robvg9.workers.dev'
+                ARIA_AUTONOMY_ADAPTER = $adapterPath
+                ARIA_WORKSPACE_ROOT = $workspace
+                ARIA_WORKER_ID = ('package2-frozen-probe-' + $env:COMPUTERNAME)
+                ARIA_WORKER_POLL_MS = '1000'
+                ARIA_WORKER_HEARTBEAT_MS = '15000'
+              }
+            }
+            $json = $document | ConvertTo-Json -Depth 6
+            [System.IO.File]::WriteAllText($configPath, $json, ([System.Text.UTF8Encoding]::new($false)))
+            $fileAcl = [System.Security.AccessControl.FileSecurity]::new()
+            $fileAcl.SetAccessRuleProtection($true, $false)
+            $fileAcl.SetOwner($identity.User)
+            $fileRule = [System.Security.AccessControl.FileSystemAccessRule]::new(
+              $identity.User,
+              [System.Security.AccessControl.FileSystemRights]::FullControl,
+              [System.Security.AccessControl.AccessControlType]::Allow
+            )
+            [void]$fileAcl.AddAccessRule($fileRule)
+            Set-Acl -LiteralPath $configPath -AclObject $fileAcl
+
+            $env:LOCALAPPDATA = $profileRoot
+            $existingTask = Get-ScheduledTask -TaskName 'ARIA Persistent Windows Worker' -ErrorAction SilentlyContinue
+            if ($existingTask -and [string]$existingTask.State -ne 'Disabled') {
+              throw "Refusing probe because the existing scheduled task is not Disabled (state=$($existingTask.State))."
+            }
+
+            $logDirectory = Split-Path -Parent $logFile
+            New-Item -ItemType Directory -Force -Path $logDirectory | Out-Null
+            $supervisorStdout = Join-Path $logDirectory 'supervisor.stdout.log'
+            $supervisorStderr = Join-Path $logDirectory 'supervisor.stderr.log'
+            $supervisorArguments = @(
+              '-NoProfile',
+              '-NonInteractive',
+              '-ExecutionPolicy', 'Bypass',
+              '-File', ('"' + $supervisor + '"'),
+              '-ConfigPath', ('"' + $configPath + '"'),
+              '-InstallDir', ('"' + $env:GITHUB_WORKSPACE + '"'),
+              '-NodePath', ('"' + $node + '"')
+            )
+            $supervisorProcess = Start-Process -FilePath $powershell -ArgumentList $supervisorArguments -PassThru -NoNewWindow -RedirectStandardOutput $supervisorStdout -RedirectStandardError $supervisorStderr
+            if (-not $supervisorProcess.WaitForExit(20000)) {
+              function Stop-AriaProbeProcessTree {
+                param([Parameter(Mandatory = $true)][int]$ProcessId)
+                $children = @(Get-CimInstance Win32_Process -Filter "ParentProcessId = $ProcessId" -ErrorAction SilentlyContinue)
+                foreach ($child in $children) {
+                  Stop-AriaProbeProcessTree -ProcessId ([int]$child.ProcessId)
+                }
+                Stop-Process -Id $ProcessId -Force -ErrorAction SilentlyContinue
+              }
+              Stop-AriaProbeProcessTree -ProcessId $supervisorProcess.Id
+              Start-Sleep -Milliseconds 300
+              if (Test-Path -LiteralPath $logFile) {
+                Write-Output 'WORKER_SUPERVISOR_LOG_BEGIN'
+                Get-Content -LiteralPath $logFile -Tail 80
+                Write-Output 'WORKER_SUPERVISOR_LOG_END'
+              }
+              foreach ($diagnosticPath in @($supervisorStdout, $supervisorStderr)) {
+                if (Test-Path -LiteralPath $diagnosticPath) {
+                  Write-Output ('SUPERVISOR_DIAGNOSTIC_BEGIN=' + [System.IO.Path]::GetFileName($diagnosticPath))
+                  Get-Content -LiteralPath $diagnosticPath -Tail 80
+                  Write-Output ('SUPERVISOR_DIAGNOSTIC_END=' + [System.IO.Path]::GetFileName($diagnosticPath))
+                }
+              }
+              throw 'Worker supervisor did not stop within 20 seconds; child process tree was terminated after exporting diagnostics.'
+            }
+            $supervisorProcess.Refresh()
+            if (-not $supervisorProcess.HasExited) {
+              throw 'Supervisor wait returned but the process is still active.'
+            }
+            Write-Output 'WINDOWS_SUPERVISOR_PROCESS_EXITED=true'
+            $supervisorExitCode = $supervisorProcess.ExitCode
+            if ($null -ne $supervisorExitCode -and [int]$supervisorExitCode -ne 0) {
+              foreach ($diagnosticPath in @($logFile, $supervisorStdout, $supervisorStderr)) {
+                if (Test-Path -LiteralPath $diagnosticPath) {
+                  Write-Output ('SUPERVISOR_DIAGNOSTIC_BEGIN=' + [System.IO.Path]::GetFileName($diagnosticPath))
+                  Get-Content -LiteralPath $diagnosticPath -Tail 80
+                  Write-Output ('SUPERVISOR_DIAGNOSTIC_END=' + [System.IO.Path]::GetFileName($diagnosticPath))
+                }
+              }
+              throw ("WINDOWS_FROZEN_WORKER_SUPERVISOR_EXIT={0}" -f $supervisorExitCode)
+            }
+
+            $log = [System.IO.File]::ReadAllText($logFile).Replace([string][char]0, '')
+            if (-not $log.Contains('ARIA_WINDOWS_WORKER_STOPPED=MISSION_EXECUTION_PAUSED')) {
+              throw 'Worker did not report the expected frozen stop reason.'
+            }
+            if (-not $log.Contains('Worker exited cleanly with code 0; supervisor stopping without restart.')) {
+              throw 'Supervisor did not stop cleanly after worker exit code 0.'
+            }
+            if ([regex]::Matches($log, 'Starting ARIA Windows worker\.').Count -ne 1) {
+              throw 'Supervisor started the worker more than once during the frozen stop probe.'
+            }
+            Write-Output 'WINDOWS_REAL_WORKER_START=PASS'
+            Write-Output 'WINDOWS_REAL_WORKER_FROZEN_STOP_423=PASS'
+            Write-Output 'WINDOWS_SUPERVISOR_NO_RESTART_LOOP=PASS'
+            Write-Output 'WINDOWS_OLLAMA_NOT_USED=true'
+            Write-Output 'WINDOWS_SCHEDULED_TASK_TOUCHED=false'
+            Write-Output 'WINDOWS_MISSION_OR_LEASE_CREATED=false'
+          }
+          finally {
+            $env:ARIA_AUTONOMY_WORKER_TOKEN = $null
+            $secureToken.Dispose()
+            $env:LOCALAPPDATA = $oldLocalAppData
+            Remove-Item -LiteralPath $profileRoot -Recurse -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $workspace -Recurse -Force -ErrorAction SilentlyContinue
+          }
+
+  windows-persistence-task-readonly-inventory:
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'chore/package2-inspection-20261031'
+    needs: [contract-tests, windows-supervisor-syntax, live-security-readonly-check]
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          sparse-checkout: |
+            scripts/Start-ARIA-Persistent-Worker.ps1
+            scripts/Protect-ARIA-Persistent-Worker-Config.ps1
+          sparse-checkout-cone-mode: false
+      - name: Inspect worker scheduled-task identity and DPAPI metadata without modifying it
+        shell: powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:COMPUTERNAME -ne 'ROBVG') {
+            throw "Refusing task inspection on unexpected host '$env:COMPUTERNAME'."
+          }
+
+          $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+          Write-Output ('ROBVG_INSPECTION_HOST=' + $env:COMPUTERNAME)
+          Write-Output ('RUNNER_IDENTITY=' + $identity.Name)
+          Write-Output ('RUNNER_SID=' + $identity.User.Value)
+          Write-Output ('RUNNER_LOCALAPPDATA=' + $env:LOCALAPPDATA)
+
+          $taskName = 'ARIA Persistent Windows Worker'
+          $task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+          $allAriaTasks = @(Get-ScheduledTask -ErrorAction Stop | Where-Object { $_.TaskName -match 'ARIA|Persistent Worker' })
+          Write-Output ('ARIA_RELATED_TASK_COUNT=' + $allAriaTasks.Count)
+          foreach ($candidate in $allAriaTasks) {
+            Write-Output ('ARIA_RELATED_TASK=' + $candidate.TaskPath + $candidate.TaskName + ';STATE=' + [string]$candidate.State)
+          }
+
+          $stableRoot = 'D:\\Databank\\aria-worker-package4'
+          $stableSupervisor = Join-Path $stableRoot 'scripts\\Start-ARIA-Persistent-Worker.ps1'
+          $stableWorker = Join-Path $stableRoot 'scripts\\aria-persistent-windows-worker-v1.js'
+          $stablePolicy = Join-Path $stableRoot 'scripts\\aria-worker-supervisor-policy-v1.ps1'
+          $stableAdapter = Join-Path $stableRoot 'autonomy\\ollama-persistent-adapter-v1.js'
+          $stableGit = Join-Path $stableRoot '.git'
+          Write-Output ('STABLE_ARIA_ROOT_EXISTS=' + [string](Test-Path -LiteralPath $stableRoot -PathType Container))
+          Write-Output ('STABLE_SUPERVISOR_EXISTS=' + [string](Test-Path -LiteralPath $stableSupervisor -PathType Leaf))
+          Write-Output ('STABLE_WORKER_EXISTS=' + [string](Test-Path -LiteralPath $stableWorker -PathType Leaf))
+          Write-Output ('STABLE_POLICY_EXISTS=' + [string](Test-Path -LiteralPath $stablePolicy -PathType Leaf))
+          Write-Output ('STABLE_ADAPTER_EXISTS=' + [string](Test-Path -LiteralPath $stableAdapter -PathType Leaf))
+          Write-Output ('PREFERRED_NODE_EXISTS=' + [string](Test-Path -LiteralPath 'D:\\Databank\\node\\node.exe' -PathType Leaf))
+          if (Test-Path -LiteralPath $stableGit -PathType Container) {
+            $safeDirectoryValue = $stableRoot.Replace('\\', '/')
+            $stableShaOutput = @(& git -c ("safe.directory=" + $safeDirectoryValue) -C $stableRoot rev-parse HEAD 2>&1)
+            $stableShaExit = $LASTEXITCODE
+            if ($stableShaExit -eq 0 -and $stableShaOutput.Count -gt 0) {
+              Write-Output ('STABLE_ARIA_GIT_SHA=' + ([string]$stableShaOutput[-1]).Trim())
+            }
+            else {
+              Write-Output ('STABLE_ARIA_GIT_SHA_STATUS=ERROR_' + $stableShaExit)
+            }
+
+            $stableStatusOutput = @(& git -c ("safe.directory=" + $safeDirectoryValue) -C $stableRoot status --short 2>&1)
+            $stableStatusExit = $LASTEXITCODE
+            if ($stableStatusExit -eq 0) {
+              $stableDirtyCount = @($stableStatusOutput | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) }).Count
+              Write-Output ('STABLE_ARIA_WORKTREE_DIRTY_COUNT=' + $stableDirtyCount)
+            }
+            else {
+              Write-Output ('STABLE_ARIA_WORKTREE_STATUS=ERROR_' + $stableStatusExit)
+            }
+          }
+
+          if (-not $task) {
+            Write-Output 'ARIA_WORKER_TASK_EXISTS=false'
+            $shellOwners = @()
+            foreach ($process in @(Get-CimInstance Win32_Process -Filter "Name='explorer.exe'" -ErrorAction SilentlyContinue)) {
+              try {
+                $owner = Invoke-CimMethod -InputObject $process -MethodName GetOwner -ErrorAction Stop
+                if ($owner.ReturnValue -eq 0) {
+                  $shellOwners += ($owner.Domain + '\\' + $owner.User)
+                }
+              }
+              catch {}
+            }
+            $shellOwners = @($shellOwners | Select-Object -Unique)
+            Write-Output ('INTERACTIVE_EXPLORER_COUNT=' + $shellOwners.Count)
+            Write-Output ('INTERACTIVE_SHELL_OWNERS=' + ($shellOwners -join ';'))
+            Write-Output 'TASK_INSPECTION_ONLY=true'
+            exit 0
+          }
+
+          Write-Output 'ARIA_WORKER_TASK_EXISTS=true'
+          Write-Output ('TASK_STATE=' + [string]$task.State)
+          Write-Output ('TASK_ENABLED=' + [string](-not $task.Settings.Enabled -eq $false))
+          Write-Output ('TASK_PRINCIPAL=' + [string]$task.Principal.UserId)
+          Write-Output ('TASK_LOGON_TYPE=' + [string]$task.Principal.LogonType)
+          Write-Output ('TASK_RUN_LEVEL=' + [string]$task.Principal.RunLevel)
+
+          $principalSid = $null
+          try {
+            $principalSid = (New-Object System.Security.Principal.NTAccount([string]$task.Principal.UserId)).Translate([System.Security.Principal.SecurityIdentifier]).Value
+          }
+          catch {
+            try {
+              $principalSid = (New-Object System.Security.Principal.SecurityIdentifier([string]$task.Principal.UserId)).Value
+            }
+            catch {
+              Write-Output 'TASK_PRINCIPAL_SID_RESOLUTION=FAILED'
+            }
+          }
+          if ($principalSid) {
+            Write-Output ('TASK_PRINCIPAL_SID=' + $principalSid)
+          }
+
+          $triggerLabels = @($task.Triggers | ForEach-Object {
+            $kind = [string]$_.CimClass.CimClassName
+            $userProperty = $_.PSObject.Properties['UserId']
+            if ($userProperty -and $userProperty.Value) {
+              $kind + ':' + [string]$userProperty.Value
+            }
+            else {
+              $kind
+            }
+          })
+          Write-Output ('TASK_TRIGGERS=' + ($triggerLabels -join ';'))
+
+          $actions = @($task.Actions)
+          $configPath = $null
+          foreach ($action in $actions) {
+            $arguments = [string]$action.Arguments
+            $match = [regex]::Match($arguments, '(?i)(?:^|\s)-ConfigPath\s+"([^"]+)"')
+            if ($match.Success) {
+              $configPath = $match.Groups[1].Value
+              break
+            }
+          }
+
+          if (-not $configPath) {
+            Write-Output 'TASK_CONFIGPATH_ARGUMENT=NOT_FOUND'
+            Write-Output 'TASK_DPAPI_CONFIG_EXISTS=false'
+          }
+          elseif (-not (Test-Path -LiteralPath $configPath -PathType Leaf)) {
+            Write-Output 'TASK_CONFIGPATH_ARGUMENT=FOUND'
+            Write-Output 'TASK_DPAPI_CONFIG_EXISTS=false'
+          }
+          else {
+            Write-Output 'TASK_CONFIGPATH_ARGUMENT=FOUND'
+            Write-Output 'TASK_DPAPI_CONFIG_EXISTS=true'
+            $config = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json -ErrorAction Stop
+            Write-Output ('TASK_CONFIG_FORMAT=' + [string]$config.format)
+            Write-Output ('TASK_CONFIG_PROTECTED_SID=' + [string]$config.protectedForSid)
+            if ($principalSid -and [string]$config.protectedForSid -eq $principalSid) {
+              Write-Output 'TASK_DPAPI_PRINCIPAL_MATCH=PASS'
+            }
+            else {
+              Write-Output 'TASK_DPAPI_PRINCIPAL_MATCH=FAIL'
+            }
+          }
+
+          $explorerOwners = @()
+          foreach ($process in @(Get-CimInstance Win32_Process -Filter "Name='explorer.exe'" -ErrorAction SilentlyContinue)) {
+            try {
+              $owner = Invoke-CimMethod -InputObject $process -MethodName GetOwner -ErrorAction Stop
+              if ($owner.ReturnValue -eq 0) {
+                $explorerOwners += ($owner.Domain + '\' + $owner.User)
+              }
+            }
+            catch {}
+          }
+          $explorerOwners = @($explorerOwners | Select-Object -Unique)
+          Write-Output ('INTERACTIVE_EXPLORER_COUNT=' + $explorerOwners.Count)
+          if ($principalSid -and $explorerOwners.Count -gt 0) {
+            $principalName = ([string]$task.Principal.UserId).ToLowerInvariant()
+            $shellMatch = @($explorerOwners | Where-Object { $_.ToLowerInvariant() -eq $principalName }).Count -gt 0
+            Write-Output ('TASK_PRINCIPAL_HAS_INTERACTIVE_SHELL=' + [string]$shellMatch)
+          }
+          else {
+            Write-Output 'TASK_PRINCIPAL_HAS_INTERACTIVE_SHELL=UNVERIFIED'
+          }
+
+          Write-Output 'TASK_INSPECTION_ONLY=true'
+  windows-physical-detached-host-probe:
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (github.event.pull_request.head.ref == 'fix/package2-windows-no-console-worker-host-20261031' || github.event.pull_request.head.ref == 'feat/aria-worker-remote-plan-execution-only-20261102')
+    needs: [contract-tests, windows-supervisor-syntax, live-security-readonly-check]
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    env:
+      ARIA_AUTONOMY_WORKER_TOKEN: ${{ secrets.ARIA_AUTONOMY_WORKER_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          sparse-checkout: |
+            scripts/aria-worker-task-host.cs
+            scripts/aria-worker-console-probe.cs
+            scripts/aria-persistent-windows-worker-v1.js
+            autonomy/persistent-worker-error-policy-v1.js
+            tests/fixtures/aria-frozen-worker-probe-adapter.js
+            cloudflare-autonomy/worker.mjs
+          sparse-checkout-cone-mode: false
+      - name: Run the detached GUI host physically on ROBVG with a frozen fixture
+        shell: powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:COMPUTERNAME -ne 'ROBVG') {
+            throw "Refusing physical host probe on '$env:COMPUTERNAME'; expected ROBVG. No child process was started."
+          }
+
+          $workerSource = Get-Content -LiteralPath (Join-Path $env:GITHUB_WORKSPACE 'cloudflare-autonomy/worker.mjs') -Raw
+          if ($workerSource -notmatch 'MISSION_EXECUTION_PAUSED\s*=\s*true') {
+            throw 'MISSION_EXECUTION_PAUSED is not hard-locked in this checkout.'
+          }
+          if ([string]::IsNullOrWhiteSpace($env:ARIA_AUTONOMY_WORKER_TOKEN) -or $env:ARIA_AUTONOMY_WORKER_TOKEN.Length -lt 32) {
+            throw 'ARIA_AUTONOMY_WORKER_TOKEN is missing or invalid.'
+          }
+
+          $node = 'D:\Databank\node\node.exe'
+          if (-not (Test-Path -LiteralPath $node -PathType Leaf)) {
+            $node = (Get-Command node -ErrorAction Stop).Source
+          }
+          $nodeVersion = (& $node --version).Trim()
+          if ([version]($nodeVersion.TrimStart('v')) -lt [version]'20.0.0') {
+            throw "Node 20+ required; found $nodeVersion"
+          }
+
+          function Invoke-AriaFrozenHttp {
+            param(
+              [Parameter(Mandatory=$true)][string]$Uri,
+              [Parameter(Mandatory=$true)][ValidateSet('GET','POST')][string]$Method,
+              [string]$Body
+            )
+            $request = [System.Net.HttpWebRequest]::Create($Uri)
+            $request.Method = $Method
+            $request.Timeout = 15000
+            $request.ReadWriteTimeout = 15000
+            $request.KeepAlive = $false
+            if ($Method -eq 'POST') {
+              $request.ContentType = 'application/json'
+              $request.Headers['Authorization'] = 'Bearer ' + $env:ARIA_AUTONOMY_WORKER_TOKEN
+              $bytes = [System.Text.Encoding]::UTF8.GetBytes($Body)
+              $request.ContentLength = $bytes.Length
+              $stream = $request.GetRequestStream()
+              try { $stream.Write($bytes,0,$bytes.Length) } finally { $stream.Dispose() }
+            }
+            $response = $null
+            try { $response = $request.GetResponse() }
+            catch [System.Net.WebException] {
+              $response = $_.Exception.Response
+              if (-not $response) { throw "ARIA_FROZEN_HTTP_NO_RESPONSE method=$Method error=$($_.Exception.Message)" }
+            }
+            try {
+              $reader = New-Object System.IO.StreamReader($response.GetResponseStream())
+              try { $bodyText = $reader.ReadToEnd() } finally { $reader.Dispose() }
+              return [pscustomobject]@{ StatusCode=[int]$response.StatusCode; Body=$bodyText }
+            }
+            finally { if ($response) { $response.Close() } }
+          }
+
+          $base = 'https://aria-autonomy-coordinator.robvg9.workers.dev'
+          $health = Invoke-AriaFrozenHttp -Uri ($base + '/health') -Method GET
+          if ($health.StatusCode -ne 200) { throw "ROBVG_COORDINATOR_HEALTH_HTTP=$($health.StatusCode)" }
+          $healthJson = $health.Body | ConvertFrom-Json
+          if ($healthJson.ok -ne $true -or $healthJson.supabase_independent -ne $true) {
+            throw 'ROBVG_COORDINATOR_HEALTH_CONTRACT=FAIL'
+          }
+          Write-Output 'ROBVG_COORDINATOR_HEALTH=PASS'
+
+          $preflightBody = @{
+            worker_id = 'package2-detached-host-preflight-ROBVG'
+            capabilities = @()
+          } | ConvertTo-Json -Compress
+          $preflight = Invoke-AriaFrozenHttp -Uri ($base + '/api/worker/claim') -Method POST -Body $preflightBody
+          if ($preflight.StatusCode -ne 423 -or $preflight.Body -notmatch 'mission_execution_paused') {
+            throw "ROBVG_CLAIM_PREFLIGHT_EXPECTED_423_ACTUAL_$($preflight.StatusCode)"
+          }
+          Write-Output 'ROBVG_CLAIM_PREFLIGHT_423=PASS'
+          Write-Output 'ROBVG_PREFLIGHT_NO_LEASE=PASS'
+
+          $compilerCandidates = @(
+            (Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'),
+            (Join-Path $env:WINDIR 'Microsoft.NET\Framework\v4.0.30319\csc.exe')
+          )
+          $compiler = $compilerCandidates | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
+          if (-not $compiler) { throw 'No .NET Framework C# compiler found on ROBVG.' }
+
+          $hostSource = Join-Path $env:GITHUB_WORKSPACE 'scripts\aria-worker-task-host.cs'
+          $probeSource = Join-Path $env:GITHUB_WORKSPACE 'scripts\aria-worker-console-probe.cs'
+          $fixture = Join-Path $env:GITHUB_WORKSPACE 'tests\fixtures\aria-frozen-worker-probe-adapter.js'
+          foreach ($path in @($hostSource,$probeSource,$fixture,$node)) {
+            if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "Required file missing: $path" }
+          }
+
+          $root = Join-Path $env:RUNNER_TEMP ('aria-detached-host-robvg-' + [guid]::NewGuid().ToString('N'))
+          $workspace = Join-Path $root 'workspace'
+          $hostExe = Join-Path $root 'aria-worker-task-host.exe'
+          $probeExe = Join-Path $root 'aria-console-probe.exe'
+          $selfTestLog = Join-Path $root 'host-selftest.log'
+          $detachedTestLog = Join-Path $root 'detached-child-selftest.log'
+          $configPath = Join-Path $root 'worker.config.json'
+          $taskName = 'ARIA-Package2-DetachedHost-Probe'
+          $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+          $secureToken = ConvertTo-SecureString -String $env:ARIA_AUTONOMY_WORKER_TOKEN -AsPlainText -Force
+          $localAppData = [System.Environment]::GetFolderPath([System.Environment+SpecialFolder]::LocalApplicationData)
+          $supervisorLog = Join-Path $localAppData 'ARIA\logs\persistent-worker-supervisor.log'
+          $baselineBytes = if (Test-Path -LiteralPath $supervisorLog) { (Get-Item -LiteralPath $supervisorLog).Length } else { 0 }
+          $baselineChars = if (Test-Path -LiteralPath $supervisorLog) { [System.IO.File]::ReadAllText($supervisorLog).Length } else { 0 }
+          New-Item -ItemType Directory -Path $root,$workspace -Force | Out-Null
+
+          try {
+            & $compiler /nologo /reference:System.Security.dll /reference:System.Web.Extensions.dll /target:winexe /platform:anycpu /optimize+ ("/out:" + $hostExe) $hostSource
+            if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $hostExe)) {
+              throw "ROBVG_TASK_HOST_COMPILE_EXIT=$LASTEXITCODE"
+            }
+            & $compiler /nologo /target:exe /platform:anycpu /optimize+ ("/out:" + $probeExe) $probeSource
+            if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $probeExe)) {
+              throw "ROBVG_CONSOLE_PROBE_COMPILE_EXIT=$LASTEXITCODE"
+            }
+            Write-Output 'ROBVG_TASK_HOST_COMPILE=PASS'
+
+            $detached = Start-Process -FilePath $hostExe -ArgumentList ('--self-test-detach "' + $probeExe + '" "' + $detachedTestLog + '"') -WorkingDirectory $root -PassThru -Wait
+            if ($detached.ExitCode -ne 0 -or -not (Test-Path -LiteralPath $detachedTestLog)) {
+              $details = if (Test-Path -LiteralPath $detachedTestLog) { Get-Content -LiteralPath $detachedTestLog -Raw } else { 'no log' }
+              throw "ROBVG_DETACHED_PROCESS_SELFTEST_FAILED exit=$($detached.ExitCode) details=$details"
+            }
+            $detachedContent = Get-Content -LiteralPath $detachedTestLog -Raw
+            foreach ($marker in @('SELFTEST_HOST_CONSOLE=NONE','DETACHED_CHILD_CONSOLE=NONE','SELFTEST_DETACHED_CHILD_EXIT_CODE=0','SELFTEST_RESULT=PASS')) {
+              if (-not $detachedContent.Contains($marker)) { throw "ROBVG_DETACHED_PROCESS_MARKER_MISSING=$marker" }
+            }
+            Write-Output 'ROBVG_HOST_CONSOLE=NONE_PASS'
+            Write-Output 'ROBVG_CHILD_DETACHED_CONSOLE=NONE_PASS'
+
+            $document = [ordered]@{
+              format = 'aria-worker-config-dpapi-v1'
+              protectedForSid = $identity.User.Value
+              createdAtUtc = [DateTime]::UtcNow.ToString('o')
+              workerTokenDpapi = (ConvertFrom-SecureString -SecureString $secureToken)
+              values = [ordered]@{
+                ARIA_CONTROL_URL = $base
+                ARIA_AUTONOMY_ADAPTER = $fixture
+                ARIA_WORKSPACE_ROOT = $workspace
+                ARIA_WORKER_ID = 'package2-detached-host-ROBVG'
+                ARIA_WORKER_POLL_MS = '1000'
+                ARIA_WORKER_HEARTBEAT_MS = '15000'
+              }
+            }
+            $json = $document | ConvertTo-Json -Depth 6
+            [System.IO.File]::WriteAllText($configPath,$json,([System.Text.UTF8Encoding]::new($false)))
+            $json = $null
+            $document = $null
+
+            $configTest = Start-Process -FilePath $hostExe -ArgumentList ('--self-test-config "' + $configPath + '" "' + $selfTestLog + '"') -WorkingDirectory $root -PassThru -Wait
+            if ($configTest.ExitCode -ne 0 -or -not (Test-Path -LiteralPath $selfTestLog)) {
+              $details = if (Test-Path -LiteralPath $selfTestLog) { Get-Content -LiteralPath $selfTestLog -Raw } else { 'no log' }
+              throw "ROBVG_DPAPI_CONFIG_SELFTEST_FAILED exit=$($configTest.ExitCode) details=$details"
+            }
+            $configContent = Get-Content -LiteralPath $selfTestLog -Raw
+            if (-not $configContent.Contains('SELFTEST_CONFIG_DPAPI=PASS') -or
+                -not $configContent.Contains('SELFTEST_CONFIG_TOKEN_LOGGED=NO')) {
+              throw 'ROBVG_DPAPI_CONFIG_SELFTEST=FAIL'
+            }
+            Write-Output 'ROBVG_DPAPI_CURRENT_USER_CONFIG=PASS'
+
+            $arguments = '--run "' + $configPath + '" "' + $env:GITHUB_WORKSPACE + '" "' + $node + '" "' + $taskName + '"'
+            $hostProcess = Start-Process -FilePath $hostExe -ArgumentList $arguments -WorkingDirectory $env:GITHUB_WORKSPACE -PassThru
+            if (-not $hostProcess.WaitForExit(30000)) {
+              $logText = if (Test-Path -LiteralPath $supervisorLog) { [System.IO.File]::ReadAllText($supervisorLog) } else { '' }
+              $logDelta = if ($logText.Length -gt $baselineChars) { $logText.Substring($baselineChars) } else { $logText }
+              $pidMatch = [regex]::Match($logDelta,'DETACHED_CHILD_CREATED PID=(\d+)')
+              if ($pidMatch.Success) {
+                Stop-Process -Id ([int]$pidMatch.Groups[1].Value) -Force -ErrorAction SilentlyContinue
+              }
+              Stop-Process -Id $hostProcess.Id -Force -ErrorAction SilentlyContinue
+              throw 'ROBVG_DETACHED_WORKER_HOST_TIMEOUT=30000MS; orphan child cleanup attempted.'
+            }
+            $hostProcess.Refresh()
+            if ($hostProcess.ExitCode -ne 0) {
+              $logText = if (Test-Path -LiteralPath $supervisorLog) { [System.IO.File]::ReadAllText($supervisorLog) } else { '' }
+              $logDelta = if ($logText.Length -gt $baselineChars) { $logText.Substring($baselineChars) } else { $logText }
+              throw "ROBVG_DETACHED_WORKER_HOST_EXIT=$($hostProcess.ExitCode); log=$logDelta"
+            }
+
+            $logText = if (Test-Path -LiteralPath $supervisorLog) { [System.IO.File]::ReadAllText($supervisorLog) } else { '' }
+            $logDelta = if ($logText.Length -gt $baselineChars) { $logText.Substring($baselineChars) } else { $logText }
+            foreach ($marker in @(
+              'HOST_CONSOLE=NONE',
+              'HOST_LAUNCH_MODE=DETACHED_PROCESS',
+              'DPAPI_CURRENT_USER_CONFIG=PASS',
+              'WORKER_ID=package2-detached-host-ROBVG',
+              'ARIA_WINDOWS_WORKER_STOPPED=MISSION_EXECUTION_PAUSED',
+              'Worker exited cleanly with code 0; supervisor stopping without restart.'
+            )) {
+              if (-not $logDelta.Contains($marker)) {
+                throw "ROBVG_DETACHED_WORKER_MARKER_MISSING=$marker"
+              }
+            }
+
+            if ($logDelta -match 'Claimed job|Claimed .*mission|Worker launch error') {
+              throw 'Unexpected claim/mission or worker launch error appeared in the detached host log.'
+            }
+            Write-Output 'ROBVG_DETACHED_WORKER_STARTED=PASS'
+            Write-Output 'ROBVG_DETACHED_WORKER_FROZEN_STOP_423=PASS'
+            Write-Output 'ROBVG_DETACHED_SUPERVISOR_EXIT_0_NO_RESTART=PASS'
+
+            $pidMatch = [regex]::Match($logDelta,'DETACHED_CHILD_CREATED PID=(\d+)')
+            if ($pidMatch.Success -and (Get-Process -Id ([int]$pidMatch.Groups[1].Value) -ErrorAction SilentlyContinue)) {
+              throw 'ROBVG_DETACHED_NODE_PROCESS_STILL_RUNNING'
+            }
+            Write-Output 'ROBVG_DETACHED_CHILD_CLEANUP=PASS'
+          }
+          finally {
+            $secureToken.Dispose()
+            Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
+            if (Test-Path -LiteralPath $supervisorLog) {
+              $stream = [System.IO.File]::Open($supervisorLog,[System.IO.FileMode]::Open,[System.IO.FileAccess]::ReadWrite,[System.IO.FileShare]::ReadWrite)
+              try {
+                if ($stream.Length -gt $baselineBytes) { $stream.SetLength($baselineBytes) }
+              }
+              finally { $stream.Dispose() }
+            }
+          }
+
+          Write-Output 'ROBVG_PHYSICAL_DETACHED_HOST_PROBE=PASS'
+
+  live-security-readonly-check:
+    if: (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.actor == github.repository_owner) || (github.event_name == 'push' && github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, 'Diagnose and harden frozen-worker probe on ROBVG'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    env:
+      ARIA_CONTROL_TOKEN: ${{ secrets.ARIA_AUTONOMY_CONTROL_TOKEN }}
+      ARIA_WORKER_TOKEN: ${{ secrets.ARIA_AUTONOMY_WORKER_TOKEN }}
+    steps:
+      - name: Validate configured secrets without printing values
+        run: |
+          set -euo pipefail
+          test -n "$ARIA_CONTROL_TOKEN"
+          test -n "$ARIA_WORKER_TOKEN"
+          test "${#ARIA_CONTROL_TOKEN}" -ge 32
+          test "${#ARIA_WORKER_TOKEN}" -ge 32
+          test "$ARIA_CONTROL_TOKEN" != "$ARIA_WORKER_TOKEN"
+          echo 'ARIA_LIVE_AUTH_SECRET_PAIR_DISTINCT=PASS'
+
+      - name: Verify live control and worker authorization using GET only
+        run: |
+          set -euo pipefail
+          base='https://aria-autonomy-coordinator.robvg9.workers.dev'
+          health="$(curl --fail --silent --show-error --max-time 15 "$base/health")"
+          HEALTH_JSON="$health" python - <<'PY'
+          import json, os
+          value = json.loads(os.environ["HEALTH_JSON"])
+          assert value.get("ok") is True
+          assert value.get("supabase_independent") is True
+          PY
+          code="$(curl --silent --show-error --max-time 15 -o /dev/null -w '%{http_code}' "$base/api/missions")"
+          test "$code" = '401'
+          code="$(curl --silent --show-error --max-time 15 -o /dev/null -w '%{http_code}' "$base/api/missions" -H "Authorization: Bearer $ARIA_CONTROL_TOKEN")"
+          test "$code" = '200'
+          code="$(curl --silent --show-error --max-time 15 -o /dev/null -w '%{http_code}' "$base/api/missions" -H "Authorization: Bearer $ARIA_WORKER_TOKEN")"
+          test "$code" = '401'
+          code="$(curl --silent --show-error --max-time 15 -o /dev/null -w '%{http_code}' "$base/api/worker/claim" -H "Authorization: Bearer $ARIA_CONTROL_TOKEN")"
+          test "$code" = '401'
+          code="$(curl --silent --show-error --max-time 15 -o /dev/null -w '%{http_code}' "$base/api/worker/claim" -H "Authorization: Bearer $ARIA_WORKER_TOKEN")"
+          test "$code" = '405'
+          echo 'ARIA_LIVE_CONTROL_AUTH=PASS'
+          echo 'ARIA_LIVE_WORKER_AUTH=PASS'
+          echo 'ARIA_LIVE_CROSS_TOKEN_REJECTION=PASS'
+          echo 'ARIA_LIVE_READ_ONLY_PROBE=PASS'
+ -or
+                $document.values.PSObject.Properties.Name -contains 'ARIA_OLLAMA_MODEL' -or
+                $document.values.PSObject.Properties.Name -contains 'ARIA_OLLAMA_URL') {
+              throw 'DPAPI config is not execution-only or still contains Ollama settings.'
+            }
+
+            $secureToken = ConvertTo-SecureString -String ([string]$document.workerTokenDpapi) -ErrorAction Stop
+            $pointer = [IntPtr]::Zero
+            try {
+              $pointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secureToken)
+              $decodedToken = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($pointer)
+              if ($decodedToken -cne $testToken) { throw 'DPAPI round-trip did not preserve the test token.' }
+            }
+            finally {
+              if ($pointer -ne [IntPtr]::Zero) {
+                [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($pointer)
+              }
+              $decodedToken = $null
+              $secureToken.Dispose()
+            }
+
+            foreach ($protectedPath in @((Split-Path -Parent $configPath), $configPath)) {
+              $acl = Get-Acl -LiteralPath $protectedPath
+              $ownerSid = $acl.GetOwner([System.Security.Principal.SecurityIdentifier]).Value
+              if ($ownerSid -ne $sid) {
+                throw "Protected path owner does not match current SID: $protectedPath"
+              }
+              $rules = $acl.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier])
+              if ($rules.Count -ne 1 -or $rules[0].IdentityReference.Value -ne $sid -or
+                  $rules[0].AccessControlType -ne [System.Security.AccessControl.AccessControlType]::Allow -or
+                  ($rules[0].FileSystemRights -band [System.Security.AccessControl.FileSystemRights]::FullControl) -ne [System.Security.AccessControl.FileSystemRights]::FullControl) {
+                throw "Protected path ACL is not restricted to current-user FullControl: $protectedPath"
+              }
+            }
+
+            Write-Output 'WINDOWS_DPAPI_CONFIG_CREATE=PASS'
+            Write-Output 'WINDOWS_DPAPI_TOKEN_ROUNDTRIP=PASS'
+            Write-Output 'WINDOWS_DPAPI_CURRENT_USER_ACL=PASS'
+          }
+          finally {
+            Remove-Item Function:\Read-Host -ErrorAction SilentlyContinue
+            $global:Package4CiTestToken = $null
+            $env:LOCALAPPDATA = $originalLocalAppData
+            Remove-Item -LiteralPath $testRoot -Recurse -Force -ErrorAction SilentlyContinue
+          }
+
+  windows-physical-readonly-preflight:
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'feat/aria-windows-worker-preflight-20261031'
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          sparse-checkout: |
+            scripts/Start-ARIA-Persistent-Worker.ps1
+            scripts/aria-worker-supervisor-policy-v1.ps1
+            scripts/aria-persistent-windows-worker-v1.js
+            scripts/aria-persistent-windows-worker-preflight-v1.js
+            autonomy/ollama-persistent-adapter-v1.js
+          sparse-checkout-cone-mode: false
+      - name: Run the actual Windows supervisor in read-only preflight mode
+        shell: powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
+        env:
+          ARIA_WORKER_TOKEN: ${{ secrets.ARIA_AUTONOMY_WORKER_TOKEN }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $node = 'D:\Databank\node\node.exe'
+          if (-not (Test-Path -LiteralPath $node -PathType Leaf)) {
+            $node = (Get-Command node -ErrorAction Stop).Source
+          }
+          $nodeVersion = (& $node --version).Trim()
+          if ([version]($nodeVersion.TrimStart('v')) -lt [version]'20.0.0') {
+            throw "Node 20+ required; found $nodeVersion"
+          }
+          if ([string]::IsNullOrWhiteSpace($env:ARIA_WORKER_TOKEN) -or $env:ARIA_WORKER_TOKEN.Length -lt 32) {
+            throw 'ARIA_AUTONOMY_WORKER_TOKEN repository secret is missing or invalid'
+          }
+
+          $scratch = Join-Path $env:RUNNER_TEMP 'aria-windows-worker-preflight'
+          $workspace = Join-Path $scratch 'workspace'
+          $config = Join-Path $scratch 'worker.env'
+          $supervisor = Join-Path $env:GITHUB_WORKSPACE 'scripts\Start-ARIA-Persistent-Worker.ps1'
+          $powershell = (Get-Process -Id $PID).Path
+          New-Item -ItemType Directory -Force -Path $workspace | Out-Null
+
+          try {
+            $values = @(
+              'ARIA_CONTROL_URL=https://aria-autonomy-coordinator.robvg9.workers.dev'
+              "ARIA_WORKER_TOKEN=$env:ARIA_WORKER_TOKEN"
+              "ARIA_AUTONOMY_ADAPTER=$(Join-Path $env:GITHUB_WORKSPACE 'autonomy\ollama-persistent-adapter-v1.js')"
+              "ARIA_WORKSPACE_ROOT=$workspace"
+              'ARIA_OLLAMA_URL=http://127.0.0.1:11434'
+              'ARIA_OLLAMA_MODEL=qwen3:4b'
+            )
+            [System.IO.File]::WriteAllLines($config, $values, [System.Text.Encoding]::ASCII)
+            Write-Host "WINDOWS_NODE_VERSION=$nodeVersion"
+            & $powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $supervisor -ConfigPath $config -InstallDir $env:GITHUB_WORKSPACE -NodePath $node -PreflightOnly
+            if ($LASTEXITCODE -ne 0) { throw "WINDOWS_SUPERVISOR_PREFLIGHT_EXIT=$LASTEXITCODE" }
+            Write-Host 'WINDOWS_SUPERVISOR_PREFLIGHT=PASS'
+          }
+          finally {
+            Remove-Item -LiteralPath $config -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $workspace -Recurse -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $scratch -Force -ErrorAction SilentlyContinue
+          }
+
+  windows-physical-frozen-worker-stop:
+    if: (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'fix/package2-robvg-probe-diagnostics-main-20261031') || (github.event_name == 'push' && github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, 'Diagnose and harden frozen-worker probe on ROBVG'))
+    needs: [contract-tests, windows-supervisor-syntax, live-security-readonly-check]
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          sparse-checkout: |
+            scripts/Start-ARIA-Persistent-Worker.ps1
+            scripts/aria-worker-supervisor-policy-v1.ps1
+            scripts/aria-persistent-windows-worker-v1.js
+            autonomy/persistent-worker-error-policy-v1.js
+            tests/fixtures/aria-frozen-worker-probe-adapter.js
+            cloudflare-autonomy/worker.mjs
+          sparse-checkout-cone-mode: false
+      - name: Start the real worker once against the frozen coordinator and verify clean stop
+        shell: powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
+        env:
+          ARIA_AUTONOMY_WORKER_TOKEN: ${{ secrets.ARIA_AUTONOMY_WORKER_TOKEN }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:COMPUTERNAME -ne 'ROBVG') {
+            throw "Refusing physical worker probe on unexpected machine '$env:COMPUTERNAME'; expected ROBVG. No worker was started."
+          }
+
+          $workerSource = Get-Content -LiteralPath (Join-Path $env:GITHUB_WORKSPACE 'cloudflare-autonomy/worker.mjs') -Raw
+          if ($workerSource -notmatch 'MISSION_EXECUTION_PAUSED\s*=\s*true') {
+            throw 'Main source does not hard-lock mission execution. Refusing worker probe.'
+          }
+          if ([string]::IsNullOrWhiteSpace($env:ARIA_AUTONOMY_WORKER_TOKEN) -or $env:ARIA_AUTONOMY_WORKER_TOKEN.Length -lt 32) {
+            throw 'Worker token secret is missing or invalid.'
+          }
+
+          $node = 'D:\Databank\node\node.exe'
+          if (-not (Test-Path -LiteralPath $node -PathType Leaf)) {
+            $node = (Get-Command node -ErrorAction Stop).Source
+          }
+          $nodeVersion = (& $node --version).Trim()
+          if ([version]($nodeVersion.TrimStart('v')) -lt [version]'20.0.0') {
+            throw "Node 20+ required; found $nodeVersion"
+          }
+
+          function Invoke-AriaProbeHttp {
+            param(
+              [Parameter(Mandatory = $true)][string]$Uri,
+              [Parameter(Mandatory = $true)][ValidateSet('GET', 'POST')][string]$Method,
+              [string]$Body
+            )
+            $request = [System.Net.HttpWebRequest]::Create($Uri)
+            $request.Method = $Method
+            $request.Timeout = 10000
+            $request.ReadWriteTimeout = 10000
+            $request.KeepAlive = $false
+            if ($Method -eq 'POST') {
+              $request.ContentType = 'application/json'
+              $request.Headers['Authorization'] = 'Bearer ' + $env:ARIA_AUTONOMY_WORKER_TOKEN
+              $bytes = [System.Text.Encoding]::UTF8.GetBytes($Body)
+              $request.ContentLength = $bytes.Length
+              $requestStream = $request.GetRequestStream()
+              try { $requestStream.Write($bytes, 0, $bytes.Length) }
+              finally { $requestStream.Dispose() }
+            }
+
+            $response = $null
+            try {
+              $response = $request.GetResponse()
+            }
+            catch [System.Net.WebException] {
+              $response = $_.Exception.Response
+              if (-not $response) {
+                throw "ARIA_PROBE_HTTP_NO_RESPONSE method=$Method uri=$Uri error=$($_.Exception.Message)"
+              }
+            }
+
+            try {
+              $reader = New-Object System.IO.StreamReader($response.GetResponseStream())
+              try { $responseBody = $reader.ReadToEnd() }
+              finally { $reader.Dispose() }
+              return [pscustomobject]@{
+                StatusCode = [int]$response.StatusCode
+                Body = $responseBody
+              }
+            }
+            finally {
+              if ($response) { $response.Close() }
+            }
+          }
+
+          $controlBase = 'https://aria-autonomy-coordinator.robvg9.workers.dev'
+          $controlHost = 'aria-autonomy-coordinator.robvg9.workers.dev'
+          try {
+            $healthProbe = Invoke-AriaProbeHttp -Uri ($controlBase + '/health') -Method GET
+          }
+          catch {
+            Write-Output ('ROBVG_SERVICE_IDENTITY=' + [System.Security.Principal.WindowsIdentity]::GetCurrent().Name)
+            Write-Output ('ROBVG_HEALTH_HTTP_ERROR=' + $_.Exception.Message)
+
+            try {
+              $addresses = [System.Net.Dns]::GetHostAddresses($controlHost)
+              Write-Output ('ROBVG_DNS_ADDRESSES=' + (($addresses | ForEach-Object { $_.IPAddressToString }) -join ','))
+              Write-Output 'ROBVG_DNS=PASS'
+            }
+            catch {
+              Write-Output ('ROBVG_DNS=FAIL;ERROR=' + $_.Exception.Message)
+            }
+
+            try {
+              $tcpOk = Test-NetConnection -ComputerName $controlHost -Port 443 -InformationLevel Quiet -WarningAction SilentlyContinue
+              Write-Output ('ROBVG_TCP_443=' + [string]$tcpOk)
+            }
+            catch {
+              Write-Output ('ROBVG_TCP_443=ERROR;DETAIL=' + $_.Exception.Message)
+            }
+
+            try {
+              $proxyOutput = (& netsh winhttp show proxy 2>&1 | Out-String)
+              if ($proxyOutput -match 'Direct access') {
+                Write-Output 'ROBVG_WINHTTP_PROXY_MODE=DIRECT'
+              }
+              else {
+                Write-Output 'ROBVG_WINHTTP_PROXY_MODE=CONFIGURED'
+              }
+            }
+            catch {
+              Write-Output ('ROBVG_WINHTTP_PROXY_MODE=ERROR;DETAIL=' + $_.Exception.Message)
+            }
+
+            $curlCommand = Get-Command curl.exe -ErrorAction SilentlyContinue
+            if ($curlCommand) {
+              $curlBody = Join-Path $env:RUNNER_TEMP 'aria-package2-curl-health.txt'
+              $curlOutput = & $curlCommand.Source --silent --show-error --max-time 12 --connect-timeout 5 --output $curlBody --write-out 'http=%{http_code};remote=%{remote_ip};connect=%{time_connect};tls=%{time_appconnect}' ($controlBase + '/health') 2>&1
+              Write-Output ('ROBVG_CURL_HEALTH=' + ($curlOutput -join ' '))
+              Write-Output ('ROBVG_CURL_EXIT=' + $LASTEXITCODE)
+              Remove-Item -LiteralPath $curlBody -Force -ErrorAction SilentlyContinue
+            }
+            else {
+              Write-Output 'ROBVG_CURL_HEALTH=UNAVAILABLE'
+            }
+
+            $nodeProbe = Join-Path $env:RUNNER_TEMP 'aria-package2-node-fetch-health.js'
+            $nodeSource = @'
+          fetch("https://aria-autonomy-coordinator.robvg9.workers.dev/health", { signal: AbortSignal.timeout(10000) })
+            .then(async (response) => {
+              console.log("ROBVG_NODE_FETCH_HTTP=" + response.status);
+              const body = await response.json().catch(() => ({}));
+              console.log("ROBVG_NODE_FETCH_SUPABASE_INDEPENDENT=" + String(body.supabase_independent === true));
+              process.exitCode = response.status === 200 && body.ok === true ? 0 : 2;
+            })
+            .catch((error) => {
+              console.log("ROBVG_NODE_FETCH_ERROR=" + String(error && error.name || "Error") + ":" + String(error && error.message || error));
+              const cause = error && error.cause;
+              if (cause) console.log("ROBVG_NODE_FETCH_CAUSE=" + JSON.stringify({ code: cause.code, syscall: cause.syscall, hostname: cause.hostname }));
+              process.exitCode = 3;
+            });
+          '@
+            [System.IO.File]::WriteAllText($nodeProbe, $nodeSource, ([System.Text.UTF8Encoding]::new($false)))
+            & $node $nodeProbe
+            Write-Output ('ROBVG_NODE_FETCH_EXIT=' + $LASTEXITCODE)
+            Remove-Item -LiteralPath $nodeProbe -Force -ErrorAction SilentlyContinue
+
+            throw 'ROBVG_COORDINATOR_HEALTH_UNREACHABLE; no worker was started.'
+          }
+
+          if ($healthProbe.StatusCode -ne 200) {
+            throw "ARIA_PROBE_HEALTH_STATUS=$($healthProbe.StatusCode)"
+          }
+          $healthData = $healthProbe.Body | ConvertFrom-Json
+          if ($healthData.ok -ne $true -or $healthData.supabase_independent -ne $true) {
+            throw 'ARIA_PROBE_HEALTH_CONTRACT_FAILED'
+          }
+          Write-Output 'ROBVG_COORDINATOR_HEALTH=PASS'
+
+          $claimBody = @{
+            worker_id = ('package2-frozen-precheck-' + $env:COMPUTERNAME)
+            capabilities = @()
+          } | ConvertTo-Json -Compress
+          $claimProbe = Invoke-AriaProbeHttp -Uri ($controlBase + '/api/worker/claim') -Method POST -Body $claimBody
+          if ($claimProbe.StatusCode -ne 423 -or $claimProbe.Body -notmatch 'mission_execution_paused') {
+            throw "ROBVG_CLAIM_PRECHECK_EXPECTED_423_ACTUAL_$($claimProbe.StatusCode)"
+          }
+          Write-Output 'ROBVG_CLAIM_PREFLIGHT_423=PASS'
+          Write-Output 'ROBVG_PREFLIGHT_CREATED_NO_LEASE=true'
+
+          $oldLocalAppData = $env:LOCALAPPDATA
+          $profileRoot = Join-Path $env:RUNNER_TEMP 'aria-package2-frozen-worker-profile'
+          $workspace = Join-Path $env:RUNNER_TEMP 'aria-package2-frozen-worker-workspace'
+          $configDirectory = Join-Path $profileRoot 'ARIA\worker'
+          $configPath = Join-Path $configDirectory 'worker.config.json'
+          $logFile = Join-Path $profileRoot 'ARIA\logs\persistent-worker-supervisor.log'
+          $adapterPath = Join-Path $env:GITHUB_WORKSPACE 'tests\fixtures\aria-frozen-worker-probe-adapter.js'
+          $supervisor = Join-Path $env:GITHUB_WORKSPACE 'scripts\Start-ARIA-Persistent-Worker.ps1'
+          $powershell = (Get-Process -Id $PID).Path
+          New-Item -ItemType Directory -Force -Path $configDirectory, $workspace | Out-Null
+          $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+          $secureToken = ConvertTo-SecureString -String $env:ARIA_AUTONOMY_WORKER_TOKEN -AsPlainText -Force
+
+          try {
+            $protectedToken = ConvertFrom-SecureString -SecureString $secureToken
+            $directoryAcl = [System.Security.AccessControl.DirectorySecurity]::new()
+            $directoryAcl.SetAccessRuleProtection($true, $false)
+            $directoryAcl.SetOwner($identity.User)
+            $directoryRule = [System.Security.AccessControl.FileSystemAccessRule]::new(
+              $identity.User,
+              [System.Security.AccessControl.FileSystemRights]::FullControl,
+              ([System.Security.AccessControl.InheritanceFlags]::ContainerInherit -bor [System.Security.AccessControl.InheritanceFlags]::ObjectInherit),
+              [System.Security.AccessControl.PropagationFlags]::None,
+              [System.Security.AccessControl.AccessControlType]::Allow
+            )
+            [void]$directoryAcl.AddAccessRule($directoryRule)
+            Set-Acl -LiteralPath $configDirectory -AclObject $directoryAcl
+
+            $document = [ordered]@{
+              format = 'aria-worker-config-dpapi-v1'
+              protectedForSid = $identity.User.Value
+              createdAtUtc = [DateTime]::UtcNow.ToString('o')
+              workerTokenDpapi = $protectedToken
+              values = [ordered]@{
+                ARIA_CONTROL_URL = 'https://aria-autonomy-coordinator.robvg9.workers.dev'
+                ARIA_AUTONOMY_ADAPTER = $adapterPath
+                ARIA_WORKSPACE_ROOT = $workspace
+                ARIA_WORKER_ID = ('package2-frozen-probe-' + $env:COMPUTERNAME)
+                ARIA_WORKER_POLL_MS = '1000'
+                ARIA_WORKER_HEARTBEAT_MS = '15000'
+              }
+            }
+            $json = $document | ConvertTo-Json -Depth 6
+            [System.IO.File]::WriteAllText($configPath, $json, ([System.Text.UTF8Encoding]::new($false)))
+            $fileAcl = [System.Security.AccessControl.FileSecurity]::new()
+            $fileAcl.SetAccessRuleProtection($true, $false)
+            $fileAcl.SetOwner($identity.User)
+            $fileRule = [System.Security.AccessControl.FileSystemAccessRule]::new(
+              $identity.User,
+              [System.Security.AccessControl.FileSystemRights]::FullControl,
+              [System.Security.AccessControl.AccessControlType]::Allow
+            )
+            [void]$fileAcl.AddAccessRule($fileRule)
+            Set-Acl -LiteralPath $configPath -AclObject $fileAcl
+
+            $env:LOCALAPPDATA = $profileRoot
+            $existingTask = Get-ScheduledTask -TaskName 'ARIA Persistent Windows Worker' -ErrorAction SilentlyContinue
+            if ($existingTask -and [string]$existingTask.State -ne 'Disabled') {
+              throw "Refusing probe because the existing scheduled task is not Disabled (state=$($existingTask.State))."
+            }
+
+            $logDirectory = Split-Path -Parent $logFile
+            New-Item -ItemType Directory -Force -Path $logDirectory | Out-Null
+            $supervisorStdout = Join-Path $logDirectory 'supervisor.stdout.log'
+            $supervisorStderr = Join-Path $logDirectory 'supervisor.stderr.log'
+            $supervisorArguments = @(
+              '-NoProfile',
+              '-NonInteractive',
+              '-ExecutionPolicy', 'Bypass',
+              '-File', ('"' + $supervisor + '"'),
+              '-ConfigPath', ('"' + $configPath + '"'),
+              '-InstallDir', ('"' + $env:GITHUB_WORKSPACE + '"'),
+              '-NodePath', ('"' + $node + '"')
+            )
+            $supervisorProcess = Start-Process -FilePath $powershell -ArgumentList $supervisorArguments -PassThru -NoNewWindow -RedirectStandardOutput $supervisorStdout -RedirectStandardError $supervisorStderr
+            if (-not $supervisorProcess.WaitForExit(20000)) {
+              function Stop-AriaProbeProcessTree {
+                param([Parameter(Mandatory = $true)][int]$ProcessId)
+                $children = @(Get-CimInstance Win32_Process -Filter "ParentProcessId = $ProcessId" -ErrorAction SilentlyContinue)
+                foreach ($child in $children) {
+                  Stop-AriaProbeProcessTree -ProcessId ([int]$child.ProcessId)
+                }
+                Stop-Process -Id $ProcessId -Force -ErrorAction SilentlyContinue
+              }
+              Stop-AriaProbeProcessTree -ProcessId $supervisorProcess.Id
+              Start-Sleep -Milliseconds 300
+              if (Test-Path -LiteralPath $logFile) {
+                Write-Output 'WORKER_SUPERVISOR_LOG_BEGIN'
+                Get-Content -LiteralPath $logFile -Tail 80
+                Write-Output 'WORKER_SUPERVISOR_LOG_END'
+              }
+              foreach ($diagnosticPath in @($supervisorStdout, $supervisorStderr)) {
+                if (Test-Path -LiteralPath $diagnosticPath) {
+                  Write-Output ('SUPERVISOR_DIAGNOSTIC_BEGIN=' + [System.IO.Path]::GetFileName($diagnosticPath))
+                  Get-Content -LiteralPath $diagnosticPath -Tail 80
+                  Write-Output ('SUPERVISOR_DIAGNOSTIC_END=' + [System.IO.Path]::GetFileName($diagnosticPath))
+                }
+              }
+              throw 'Worker supervisor did not stop within 20 seconds; child process tree was terminated after exporting diagnostics.'
+            }
+            $supervisorProcess.Refresh()
+            if (-not $supervisorProcess.HasExited) {
+              throw 'Supervisor wait returned but the process is still active.'
+            }
+            Write-Output 'WINDOWS_SUPERVISOR_PROCESS_EXITED=true'
+            $supervisorExitCode = $supervisorProcess.ExitCode
+            if ($null -ne $supervisorExitCode -and [int]$supervisorExitCode -ne 0) {
+              foreach ($diagnosticPath in @($logFile, $supervisorStdout, $supervisorStderr)) {
+                if (Test-Path -LiteralPath $diagnosticPath) {
+                  Write-Output ('SUPERVISOR_DIAGNOSTIC_BEGIN=' + [System.IO.Path]::GetFileName($diagnosticPath))
+                  Get-Content -LiteralPath $diagnosticPath -Tail 80
+                  Write-Output ('SUPERVISOR_DIAGNOSTIC_END=' + [System.IO.Path]::GetFileName($diagnosticPath))
+                }
+              }
+              throw ("WINDOWS_FROZEN_WORKER_SUPERVISOR_EXIT={0}" -f $supervisorExitCode)
+            }
+
+            $log = [System.IO.File]::ReadAllText($logFile).Replace([string][char]0, '')
+            if (-not $log.Contains('ARIA_WINDOWS_WORKER_STOPPED=MISSION_EXECUTION_PAUSED')) {
+              throw 'Worker did not report the expected frozen stop reason.'
+            }
+            if (-not $log.Contains('Worker exited cleanly with code 0; supervisor stopping without restart.')) {
+              throw 'Supervisor did not stop cleanly after worker exit code 0.'
+            }
+            if ([regex]::Matches($log, 'Starting ARIA Windows worker\.').Count -ne 1) {
+              throw 'Supervisor started the worker more than once during the frozen stop probe.'
+            }
+            Write-Output 'WINDOWS_REAL_WORKER_START=PASS'
+            Write-Output 'WINDOWS_REAL_WORKER_FROZEN_STOP_423=PASS'
+            Write-Output 'WINDOWS_SUPERVISOR_NO_RESTART_LOOP=PASS'
+            Write-Output 'WINDOWS_OLLAMA_NOT_USED=true'
+            Write-Output 'WINDOWS_SCHEDULED_TASK_TOUCHED=false'
+            Write-Output 'WINDOWS_MISSION_OR_LEASE_CREATED=false'
+          }
+          finally {
+            $env:ARIA_AUTONOMY_WORKER_TOKEN = $null
+            $secureToken.Dispose()
+            $env:LOCALAPPDATA = $oldLocalAppData
+            Remove-Item -LiteralPath $profileRoot -Recurse -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $workspace -Recurse -Force -ErrorAction SilentlyContinue
+          }
+
+  windows-persistence-task-readonly-inventory:
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'chore/package2-inspection-20261031'
+    needs: [contract-tests, windows-supervisor-syntax, live-security-readonly-check]
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          sparse-checkout: |
+            scripts/Start-ARIA-Persistent-Worker.ps1
+            scripts/Protect-ARIA-Persistent-Worker-Config.ps1
+          sparse-checkout-cone-mode: false
+      - name: Inspect worker scheduled-task identity and DPAPI metadata without modifying it
+        shell: powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:COMPUTERNAME -ne 'ROBVG') {
+            throw "Refusing task inspection on unexpected host '$env:COMPUTERNAME'."
+          }
+
+          $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+          Write-Output ('ROBVG_INSPECTION_HOST=' + $env:COMPUTERNAME)
+          Write-Output ('RUNNER_IDENTITY=' + $identity.Name)
+          Write-Output ('RUNNER_SID=' + $identity.User.Value)
+          Write-Output ('RUNNER_LOCALAPPDATA=' + $env:LOCALAPPDATA)
+
+          $taskName = 'ARIA Persistent Windows Worker'
+          $task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+          $allAriaTasks = @(Get-ScheduledTask -ErrorAction Stop | Where-Object { $_.TaskName -match 'ARIA|Persistent Worker' })
+          Write-Output ('ARIA_RELATED_TASK_COUNT=' + $allAriaTasks.Count)
+          foreach ($candidate in $allAriaTasks) {
+            Write-Output ('ARIA_RELATED_TASK=' + $candidate.TaskPath + $candidate.TaskName + ';STATE=' + [string]$candidate.State)
+          }
+
+          $stableRoot = 'D:\\Databank\\aria-worker-package4'
+          $stableSupervisor = Join-Path $stableRoot 'scripts\\Start-ARIA-Persistent-Worker.ps1'
+          $stableWorker = Join-Path $stableRoot 'scripts\\aria-persistent-windows-worker-v1.js'
+          $stablePolicy = Join-Path $stableRoot 'scripts\\aria-worker-supervisor-policy-v1.ps1'
+          $stableAdapter = Join-Path $stableRoot 'autonomy\\ollama-persistent-adapter-v1.js'
+          $stableGit = Join-Path $stableRoot '.git'
+          Write-Output ('STABLE_ARIA_ROOT_EXISTS=' + [string](Test-Path -LiteralPath $stableRoot -PathType Container))
+          Write-Output ('STABLE_SUPERVISOR_EXISTS=' + [string](Test-Path -LiteralPath $stableSupervisor -PathType Leaf))
+          Write-Output ('STABLE_WORKER_EXISTS=' + [string](Test-Path -LiteralPath $stableWorker -PathType Leaf))
+          Write-Output ('STABLE_POLICY_EXISTS=' + [string](Test-Path -LiteralPath $stablePolicy -PathType Leaf))
+          Write-Output ('STABLE_ADAPTER_EXISTS=' + [string](Test-Path -LiteralPath $stableAdapter -PathType Leaf))
+          Write-Output ('PREFERRED_NODE_EXISTS=' + [string](Test-Path -LiteralPath 'D:\\Databank\\node\\node.exe' -PathType Leaf))
+          if (Test-Path -LiteralPath $stableGit -PathType Container) {
+            $safeDirectoryValue = $stableRoot.Replace('\\', '/')
+            $stableShaOutput = @(& git -c ("safe.directory=" + $safeDirectoryValue) -C $stableRoot rev-parse HEAD 2>&1)
+            $stableShaExit = $LASTEXITCODE
+            if ($stableShaExit -eq 0 -and $stableShaOutput.Count -gt 0) {
+              Write-Output ('STABLE_ARIA_GIT_SHA=' + ([string]$stableShaOutput[-1]).Trim())
+            }
+            else {
+              Write-Output ('STABLE_ARIA_GIT_SHA_STATUS=ERROR_' + $stableShaExit)
+            }
+
+            $stableStatusOutput = @(& git -c ("safe.directory=" + $safeDirectoryValue) -C $stableRoot status --short 2>&1)
+            $stableStatusExit = $LASTEXITCODE
+            if ($stableStatusExit -eq 0) {
+              $stableDirtyCount = @($stableStatusOutput | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) }).Count
+              Write-Output ('STABLE_ARIA_WORKTREE_DIRTY_COUNT=' + $stableDirtyCount)
+            }
+            else {
+              Write-Output ('STABLE_ARIA_WORKTREE_STATUS=ERROR_' + $stableStatusExit)
+            }
+          }
+
+          if (-not $task) {
+            Write-Output 'ARIA_WORKER_TASK_EXISTS=false'
+            $shellOwners = @()
+            foreach ($process in @(Get-CimInstance Win32_Process -Filter "Name='explorer.exe'" -ErrorAction SilentlyContinue)) {
+              try {
+                $owner = Invoke-CimMethod -InputObject $process -MethodName GetOwner -ErrorAction Stop
+                if ($owner.ReturnValue -eq 0) {
+                  $shellOwners += ($owner.Domain + '\\' + $owner.User)
+                }
+              }
+              catch {}
+            }
+            $shellOwners = @($shellOwners | Select-Object -Unique)
+            Write-Output ('INTERACTIVE_EXPLORER_COUNT=' + $shellOwners.Count)
+            Write-Output ('INTERACTIVE_SHELL_OWNERS=' + ($shellOwners -join ';'))
+            Write-Output 'TASK_INSPECTION_ONLY=true'
+            exit 0
+          }
+
+          Write-Output 'ARIA_WORKER_TASK_EXISTS=true'
+          Write-Output ('TASK_STATE=' + [string]$task.State)
+          Write-Output ('TASK_ENABLED=' + [string](-not $task.Settings.Enabled -eq $false))
+          Write-Output ('TASK_PRINCIPAL=' + [string]$task.Principal.UserId)
+          Write-Output ('TASK_LOGON_TYPE=' + [string]$task.Principal.LogonType)
+          Write-Output ('TASK_RUN_LEVEL=' + [string]$task.Principal.RunLevel)
+
+          $principalSid = $null
+          try {
+            $principalSid = (New-Object System.Security.Principal.NTAccount([string]$task.Principal.UserId)).Translate([System.Security.Principal.SecurityIdentifier]).Value
+          }
+          catch {
+            try {
+              $principalSid = (New-Object System.Security.Principal.SecurityIdentifier([string]$task.Principal.UserId)).Value
+            }
+            catch {
+              Write-Output 'TASK_PRINCIPAL_SID_RESOLUTION=FAILED'
+            }
+          }
+          if ($principalSid) {
+            Write-Output ('TASK_PRINCIPAL_SID=' + $principalSid)
+          }
+
+          $triggerLabels = @($task.Triggers | ForEach-Object {
+            $kind = [string]$_.CimClass.CimClassName
+            $userProperty = $_.PSObject.Properties['UserId']
+            if ($userProperty -and $userProperty.Value) {
+              $kind + ':' + [string]$userProperty.Value
+            }
+            else {
+              $kind
+            }
+          })
+          Write-Output ('TASK_TRIGGERS=' + ($triggerLabels -join ';'))
+
+          $actions = @($task.Actions)
+          $configPath = $null
+          foreach ($action in $actions) {
+            $arguments = [string]$action.Arguments
+            $match = [regex]::Match($arguments, '(?i)(?:^|\s)-ConfigPath\s+"([^"]+)"')
+            if ($match.Success) {
+              $configPath = $match.Groups[1].Value
+              break
+            }
+          }
+
+          if (-not $configPath) {
+            Write-Output 'TASK_CONFIGPATH_ARGUMENT=NOT_FOUND'
+            Write-Output 'TASK_DPAPI_CONFIG_EXISTS=false'
+          }
+          elseif (-not (Test-Path -LiteralPath $configPath -PathType Leaf)) {
+            Write-Output 'TASK_CONFIGPATH_ARGUMENT=FOUND'
+            Write-Output 'TASK_DPAPI_CONFIG_EXISTS=false'
+          }
+          else {
+            Write-Output 'TASK_CONFIGPATH_ARGUMENT=FOUND'
+            Write-Output 'TASK_DPAPI_CONFIG_EXISTS=true'
+            $config = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json -ErrorAction Stop
+            Write-Output ('TASK_CONFIG_FORMAT=' + [string]$config.format)
+            Write-Output ('TASK_CONFIG_PROTECTED_SID=' + [string]$config.protectedForSid)
+            if ($principalSid -and [string]$config.protectedForSid -eq $principalSid) {
+              Write-Output 'TASK_DPAPI_PRINCIPAL_MATCH=PASS'
+            }
+            else {
+              Write-Output 'TASK_DPAPI_PRINCIPAL_MATCH=FAIL'
+            }
+          }
+
+          $explorerOwners = @()
+          foreach ($process in @(Get-CimInstance Win32_Process -Filter "Name='explorer.exe'" -ErrorAction SilentlyContinue)) {
+            try {
+              $owner = Invoke-CimMethod -InputObject $process -MethodName GetOwner -ErrorAction Stop
+              if ($owner.ReturnValue -eq 0) {
+                $explorerOwners += ($owner.Domain + '\' + $owner.User)
+              }
+            }
+            catch {}
+          }
+          $explorerOwners = @($explorerOwners | Select-Object -Unique)
+          Write-Output ('INTERACTIVE_EXPLORER_COUNT=' + $explorerOwners.Count)
+          if ($principalSid -and $explorerOwners.Count -gt 0) {
+            $principalName = ([string]$task.Principal.UserId).ToLowerInvariant()
+            $shellMatch = @($explorerOwners | Where-Object { $_.ToLowerInvariant() -eq $principalName }).Count -gt 0
+            Write-Output ('TASK_PRINCIPAL_HAS_INTERACTIVE_SHELL=' + [string]$shellMatch)
+          }
+          else {
+            Write-Output 'TASK_PRINCIPAL_HAS_INTERACTIVE_SHELL=UNVERIFIED'
+          }
+
+          Write-Output 'TASK_INSPECTION_ONLY=true'
+  windows-physical-detached-host-probe:
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'fix/package2-windows-no-console-worker-host-20261031'
+    needs: [contract-tests, windows-supervisor-syntax, live-security-readonly-check]
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    env:
+      ARIA_AUTONOMY_WORKER_TOKEN: ${{ secrets.ARIA_AUTONOMY_WORKER_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          sparse-checkout: |
+            scripts/aria-worker-task-host.cs
+            scripts/aria-worker-console-probe.cs
+            scripts/aria-persistent-windows-worker-v1.js
+            autonomy/persistent-worker-error-policy-v1.js
+            tests/fixtures/aria-frozen-worker-probe-adapter.js
+            cloudflare-autonomy/worker.mjs
+          sparse-checkout-cone-mode: false
+      - name: Run the detached GUI host physically on ROBVG with a frozen fixture
+        shell: powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:COMPUTERNAME -ne 'ROBVG') {
+            throw "Refusing physical host probe on '$env:COMPUTERNAME'; expected ROBVG. No child process was started."
+          }
+
+          $workerSource = Get-Content -LiteralPath (Join-Path $env:GITHUB_WORKSPACE 'cloudflare-autonomy/worker.mjs') -Raw
+          if ($workerSource -notmatch 'MISSION_EXECUTION_PAUSED\s*=\s*true') {
+            throw 'MISSION_EXECUTION_PAUSED is not hard-locked in this checkout.'
+          }
+          if ([string]::IsNullOrWhiteSpace($env:ARIA_AUTONOMY_WORKER_TOKEN) -or $env:ARIA_AUTONOMY_WORKER_TOKEN.Length -lt 32) {
+            throw 'ARIA_AUTONOMY_WORKER_TOKEN is missing or invalid.'
+          }
+
+          $node = 'D:\Databank\node\node.exe'
+          if (-not (Test-Path -LiteralPath $node -PathType Leaf)) {
+            $node = (Get-Command node -ErrorAction Stop).Source
+          }
+          $nodeVersion = (& $node --version).Trim()
+          if ([version]($nodeVersion.TrimStart('v')) -lt [version]'20.0.0') {
+            throw "Node 20+ required; found $nodeVersion"
+          }
+
+          function Invoke-AriaFrozenHttp {
+            param(
+              [Parameter(Mandatory=$true)][string]$Uri,
+              [Parameter(Mandatory=$true)][ValidateSet('GET','POST')][string]$Method,
+              [string]$Body
+            )
+            $request = [System.Net.HttpWebRequest]::Create($Uri)
+            $request.Method = $Method
+            $request.Timeout = 15000
+            $request.ReadWriteTimeout = 15000
+            $request.KeepAlive = $false
+            if ($Method -eq 'POST') {
+              $request.ContentType = 'application/json'
+              $request.Headers['Authorization'] = 'Bearer ' + $env:ARIA_AUTONOMY_WORKER_TOKEN
+              $bytes = [System.Text.Encoding]::UTF8.GetBytes($Body)
+              $request.ContentLength = $bytes.Length
+              $stream = $request.GetRequestStream()
+              try { $stream.Write($bytes,0,$bytes.Length) } finally { $stream.Dispose() }
+            }
+            $response = $null
+            try { $response = $request.GetResponse() }
+            catch [System.Net.WebException] {
+              $response = $_.Exception.Response
+              if (-not $response) { throw "ARIA_FROZEN_HTTP_NO_RESPONSE method=$Method error=$($_.Exception.Message)" }
+            }
+            try {
+              $reader = New-Object System.IO.StreamReader($response.GetResponseStream())
+              try { $bodyText = $reader.ReadToEnd() } finally { $reader.Dispose() }
+              return [pscustomobject]@{ StatusCode=[int]$response.StatusCode; Body=$bodyText }
+            }
+            finally { if ($response) { $response.Close() } }
+          }
+
+          $base = 'https://aria-autonomy-coordinator.robvg9.workers.dev'
+          $health = Invoke-AriaFrozenHttp -Uri ($base + '/health') -Method GET
+          if ($health.StatusCode -ne 200) { throw "ROBVG_COORDINATOR_HEALTH_HTTP=$($health.StatusCode)" }
+          $healthJson = $health.Body | ConvertFrom-Json
+          if ($healthJson.ok -ne $true -or $healthJson.supabase_independent -ne $true) {
+            throw 'ROBVG_COORDINATOR_HEALTH_CONTRACT=FAIL'
+          }
+          Write-Output 'ROBVG_COORDINATOR_HEALTH=PASS'
+
+          $preflightBody = @{
+            worker_id = 'package2-detached-host-preflight-ROBVG'
+            capabilities = @()
+          } | ConvertTo-Json -Compress
+          $preflight = Invoke-AriaFrozenHttp -Uri ($base + '/api/worker/claim') -Method POST -Body $preflightBody
+          if ($preflight.StatusCode -ne 423 -or $preflight.Body -notmatch 'mission_execution_paused') {
+            throw "ROBVG_CLAIM_PREFLIGHT_EXPECTED_423_ACTUAL_$($preflight.StatusCode)"
+          }
+          Write-Output 'ROBVG_CLAIM_PREFLIGHT_423=PASS'
+          Write-Output 'ROBVG_PREFLIGHT_NO_LEASE=PASS'
+
+          $compilerCandidates = @(
+            (Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'),
+            (Join-Path $env:WINDIR 'Microsoft.NET\Framework\v4.0.30319\csc.exe')
+          )
+          $compiler = $compilerCandidates | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
+          if (-not $compiler) { throw 'No .NET Framework C# compiler found on ROBVG.' }
+
+          $hostSource = Join-Path $env:GITHUB_WORKSPACE 'scripts\aria-worker-task-host.cs'
+          $probeSource = Join-Path $env:GITHUB_WORKSPACE 'scripts\aria-worker-console-probe.cs'
+          $fixture = Join-Path $env:GITHUB_WORKSPACE 'tests\fixtures\aria-frozen-worker-probe-adapter.js'
+          foreach ($path in @($hostSource,$probeSource,$fixture,$node)) {
+            if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "Required file missing: $path" }
+          }
+
+          $root = Join-Path $env:RUNNER_TEMP ('aria-detached-host-robvg-' + [guid]::NewGuid().ToString('N'))
+          $workspace = Join-Path $root 'workspace'
+          $hostExe = Join-Path $root 'aria-worker-task-host.exe'
+          $probeExe = Join-Path $root 'aria-console-probe.exe'
+          $selfTestLog = Join-Path $root 'host-selftest.log'
+          $detachedTestLog = Join-Path $root 'detached-child-selftest.log'
+          $configPath = Join-Path $root 'worker.config.json'
+          $taskName = 'ARIA-Package2-DetachedHost-Probe'
+          $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+          $secureToken = ConvertTo-SecureString -String $env:ARIA_AUTONOMY_WORKER_TOKEN -AsPlainText -Force
+          $localAppData = [System.Environment]::GetFolderPath([System.Environment+SpecialFolder]::LocalApplicationData)
+          $supervisorLog = Join-Path $localAppData 'ARIA\logs\persistent-worker-supervisor.log'
+          $baselineBytes = if (Test-Path -LiteralPath $supervisorLog) { (Get-Item -LiteralPath $supervisorLog).Length } else { 0 }
+          $baselineChars = if (Test-Path -LiteralPath $supervisorLog) { [System.IO.File]::ReadAllText($supervisorLog).Length } else { 0 }
+          New-Item -ItemType Directory -Path $root,$workspace -Force | Out-Null
+
+          try {
+            & $compiler /nologo /reference:System.Security.dll /reference:System.Web.Extensions.dll /target:winexe /platform:anycpu /optimize+ ("/out:" + $hostExe) $hostSource
+            if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $hostExe)) {
+              throw "ROBVG_TASK_HOST_COMPILE_EXIT=$LASTEXITCODE"
+            }
+            & $compiler /nologo /target:exe /platform:anycpu /optimize+ ("/out:" + $probeExe) $probeSource
+            if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $probeExe)) {
+              throw "ROBVG_CONSOLE_PROBE_COMPILE_EXIT=$LASTEXITCODE"
+            }
+            Write-Output 'ROBVG_TASK_HOST_COMPILE=PASS'
+
+            $detached = Start-Process -FilePath $hostExe -ArgumentList ('--self-test-detach "' + $probeExe + '" "' + $detachedTestLog + '"') -WorkingDirectory $root -PassThru -Wait
+            if ($detached.ExitCode -ne 0 -or -not (Test-Path -LiteralPath $detachedTestLog)) {
+              $details = if (Test-Path -LiteralPath $detachedTestLog) { Get-Content -LiteralPath $detachedTestLog -Raw } else { 'no log' }
+              throw "ROBVG_DETACHED_PROCESS_SELFTEST_FAILED exit=$($detached.ExitCode) details=$details"
+            }
+            $detachedContent = Get-Content -LiteralPath $detachedTestLog -Raw
+            foreach ($marker in @('SELFTEST_HOST_CONSOLE=NONE','DETACHED_CHILD_CONSOLE=NONE','SELFTEST_DETACHED_CHILD_EXIT_CODE=0','SELFTEST_RESULT=PASS')) {
+              if (-not $detachedContent.Contains($marker)) { throw "ROBVG_DETACHED_PROCESS_MARKER_MISSING=$marker" }
+            }
+            Write-Output 'ROBVG_HOST_CONSOLE=NONE_PASS'
+            Write-Output 'ROBVG_CHILD_DETACHED_CONSOLE=NONE_PASS'
+
+            $document = [ordered]@{
+              format = 'aria-worker-config-dpapi-v1'
+              protectedForSid = $identity.User.Value
+              createdAtUtc = [DateTime]::UtcNow.ToString('o')
+              workerTokenDpapi = (ConvertFrom-SecureString -SecureString $secureToken)
+              values = [ordered]@{
+                ARIA_CONTROL_URL = $base
+                ARIA_AUTONOMY_ADAPTER = $fixture
+                ARIA_WORKSPACE_ROOT = $workspace
+                ARIA_WORKER_ID = 'package2-detached-host-ROBVG'
+                ARIA_WORKER_POLL_MS = '1000'
+                ARIA_WORKER_HEARTBEAT_MS = '15000'
+              }
+            }
+            $json = $document | ConvertTo-Json -Depth 6
+            [System.IO.File]::WriteAllText($configPath,$json,([System.Text.UTF8Encoding]::new($false)))
+            $json = $null
+            $document = $null
+
+            $configTest = Start-Process -FilePath $hostExe -ArgumentList ('--self-test-config "' + $configPath + '" "' + $selfTestLog + '"') -WorkingDirectory $root -PassThru -Wait
+            if ($configTest.ExitCode -ne 0 -or -not (Test-Path -LiteralPath $selfTestLog)) {
+              $details = if (Test-Path -LiteralPath $selfTestLog) { Get-Content -LiteralPath $selfTestLog -Raw } else { 'no log' }
+              throw "ROBVG_DPAPI_CONFIG_SELFTEST_FAILED exit=$($configTest.ExitCode) details=$details"
+            }
+            $configContent = Get-Content -LiteralPath $selfTestLog -Raw
+            if (-not $configContent.Contains('SELFTEST_CONFIG_DPAPI=PASS') -or
+                -not $configContent.Contains('SELFTEST_CONFIG_TOKEN_LOGGED=NO')) {
+              throw 'ROBVG_DPAPI_CONFIG_SELFTEST=FAIL'
+            }
+            Write-Output 'ROBVG_DPAPI_CURRENT_USER_CONFIG=PASS'
+
+            $arguments = '--run "' + $configPath + '" "' + $env:GITHUB_WORKSPACE + '" "' + $node + '" "' + $taskName + '"'
+            $hostProcess = Start-Process -FilePath $hostExe -ArgumentList $arguments -WorkingDirectory $env:GITHUB_WORKSPACE -PassThru
+            if (-not $hostProcess.WaitForExit(30000)) {
+              $logText = if (Test-Path -LiteralPath $supervisorLog) { [System.IO.File]::ReadAllText($supervisorLog) } else { '' }
+              $logDelta = if ($logText.Length -gt $baselineChars) { $logText.Substring($baselineChars) } else { $logText }
+              $pidMatch = [regex]::Match($logDelta,'DETACHED_CHILD_CREATED PID=(\d+)')
+              if ($pidMatch.Success) {
+                Stop-Process -Id ([int]$pidMatch.Groups[1].Value) -Force -ErrorAction SilentlyContinue
+              }
+              Stop-Process -Id $hostProcess.Id -Force -ErrorAction SilentlyContinue
+              throw 'ROBVG_DETACHED_WORKER_HOST_TIMEOUT=30000MS; orphan child cleanup attempted.'
+            }
+            $hostProcess.Refresh()
+            if ($hostProcess.ExitCode -ne 0) {
+              $logText = if (Test-Path -LiteralPath $supervisorLog) { [System.IO.File]::ReadAllText($supervisorLog) } else { '' }
+              $logDelta = if ($logText.Length -gt $baselineChars) { $logText.Substring($baselineChars) } else { $logText }
+              throw "ROBVG_DETACHED_WORKER_HOST_EXIT=$($hostProcess.ExitCode); log=$logDelta"
+            }
+
+            $logText = if (Test-Path -LiteralPath $supervisorLog) { [System.IO.File]::ReadAllText($supervisorLog) } else { '' }
+            $logDelta = if ($logText.Length -gt $baselineChars) { $logText.Substring($baselineChars) } else { $logText }
+            foreach ($marker in @(
+              'HOST_CONSOLE=NONE',
+              'HOST_LAUNCH_MODE=DETACHED_PROCESS',
+              'DPAPI_CURRENT_USER_CONFIG=PASS',
+              'WORKER_ID=package2-detached-host-ROBVG',
+              'ARIA_WINDOWS_WORKER_STOPPED=MISSION_EXECUTION_PAUSED',
+              'Worker exited cleanly with code 0; supervisor stopping without restart.'
+            )) {
+              if (-not $logDelta.Contains($marker)) {
+                throw "ROBVG_DETACHED_WORKER_MARKER_MISSING=$marker"
+              }
+            }
+
+            if ($logDelta -match 'Claimed job|Claimed .*mission|Worker launch error') {
+              throw 'Unexpected claim/mission or worker launch error appeared in the detached host log.'
+            }
+            Write-Output 'ROBVG_DETACHED_WORKER_STARTED=PASS'
+            Write-Output 'ROBVG_DETACHED_WORKER_FROZEN_STOP_423=PASS'
+            Write-Output 'ROBVG_DETACHED_SUPERVISOR_EXIT_0_NO_RESTART=PASS'
+
+            $pidMatch = [regex]::Match($logDelta,'DETACHED_CHILD_CREATED PID=(\d+)')
+            if ($pidMatch.Success -and (Get-Process -Id ([int]$pidMatch.Groups[1].Value) -ErrorAction SilentlyContinue)) {
+              throw 'ROBVG_DETACHED_NODE_PROCESS_STILL_RUNNING'
+            }
+            Write-Output 'ROBVG_DETACHED_CHILD_CLEANUP=PASS'
+          }
+          finally {
+            $secureToken.Dispose()
+            Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
+            if (Test-Path -LiteralPath $supervisorLog) {
+              $stream = [System.IO.File]::Open($supervisorLog,[System.IO.FileMode]::Open,[System.IO.FileAccess]::ReadWrite,[System.IO.FileShare]::ReadWrite)
+              try {
+                if ($stream.Length -gt $baselineBytes) { $stream.SetLength($baselineBytes) }
+              }
+              finally { $stream.Dispose() }
+            }
+          }
+
+          Write-Output 'ROBVG_PHYSICAL_DETACHED_HOST_PROBE=PASS'
+
+  live-security-readonly-check:
+    if: (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.actor == github.repository_owner) || (github.event_name == 'push' && github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, 'Diagnose and harden frozen-worker probe on ROBVG'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    env:
+      ARIA_CONTROL_TOKEN: ${{ secrets.ARIA_AUTONOMY_CONTROL_TOKEN }}
+      ARIA_WORKER_TOKEN: ${{ secrets.ARIA_AUTONOMY_WORKER_TOKEN }}
+    steps:
+      - name: Validate configured secrets without printing values
+        run: |
+          set -euo pipefail
+          test -n "$ARIA_CONTROL_TOKEN"
+          test -n "$ARIA_WORKER_TOKEN"
+          test "${#ARIA_CONTROL_TOKEN}" -ge 32
+          test "${#ARIA_WORKER_TOKEN}" -ge 32
+          test "$ARIA_CONTROL_TOKEN" != "$ARIA_WORKER_TOKEN"
+          echo 'ARIA_LIVE_AUTH_SECRET_PAIR_DISTINCT=PASS'
+
+      - name: Verify live control and worker authorization using GET only
+        run: |
+          set -euo pipefail
+          base='https://aria-autonomy-coordinator.robvg9.workers.dev'
+          health="$(curl --fail --silent --show-error --max-time 15 "$base/health")"
+          HEALTH_JSON="$health" python - <<'PY'
+          import json, os
+          value = json.loads(os.environ["HEALTH_JSON"])
+          assert value.get("ok") is True
+          assert value.get("supabase_independent") is True
+          PY
+          code="$(curl --silent --show-error --max-time 15 -o /dev/null -w '%{http_code}' "$base/api/missions")"
+          test "$code" = '401'
+          code="$(curl --silent --show-error --max-time 15 -o /dev/null -w '%{http_code}' "$base/api/missions" -H "Authorization: Bearer $ARIA_CONTROL_TOKEN")"
+          test "$code" = '200'
+          code="$(curl --silent --show-error --max-time 15 -o /dev/null -w '%{http_code}' "$base/api/missions" -H "Authorization: Bearer $ARIA_WORKER_TOKEN")"
+          test "$code" = '401'
+          code="$(curl --silent --show-error --max-time 15 -o /dev/null -w '%{http_code}' "$base/api/worker/claim" -H "Authorization: Bearer $ARIA_CONTROL_TOKEN")"
+          test "$code" = '401'
+          code="$(curl --silent --show-error --max-time 15 -o /dev/null -w '%{http_code}' "$base/api/worker/claim" -H "Authorization: Bearer $ARIA_WORKER_TOKEN")"
+          test "$code" = '405'
+          echo 'ARIA_LIVE_CONTROL_AUTH=PASS'
+          echo 'ARIA_LIVE_WORKER_AUTH=PASS'
+          echo 'ARIA_LIVE_CROSS_TOKEN_REJECTION=PASS'
+          echo 'ARIA_LIVE_READ_ONLY_PROBE=PASS'
+ -or
+                $document.values.PSObject.Properties.Name -contains 'ARIA_OLLAMA_MODEL' -or
+                $document.values.PSObject.Properties.Name -contains 'ARIA_OLLAMA_URL') {
+              throw 'DPAPI config is not execution-only or still contains Ollama settings.'
+            }
 
             $secureToken = ConvertTo-SecureString -String ([string]$document.workerTokenDpapi) -ErrorAction Stop
             $pointer = [IntPtr]::Zero
