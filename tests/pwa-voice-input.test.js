@@ -67,6 +67,8 @@ assert.match(handsFree, /window\.addEventListener\('pagehide'/, 'hands-free list
 assert.match(handsFree, /wakeLockApi\.request\('screen'\)/, 'hands-free mode should request a screen wake lock while foregrounded when supported');
 assert.match(handsFree, /aria-voice-output-start/, 'recognition must pause while ARIA speaks');
 assert.match(handsFree, /aria-voice-output-end/, 'recognition must resume after ARIA finishes speaking');
+assert.match(handsFree, /Detener la voz de ARIA/, 'the user must be able to interrupt spoken output even while the microphone is muted');
+assert.match(handsFree, /stopAssistantSpeech\(\)/, 'the visible silence action must cancel current speech synthesis');
 assert.ok(wakeWordSource.includes('aria(?:'), 'wake phrase matcher must explicitly use ARIA');
 
 assert.match(app, /VOICE_MODE_KEY = 'aria_voice_conversation_mode_v1'/, 'voice mode preference must persist locally per device');
