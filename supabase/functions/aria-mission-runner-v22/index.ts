@@ -2073,7 +2073,7 @@ async function verifiedModelFallbackRoutes(original: any, operation: string) {
       .select("account_id,provider_id,status,enabled,models")
       .in("provider_id", ["openrouter", "google"]),
     sb.schema("aria_internal").from("quota_registry")
-      .select("account_id,provider_id,model_id,status,limits_requests,usage_requests,limits_tokens_input,usage_tokens_input,limits_tokens_output,usage_tokens_output,limits_tokens_total,usage_tokens_total")
+      .select("account_id,provider_id,model_id,status,limits_requests,usage_requests,limits_period,usage_period_start,usage_period_end,limits_tokens_input,usage_tokens_input,limits_tokens_output,usage_tokens_output,limits_tokens_total,usage_tokens_total")
       .in("provider_id", ["openrouter", "google"]),
   ]);
   // A route without one unambiguous, available model-level quota is not eligible.
