@@ -99,28 +99,56 @@ def qjson(value):
 
 
 def github_deploy_exact_sha():
-    url = f"https://api.github.com/repos/{GH_REPO}/actions/runs?head_sha={GH_SHA}&per_page=100"
-    request = urllib.request.Request(
-        url,
-        headers={
-            "Authorization": "Bearer " + GH_TOKEN,
-            "Accept": "application/vnd.github+json",
-            "X-GitHub-Api-Version": "2022-11-28",
-        },
-    )
-    with urllib.request.urlopen(request, timeout=25) as response:
-        payload = json.loads(response.read().decode("utf-8"))
-    passed = any(
-        run.get("name") == "Deploy ARIA Supabase Runtime"
-        and run.get("head_sha") == GH_SHA
+    # Prefer a successful canonical deploy for this exact SHA. If main has
+    # advanced only by the isolated harness/test changes, reuse the most recent
+    # successful deployment after proving no runtime-bearing paths changed.
+    runs_url = f"https://api.github.com/repos/{GH_REPO}/actions/runs?branch=main&per_page=100"
+    payload = github_api_json(runs_url)
+    deployments = [
+        run for run in payload.get("workflow_runs", [])
+        if run.get("name") == "Deploy ARIA Supabase Runtime"
+        and run.get("head_branch") == "main"
+        and run.get("event") == "push"
         and run.get("status") == "completed"
         and run.get("conclusion") == "success"
-        for run in payload.get("workflow_runs", [])
-    )
-    if not passed:
-        fail("the canonical Supabase runtime deployment for this exact main SHA is not green")
-    print("EXACT_MAIN_SHA_SUPABASE_DEPLOY=PASS")
+        and re.fullmatch(r"[0-9a-f]{40}", str(run.get("head_sha", "")))
+    ]
+    deployments.sort(key=lambda run: str(run.get("updated_at", "")), reverse=True)
+    if not deployments:
+        fail("no successful canonical Supabase runtime deployment exists on main")
 
+    deployed_sha = deployments[0]["head_sha"]
+    if deployed_sha == GH_SHA:
+        print("EXACT_MAIN_SHA_SUPABASE_DEPLOY=PASS")
+        print("CANONICAL_SUPABASE_DEPLOY_SHA=" + deployed_sha)
+        return
+
+    compare_url = f"https://api.github.com/repos/{GH_REPO}/compare/{deployed_sha}...{GH_SHA}"
+    comparison = github_api_json(compare_url)
+    if comparison.get("status") != "ahead" or comparison.get("base_commit", {}).get("sha") != deployed_sha:
+        fail("latest successful canonical deploy is not an ancestor of this main SHA")
+
+    # Only the harness and its test may advance past a deployed runtime SHA.
+    # Any functions, migrations, runtime, worker or config path change forces
+    # a new successful canonical deployment before this probe can proceed.
+    safe_post_deploy_files = {
+        "scripts/mission-wonder-2-gate3-live-e2e.py",
+        "tests/mission-wonder-2-gate3-scope.test.mjs",
+    }
+    changed_files = {
+        item["filename"]
+        for item in comparison.get("files", [])
+        if isinstance(item, dict) and isinstance(item.get("filename"), str)
+    }
+    if not changed_files or not changed_files.issubset(safe_post_deploy_files):
+        fail("files changed since canonical deploy; exact-SHA Supabase deployment required")
+    if len(comparison.get("commits", [])) > 10:
+        fail("too many commits since canonical deploy; exact-SHA deployment required")
+
+    print("CANONICAL_RUNTIME_SHA_REUSE=PASS")
+    print("CANONICAL_SUPABASE_DEPLOY_SHA=" + deployed_sha)
+    print("CURRENT_MAIN_SHA=" + GH_SHA)
+    print("POST_DEPLOY_HARNESS_FILES=" + ",".join(sorted(changed_files)))
 
 def http_post(function_slug, payload, timeout=70):
     url = f"https://{PROJECT}.supabase.co/functions/v1/{function_slug}"
