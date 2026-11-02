@@ -119,6 +119,11 @@ assertContains(executor,'body?.metadata?.voice_mode===true','execution runtime m
 assertContains(executor,'providerTimeoutMs??20000','Gemini must use the real provider timeout, not only an outer HTTP timeout');
 assertContains(executor,'providerTimeoutMs??25000','OpenRouter must use the real provider timeout, not only an outer HTTP timeout');
 assertContains(executor,'code:timedOut?"transport_timeout":"transport_error"','XAI timeout must settle quota and surface a retryable transport timeout');
+assertContains(executor,'const timeout=controller?setTimeout(()=>controller.abort(),providerTimeoutMs):null;','xAI voice requests must abort at the provider boundary');
+assertContains(executor,'directGemini(route,input,requestId,voiceProviderTimeoutMs)','Gemini must receive the voice provider timeout');
+assertContains(executor,'xaiResponses(route,input,requestId,voiceProviderTimeoutMs)','xAI must receive the voice provider timeout');
+assertContains(executor,'openRouterChat(route,input,requestId,voiceProviderTimeoutMs)','OpenRouter must receive the voice provider timeout');
+assertContains(executor,'Math.max(1000,Math.min(8000,Number.isFinite(rawVoiceTimeout)','provider timeout must be clamped to a safe upper bound');
 assertContains(executor,'providerTimeoutMs?Math.min(3000,providerTimeoutMs):8000','voice quota snapshot must have a bounded preflight timeout');
 assertContains(appApi,'voice_low_latency:true','successful voice responses must identify the low-latency path');
 assertContains(appApi,'if(voiceMode){','voice requests must return synchronously instead of using the background 130-second readback loop');
