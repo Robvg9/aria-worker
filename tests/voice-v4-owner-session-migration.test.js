@@ -14,6 +14,7 @@ const storage = fs.readFileSync(path.join(
   'supabase/functions/aria-app-api-v3/voice-command-storage.ts'
 ), 'utf8');
 const router = fs.readFileSync(path.join(root, 'voice-v4/command-router.js'), 'utf8');
+const deviceGateway = fs.readFileSync(path.join(root, 'supabase/functions/aria-device-gateway/index.ts'), 'utf8');
 
 assert.match(migration, /CREATE TABLE IF NOT EXISTS aria_internal[.]voice_owner_session_nonces/);
 assert.match(migration, /PRIMARY KEY [(]owner_user_id, nonce[)]/);
@@ -108,5 +109,19 @@ assert.match(router, /sourceDeviceId: request[.]source_device_id/);
 assert.match(router, /authenticatedOwnerId/);
 assert.match(router, /expectedOwnerId: config[.]ownerId/);
 assert.match(router, /mission_execution_paused/);
+
+assert.match(deviceGateway, /\/v1\/voice\/commands\/claim/);
+assert.match(deviceGateway, /claim_voice_device_command/);
+assert.match(deviceGateway, /\/v1\/voice\/commands\/\(\[0-9a-f\]\{8\}/);
+assert.match(deviceGateway, /complete_voice_device_command/);
+assert.match(deviceGateway, /p_device_token:voiceDeviceToken/);
+const deviceGatewayAuth = deviceGateway.indexOf("const a=await auth(req,b.device_id)");
+const voiceQueueClaimRoute = deviceGateway.indexOf("p==='/v1/voice/commands/claim'");
+const voiceQueueCompleteRoute = deviceGateway.indexOf("voiceCompleteMatch");
+assert.ok(deviceGatewayAuth >= 0 && voiceQueueClaimRoute > deviceGatewayAuth && voiceQueueCompleteRoute > deviceGatewayAuth,
+  'voice command agent endpoints must remain behind authenticated device token validation');
+const voiceAgentQueueRoutes = deviceGateway.slice(voiceQueueClaimRoute, deviceGateway.indexOf("if(req.method==='POST'&&p==='/v1/meditation/tick')", voiceQueueClaimRoute));
+assert.doesNotMatch(voiceAgentQueueRoutes, /execution_jobs|executionJobGatewayCall|mission_id|job_id/i,
+  'direct voice agent queue must remain separate from mission execution_jobs');
 
 console.log('ARIA VOICE V4 OWNER, DEVICE KEY, SPEAKER POLICY + DIRECT QUEUE CONTRACT: PASS');
