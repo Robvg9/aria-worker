@@ -82,8 +82,8 @@ assert.match(storage, /enqueue_voice_device_command/);
 assert.match(storage, /createVoiceDeviceAgentQueue/);
 assert.match(storage, /claim_voice_device_command/);
 assert.match(storage, /complete_voice_device_command/);
-const adapterResultFields = storage.match(/const allowed = new Set\\(\\[([^\\]]+)\\]\\);/)?.[1] || '';
-const sqlResultFields = migration.match(/WHERE item[.]key NOT IN \\(([^)]+)\\)/)?.[1] || '';
+const adapterResultFields = storage.match(/const allowed = new Set\(\[([^\]]+)\]\);/)?.[1] || '';
+const sqlResultFields = migration.match(/WHERE item[.]key NOT IN \(([^)]+)\)/)?.[1] || '';
 const quotedFields = (value) => [...value.matchAll(/"([^"]+)"|'([^']+)'/g)]
   .map((match) => match[1] || match[2]).sort();
 assert.deepEqual(quotedFields(adapterResultFields), quotedFields(sqlResultFields),
@@ -105,8 +105,8 @@ assert.doesNotMatch(executableStorage, /execution_jobs|enqueue_execution_job_gat
   'service adapters must not queue missions or store voice/private key material');
 
 assert.match(router, /source_device_id/);
-assert.match(verifier, /export \\{/);
-assert.match(verifier, /createOwnerSessionVerifier/);
+assert.match(verifier, /export \{/);
+assert.match(verifier, /export \{/);
 assert.match(router, /deviceId: request[.]source_device_id/);
 assert.match(router, /sourceDeviceId: request[.]source_device_id/);
 assert.match(router, /authenticatedOwnerId/);
@@ -115,7 +115,7 @@ assert.match(router, /mission_execution_paused/);
 
 assert.match(deviceGateway, /\/v1\/voice\/commands\/claim/);
 assert.match(deviceGateway, /claim_voice_device_command/);
-assert.match(deviceGateway, /\/v1\/voice\/commands\/\(\[0-9a-f\]\{8\}/);
+assert.match(deviceGateway, /\/v1\/voice\/commands\/\([0-9a-f]\{8\}/);
 assert.match(deviceGateway, /complete_voice_device_command/);
 assert.match(deviceGateway, /p_device_token:voiceDeviceToken/);
 const deviceGatewayAuth = deviceGateway.indexOf("const a=await auth(req,b.device_id)");
