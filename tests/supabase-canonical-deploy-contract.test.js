@@ -20,6 +20,10 @@ assert.doesNotMatch(source,/functions deploy aria-mission-runner-v14\\b/);
 assert.doesNotMatch(source,/functions deploy aria-mcp-server-grok-v2\\b/);
 assert.doesNotMatch(source,/functions deploy aria-mcp-oauth-grok-v2\\b/);
 assert.match(source,/canonical execution chain is release-bearing/);
+assert.match(source,/supabase functions deploy aria-execution-runtime-v1 --project-ref "\$SUPABASE_PROJECT_REF" --no-verify-jwt --yes/,'canonical Edge Function deploys must confirm non-interactively and preserve JWT config');
+assert.match(source,/supabase functions deploy aria-app-api-v3 --project-ref "\$SUPABASE_PROJECT_REF" --no-verify-jwt --yes/,'canonical API deploy must preserve no-verify-jwt and confirm non-interactively');
+assert.doesNotMatch(source,/!'.github\/workflows\/supabase-canonical-deploy\.yml'/,'changes to this deploy workflow must trigger its own validation and release');
+
 assert.ok(source.includes('fetch-depth: 0'),'migration detector requires merge parent history');
 assert.ok(source.includes('supabase link --project-ref "$SUPABASE_PROJECT_REF"'));
 assert.match(source,/supabase migration fetch --linked --yes/);
