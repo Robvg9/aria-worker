@@ -2,14 +2,11 @@
 
 const assert = require('node:assert/strict');
 const { webcrypto } = require('node:crypto');
-const {
-  SESSION_VERSION,
-  canonicalSessionPayload,
-  encodeBase64Url,
-  createOwnerSessionVerifier
-} = require('../voice-v4/owner-session-verifier');
 
 (async () => {
+  const {
+    SESSION_VERSION, canonicalSessionPayload, encodeBase64Url, createOwnerSessionVerifier
+  } = await import('../supabase/functions/_shared/voice-owner-session-verifier.mjs');
   const cryptoProvider = webcrypto;
   const keyPair = await cryptoProvider.subtle.generateKey(
     { name: 'Ed25519' },
