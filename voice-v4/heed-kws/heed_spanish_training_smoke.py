@@ -268,20 +268,52 @@ def run_candidate(candidate: str, root: Path, train_voices: list[str],
             ),
         }
 
-        # Preserve only the small inference model, never the synthetic WAVs or
-        # training dataset. The artifact is a shortlist candidate, not release.
-        model_artifact_dir.mkdir(parents=True, exist_ok=True)
-        artifact_name = f"{candidate}-{result['onnx_runtime_eval']['format']}.onnx"
-        artifact_path = model_artifact_dir / artifact_name
-        shutil.copy2(runtime_model, artifact_path)
-        digest = hashlib.sha256(artifact_path.read_bytes()).hexdigest()
-        result["model_artifact"] = {
-            "file": str(artifact_path),
-            "bytes": artifact_path.stat().st_size,
-            "sha256": digest,
-            "release_approved": False,
-            "approval_reason": "synthetic-only-shortlist",
-        }
+        # Preserve only a fully shortlisted inference package: ONNX + its
+        # mandatory preprocessing sidecar. Never preserve synthetic WAVs/data.
+        if onnx_shortlisted:
+            metadata_source = Path(exported.metadata_path)
+            if not metadata_source.is_file():
+                raise RuntimeError("heed_metadata_sidecar_missing")
+            metadata = json.loads(metadata_source.read_text(encoding="utf-8"))
+            required_metadata = {
+                "phrase", "threshold", "sample_rate", "n_mels", "n_fft",
+                "win_length", "hop_length", "window_frames", "preprocessing",
+                "trigger", "energy_gate"
+            }
+            if not required_metadata.issubset(metadata):
+                raise RuntimeError("heed_metadata_sidecar_incomplete")
+            if metadata["phrase"].strip().lower() != result["phrase"].strip().lower():
+                raise RuntimeError("heed_metadata_phrase_mismatch")
+            if int(metadata["sample_rate"]) != 16000 or int(metadata["n_mels"]) != 40:
+                raise RuntimeError("heed_metadata_audio_contract_mismatch")
+            if abs(float(metadata["threshold"]) - float(artifact.threshold)) > 1e-6:
+                raise RuntimeError("heed_metadata_threshold_mismatch")
+            if not isinstance(metadata["preprocessing"], list) or not metadata["preprocessing"]:
+                raise RuntimeError("heed_metadata_preprocessing_missing")
+
+            model_artifact_dir.mkdir(parents=True, exist_ok=True)
+            artifact_name = f"{candidate}-{result['onnx_runtime_eval']['format']}.onnx"
+            artifact_path = model_artifact_dir / artifact_name
+            metadata_name = f"{candidate}-wake.json"
+            metadata_path = model_artifact_dir / metadata_name
+            shutil.copy2(runtime_model, artifact_path)
+            shutil.copy2(metadata_source, metadata_path)
+            result["model_artifact"] = {
+                "file": artifact_name,
+                "bytes": artifact_path.stat().st_size,
+                "sha256": hashlib.sha256(artifact_path.read_bytes()).hexdigest(),
+                "metadata_file": metadata_name,
+                "metadata_bytes": metadata_path.stat().st_size,
+                "metadata_sha256": hashlib.sha256(metadata_path.read_bytes()).hexdigest(),
+                "metadata_preprocessing_ops": [item.get("op") for item in metadata["preprocessing"]],
+                "release_approved": False,
+                "approval_reason": "synthetic-only-shortlist",
+            }
+        else:
+            result["model_artifact"] = {
+                "release_approved": False,
+                "approval_reason": "onnx_runtime_gate_rejected",
+            }
     return result
 
 
