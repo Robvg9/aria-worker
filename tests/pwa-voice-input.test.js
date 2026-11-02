@@ -61,7 +61,11 @@ assert.match(app, /isVoiceMissionNegative\(transcript\)/, 'spoken cancellation m
 assert.match(app, /No reconocí una confirmación clara/, 'ambiguous speech must stay in the pending confirmation flow instead of being sent as a new command');
 assert.match(app, /void send\(transcript\)/, 'voice mode must submit the final recognized transcript automatically');
 assert.match(voice, /autoSubmit = false/, 'voice input must preserve manual review mode outside voice conversation');
-assert.ok(voice.includes('Transcripción recibida. Procesando voz'), 'automatic voice mode must announce voice processing');
+assert.ok(voice.includes('Transcripción recibida. ARIA está preparando tu respuesta'), 'automatic voice mode must announce response processing');
+assert.ok(voice.includes('Respuesta recibida. Puedes hablar de nuevo.'), 'voice processing notice must resolve when the assistant reply arrives');
+assert.match(voice, /Promise\.resolve\(\)[\s\S]*onTranscriptRef\.current\(transcript\)/, 'voice mode must await completion of the assistant turn');
+assert.match(app, /voice_mode: voiceModeRef\.current/, 'voice chat must explicitly request its low-latency backend path');
+assert.match(app, /return send\(transcript\)/, 'voice input must await the assistant response result');
 assert.match(voice, /disabled = false/, 'voice input must support a busy-state guard');
 assert.ok(app.includes('disabled={sending}'), 'chat must prevent overlapping voice submissions');
 assert.match(css, /\.voiceModeToggle/, 'PWA must expose the voice mode control');
