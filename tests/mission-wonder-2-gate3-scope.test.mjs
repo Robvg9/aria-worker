@@ -50,7 +50,7 @@ check(runnerSource.includes("const raw = JSON.stringify(canonicalGateStep(step))
 check(runnerSource.includes("return m22Gate3HumanGateActionHash(step)") === false,"scoped probe does not replace the general Human Gate hash implementation");
 check(executionSource.includes("const MISSION_EXECUTION_PAUSED = true"),"execution runtime global pause remains true");
 check(runnerSource.includes("if (!gate3ScopedProbeAllowed)"),"runner denies every other mission");
-check(executionSource.includes("if(!gate3ScopedProbeAllowed)return out"),"execution runtime denies every other request");
+check(executionSource.includes("if(!gate3ScopedProbeAllowed&&!cloudflarePlanPreviewAllowed){") && executionSource.includes("policy?.read_only===true") && executionSource.includes("route?.model_id===\"nvidia/nemotron-3.5-lightning:free\"") && executionSource.includes("!body?.metadata?.mission_id"),"execution runtime denies every other request except the exact read-only free-model plan preview");
 check(runnerSource.includes("routes = [primaryRoute, ...gate3Fallbacks]"),"scoped execution contains exactly two route slots");
 check(runnerSource.includes("model_execution_failures: failures.map((failure: any)"),"scoped success persists sanitized Google 429 evidence");
 check(runnerSource.includes("model_fallback_attempts: failures.length"),"scoped success records exactly one primary route attempt");
