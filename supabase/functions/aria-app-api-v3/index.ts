@@ -843,7 +843,7 @@ async function executeConversationOnly(step:any,prompt:string,conversationId:str
   for(const route of candidates){
     const candidate={...(step||{}),target:{...(step?.target||{}),type:"model",provider_id:route.provider_id,account_id:route.account_id,model_id:route.model_id}};
     try{
-      const result=await execute(candidate,prompt,conversationId,visualContext,clientMessageId,true,18000,420,false);
+      const result=await execute(candidate,prompt,conversationId,visualContext,clientMessageId,true,28000,420,false);
       const content=typeof result?.response?.content==="string"?result.response.content.trim():"";
       if(result?.status!=="succeeded"||!content)throw new Error("conversation_empty_response");
       return {result,route,fallback_count:failures.length,failures};
