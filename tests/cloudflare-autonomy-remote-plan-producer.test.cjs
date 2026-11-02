@@ -46,13 +46,32 @@ async function api(store, route, { method = 'GET', token, body } = {}) {
   globalThis.fetch = async (url, init = {}) => {
     requests.push({ url: String(url), headers: new Headers(init.headers), body: JSON.parse(init.body) });
     const spec = requests[requests.length - 1].body.context.cloudflare_workspace_request;
-    const plan = buildCloudflareWorkspacePlan(requests[requests.length - 1].body.goal, spec);
+    const operation = spec.allowed_operations[0];
+    const tasks = operation === 'workspace.write'
+      ? [{
+          task_id: 'guarded_write',
+          operation,
+          payload: { path: 'tmp/guarded-proof.txt', content: 'must wait for approval\\n' },
+          depends_on: []
+        }]
+      : [{ task_id: 'repo_status', operation, payload: {}, depends_on: [] }];
+    const plan = buildCloudflareWorkspacePlan(
+      requests[requests.length - 1].body.goal,
+      spec,
+      JSON.stringify({ tasks })
+    );
     return new Response(JSON.stringify({
       ok: true,
       plan: { goal: plan.goal, tasks: plan.tasks },
       planner_version: plan.planner_version,
       contract_version: plan.contract_version,
-      requires_human_approval_for_mutations: plan.requires_human_approval_for_mutations
+      requires_human_approval_for_mutations: plan.requires_human_approval_for_mutations,
+      model: {
+        provider_id: 'openrouter',
+        account_id: 'acct_openrouter_primary',
+        model_id: 'nvidia/nemotron-3.5-lightning:free',
+        executor: 'aria-execution-runtime-v1'
+      }
     }), { status: 200, headers: { 'content-type': 'application/json' } });
   };
 
@@ -68,13 +87,8 @@ async function api(store, route, { method = 'GET', token, body } = {}) {
 
     const requestSpec = {
       version: 'v1',
-      tasks: [{
-        task_id: 'repo_status',
-        title: 'Read repository status',
-        operation: 'git.status',
-        payload: {},
-        depends_on: []
-      }]
+      allowed_operations: ['git.status'],
+      workspace_context: { root: 'workspace' }
     };
 
     // The read-only planner preview is available while the global mission freeze is active.
@@ -87,6 +101,8 @@ async function api(store, route, { method = 'GET', token, body } = {}) {
     const previewBody = await preview.json();
     assert.equal(previewBody.source, 'supabase:aria-planner-v11');
     assert.equal(previewBody.tasks[0].operation, 'git.status');
+    assert.equal(previewBody.model.model_id, 'nvidia/nemotron-3.5-lightning:free');
+    assert.equal(previewBody.model.executor, 'aria-execution-runtime-v1');
     assert.equal(previewBody.durable_state_mutated, false);
     assert.equal(previewBody.requires_human_approval_for_mutations, false);
     assert.equal(state.storage.values.size, 0, 'plan preview must not create Durable Object records');
@@ -160,12 +176,8 @@ async function api(store, route, { method = 'GET', token, body } = {}) {
     const writeRequest = {
       version: 'v1',
       allow_mutations: true,
-      tasks: [{
-        task_id: 'guarded_write',
-        operation: 'workspace.write',
-        payload: { path: 'tmp/guarded-proof.txt', content: 'must wait for approval\\n' },
-        depends_on: []
-      }]
+      allowed_operations: ['workspace.write'],
+      workspace_context: { approved_scope: 'temporary proof file only' }
     };
     const guardedWrite = await api(store, '/api/missions', {
       method: 'POST',
