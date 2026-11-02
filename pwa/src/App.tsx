@@ -2697,12 +2697,18 @@ function Chat({
                   disabled={sending}
                   onTranscript={transcript => {
                     if (voiceMode) {
-                      if (pendingMissionConfirmation && isVoiceMissionAffirmative(transcript)) {
-                        void confirmPendingMission();
-                        return;
-                      }
-                      if (pendingMissionConfirmation && isVoiceMissionNegative(transcript)) {
-                        dismissPendingMission();
+                      if (pendingMissionConfirmation) {
+                        if (isVoiceMissionAffirmative(transcript)) {
+                          void confirmPendingMission();
+                          return;
+                        }
+                        if (isVoiceMissionNegative(transcript)) {
+                          dismissPendingMission();
+                          return;
+                        }
+                        const clarification = 'No reconocí una confirmación clara. Di «sí, comenzar la misión» para aprobarla o «no, solo conversar» para cancelarla.';
+                        setMessages(current => [...current, { id: crypto.randomUUID(), role: 'aria', text: clarification }]);
+                        speakAssistantText(clarification);
                         return;
                       }
                       void send(transcript);
