@@ -4,9 +4,10 @@
 // before any task can execute; this adapter deliberately refuses all work.
 module.exports = Object.freeze({
   supabaseIndependent: true,
+  localInference: false,
   capabilities: Object.freeze([]),
   async health() {
-    return Object.freeze({ ok: true, model: 'safe-frozen-worker-probe' });
+    return Object.freeze({ ok: true, local_inference: false, adapter: 'safe-frozen-worker-probe' });
   },
   async executeTask() {
     throw new Error('FROZEN_WORKER_PROBE_MUST_NEVER_EXECUTE_TASKS');
