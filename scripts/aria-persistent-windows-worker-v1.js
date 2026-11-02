@@ -56,6 +56,7 @@ async function request(route, body) {
   if (package3ProbeId && package3ScopeToken) {
     headers['x-aria-package3-probe-id'] = package3ProbeId;
     headers['x-aria-package3-scope-token'] = package3ScopeToken;
+    headers['x-aria-package3-worker-id'] = workerId;
   }
   const response = await fetch(baseUrl + route, {
     method: 'POST',
