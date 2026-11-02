@@ -14,3 +14,7 @@ Sources:
 - [sherpa-onnx speaker identification models](https://k2-fsa.github.io/sherpa/onnx/speaker-identification/)
 - [speaker model release and model assets](https://github.com/k2-fsa/sherpa-onnx/releases/tag/speaker-recongition-models)
 - [3D-Speaker project and Apache-2.0 license](https://github.com/modelscope/3D-Speaker)
+
+## CI feasibility checkpoint
+
+The repository now includes a hosted-only public-sample smoke workflow at `.github/workflows/aria-voice-v4-speaker-benchmark.yml`. It will compare a small public same-speaker group against different-speaker examples and retain aggregate metrics only. This is an API/model feasibility check; the selected CAM++ model card covers Chinese/English rather than Cuban Spanish, and a passing ranking smoke cannot authorize owner authentication or background listening.
