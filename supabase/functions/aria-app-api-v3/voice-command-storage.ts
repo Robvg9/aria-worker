@@ -215,6 +215,7 @@ export function createVoiceCommandStores(serviceClient: any, authenticatedOwnerI
   async function enqueueDeviceCommand(input: {
     ownerId: string;
     deviceId: string;
+    sourceDeviceId: string;
     requestId: string;
     idempotencyKey: string;
     operation: string;
@@ -223,6 +224,7 @@ export function createVoiceCommandStores(serviceClient: any, authenticatedOwnerI
   }): Promise<any | null> {
     if (input.ownerId !== authenticatedOwnerId) throw new Error("voice_command_owner_mismatch");
     requireDeviceId(input.deviceId);
+    requireDeviceId(input.sourceDeviceId);
     if (typeof input.requestId !== "string" || !/^[A-Za-z0-9._:-]{8,128}$/.test(input.requestId)) {
       throw new Error("voice_command_request_id_invalid");
     }
@@ -266,6 +268,7 @@ export function createVoiceCommandStores(serviceClient: any, authenticatedOwnerI
     const { data, error } = await internal.rpc("enqueue_voice_device_command", {
       p_owner_user_id: authenticatedOwnerId,
       p_device_id: input.deviceId,
+      p_source_device_id: input.sourceDeviceId,
       p_request_id: input.requestId,
       p_idempotency_key: input.idempotencyKey,
       p_operation: input.operation,
