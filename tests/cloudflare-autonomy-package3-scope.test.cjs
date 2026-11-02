@@ -110,6 +110,21 @@ async function payload(response) {
   assert.equal(startedBody.probe.status, 'active');
   const missionId = startedBody.mission.mission_id;
   assert.equal(startedBody.mission.status, 'planning');
+
+  const concurrentStart = await call(store, '/api/package3/probe/start', {
+    method: 'POST',
+    body: {
+      confirm: 'RUN_ONE_MISSION_WONDER_2_PACKAGE3_PROBE',
+      probe_id: 'unit-probe-package3-concurrent',
+      scope_token: crypto.randomBytes(48).toString('base64url')
+    }
+  });
+  assert.equal(concurrentStart.status, 409);
+  assert.equal((await payload(concurrentStart)).error, 'package3_probe_already_active');
+
+  const relativePath = 'package3-proof-' + probeId + '.txt';
+  const proofContent = 'Mission Wonder 2 Package 3 LIVE proof ' + probeId + '\n';
+  const proofHash = crypto.createHash('sha256').update(proofContent).digest('hex');
   assert.equal(startedBody.mission.metadata.package3_live_probe, true);
   assert.equal(startedBody.probe.allowed_job_operations.length, 3);
 
@@ -150,7 +165,7 @@ async function payload(response) {
             task_id: 'write-proof-artifact',
             title: 'Write one temporary proof artifact',
             operation: 'workspace.write',
-            payload: { relative_path: 'package3-proof.txt', content: 'Mission Wonder 2 Package 3\n' },
+            payload: { relative_path: relativePath, content: proofContent },
             idempotent: true,
             max_attempts: 2,
             depends_on: []
@@ -222,8 +237,8 @@ async function payload(response) {
       result: {
         passed: true,
         evidence: {
-          relative_path: 'package3-proof.txt',
-          sha256: 'fixture-sha256',
+          relative_path: relativePath,
+          sha256: proofHash,
           execution_attempt: 2,
           write_action: 'already_identical'
         }
@@ -255,7 +270,11 @@ async function payload(response) {
       result: {
         passed: true,
         evidence: {
-          verification: { passed: true, reason: 'Scoped Package 3 synthetic verification passed.' }
+          verification: {
+            passed: true,
+            reason: 'Scoped Package 3 synthetic verification passed.',
+            artifact: { relative_path: relativePath, sha256: proofHash, independent_read: true }
+          }
         }
       }
     }
