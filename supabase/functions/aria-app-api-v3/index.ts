@@ -728,7 +728,7 @@ function shouldRetryPrimaryRouteOnce(error:any) {
   // Retry only transient provider availability failures. Never retry quota/rate-limit
   // or credential/auth failures, which must not be evaded by repeated requests.
   if(/429|quota|rate.?limit|resource.?exhausted|credential_unavailable|invalid.?api.?key|unauthorized|provider.*401|provider.*403/.test(value)) return false;
-  return /provider_status_(?:502|503|504)\b|high demand|overload|temporarily unavailable|service unavailable|bad gateway/.test(value);
+  return /internal_request_timeout_|provider_status_(?:502|503|504)\b|high demand|overload|temporarily unavailable|service unavailable|bad gateway/.test(value);
 }
 
 async function executeConversationWithFallback(step:any, prompt:string, conversationId:string, visualContext:any=null, clientMessageId:string|null=null, waitForLocal:boolean=true, allowLocalFallback=true, requestTimeoutMs=45000, maxTokens=512) {
@@ -814,12 +814,13 @@ async function executeVoiceConversation(step:any,prompt:string,conversationId:st
   for(const route of candidates){
     const candidate={...(step||{}),target:{...(step?.target||{}),type:"model",provider_id:route.provider_id,account_id:route.account_id,model_id:route.model_id}};
     try{
-      const result=await execute(candidate,prompt,conversationId,visualContext,clientMessageId,true,10000,192);
+      const result=await execute(candidate,prompt,conversationId,visualContext,clientMessageId,true,8000,160);
       const content=typeof result?.response?.content==="string"?result.response.content.trim():"";
       if(result?.status!=="succeeded"||!content)throw new Error("voice_empty_response");
       return {result,route,fallback_count:failures.length,failures};
     }catch(error){
       failures.push({provider_id:String(route.provider_id),model_id:String(route.model_id),error:sanitizeChatFailureDetail(error instanceof Error?error.message:error)});
+      if(!shouldRetryPrimaryRouteOnce(error))break;
     }
   }
   const error:any=new Error("voice_response_unavailable:"+failures.map((item:any)=>item.provider_id+"_"+item.error).join("|"));
