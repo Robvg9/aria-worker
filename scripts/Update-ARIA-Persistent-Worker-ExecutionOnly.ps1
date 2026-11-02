@@ -211,13 +211,19 @@ if (-not $Apply) {
 $originalConfigRaw = Get-Content -LiteralPath $ConfigPath -Raw
 $originalConfigAcl = Get-Acl -LiteralPath $ConfigPath
 $tempPath = $ConfigPath + '.execution-only.tmp'
+$backupPath = $ConfigPath + '.execution-only.backup'
+$rollbackCurrentPath = $ConfigPath + '.rollback-current.tmp'
+if (Test-Path -LiteralPath $backupPath) {
+    throw 'Refusing migration: an earlier execution-only backup exists. Inspect it before retrying.'
+}
 $configReplaced = $false
 $taskActionChanged = $false
+$rollbackRestored = $false
 
 try {
     [System.IO.File]::WriteAllText($tempPath, $newJson, ([System.Text.UTF8Encoding]::new($false)))
     Set-Acl -LiteralPath $tempPath -AclObject $originalConfigAcl
-    [System.IO.File]::Replace($tempPath, $ConfigPath, $null)
+    [System.IO.File]::Replace($tempPath, $ConfigPath, $backupPath)
     $configReplaced = $true
 
     Set-ScheduledTask -TaskName $TaskName -TaskPath $task.TaskPath -Action $newAction | Out-Null
@@ -279,6 +285,7 @@ try {
     Write-Output 'ARIA_DPAPI_CIPHERTEXT_PRESERVED=PASS'
     Write-Output 'ARIA_TASK_DISABLED_PRESERVED=PASS'
     Write-Output 'ARIA_TASK_PRINCIPAL_AND_TRIGGER_PRESERVED=PASS'
+    Remove-Item -LiteralPath $backupPath -Force
 }
 catch {
     $failure = $_
@@ -287,18 +294,27 @@ catch {
     }
     if ($configReplaced) {
         try {
-            $rollbackPath = $ConfigPath + '.rollback.tmp'
-            [System.IO.File]::WriteAllText($rollbackPath, $originalConfigRaw, ([System.Text.UTF8Encoding]::new($false)))
-            Set-Acl -LiteralPath $rollbackPath -AclObject $originalConfigAcl
-            [System.IO.File]::Replace($rollbackPath, $ConfigPath, $null)
+            if (Test-Path -LiteralPath $backupPath) {
+                [System.IO.File]::Replace($backupPath, $ConfigPath, $rollbackCurrentPath)
+            }
+            else {
+                $rollbackPath = $ConfigPath + '.rollback.tmp'
+                [System.IO.File]::WriteAllText($rollbackPath, $originalConfigRaw, ([System.Text.UTF8Encoding]::new($false)))
+                Set-Acl -LiteralPath $rollbackPath -AclObject $originalConfigAcl
+                [System.IO.File]::Replace($rollbackPath, $ConfigPath, $rollbackCurrentPath)
+            }
+            $rollbackRestored = $true
+            Remove-Item -LiteralPath $rollbackCurrentPath -Force -ErrorAction SilentlyContinue
         }
-        catch {}
+        catch {
+            Write-Warning 'Config rollback did not complete; preserve the .execution-only.backup or .rollback files for recovery.'
+        }
     }
     throw $failure
 }
 finally {
     Remove-Item -LiteralPath $tempPath -Force -ErrorAction SilentlyContinue
-    Remove-Item -LiteralPath ($ConfigPath + '.rollback.tmp') -Force -ErrorAction SilentlyContinue
+    if ($rollbackRestored) { Remove-Item -LiteralPath ($ConfigPath + '.rollback.tmp') -Force -ErrorAction SilentlyContinue }
     $document = $null
     $newDocument = $null
     $newJson = $null
