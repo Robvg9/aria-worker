@@ -109,21 +109,9 @@ async function readJson(response, expectedStatus = 200) {
     "module.exports = Object.freeze({",
     "  supabaseIndependent: true,",
     "  localInference: false,",
-    "  capabilities: Object.freeze(['mission.plan', 'workspace', 'mission.verify']),",
+    "  capabilities: Object.freeze(['workspace.write', 'mission.verify']),",
     "  async health() { return { ok: true, local_inference: false, adapter: 'isolated-package3-fixture' }; },",
-    "  async plan(goal) {",
-    "    if (!String(goal).includes('package 3 isolated E2E')) throw new Error('unexpected_mission_goal');",
-    "    return [{",
-    "      task_id: 'write-proof-artifact',",
-    "      title: 'Create isolated proof artifact',",
-    "      operation: 'workspace.write',",
-    "      payload: { relative_path: 'package3-proof.txt', content },",
-    "      risk: 'medium',",
-    "      idempotent: true,",
-    "      max_attempts: 3,",
-    "      depends_on: []",
-    "    }];",
-    "  },",
+    "  // The plan is submitted by the authenticated remote planner in the test harness.",,
     "  async executeTask(task) {",
     "    if (!task || task.operation !== 'workspace.write') throw new Error('unexpected_task_operation');",
     "    if (task.payload.relative_path !== 'package3-proof.txt' || task.payload.content !== content) {",
@@ -280,6 +268,22 @@ async function readJson(response, expectedStatus = 200) {
     const missionId = createdPayload.mission.mission_id;
     assert.match(missionId, /^mission_/);
     assert.equal(createdPayload.mission.status, 'planning');
+    const remotePlanResponse = await api('/api/missions/' + encodeURIComponent(missionId) + '/plan', {
+      method: 'POST',
+      body: { tasks: [{
+        task_id: 'write-proof-artifact',
+        title: 'Create isolated proof artifact',
+        operation: 'workspace.write',
+        payload: { relative_path: 'package3-proof.txt', content: CONTENT },
+        risk: 'medium',
+        idempotent: true,
+        max_attempts: 3,
+        depends_on: []
+      }] }
+    });
+    const remotePlanPayload = await readJson(remotePlanResponse, 201);
+    assert.equal(remotePlanPayload.mission.status, 'running');
+    assert.equal(remotePlanPayload.mission.tasks[0].task_id, 'write-proof-artifact');
 
     // Simulate a Durable Object instance recreation before the first worker run.
     activeStore = new IsolatedMissionStore(state, env);
@@ -428,6 +432,3 @@ async function readJson(response, expectedStatus = 200) {
     await fs.rm(root, { recursive: true, force: true });
   }
 })().catch(error => {
-  process.stderr.write((error && error.stack) || String(error));
-  process.exitCode = 1;
-});
