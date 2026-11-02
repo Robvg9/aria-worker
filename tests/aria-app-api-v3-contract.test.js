@@ -121,7 +121,7 @@ assert.match(appApi,/async function internal\(url: string, payload: unknown, tim
 assertContains(appApi,'internal_request_timeout_','internal fetch timeout must be observable so transient provider failures can trigger fallback');
 assertContains(appApi,'multimodal}},requestTimeoutMs);','cloud model execution must use an explicit bounded request timeout');
 assertContains(appApi,'input:{payload}','conversation execution payload wrapper missing');
-assertContains(appApi,'prompt,max_tokens:512,temperature:0.3','conversation payload must include canonical prompt parameters');
+assertContains(appApi,'prompt,max_tokens:maxTokens,temperature:0.3','conversation payload must use the explicit output-token budget');
 assertContains(appApi,'/v1/meditation/tick-service','Meditation activation must trigger the canonical cloud tick');
 assertContains(appApi,'path.endsWith("/meditation/idea-to-mission")','Idea Analyzer create route missing');
 assertContains(appApi,'/meditation/ideas','Idea Analyzer list/read routes missing');
