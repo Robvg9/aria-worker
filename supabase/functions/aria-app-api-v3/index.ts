@@ -2597,7 +2597,7 @@ Deno.serve(async (req) => {
         const routes=await conversationRoutes();
         const eligibleRoutes=(voiceMode || MISSION_EXECUTION_PAUSED) ? routes.filter((route:any)=>route.provider_id!=="local_windows") : routes;
         if((voiceMode || MISSION_EXECUTION_PAUSED)&&!eligibleRoutes.length){
-          return json({error:"voice_cloud_route_unavailable",stage:"routing",trace_id:trace},503);
+          return json({error:voiceMode?"voice_cloud_route_unavailable":"conversation_cloud_route_unavailable",stage:"routing",trace_id:trace},503);
         }
         if(eligibleRoutes[0]) step={target:{type:"model",provider_id:eligibleRoutes[0].provider_id,account_id:eligibleRoutes[0].account_id,model_id:eligibleRoutes[0].model_id}};
       }
@@ -2659,7 +2659,7 @@ Deno.serve(async (req) => {
             provider_id:execution.route?.provider_id??null,
             model_id:execution.route?.model_id??null,
             fallback_count:execution.fallback_count??0,
-            conversation_only:MISSION_EXECUTION_PAUSED,
+            conversation_only:true,
             ...(voiceMode?{voice_mode:true,voice_low_latency:true}:{}),
             processing_ms:Date.now()-conversationStartedAt,
             input_persistence_ms:initialPersistenceMs,
