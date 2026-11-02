@@ -226,6 +226,7 @@ export function HandsFreeVoiceControl({
           const item = results[index];
           if (!item?.isFinal) continue;
           cursorRef.current = index + 1;
+          restartDelayRef.current = 350;
           handleFinalPhrase(String(item?.[0]?.transcript || ''));
         }
       };
@@ -252,7 +253,6 @@ export function HandsFreeVoiceControl({
       };
       recognitionRef.current = recognition;
       recognition.start();
-      restartDelayRef.current = 350;
       setStatus(wakeArmedRef.current ? 'Te escucho…' : 'Escuchando. Di «ARIA» para hablar conmigo.');
     } catch {
       recognitionRef.current = null;
