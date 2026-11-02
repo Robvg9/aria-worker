@@ -51,7 +51,8 @@ async function api(store, route, { method = 'GET', token, body } = {}) {
       ok: true,
       plan: { goal: plan.goal, tasks: plan.tasks },
       planner_version: plan.planner_version,
-      contract_version: plan.contract_version
+      contract_version: plan.contract_version,
+      requires_human_approval_for_mutations: plan.requires_human_approval_for_mutations
     }), { status: 200, headers: { 'content-type': 'application/json' } });
   };
 
@@ -86,7 +87,8 @@ async function api(store, route, { method = 'GET', token, body } = {}) {
     const previewBody = await preview.json();
     assert.equal(previewBody.source, 'supabase:aria-planner-v11');
     assert.equal(previewBody.tasks[0].operation, 'git.status');
-    assert.equal(previewBody.read_only_preview, true);
+    assert.equal(previewBody.durable_state_mutated, false);
+    assert.equal(previewBody.requires_human_approval_for_mutations, false);
     assert.equal(state.storage.values.size, 0, 'plan preview must not create Durable Object records');
     assert.equal(requests.length, 1);
     assert.equal(requests[0].headers.get('x-aria-plan-producer'), 'cloudflare-workspace-v1');
@@ -153,6 +155,34 @@ async function api(store, route, { method = 'GET', token, body } = {}) {
     const eventRecords = await state.storage.list({ prefix: 'event:' + createdBody.mission.mission_id + ':' });
     const eventTypes = Array.from(eventRecords.values()).map(event => event.type);
     assert.ok(eventTypes.includes('mission_plan_submitted'));
+
+    // A caller cannot lower the human gate for a mutating workspace plan.
+    const writeRequest = {
+      version: 'v1',
+      allow_mutations: true,
+      tasks: [{
+        task_id: 'guarded_write',
+        operation: 'workspace.write',
+        payload: { path: 'tmp/guarded-proof.txt', content: 'must wait for approval\\n' },
+        depends_on: []
+      }]
+    };
+    const guardedWrite = await api(store, '/api/missions', {
+      method: 'POST',
+      token: controlToken,
+      body: {
+        goal: 'Create a guarded workspace proof file',
+        metadata: { cloudflare_workspace_request: writeRequest },
+        policy: { max_risk: 'critical', require_human_approval: false, max_steps: 1 }
+      }
+    });
+    assert.equal(guardedWrite.status, 201);
+    const guardedWriteMission = (await guardedWrite.json()).mission;
+    assert.equal(guardedWriteMission.status, 'waiting_human');
+    assert.equal(guardedWriteMission.policy.max_risk, 'low');
+    assert.equal(guardedWriteMission.policy.require_human_approval, true);
+    assert.equal(guardedWriteMission.approval.status, 'pending');
+    assert.equal(guardedWriteMission.tasks[0].status, 'waiting_human');
     process.stdout.write('CLOUDFLARE_REMOTE_PLAN_PREVIEW_FROZEN=PASS\n');
     process.stdout.write('CLOUDFLARE_REMOTE_PLAN_PRODUCER_AUTH=PASS\n');
     process.stdout.write('CLOUDFLARE_REMOTE_PLAN_CREATE_AND_SUBMIT_CONTRACT=PASS\n');
