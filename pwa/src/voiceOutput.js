@@ -49,6 +49,7 @@ const NEGATIVE_MISSION_PHRASES = new Set([
   'cancelar mision',
   'cancelar la mision',
   'solo conversar',
+  'no solo conversar',
   'seguir conversando',
   'no comenzar mision'
 ]);
