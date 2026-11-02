@@ -9,7 +9,6 @@ const EVENTS = new Set([
   'recognition_start_attempt',
   'recognition_started',
   'recognition_start_failed',
-  'recognition_started',
   'recognition_error',
   'recognition_end',
   'interim_result',
