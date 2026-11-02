@@ -42,6 +42,14 @@ assert.match(migration, /resolve_voice_speaker_policy/);
 assert.match(migration, /CREATE TABLE IF NOT EXISTS aria_internal\\.voice_device_commands/);
 assert.match(migration, /enqueue_voice_device_command/);
 assert.match(migration, /claim_voice_device_command/);
+assert.match(migration, /CREATE TABLE IF NOT EXISTS aria_internal\\.voice_device_commands/);
+assert.match(migration, /jsonb_object_length\(params\) = 1/);
+assert.match(migration, /display\\.brightness\\.set/);
+assert.match(migration, /app\\.open/);
+assert.match(migration, /browser\\.open_url/);
+assert.match(migration, /trusted owner-verified voice device unavailable/);
+assert.match(migration, /trusted owner and speaker policy must still be active/);
+
 assert.match(migration, /complete_voice_device_command/);
 assert.match(migration, /display\\.brightness\\.set/);
 assert.match(migration, /app\\.open/);
@@ -81,6 +89,15 @@ assert.doesNotMatch(migration, /CREATE TABLE[^;]*(?:mission_id|job_id|raw_audio|
 assert.match(storage, /schema\("aria_internal"\)/);
 assert.match(storage, /consume_voice_owner_session_nonce/);
 assert.match(storage, /claim_voice_command_idempotency/);
+assert.match(storage, /enqueue_voice_device_command/);
+assert.match(storage, /createVoiceDeviceAgentQueue/);
+assert.match(storage, /claim_voice_device_command/);
+assert.match(storage, /complete_voice_device_command/);
+assert.match(storage, /voice_device_operation_not_allowlisted/);
+assert.match(storage, /voice_command_result_field_unsupported/);
+assert.match(storage, /requireDeviceId/);
+assert.doesNotMatch(storage, /execution_jobs|enqueue_execution_job_gateway|mission_id|job_id|raw_audio|transcript|speaker_template/i,
+  'the service adapter must only persist direct allowlisted commands, not mission work or voice content');
 assert.match(storage, /register_voice_trusted_device_key/);
 assert.match(storage, /resolve_voice_trusted_device_key/);
 assert.match(storage, /revoke_voice_trusted_device_key/);
