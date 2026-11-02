@@ -251,7 +251,9 @@ def run_candidate(candidate: str, root: Path, train_voices: list[str],
             "mean_inference_ms": runtime_report["mean_inference_ms"],
             "p95_inference_ms": runtime_report["p95_inference_ms"],
             "mean_real_time_factor": runtime_report["mean_real_time_factor"],
-            "process_peak_rss_mb": runtime_report["peak_process_rss_mb"],
+            "runtime_current_rss_mb": runtime_report["current_rss_mb"],
+            "runtime_proc_high_water_rss_mb": runtime_report["proc_high_water_rss_mb"],
+            "runtime_resource_ru_maxrss_mb": runtime_report["resource_ru_maxrss_mb"],
             "model_file_bytes": runtime_report["model_file_bytes"],
             "inference_threads": runtime_report["intra_op_threads"],
         }
@@ -335,7 +337,7 @@ def main() -> int:
             "single_profile_fallback": fallback_single_voice,
             "candidate_results": results,
             "elapsed_seconds": round(time.perf_counter() - start, 2),
-            "process_peak_rss_mb": round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024, 2),
+            "training_process_peak_rss_mb": round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024, 2),
             "limitations": [
                 "Synthetic shortlist is not owner voice enrollment or Spanish/Cuban acoustic certification.",
                 "This does not test speaker verification, spoofing/replay, microphone capture, battery, background services, or PC/Android resource use.",
@@ -356,7 +358,7 @@ def main() -> int:
                 for row in results
             ],
             "elapsed_seconds": report["elapsed_seconds"],
-            "process_peak_rss_mb": report["process_peak_rss_mb"],
+            "training_process_peak_rss_mb": report["training_process_peak_rss_mb"],
         }))
         return 0
     except Exception as exc:
