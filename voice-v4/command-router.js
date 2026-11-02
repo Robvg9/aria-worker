@@ -104,6 +104,11 @@ function validateRequestShape(request, now, maxFutureMs) {
   if (request.lane !== LANES.MISSION_EXECUTE && (request.mission_id !== undefined || request.job_id !== undefined)) {
     return 'mission_context_forbidden_on_direct_lane';
   }
+  if (request.lane === LANES.MISSION_EXECUTE) {
+    if (request.operation !== 'mission.start') return 'mission_operation_not_allowed';
+    if (!validIdentifier(request.mission_id, 8, 160)) return 'mission_id_required';
+    if (request.job_id !== undefined) return 'mission_job_context_forbidden';
+  }
   if (request.command !== undefined || request.shell !== undefined || request.transcript !== undefined || request.raw_audio !== undefined) {
     return 'raw_command_or_audio_forbidden';
   }
