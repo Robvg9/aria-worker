@@ -172,13 +172,27 @@ export class AriaMissionStore {
       if (!authorized(request, this.env.ARIA_WORKER_TOKEN)) return error('unauthorized_worker', 401);
       if (this.isMissionExecutionPaused()) {
         if (method !== 'POST') return this.pausedResponse();
-        let body;
-        try { body = await request.clone().json(); } catch (_) { return error('invalid_json', 400); }
+        // Preserve the legacy fail-fast contract: normal claims are rejected
+        // before parsing their bodies. Only the complete scoped-probe header set
+        // proceeds to body parsing and the narrow worker allowlist.
+        const workerIdHint = String(request.headers.get('x-aria-package3-worker-id') || '');
+        const probeIdHint = String(request.headers.get('x-aria-package3-probe-id') || '');
+        const scopeTokenHint = String(request.headers.get('x-aria-package3-scope-token') || '');
+        if (!workerIdHint || !probeIdHint || !scopeTokenHint) return this.pausedResponse();
         const match = url.pathname.match(/^\/api\/worker\/jobs\/([^/]+)\/(heartbeat|complete|fail)$/);
         const jobId = match ? decodeURIComponent(match[1]) : null;
-        const scope = await this.resolvePackage3ProbeWorkerScope(request, body, jobId);
+        const scope = await this.resolvePackage3ProbeWorkerScope(
+          request,
+          { worker_id: workerIdHint },
+          jobId
+        );
         if (!scope) return this.pausedResponse();
         return this.exclusive(async () => {
+          let body;
+          try { body = await request.clone().json(); } catch (_) { return error('invalid_json', 400); }
+          if (String(body && body.worker_id || '') !== workerIdHint) {
+            return error('package3_probe_worker_identity_mismatch', 403);
+          }
           if (url.pathname === '/api/worker/claim') return this.claim(request);
           if (!match) return error('method_not_allowed', 405);
           if (match[2] === 'heartbeat') return this.heartbeat(jobId, request);
