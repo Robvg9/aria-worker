@@ -162,7 +162,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Start the worker once against the frozen coordinator
-        shell: powershell
+        shell: powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
         env:
           ARIA_WORKER_TOKEN: ${{ secrets.ARIA_AUTONOMY_WORKER_TOKEN }}
           ARIA_CONTROL_URL: https://aria-autonomy-coordinator.robvg9.workers.dev
