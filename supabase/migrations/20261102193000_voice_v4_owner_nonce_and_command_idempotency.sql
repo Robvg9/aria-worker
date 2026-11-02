@@ -537,3 +537,141 @@ GRANT EXECUTE ON FUNCTION aria_internal.revoke_voice_speaker_policy(uuid,text)
   TO service_role;
 
 COMMIT;
+
+
+-- Model allowlist remains empty until a model passes real target-language,
+-- cross-speaker, replay and spoofing evaluations. A synthetic shortlist is
+-- never sufficient to approve a production speaker verifier.
+BEGIN;
+
+CREATE TABLE IF NOT EXISTS aria_internal.voice_speaker_model_catalog (
+  model_id text PRIMARY KEY,
+  model_family text NOT NULL,
+  model_sha256 text NOT NULL,
+  supported_languages text[] NOT NULL DEFAULT ARRAY[]::text[],
+  status text NOT NULL DEFAULT 'candidate' CHECK (status IN ('candidate','approved','rejected')),
+  evaluation_evidence_ref text,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  approved_at timestamptz,
+  CONSTRAINT voice_speaker_model_id_format CHECK (
+    length(model_id) BETWEEN 3 AND 160 AND model_id ~ '^[A-Za-z0-9._:-]+$'
+  ),
+  CONSTRAINT voice_speaker_model_family_format CHECK (
+    length(model_family) BETWEEN 2 AND 80 AND model_family ~ '^[A-Za-z0-9._:-]+$'
+  ),
+  CONSTRAINT voice_speaker_model_sha256_format CHECK (
+    length(model_sha256) = 64 AND model_sha256 ~ '^[a-f0-9]+$'
+  ),
+  CONSTRAINT voice_speaker_model_approval_evidence CHECK (
+    status <> 'approved' OR (
+      evaluation_evidence_ref IS NOT NULL
+      AND length(evaluation_evidence_ref) BETWEEN 8 AND 240
+      AND approved_at IS NOT NULL
+    )
+  )
+);
+
+COMMENT ON TABLE aria_internal.voice_speaker_model_catalog IS
+  'Server allowlist of speaker models. It contains model identifiers and evaluation evidence only, never embeddings or raw voice data. Production policies can use only approved rows.';
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'voice_speaker_policies_model_fk'
+      AND conrelid = 'aria_internal.voice_speaker_policies'::regclass
+  ) THEN
+    ALTER TABLE aria_internal.voice_speaker_policies
+      ADD CONSTRAINT voice_speaker_policies_model_fk
+      FOREIGN KEY (speaker_model_id)
+      REFERENCES aria_internal.voice_speaker_model_catalog(model_id)
+      ON UPDATE CASCADE
+      ON DELETE RESTRICT;
+  END IF;
+END;
+$$;
+
+REVOKE ALL ON TABLE aria_internal.voice_speaker_model_catalog FROM PUBLIC, anon, authenticated;
+GRANT SELECT ON TABLE aria_internal.voice_speaker_model_catalog TO service_role;
+
+CREATE OR REPLACE FUNCTION aria_internal.set_voice_speaker_policy(
+  p_owner_user_id uuid,
+  p_device_id text,
+  p_speaker_model_id text,
+  p_minimum_score numeric,
+  p_enabled boolean
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = aria_internal, pg_catalog
+AS $$
+DECLARE
+  result jsonb;
+BEGIN
+  IF p_owner_user_id IS NULL
+     OR p_device_id IS NULL
+     OR p_speaker_model_id IS NULL OR length(p_speaker_model_id) NOT BETWEEN 3 AND 160
+     OR p_speaker_model_id !~ '^[A-Za-z0-9._:-]+$'
+     OR p_minimum_score IS NULL OR p_minimum_score < 0 OR p_minimum_score > 1
+     OR p_enabled IS NULL THEN
+    RAISE EXCEPTION 'invalid voice speaker policy';
+  END IF;
+
+  IF p_enabled IS TRUE AND NOT EXISTS (
+    SELECT 1 FROM aria_internal.voice_speaker_model_catalog m
+    WHERE m.model_id = p_speaker_model_id
+      AND m.status = 'approved'
+      AND m.approved_at IS NOT NULL
+      AND m.evaluation_evidence_ref IS NOT NULL
+  ) THEN
+    RAISE EXCEPTION 'speaker model is not approved for production';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM aria_internal.voice_trusted_device_keys k
+    JOIN aria_internal.device_registry d ON d.device_id = k.device_id
+    WHERE k.owner_user_id = p_owner_user_id
+      AND k.device_id = p_device_id
+      AND k.enabled = true
+      AND k.security = 'trusted'
+      AND k.revoked_at IS NULL
+      AND d.status = 'online'
+      AND d.capabilities @> '["audio.wake_word"]'::jsonb
+      AND d.last_seen_at >= now() - interval '90 seconds'
+  ) THEN
+    RAISE EXCEPTION 'trusted voice device unavailable';
+  END IF;
+
+  INSERT INTO aria_internal.voice_speaker_policies (
+    owner_user_id, device_id, speaker_model_id, minimum_score, enabled,
+    created_at, updated_at, revoked_at
+  ) VALUES (
+    p_owner_user_id, p_device_id, p_speaker_model_id, p_minimum_score, p_enabled,
+    now(), now(), NULL
+  )
+  ON CONFLICT (owner_user_id, device_id) DO UPDATE
+  SET speaker_model_id = EXCLUDED.speaker_model_id,
+      minimum_score = EXCLUDED.minimum_score,
+      enabled = EXCLUDED.enabled,
+      updated_at = now(),
+      revoked_at = NULL;
+
+  SELECT jsonb_build_object(
+    'owner_id', owner_user_id,
+    'device_id', device_id,
+    'speaker_model_id', speaker_model_id,
+    'minimum_score', minimum_score,
+    'enabled', enabled,
+    'updated_at', updated_at
+  ) INTO result
+  FROM aria_internal.voice_speaker_policies
+  WHERE owner_user_id = p_owner_user_id AND device_id = p_device_id;
+
+  RETURN result;
+END;
+$$;
+
+COMMIT;
