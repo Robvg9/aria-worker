@@ -110,9 +110,16 @@ assertContains(appApi,'const voiceMode = body?.voice_mode === true','PWA voice t
 assertContains(appApi,'voiceMode ? { lane: "fast", reason: "voice_low_latency" }','voice turns must use the fast conversation lane without deep recall/planning');
 assertContains(appApi,'routes.filter((route:any)=>route.provider_id!=="local_windows")','voice turns must never fall back to local Windows/Ollama devices');
 assertContains(appApi,'voiceMode ? routes.filter((route:any)=>route.provider_id!=="local_windows") : routes','voice route selection must exclude all local Windows devices');
-assertContains(appApi,'true,8000,160','voice model attempts must be bounded to 8 seconds and 160 output tokens');
+assertContains(appApi,'true,12000,160,true','voice requests must pass a bounded runtime timeout profile and short response budget');
 assertContains(appApi,'if(!shouldRetryPrimaryRouteOnce(error))break;','voice fallback must not bypass quota, rate-limit or credential governance');
 assertContains(appApi,'internal_request_timeout_|provider_status_(?:502|503|504)','voice fallback may retry only a bounded timeout or transient provider availability failure');
+assertContains(appApi,'voice_provider_timeout_ms:6000','voice mode must pass the provider timeout into the execution runtime');
+assertContains(appApi,'return /transport_timeout|internal_request_timeout_|provider_status_','voice may retry a provider-confirmed transport timeout, but not quota/rate or credential errors');
+assertContains(executor,'body?.metadata?.voice_mode===true','execution runtime must explicitly recognize the server-issued voice profile');
+assertContains(executor,'providerTimeoutMs??20000','Gemini must use the real provider timeout, not only an outer HTTP timeout');
+assertContains(executor,'providerTimeoutMs??25000','OpenRouter must use the real provider timeout, not only an outer HTTP timeout');
+assertContains(executor,'code:timedOut?"transport_timeout":"transport_error"','XAI timeout must settle quota and surface a retryable transport timeout');
+assertContains(executor,'providerTimeoutMs?Math.min(3000,providerTimeoutMs):8000','voice quota snapshot must have a bounded preflight timeout');
 assertContains(appApi,'voice_low_latency:true','successful voice responses must identify the low-latency path');
 assertContains(appApi,'if(voiceMode){','voice requests must return synchronously instead of using the background 130-second readback loop');
 assert.match(appApi,/async function internal\(url: string, payload: unknown, timeoutMs\?: number\)/,'internal requests must support a caller-supplied timeout');
