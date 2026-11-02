@@ -45,6 +45,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: aria-spanish-kws-metadata
-          path: \${{ runner.temp }}/aria-spanish-kws-report.json
+          path: ${{ runner.temp }}/aria-spanish-kws-report.json
           if-no-files-found: ignore
           retention-days: 7
