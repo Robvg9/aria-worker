@@ -861,7 +861,7 @@ async function androidAutonomousPlan(goal:string,context:any){
   const targetPackage=typeof context?.target_package==='string'&&context.target_package.trim()?context.target_package.trim():(pkgMatch?pkgMatch[1]:'com.android.chrome');
   const urlMatch=String(goal).match(/https?:\/\/[^\s)]+/i);
   const startUrl=typeof context?.start_url==='string'&&context.start_url.trim()?context.start_url.trim():(urlMatch?urlMatch[0].replace(/[.,;]+$/,''):null);
-  const parsedHost=startUrl?((()=>{try{return new URL(startUrl).hostname}catch{return null}})()):null;
+  const parsedHost=startUrl?((()=>{try{return new globalThis.URL(startUrl).hostname}catch{return null}})()):null;
   const allowedHosts=Array.isArray(context?.allowed_hosts)?context.allowed_hosts.map(String).filter(Boolean).slice(0,12):(parsedHost?[parsedHost]:['aria.robvg9.workers.dev']);
   const startApp=!/^com\.android\.chrome$|^com\.chrome\.|^org\.mozilla\.|^com\.brave\./i.test(targetPackage);
   const maxSteps=Math.max(3,Math.min(12,Number(context?.max_steps||8)));
