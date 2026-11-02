@@ -58,6 +58,7 @@ assert.match(app, /VOICE_MODE_KEY = 'aria_voice_conversation_mode_v1'/, 'voice m
 assert.match(app, /speakAssistantText\(p\.text\)/, 'assistant replies must be spoken while voice mode is enabled');
 assert.match(app, /isVoiceMissionAffirmative\(transcript\)/, 'spoken affirmative must only be handled inside the pending mission confirmation gate');
 assert.match(app, /isVoiceMissionNegative\(transcript\)/, 'spoken cancellation must be handled inside the pending mission confirmation gate');
+assert.match(app, /No reconocí una confirmación clara/, 'ambiguous speech must stay in the pending confirmation flow instead of being sent as a new command');
 assert.match(app, /void send\(transcript\)/, 'voice mode must submit the final recognized transcript automatically');
 assert.match(voice, /autoSubmit = false/, 'voice input must preserve manual review mode outside voice conversation');
 assert.match(voice, /Transcripción recibida\\. Procesando voz/, 'automatic voice mode must announce voice processing');
