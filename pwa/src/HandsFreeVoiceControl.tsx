@@ -56,9 +56,11 @@ export function HandsFreeVoiceControl({
   const onTranscriptRef = useRef(onTranscript);
   const onEnabledChangeRef = useRef(onEnabledChange);
   const [diagnosticExportStatus, setDiagnosticExportStatus] = useState('');
+  const [diagnosticCount, setDiagnosticCount] = useState(() => readVoiceDiagnostics().length);
 
   const recordDiagnostic = useCallback((event: string, details: Record<string, unknown> = {}) => {
-    appendVoiceDiagnostic(event, details);
+    const result = appendVoiceDiagnostic(event, details);
+    setDiagnosticCount(result.count);
   }, []);
 
   const copyDiagnostics = useCallback(async () => {
@@ -132,11 +134,12 @@ export function HandsFreeVoiceControl({
   const scheduleRestart = useCallback((delay = restartDelayRef.current) => {
     if (!enabledRef.current || !visibleRef.current || speechActiveRef.current || inFlightRef.current || disabledRef.current || disposedRef.current) return;
     if (restartTimerRef.current != null) window.clearTimeout(restartTimerRef.current);
+    recordDiagnostic('restart_scheduled', { restart_delay_ms: delay });
     restartTimerRef.current = window.setTimeout(() => {
       restartTimerRef.current = null;
       startRecognitionRef.current?.();
     }, delay);
-  }, []);
+  }, [recordDiagnostic]);
 
   const submitWakeTurn = useCallback(async () => {
     const transcript = transcriptBufferRef.current.trim();
@@ -424,7 +427,7 @@ export function HandsFreeVoiceControl({
         {status}{wakeArmed ? ' · frase activada' : ''}
       </span>
       <details className='handsFreeVoiceDiagnostics'>
-        <summary>Diagnóstico técnico ({readVoiceDiagnostics().length})</summary>
+        <summary>Diagnóstico técnico ({diagnosticCount})</summary>
         <p>Registra únicamente eventos, errores y capacidades del navegador. No guarda audio, palabras reconocidas, mensajes ni conversaciones.</p>
         <button type='button' onClick={copyDiagnostics}>Copiar diagnóstico</button>
         {diagnosticExportStatus && <span role='status' aria-live='polite'>{diagnosticExportStatus}</span>}
