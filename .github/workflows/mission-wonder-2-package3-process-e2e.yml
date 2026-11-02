@@ -1,0 +1,40 @@
+name: Mission Wonder 2 Package 3 — process recovery E2E
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "autonomy/persistent-worker-*.js"
+      - "cloudflare-autonomy/worker.mjs"
+      - "scripts/aria-persistent-windows-worker-v1.js"
+      - "tests/cloudflare-autonomy-worker-process-e2e-v1.test.cjs"
+      - "package.json"
+      - ".github/workflows/mission-wonder-2-package3-process-e2e.yml"
+  push:
+    branches: [main]
+    paths:
+      - "autonomy/persistent-worker-*.js"
+      - "cloudflare-autonomy/worker.mjs"
+      - "scripts/aria-persistent-windows-worker-v1.js"
+      - "tests/cloudflare-autonomy-worker-process-e2e-v1.test.cjs"
+      - "package.json"
+      - ".github/workflows/mission-wonder-2-package3-process-e2e.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mission-wonder-2-package3-process-e2e-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  process-recovery-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Run isolated real-worker-process recovery E2E
+        run: npm run test:mission-wonder-2-package3
