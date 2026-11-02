@@ -1468,7 +1468,8 @@ async function generateCloudflareWorkspacePlan(goal:string,workspaceRequest:any)
   try{
     prompt=buildCloudflareWorkspacePrompt(goal,workspaceRequest);
   }catch(error){
-    return {ok:false,status:422,reason:String(error instanceof Error?error.message:error).slice(0,180)};
+    const rawReason=error instanceof SyntaxError?"planner_model_output_invalid_json":String(error instanceof Error?error.message:error);
+    return {ok:false,status:422,reason:sanitizeCloudflarePlanFailureReason(rawReason)};
   }
   const freeModelId="nvidia/nemotron-3.5-lightning:free";
   const routes=await modelRoutes();
@@ -1535,7 +1536,8 @@ async function generateCloudflareWorkspacePlan(goal:string,workspaceRequest:any)
       }
     };
   }catch(error){
-    return {ok:false,status:422,reason:String(error instanceof Error?error.message:error).slice(0,180)};
+    const rawReason=error instanceof SyntaxError?"planner_model_output_invalid_json":String(error instanceof Error?error.message:error);
+    return {ok:false,status:422,reason:sanitizeCloudflarePlanFailureReason(rawReason)};
   }
 }
 
