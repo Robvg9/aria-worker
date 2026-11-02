@@ -74,8 +74,10 @@ async function runPreflight({
   }
 
   if (!adapter || adapter.supabaseIndependent !== true ||
-      adapter.localInference !== false) {
-    throw new Error('worker_adapter_must_be_execution_only_without_local_inference');
+      adapter.localInference !== false ||
+      typeof adapter.plan === 'function' ||
+      typeof adapter.replan === 'function') {
+    throw new Error('worker_adapter_must_be_execution_only_without_local_inference_or_planner');
   }
   for (const method of ['health', 'executeTask', 'verifyCompletion']) {
     if (typeof adapter[method] !== 'function') throw new Error('worker_adapter_method_missing:' + method);
