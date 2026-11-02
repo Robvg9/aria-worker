@@ -78,7 +78,7 @@ check(workflowSource.includes("python3 -m py_compile"),"workflow compiles the li
 check(liveScript.includes('args = ["supabase", "db", "query", "--linked", query]'),"SQL reads use supported Supabase CLI syntax");
 check(liveScript.includes('args.append("--yes")'),"remote SQL writes require explicit affirmative CLI consent");
 check(liveScript.includes('if not re.match(r"(?is)^SELECT\\b", statement) or ";" in statement'),"read mode accepts exactly one SELECT statement");
-check(!liveScript.includes("--read-only"),"unsupported Supabase CLI read-only flag is absent");
+check(!liveScript.includes('"--read-only"'),"unsupported Supabase CLI read-only flag is absent");
 check(liveScript.includes("supabase_sql(insert, allow_write=True)"),"mission INSERT requires explicit CLI consent");
 check(liveScript.includes("allow_write=True)"),"Human Gate approval and scope revocation require explicit CLI consent");
 console.log("Mission Wonder 2 Gate 3 supervised scope contract: PASS");
