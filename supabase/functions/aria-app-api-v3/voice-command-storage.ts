@@ -212,9 +212,74 @@ export function createVoiceCommandStores(serviceClient: any, authenticatedOwnerI
     return data === true;
   }
 
+  async function enqueueDeviceCommand(input: {
+    ownerId: string;
+    deviceId: string;
+    requestId: string;
+    idempotencyKey: string;
+    operation: string;
+    params: Record<string, unknown>;
+    expiresAt: number;
+  }): Promise<any | null> {
+    if (input.ownerId !== authenticatedOwnerId) throw new Error("voice_command_owner_mismatch");
+    requireDeviceId(input.deviceId);
+    if (typeof input.requestId !== "string" || !/^[A-Za-z0-9._:-]{8,128}$/.test(input.requestId)) {
+      throw new Error("voice_command_request_id_invalid");
+    }
+    if (typeof input.idempotencyKey !== "string" || !/^[A-Za-z0-9._:-]{16,128}$/.test(input.idempotencyKey)) {
+      throw new Error("voice_command_idempotency_key_invalid");
+    }
+    if (!Number.isSafeInteger(input.expiresAt)) throw new Error("voice_command_expiry_invalid");
+
+    const params = input.params;
+    if (!params || typeof params !== "object" || Array.isArray(params)) {
+      throw new Error("voice_command_params_invalid");
+    }
+    if (input.operation === "display.brightness.set") {
+      const keys = Object.keys(params);
+      if (keys.length !== 1 || keys[0] !== "brightness"
+          || typeof params.brightness !== "number" || !Number.isInteger(params.brightness)
+          || params.brightness < 0 || params.brightness > 100) {
+        throw new Error("voice_brightness_params_invalid");
+      }
+    } else if (input.operation === "app.open") {
+      const keys = Object.keys(params);
+      if (keys.length !== 1 || keys[0] !== "app_id"
+          || typeof params.app_id !== "string" || !/^[A-Za-z0-9._-]{1,120}$/.test(params.app_id)) {
+        throw new Error("voice_app_open_params_invalid");
+      }
+    } else if (input.operation === "browser.open_url") {
+      const keys = Object.keys(params);
+      if (keys.length !== 1 || keys[0] !== "url"
+          || typeof params.url !== "string" || params.url.length > 2048) {
+        throw new Error("voice_browser_url_params_invalid");
+      }
+      let parsed: URL;
+      try { parsed = new URL(params.url); } catch { throw new Error("voice_browser_url_params_invalid"); }
+      if (parsed.protocol !== "https:" || parsed.username || parsed.password
+          || parsed.hostname.length < 3) throw new Error("voice_browser_url_params_invalid");
+      // API router checks the allowed host before this persistence method.
+    } else {
+      throw new Error("voice_device_operation_not_allowlisted");
+    }
+
+    const { data, error } = await internal.rpc("enqueue_voice_device_command", {
+      p_owner_user_id: authenticatedOwnerId,
+      p_device_id: input.deviceId,
+      p_request_id: input.requestId,
+      p_idempotency_key: input.idempotencyKey,
+      p_operation: input.operation,
+      p_params: params,
+      p_expires_at: new Date(input.expiresAt).toISOString()
+    });
+    if (error) throw new Error("voice_device_command_enqueue_failed");
+    return data || null;
+  }
+
   return Object.freeze({
     nonceStore,
     idempotencyStore,
+    enqueueDeviceCommand,
     registerTrustedDeviceKey,
     resolveTrustedDeviceKey,
     revokeTrustedDeviceKey,
@@ -222,4 +287,70 @@ export function createVoiceCommandStores(serviceClient: any, authenticatedOwnerI
     resolveSpeakerPolicy,
     revokeSpeakerPolicy
   });
+}
+
+
+/**
+ * Device-side queue adapter. It can be constructed only inside a service-role
+ * API/worker after route-level rate limiting; SQL independently validates
+ * the per-device token on every claim and completion.
+ */
+export function createVoiceDeviceAgentQueue(serviceClient: any) {
+  if (!serviceClient || typeof serviceClient.schema !== "function") {
+    throw new TypeError("service Supabase client required");
+  }
+  const internal = serviceClient.schema("aria_internal");
+
+  async function claim(input: { deviceId: string; deviceToken: string }): Promise<any | null> {
+    requireDeviceId(input.deviceId);
+    if (typeof input.deviceToken !== "string" || input.deviceToken.length < 32) {
+      throw new Error("voice_agent_device_token_invalid");
+    }
+    const { data, error } = await internal.rpc("claim_voice_device_command", {
+      p_device_id: input.deviceId,
+      p_device_token: input.deviceToken
+    });
+    if (error) throw new Error("voice_device_command_claim_failed");
+    return data || null;
+  }
+
+  async function complete(input: {
+    commandId: string;
+    deviceId: string;
+    deviceToken: string;
+    status: "succeeded" | "failed";
+    result?: Record<string, unknown>;
+    errorCode?: string | null;
+  }): Promise<boolean> {
+    requireDeviceId(input.deviceId);
+    if (typeof input.deviceToken !== "string" || input.deviceToken.length < 32) {
+      throw new Error("voice_agent_device_token_invalid");
+    }
+    if (typeof input.commandId !== "string"
+        || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(input.commandId)) {
+      throw new Error("voice_command_id_invalid");
+    }
+    if (input.status !== "succeeded" && input.status !== "failed") {
+      throw new Error("voice_command_status_invalid");
+    }
+    const result = input.result || {};
+    const allowed = new Set(["ok","brightness","app_id","url","title","opened","verified","state"]);
+    for (const [key, value] of Object.entries(result)) {
+      if (!allowed.has(key)) throw new Error("voice_command_result_field_unsupported");
+      if (typeof value === "string" && value.length > 160) throw new Error("voice_command_result_value_invalid");
+      if (!["string","number","boolean"].includes(typeof value)) throw new Error("voice_command_result_value_invalid");
+    }
+    const { data, error } = await internal.rpc("complete_voice_device_command", {
+      p_command_id: input.commandId,
+      p_device_id: input.deviceId,
+      p_device_token: input.deviceToken,
+      p_status: input.status,
+      p_result: result,
+      p_error_code: input.errorCode || null
+    });
+    if (error) throw new Error("voice_device_command_completion_failed");
+    return data === true;
+  }
+
+  return Object.freeze({ claim, complete });
 }
