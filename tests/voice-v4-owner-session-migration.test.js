@@ -21,19 +21,30 @@ assert.match(migration, /CREATE TABLE IF NOT EXISTS aria_internal\.voice_owner_s
 assert.match(migration, /PRIMARY KEY \(owner_user_id, nonce\)/,
   'the nonce must be atomically single-use per authenticated owner');
 assert.match(migration, /CREATE TABLE IF NOT EXISTS aria_internal\.voice_command_idempotency/);
-assert.match(migration, /CREATE TABLE IF NOT EXISTS aria_internal\\.voice_trusted_device_keys/);
-assert.match(migration, /PRIMARY KEY \\(owner_user_id, device_id\\)/,
+assert.match(migration, /CREATE TABLE IF NOT EXISTS aria_internal\.voice_trusted_device_keys/);
+assert.match(migration, /PRIMARY KEY \(owner_user_id, device_id\)/,
   'trusted device public keys must be owner-scoped');
 assert.match(migration, /register_voice_trusted_device_key/);
 assert.match(migration, /resolve_voice_trusted_device_key/);
 assert.match(migration, /revoke_voice_trusted_device_key/);
-assert.match(migration, /CREATE TABLE IF NOT EXISTS aria_internal\\.voice_speaker_model_catalog/);
+assert.match(migration, /public_key_ed25519/);
+assert.match(migration, /p_device_token/);
+assert.match(migration, /token_hash = v_token_hash/);
+assert.match(migration, /capabilities @> '\["audio\.wake_word"\]'::jsonb/);
+assert.match(migration, /last_seen_at >= now\(\) - interval '90 seconds'/);
+
+assert.match(migration, /CREATE TABLE IF NOT EXISTS aria_internal\.voice_speaker_model_catalog/);
 assert.match(migration, /status = 'approved'/,
   'speaker verification can only use an approved server-side model');
 assert.match(migration, /speaker model is not approved for production/);
 assert.match(migration, /voice_speaker_model_catalog/);
 assert.match(migration, /resolve_voice_speaker_policy/);
 assert.match(migration, /revoke_voice_speaker_policy/);
+assert.match(migration, /FOREIGN KEY \\(speaker_model_id\\)/);
+assert.match(migration, /evaluation_evidence_ref IS NOT NULL/);
+assert.match(migration, /approved_at IS NOT NULL/);
+assert.match(migration, /p_enabled IS TRUE AND NOT EXISTS/);
+
 assert.doesNotMatch(migration, /speaker_embedding|voiceprint|raw_voice_sample|audio_blob/i,
   'no biometric template or audio may enter the database');
 assert.match(migration, /PRIMARY KEY \(owner_user_id, idempotency_key\)/,
@@ -59,7 +70,16 @@ assert.match(storage, /resolve_voice_trusted_device_key/);
 assert.match(storage, /revoke_voice_trusted_device_key/);
 assert.match(storage, /resolve_voice_speaker_policy/);
 assert.match(storage, /revoke_voice_speaker_policy/);
-assert.match(storage, /input\\.ownerId !== authenticatedOwnerId/);
+assert.match(storage, /registerTrustedDeviceKey/);
+assert.match(storage, /resolveTrustedDeviceKey/);
+assert.match(storage, /revokeTrustedDeviceKey/);
+assert.match(storage, /setSpeakerPolicy/);
+assert.match(storage, /resolveSpeakerPolicy/);
+assert.match(storage, /revokeSpeakerPolicy/);
+assert.match(storage, /requireUuid\(authenticatedOwnerId/);
+assert.doesNotMatch(storage, /speaker_embedding|voiceprint|raw_voice_sample|private_key/i);
+
+assert.match(storage, /input\.ownerId !== authenticatedOwnerId/);
 assert.match(storage, /authenticated owner id/);
 assert.match(storage, /input\.ownerId !== authenticatedOwnerId/);
 assert.match(storage, /new Date\(input\.expiresAt\)\.toISOString\(\)/);
