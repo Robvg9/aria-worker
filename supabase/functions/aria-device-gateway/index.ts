@@ -1699,7 +1699,7 @@ if(req.method==='POST'&&p==='/v1/autonomy/cycle'){try{let serviceAuthorized=awai
 if(req.method==='POST'&&p==='/v1/audit/all-for-one/start'){try{if(!await autonomyServiceAuthorized(req))return json({error:'unauthorized'},401);return json(await allForOneStart())}catch(e){return json({ok:false,status:'failed',error:queueError(e)},200)}}
 if(req.method==='POST'&&p==='/v1/audit/all-for-one/tick'){try{if(!await autonomyServiceAuthorized(req))return json({error:'unauthorized'},401);return json(await allForOneTick())}catch(e){return json({ok:false,status:'failed',error:queueError(e)},200)}}
 const a=await auth(req,b.device_id);if(a.error)return a.error;const d=a.device;
-const voiceDeviceTokenMatch=(req.headers.get('authorization')||'').match(/^Bearer\\s+(.+)$/i);
+const voiceDeviceTokenMatch=(req.headers.get('authorization')||'').match(/^Bearer\s+(.+)$/i);
 const voiceDeviceToken=voiceDeviceTokenMatch?.[1]||'';
 if(req.method==='POST'&&p==='/v1/voice/commands/claim'){
   if(!voiceDeviceToken)return json({error:'unauthorized'},401);
@@ -1712,7 +1712,7 @@ if(req.method==='POST'&&p==='/v1/voice/commands/claim'){
     return json({command:data||null,transport:'voice-command-queue-v1'});
   }catch{return json({error:'voice_command_claim_failed'},503)}
 }
-const voiceCompleteMatch=p.match(/^\\/v1\\/voice\\/commands\\/([0-9a-f-]{36})\\/complete$/i);
+const voiceCompleteMatch=p.match(/^\/v1\/voice\/commands\/([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\/complete$/i);
 if(req.method==='POST'&&voiceCompleteMatch){
   if(!voiceDeviceToken)return json({error:'unauthorized'},401);
   const commandId=voiceCompleteMatch[1];
