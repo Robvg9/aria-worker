@@ -64,7 +64,7 @@ export function HandsFreeVoiceControl({
 
   const recordDiagnostic = useCallback((event: string, details: Record<string, unknown> = {}) => {
     const result = appendVoiceDiagnostic(event, details);
-    setDiagnosticCount(result.count);
+    if (!disposedRef.current) setDiagnosticCount(result.count);
   }, []);
 
   const copyDiagnostics = useCallback(async () => {
@@ -273,7 +273,7 @@ export function HandsFreeVoiceControl({
             continue;
           }
           cursorRef.current = index + 1;
-          finalResultSeenRef.current = true;
+          if (phrase.trim()) finalResultSeenRef.current = true;
           restartDelayRef.current = 350;
           handleFinalPhrase(phrase);
         }
