@@ -35,6 +35,12 @@ const {
   ], [true, true, true, false, false], 'only the canonical planner endpoint forms are accepted');
   assert.equal(sanitizeCloudflarePlanFailureReason('planner_model_output_invalid_json'), 'planner_model_output_invalid_json');
   assert.equal(sanitizeCloudflarePlanFailureReason('workspace_search_query_invalid'), 'workspace_search_query_invalid');
+  assert.equal(sanitizeCloudflarePlanFailureReason('goal_too_large'), 'goal_too_large');
+  assert.equal(sanitizeCloudflarePlanFailureReason('workspace_path_required'), 'workspace_path_required');
+  assert.equal(sanitizeCloudflarePlanFailureReason('workspace_test_file_required'), 'workspace_test_file_required');
+  assert.ok(plannerSource.includes('stage:"prompt_validation"'));
+  assert.ok(plannerSource.includes('stage:"model_plan_validation"'));
+  assert.ok(plannerSource.includes('ARIA_CLOUDFLARE_WORKSPACE_PLAN_STAGE='));
   assert.equal(sanitizeCloudflarePlanFailureReason('Model output rejected: Unexpected <token> in JSON'), 'remote_plan_producer_rejected');
   assert.equal(sanitizeCloudflarePlanFailureReason(''), 'remote_plan_producer_rejected');
 
