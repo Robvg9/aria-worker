@@ -51,6 +51,10 @@ function boundedText(value, field, maxBytes, { allowEmpty = false } = {}) {
   return value;
 }
 
+export function validateCloudflareWorkspaceGoal(goal) {
+  return boundedText(goal, 'goal', 10000);
+}
+
 export function validateCloudflareWorkspaceRequest(request) {
   if (!request || typeof request !== 'object' || Array.isArray(request) || request.version !== 'v1') {
     throw new Error('cloudflare_workspace_request_v1_required');
@@ -78,7 +82,7 @@ export function validateCloudflareWorkspaceRequest(request) {
 }
 
 export function buildCloudflareWorkspacePrompt(goal, request) {
-  const normalizedGoal = boundedText(goal, 'goal', 10000);
+  const normalizedGoal = validateCloudflareWorkspaceGoal(goal);
   const contract = validateCloudflareWorkspaceRequest(request);
   const operations = contract.allowedOperations.map(operation => {
     const descriptions = {
@@ -304,4 +308,31 @@ const SAFE_PLAN_FAILURE_REASONS = new Set([
 export function sanitizeCloudflarePlanFailureReason(value) {
   const candidate = String(value || '');
   return SAFE_PLAN_FAILURE_REASONS.has(candidate) ? candidate : 'remote_plan_producer_rejected';
+}
+
+const SAFE_PROMPT_ERROR_TYPES = new Map([
+  ['Error', 'error'],
+  ['TypeError', 'type_error'],
+  ['ReferenceError', 'reference_error'],
+  ['RangeError', 'range_error'],
+  ['SyntaxError', 'syntax_error'],
+  ['URIError', 'uri_error'],
+  ['EvalError', 'eval_error'],
+  ['DOMException', 'dom_exception']
+]);
+
+export function diagnoseCloudflarePromptValidationFailure(error) {
+  const name = error && typeof error === 'object' && typeof error.name === 'string'
+    ? error.name
+    : '';
+  const errorType = SAFE_PROMPT_ERROR_TYPES.get(name) || 'unknown';
+  const rawReason = name === 'SyntaxError'
+    ? 'planner_model_output_invalid_json'
+    : error && typeof error === 'object' && typeof error.message === 'string'
+      ? error.message
+      : '';
+  return Object.freeze({
+    reason: sanitizeCloudflarePlanFailureReason(rawReason),
+    error_type: errorType
+  });
 }
