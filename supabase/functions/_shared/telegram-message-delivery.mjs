@@ -22,12 +22,15 @@ async function sha256Hex(value) {
 
 function createTelegramMessageDelivery({
   botToken,
+  authorizedOwnerId,
   stores,
   fetchImpl = fetch,
   now = Date.now,
   randomUUID = () => crypto.randomUUID()
 } = {}) {
   const token = typeof botToken === 'string' ? botToken.trim() : '';
+  const configuredOwnerId = typeof authorizedOwnerId === 'string' ? authorizedOwnerId.trim() : '';
+  const isAuthorizedOwner = ownerId => Boolean(configuredOwnerId && typeof ownerId === 'string' && ownerId === configuredOwnerId);
   if (!stores || typeof stores.getTelegramRecipient !== 'function'
       || typeof stores.prepareTelegramDispatch !== 'function'
       || typeof stores.claimTelegramDispatch !== 'function'
@@ -38,7 +41,8 @@ function createTelegramMessageDelivery({
     throw new TypeError('telegram_message_runtime_invalid');
   }
 
-  async function verifyChat(chatId) {
+  async function verifyChat(chatId, ownerId) {
+    if (!isAuthorizedOwner(ownerId)) return { ok: false, reason: 'telegram_owner_mismatch' };
     if (!token) return { ok: false, reason: 'telegram_provider_not_configured' };
     if (typeof chatId !== 'string' || !CHAT_ID_RE.test(chatId)) {
       return { ok: false, reason: 'telegram_chat_id_invalid' };
@@ -72,11 +76,9 @@ function createTelegramMessageDelivery({
     };
   }
 
-  async function listStartChats({ ownerId, configuredOwnerId }) {
+  async function listStartChats({ ownerId }) {
+    if (!isAuthorizedOwner(ownerId)) return { ok: false, reason: 'telegram_owner_mismatch' };
     if (!token) return { ok: false, reason: 'telegram_provider_not_configured' };
-    if (typeof configuredOwnerId !== 'string' || !configuredOwnerId || ownerId !== configuredOwnerId) {
-      return { ok: false, reason: 'telegram_bot_owner_mismatch' };
-    }
     let response;
     try {
       response = await fetchImpl(TELEGRAM_API + '/bot' + token + '/getUpdates', {
@@ -118,6 +120,7 @@ function createTelegramMessageDelivery({
   }
 
   async function prepare({ ownerId, recipientId, body, idempotencyKey }) {
+    if (!isAuthorizedOwner(ownerId)) return { ok: false, reason: 'telegram_owner_mismatch' };
     if (!token) return { ok: false, reason: 'telegram_provider_not_configured' };
     if (typeof ownerId !== 'string' || !ownerId) return { ok: false, reason: 'message_owner_invalid' };
     if (typeof recipientId !== 'string' || !RECIPIENT_ID_RE.test(recipientId)) {
@@ -175,6 +178,7 @@ function createTelegramMessageDelivery({
   }
 
   async function confirm({ ownerId, confirmationId, body }) {
+    if (!isAuthorizedOwner(ownerId)) return { ok: false, status: 'blocked', reason: 'telegram_owner_mismatch', executed: false };
     if (!token) return { ok: false, status: 'blocked', reason: 'telegram_provider_not_configured', executed: false };
     if (typeof ownerId !== 'string' || !ownerId
         || typeof confirmationId !== 'string' || !CONFIRMATION_ID_RE.test(confirmationId)
