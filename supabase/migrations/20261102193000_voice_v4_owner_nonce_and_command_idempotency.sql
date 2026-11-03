@@ -485,6 +485,7 @@ BEGIN
     AND d.agent_type = 'android-native'
     AND d.metadata->>'voice_pairing' = 'voice-v4-owner-readonly-v1'
     AND d.token_hash = v_token_hash
+    AND d.status <> 'disabled'
     AND EXISTS (
       SELECT 1 FROM aria_internal.voice_trusted_device_keys k
       WHERE k.owner_user_id = p_owner_user_id
