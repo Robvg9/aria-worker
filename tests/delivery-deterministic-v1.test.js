@@ -37,10 +37,10 @@ assert.match(recoveryWorkflow, /for attempt in \$\(seq 1 30\); do/);
 assert.match(recoveryWorkflow, /index-stale-test\.html\?probe=/);
 assert.match(recoveryWorkflow, /sw-stale-test\.js\?probe=/);
 assert.doesNotMatch(deployWorkflow, /wrangler secret put CLOUDFLARE_API_TOKEN/);
-for (const path of ["scripts/release-bearing.js", "tests/delivery-deterministic-v1.test.js"]) {
-  const escaped = path.replace(/[.*+?^${}()|[\]\\]/g, "\\assert.doesNotMatch(deployWorkflow, /wrangler secret put CLOUDFLARE_API_TOKEN/);");
-  assert.match(deployWorkflow, new RegExp("- '" + escaped + "'"));
-  assert.match(pwaDeployWorkflow, new RegExp("- '" + escaped + "'"));
+for (const ignoredPath of ["scripts/release-bearing.js", "tests/delivery-deterministic-v1.test.js"]) {
+  const expectedIgnoreLine = "- '" + ignoredPath + "'";
+  assert.ok(deployWorkflow.includes(expectedIgnoreLine), "Cloudflare deploy must ignore " + ignoredPath);
+  assert.ok(pwaDeployWorkflow.includes(expectedIgnoreLine), "PWA deploy must ignore " + ignoredPath);
 }
 assert.equal(artifact.buildRuntimeServiceWorker("const CACHE = 'aria-pwa-__BUILD__';\r\nself.x=1;", 'abc').split('\n')[0], 'const CACHE = "aria-pwa-abc";');
 
