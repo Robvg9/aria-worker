@@ -77,6 +77,19 @@ def supabase_sql(query, allow_write=False):
         if not re.match(r"(?is)^SELECT\b", statement) or ";" in statement:
             fail("read-only SQL must be a single SELECT statement")
         args.append("--read-only")
+    proc = subprocess.run(
+        args,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    output = (proc.stdout or "") + (proc.stderr or "")
+    if proc.returncode != 0:
+        # Do not echo full SQL if it contains structured mission data.
+        print("SUPABASE_SQL_FAILED exit=" + str(proc.returncode))
+        print(output[-5000:])
+        fail("Supabase SQL command failed")
+    return output
 
 def check_sql(query, marker, label, allow_write=False):
     output = supabase_sql(query, allow_write=allow_write)
