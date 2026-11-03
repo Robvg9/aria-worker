@@ -160,6 +160,15 @@ assertContains(appApi,'publicKeyEd25519: body.public_key_ed25519','registration 
 assertContains(appApi,'deviceToken: body.device_token','device registration must prove possession of the paired device token via the storage adapter');
 assertContains(appApi,'public_key_fingerprint: registration.public_key_fingerprint','registration response must return a fingerprint, not raw credentials');
 assertContains(appApi,'path.endsWith("/voice/devices/revoke")','owners must have an authenticated voice device key revocation route');
+
+assertContains(appApi,'path.endsWith("/voice/devices/pair-windows")','Windows DPAPI owner pairing must require an authenticated owner route');
+assertContains(appApi,'path.endsWith("/voice/devices/heartbeat-windows")','Windows read-only pairing must have an owner-scoped heartbeat route');
+assertContains(appApi,'stores.pairWindowsOwnerDeviceKey','Windows pairing must use the scoped service-role storage adapter');
+assertContains(appApi,'stores.heartbeatWindowsOwnerDeviceKey','Windows heartbeat must use the scoped service-role storage adapter');
+assertContains(appApi,'aria-windows-dpapi-ed25519-v1','Windows pairing must accept only the dedicated DPAPI Ed25519 key identity');
+assertContains(appApi,'voice_windows_pairing_rejected','Windows pairing must normalize failures without disclosing token or pairing state');
+assertContains(appApi,'voice_windows_heartbeat_rejected','Windows heartbeat must normalize failures');
+
 assertContains(appApi,'stores.revokeTrustedDeviceKey','revocation must use the scoped service-role RPC adapter');
 assertContains(appApi,'voice_device_key_registration_rejected','registration failures must be normalized without disclosing pairing/token state');
 assertContains(appApi,'voice_device_key_revocation_rejected','revocation failures must be normalized');
