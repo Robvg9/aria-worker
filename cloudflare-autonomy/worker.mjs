@@ -1383,6 +1383,9 @@ export class AriaMissionStore {
         }
       }
       task.status = 'succeeded';
+      task.completed_at = nowIso();
+      task.completed_event_sequence = (Number(mission.event_sequence) || 0) + 1;
+      task.completed_job_id = job.job_id;
       task.evidence = [clone(result.evidence == null ? { result: 'passed_without_detail' } : result.evidence)];
       task.last_error = null;
       if (hasTaskEvidence(task)) {
@@ -1508,6 +1511,7 @@ export class AriaMissionStore {
     };
     task.last_error = classification.error_code;
     task.last_attempt_finished_at = nowIso();
+    task.failure_event_sequence = (Number(mission.event_sequence) || 0) + 1;
     task.failure_transition_id = [task.task_id, task.attempts, fingerprint].map(value => safeDiagnosticLabel(value) || 'unknown').join(':');
     task.failure_diagnostics = [...(Array.isArray(task.failure_diagnostics) ? task.failure_diagnostics : []), diagnostic].slice(-5);
     mission.current_task_id = null;
@@ -1721,8 +1725,10 @@ export class AriaMissionStore {
       .filter(job => job.mission_id === mission.mission_id && job.operation === 'task.execute' && job.task_id === readbackTask.task_id)
       .sort((left, right) => String(right.updated_at || right.created_at).localeCompare(String(left.updated_at || left.created_at)));
     const readbackJob = readbackJobs.find(job => job.status === 'completed' && job.result?.passed === true);
-    const completedAt = Date.parse(task.last_attempt_finished_at || '');
-    if (!readbackJob || !Number.isFinite(completedAt) || Date.parse(readbackJob.created_at || '') <= completedAt ||
+    const failureEventSequence = Number(task.failure_event_sequence);
+    const readbackEventSequence = Number(readbackTask.completed_event_sequence);
+    if (!readbackJob || !Number.isSafeInteger(failureEventSequence) || !Number.isSafeInteger(readbackEventSequence) ||
+        readbackEventSequence <= failureEventSequence || readbackTask.completed_job_id !== readbackJob.job_id ||
         readbackJob.result.evidence?.operation !== 'workspace.read' ||
         canonicalPath(readbackJob.result.evidence.path) !== canonicalPath(task.payload.path) ||
         readbackJob.result.evidence.content !== evidence.content ||
