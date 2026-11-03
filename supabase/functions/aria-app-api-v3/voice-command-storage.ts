@@ -180,7 +180,7 @@ export function createVoiceCommandStores(serviceClient: any, authenticatedOwnerI
     publicKeyEd25519: string;
   }): Promise<any> {
     if (input.ownerId !== authenticatedOwnerId) throw new Error("voice_device_owner_mismatch");
-    if (typeof input.deviceId !== "string" || !/^windows-voice-[A-Za-z0-9._:-]{1,120}$/.test(input.deviceId)) {
+    if (typeof input.deviceId !== "string" || !/^windows-[A-Za-z0-9._:-]{1,120}$/.test(input.deviceId)) {
       throw new Error("voice_windows_device_id_invalid");
     }
     if (typeof input.deviceToken !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(input.deviceToken)) {
@@ -214,7 +214,7 @@ export function createVoiceCommandStores(serviceClient: any, authenticatedOwnerI
     deviceToken: string;
   }): Promise<boolean> {
     if (input.ownerId !== authenticatedOwnerId) throw new Error("voice_device_owner_mismatch");
-    if (typeof input.deviceId !== "string" || !/^windows-voice-[A-Za-z0-9._:-]{1,120}$/.test(input.deviceId)) {
+    if (typeof input.deviceId !== "string" || !/^windows-[A-Za-z0-9._:-]{1,120}$/.test(input.deviceId)) {
       throw new Error("voice_windows_device_id_invalid");
     }
     if (typeof input.deviceToken !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(input.deviceToken)) {
