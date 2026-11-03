@@ -372,6 +372,128 @@ export function createVoiceCommandStores(serviceClient: any, authenticatedOwnerI
     return data || null;
   }
 
+
+  async function getTelegramRecipient(recipientId: string): Promise<any | null> {
+    if (typeof recipientId !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._-]{2,63}$/.test(recipientId)) {
+      throw new Error("telegram_recipient_id_invalid");
+    }
+    const { data, error } = await internal.from("voice_message_recipients")
+      .select("recipient_id,display_name,telegram_chat_id,enabled,channel")
+      .eq("owner_user_id", authenticatedOwnerId)
+      .eq("recipient_id", recipientId)
+      .maybeSingle();
+    if (error) throw new Error("telegram_recipient_lookup_failed");
+    return data || null;
+  }
+
+  async function listTelegramRecipients(): Promise<any[]> {
+    const { data, error } = await internal.from("voice_message_recipients")
+      .select("recipient_id,display_name,enabled,channel,created_at,updated_at")
+      .eq("owner_user_id", authenticatedOwnerId)
+      .order("display_name", { ascending: true })
+      .limit(100);
+    if (error) throw new Error("telegram_recipient_list_failed");
+    return Array.isArray(data) ? data : [];
+  }
+
+  async function upsertTelegramRecipient(input: {
+    recipientId: string;
+    displayName: string;
+    telegramChatId: string;
+  }): Promise<any> {
+    if (typeof input.recipientId !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._-]{2,63}$/.test(input.recipientId)
+        || typeof input.displayName !== "string" || input.displayName.trim().length < 1
+        || input.displayName.trim().length > 120
+        || typeof input.telegramChatId !== "string" || !/^-?[0-9]{1,20}$/.test(input.telegramChatId)) {
+      throw new Error("telegram_recipient_input_invalid");
+    }
+    const { data, error } = await internal.from("voice_message_recipients").upsert({
+      owner_user_id: authenticatedOwnerId,
+      recipient_id: input.recipientId,
+      display_name: input.displayName.trim(),
+      telegram_chat_id: input.telegramChatId,
+      channel: "telegram",
+      enabled: true,
+      updated_at: new Date().toISOString()
+    }, { onConflict: "owner_user_id,recipient_id" })
+      .select("recipient_id,display_name,enabled,channel,created_at,updated_at")
+      .single();
+    if (error || !data) throw new Error("telegram_recipient_save_failed");
+    return data;
+  }
+
+  async function prepareTelegramDispatch(input: {
+    ownerId: string;
+    confirmationId: string;
+    idempotencyKey: string;
+    recipientId: string;
+    bodyHash: string;
+    expiresAt: number;
+  }): Promise<any | null> {
+    if (input.ownerId !== authenticatedOwnerId) throw new Error("telegram_message_owner_mismatch");
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(input.confirmationId)
+        || !/^[A-Za-z0-9._:-]{16,128}$/.test(input.idempotencyKey)
+        || !/^[A-Za-z0-9][A-Za-z0-9._-]{2,63}$/.test(input.recipientId)
+        || !/^[a-f0-9]{64}$/.test(input.bodyHash)
+        || !Number.isSafeInteger(input.expiresAt)) {
+      throw new Error("telegram_message_prepare_input_invalid");
+    }
+    const { data, error } = await internal.rpc("prepare_voice_telegram_message", {
+      p_owner_user_id: authenticatedOwnerId,
+      p_confirmation_id: input.confirmationId,
+      p_idempotency_key: input.idempotencyKey,
+      p_recipient_id: input.recipientId,
+      p_body_sha256: input.bodyHash,
+      p_expires_at: new Date(input.expiresAt).toISOString()
+    });
+    if (error) throw new Error("telegram_message_prepare_failed");
+    return data || null;
+  }
+
+  async function claimTelegramDispatch(input: {
+    ownerId: string;
+    confirmationId: string;
+    bodyHash: string;
+  }): Promise<any | null> {
+    if (input.ownerId !== authenticatedOwnerId) throw new Error("telegram_message_owner_mismatch");
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(input.confirmationId)
+        || !/^[a-f0-9]{64}$/.test(input.bodyHash)) {
+      throw new Error("telegram_message_claim_input_invalid");
+    }
+    const { data, error } = await internal.rpc("claim_voice_telegram_message", {
+      p_owner_user_id: authenticatedOwnerId,
+      p_confirmation_id: input.confirmationId,
+      p_body_sha256: input.bodyHash
+    });
+    if (error) throw new Error("telegram_message_claim_failed");
+    return data || null;
+  }
+
+  async function completeTelegramDispatch(input: {
+    ownerId: string;
+    confirmationId: string;
+    status: "sent" | "failed" | "unknown";
+    providerMessageId?: number | null;
+    providerChatId?: string | null;
+    errorCode?: string | null;
+  }): Promise<boolean> {
+    if (input.ownerId !== authenticatedOwnerId) throw new Error("telegram_message_owner_mismatch");
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(input.confirmationId)
+        || !["sent", "failed", "unknown"].includes(input.status)) {
+      throw new Error("telegram_message_completion_input_invalid");
+    }
+    const { data, error } = await internal.rpc("complete_voice_telegram_message", {
+      p_owner_user_id: authenticatedOwnerId,
+      p_confirmation_id: input.confirmationId,
+      p_status: input.status,
+      p_provider_message_id: input.providerMessageId ?? null,
+      p_provider_chat_id: input.providerChatId ?? null,
+      p_error_code: input.errorCode ?? null
+    });
+    if (error) throw new Error("telegram_message_completion_failed");
+    return data === true;
+  }
+
   return Object.freeze({
     nonceStore,
     idempotencyStore,
@@ -384,7 +506,13 @@ export function createVoiceCommandStores(serviceClient: any, authenticatedOwnerI
     revokeTrustedDeviceKey,
     setSpeakerPolicy,
     resolveSpeakerPolicy,
-    revokeSpeakerPolicy
+    revokeSpeakerPolicy,
+    getTelegramRecipient,
+    listTelegramRecipients,
+    upsertTelegramRecipient,
+    prepareTelegramDispatch,
+    claimTelegramDispatch,
+    completeTelegramDispatch
   });
 }
 
