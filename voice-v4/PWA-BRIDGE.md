@@ -45,7 +45,7 @@ This document describes the required PWA host bridge, not evidence that the Andr
 ## Windows owner pairing backend contract — 2026-11-03
 
 - The Worker branch now defines authenticated owner endpoints `POST /voice/devices/pair-windows` and `POST /voice/devices/heartbeat-windows`, backed by service-role-only RPCs `pair_voice_windows_owner_device` and `touch_voice_windows_owner_device`.
-- The pairing identity is fixed to `aria-windows-dpapi-ed25519-v1`; device IDs must use the `windows-voice-` prefix, and the public key is the only signing-key material sent to the API.
+- The pairing identity is fixed to `aria-windows-dpapi-ed25519-v1`; it preserves the stable Windows agent device ID (for example, `windows-lacueva-...`) and stores the public-key fingerprint separately. The public key is the only signing-key material sent to the API; private key and device token remain DPAPI-protected.
 - Pairing creates a `windows-native` trusted identity with empty capabilities, `wake_word_enabled=false`, and `mode=read_only`. Heartbeats preserve the empty capability set and cannot reactivate an administratively disabled device. Revocation uses the existing owner-scoped voice device revocation route.
 - This is backend contract/code only. The Windows DPAPI key is still not wired into the agent or a browser host; there is no local HTTP bridge, no authenticated Windows owner-token handoff, no token persistence/enrollment UI, and no physical Windows pairing test. Do not claim Windows signing is ready to use.
 - No migration is applied to Supabase LIVE. The endpoints become usable only after the governed migration/API release and after a separately reviewed native host securely handles the device token and authenticated owner session.
