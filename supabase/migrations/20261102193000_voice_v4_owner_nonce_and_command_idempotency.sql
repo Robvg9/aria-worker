@@ -262,6 +262,14 @@ BEGIN
     RAISE EXCEPTION 'voice device is not paired, online, or wake-word capable';
   END IF;
 
+  -- Ownership transfer is permitted only after the prior owner has revoked
+  -- this device. The unique device index blocks every active prior pairing.
+  DELETE FROM aria_internal.voice_trusted_device_keys
+  WHERE device_id = p_device_id
+    AND owner_user_id <> p_owner_user_id
+    AND enabled = false
+    AND revoked_at IS NOT NULL;
+
   INSERT INTO aria_internal.voice_trusted_device_keys (
     owner_user_id, device_id, public_key_id, public_key_ed25519,
     public_key_fingerprint, security, enabled, revoked_at,

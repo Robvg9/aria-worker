@@ -31,6 +31,15 @@ assert.ok(migration.includes("CREATE UNIQUE INDEX IF NOT EXISTS voice_trusted_de
 assert.match(migration, /register_voice_trusted_device_key/);
 assert.match(migration, /resolve_voice_trusted_device_key/);
 assert.match(migration, /revoke_voice_trusted_device_key/);
+const registerTrustedVoiceDevice = migration.slice(
+  migration.lastIndexOf('CREATE OR REPLACE FUNCTION aria_internal.register_voice_trusted_device_key'),
+  migration.lastIndexOf('CREATE OR REPLACE FUNCTION aria_internal.resolve_voice_trusted_device_key')
+);
+assert.ok(registerTrustedVoiceDevice.includes('DELETE FROM aria_internal.voice_trusted_device_keys'));
+assert.ok(registerTrustedVoiceDevice.includes('owner_user_id <> p_owner_user_id'));
+assert.ok(registerTrustedVoiceDevice.includes('enabled = false'));
+assert.ok(registerTrustedVoiceDevice.includes('revoked_at IS NOT NULL'),
+  'device ownership transfer must require revocation by the previous owner');
 assert.match(migration, /public_key_ed25519/);
 assert.match(migration, /token_hash = v_token_hash/);
 assert.match(migration, /capabilities @> '\["audio[.]wake_word"\]'::jsonb/);
