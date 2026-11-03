@@ -35,9 +35,9 @@ function fixture({ token = '123456:TelegramFakeBotToken_forContractTests', fetch
       const row = rows.get(input.confirmationId);
       if (!row || row.owner_id !== input.ownerId || row.body_sha256 !== input.bodyHash) return null;
       if (row.status === 'sent') return { status: 'sent', provider_message_id: row.provider_message_id };
-      if (row.status !== 'prepared') return { status: row.status };
+      if (row.status !== 'prepared') return { status: row.status, claim_state: 'not_claimed' };
       row.status = 'dispatching';
-      return { status: 'dispatching', recipient_id: row.recipient_id, telegram_chat_id: recipient.telegram_chat_id };
+      return { status: 'dispatching', claim_state: 'claimed_for_send', recipient_id: row.recipient_id, telegram_chat_id: recipient.telegram_chat_id };
     },
     async completeTelegramDispatch(input) {
       const row = rows.get(input.confirmationId);
@@ -121,6 +121,29 @@ function fixture({ token = '123456:TelegramFakeBotToken_forContractTests', fetch
   assert.equal(duplicate.status, 'sent');
   assert.equal(duplicate.duplicate, true);
   assert.equal(fx.sent.length, 1, 'a repeated confirmation must not send twice');
+
+  const concurrentFx = fixture();
+  const concurrentPreview = await concurrentFx.delivery.prepare({
+    ownerId: 'owner-uuid',
+    recipientId: 'contact-mom',
+    body: 'Mensaje único.',
+    idempotencyKey: 'voice-idem-key-000009'
+  });
+  const concurrentResults = await Promise.all([
+    concurrentFx.delivery.confirm({
+      ownerId: 'owner-uuid',
+      confirmationId: concurrentPreview.confirmation_id,
+      body: concurrentPreview.body
+    }),
+    concurrentFx.delivery.confirm({
+      ownerId: 'owner-uuid',
+      confirmationId: concurrentPreview.confirmation_id,
+      body: concurrentPreview.body
+    })
+  ]);
+  assert.equal(concurrentFx.sent.length, 1, 'only the process winning the SQL dispatch claim may call Telegram');
+  assert.equal(concurrentResults.filter(item => item.status === 'sent' && item.duplicate !== true).length, 1);
+  assert.equal(concurrentResults.filter(item => item.reason === 'telegram_delivery_outcome_uncertain').length, 1);
 
   const mismatchFx = fixture();
   const mismatchPreview = await mismatchFx.delivery.prepare({
