@@ -6,6 +6,7 @@ import { HandsFreeVoiceControl } from './HandsFreeVoiceControl';
 import { appendVoiceDiagnostic } from './voiceDiagnostics';
 import { isVoiceMissionAffirmative, isVoiceMissionNegative, speakAssistantText, stopAssistantSpeech } from './voiceOutput';
 import { mergeRestoredChatMessages } from './chatHistory';
+import { parseExplicitVoiceAction, dispatchVoiceAction, getVoiceCommandStatus } from './voiceCommandClient';
 import { missionActivityLabel, missionGoalPreview, missionHumanTitle, missionListLabel } from './missionPresentation';
 import { artifactKindLabel, missionArtifacts, type MissionArtifact } from './missionArtifacts';
 import { TEST_CATALOG, TEST_CATALOG_STATS, TEST_CATALOG_VERSION, filterTestCatalog } from './testCatalog';
@@ -68,6 +69,7 @@ type Session = {
 };
 
 type Message = { id: string; role: 'user' | 'aria'; text: string; processingMs?: number };
+type VoiceCommandUiState = { commandId: string; deviceId: string; operation: string; status: string; terminal: boolean; result?: Record<string, unknown>; errorCode?: string | null; pollingExpired?: boolean; statusError?: string };
 type CapabilityCatalog = {
   summary: Record<string, number>;
   executors: any[];
@@ -758,7 +760,7 @@ async function api(path: string, token: string, init: RequestInit = {}) {
       }
 
       if (!response.ok) {
-        const code = String(data?.error ?? 'aria_api_error');
+        const code = String(data?.error ?? data?.result?.reason ?? 'aria_api_error');
         const detail = HUMAN_API_ERRORS[code];
         throw new Error(detail ?? code);
       }
@@ -2166,6 +2168,7 @@ function Chat({
   const voiceModeRef = useRef(voiceMode);
   voiceModeRef.current = voiceMode;
   const [sending, setSending] = useState(false);
+  const [voiceCommandStatus, setVoiceCommandStatus] = useState<VoiceCommandUiState | null>(null);
   const [missionCreatedNotice, setMissionCreatedNotice] = useState('');
   const [system, setSystem] = useState<any>(() => readCached('system', session.userId));
   const [caps, setCaps] = useState<CapabilityCatalog | null>(() => readCached('capabilities', session.userId));
@@ -2202,6 +2205,46 @@ function Chat({
   }, [voiceMode]);
 
   useEffect(() => () => stopAssistantSpeech(), []);
+
+  useEffect(() => {
+    const commandId = voiceCommandStatus?.commandId;
+    if (!commandId || voiceCommandStatus?.terminal || voiceCommandStatus?.pollingExpired) return;
+    let cancelled = false;
+    let timer: number | undefined;
+    const startedAt = Date.now();
+    const poll = async () => {
+      try {
+        const status = await getVoiceCommandStatus(
+          (path, init = {}) => api(path, session.accessToken, init),
+          commandId
+        );
+        if (cancelled) return;
+        setVoiceCommandStatus(current => current?.commandId === commandId
+          ? { ...current, ...status, statusError: undefined }
+          : current);
+        if (status.terminal) return;
+      } catch {
+        if (!cancelled) {
+          setVoiceCommandStatus(current => current?.commandId === commandId
+            ? { ...current, statusError: 'No se pudo consultar el estado del dispositivo; no se asumirá que la orden terminó.' }
+            : current);
+        }
+      }
+      if (cancelled) return;
+      if (Date.now() - startedAt >= 45000) {
+        setVoiceCommandStatus(current => current?.commandId === commandId
+          ? { ...current, pollingExpired: true }
+          : current);
+        return;
+      }
+      timer = window.setTimeout(poll, 1500);
+    };
+    void poll();
+    return () => {
+      cancelled = true;
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
+  }, [voiceCommandStatus?.commandId, voiceCommandStatus?.terminal, voiceCommandStatus?.pollingExpired, session.accessToken]);
 
   const syncSystemAndMission = async () => {
     let fresh = false;
@@ -2522,6 +2565,80 @@ function Chat({
     return true;
   }
 
+  async function runVoiceV4Intent(intent: any): Promise<boolean> {
+    chatMutationVersionRef.current += 1;
+    setSending(true);
+    setError('');
+    try {
+      const response = await dispatchVoiceAction({
+        api: (path, init = {}) => api(path, session.accessToken, init),
+        bridge: (window as any).ariaVoiceV4,
+        intent,
+        ownerId: session.userId
+      });
+      if (response?.confirmation_required === true || response?.command?.status === 'confirmation_required') {
+        // The PWA never confirms or dispatches a message from voice recognition.
+        const notice = 'ARIA preparó una vista previa que exige confirmación visible. Todavía no se ha enviado ningún mensaje.';
+        setMessages(current => [...current, { id: crypto.randomUUID(), role: 'aria', text: notice }]);
+        if (voiceModeRef.current) speakAssistantText(notice);
+        return true;
+      }
+      if (response?.command?.status === 'queued' && response?.command?.command_id) {
+        const command = response.command;
+        setVoiceCommandStatus({
+          commandId: String(command.command_id),
+          deviceId: String(command.device_id || intent.device_id || ''),
+          operation: String(command.operation || intent.operation),
+          status: 'queued',
+          terminal: false
+        });
+        const notice = 'Orden recibida y en cola. Estoy esperando la confirmación real del dispositivo; todavía no la marco como completada.';
+        setMessages(current => [...current, { id: crypto.randomUUID(), role: 'aria', text: notice }]);
+        if (voiceModeRef.current) speakAssistantText(notice);
+        return true;
+      }
+      if (response?.result?.status === 'succeeded') {
+        const result = response.result.result && typeof response.result.result === 'object'
+          ? response.result.result : {};
+        const detail = Object.entries(result).map(([key, value]) => key + ': ' + String(value)).join(' · ');
+        const notice = intent.operation === 'aria.status'
+          ? 'Estado de ARIA consultado.' + (detail ? ' ' + detail : '')
+          : 'Estado del dispositivo consultado.' + (detail ? ' ' + detail : '');
+        setMessages(current => [...current, { id: crypto.randomUUID(), role: 'aria', text: notice }]);
+        if (voiceModeRef.current) speakAssistantText(notice);
+        return true;
+      }
+      const reason = String(response?.result?.reason || response?.error || 'voice_command_not_confirmed');
+      throw new Error(reason);
+    } catch (cause) {
+      const code = cause instanceof Error ? cause.message : 'voice_command_failed';
+      const messages: Record<string, string> = {
+        voice_v4_native_signer_unavailable: 'Este navegador no tiene un firmador nativo seguro conectado. No envié la orden. Para habilitar acciones directas hace falta el puente nativo con clave protegida por Keystore/DPAPI.',
+        voice_v4_native_signer_invalid: 'El puente nativo no entregó una sesión firmada válida. La orden fue bloqueada.',
+        voice_v4_native_signer_context_mismatch: 'La sesión firmada no coincide con este usuario, dispositivo o vencimiento. La orden fue bloqueada.',
+        voice_v4_speaker_verification_unavailable: 'No existe una verificación de hablante aprobada para esta acción. No envié la orden.',
+        voice_v4_authenticated_owner_required: 'No pude vincular la orden con la sesión autenticada. No se envió.',
+        voice_device_target_not_found: 'No encontré ese dispositivo en el inventario de ARIA. Di el nombre exacto de un dispositivo registrado.',
+        voice_device_target_ambiguous: 'Hay más de un dispositivo con ese nombre. No elegí uno automáticamente.',
+        voice_brightness_value_invalid: 'El brillo debe estar entre 0 y 100.',
+        voice_url_not_allowlisted: 'El enlace no cumple las reglas de seguridad. Solo se aceptan URLs HTTPS aprobadas.',
+        owner_speaker_verification_required: 'El servidor rechazó la acción porque la verificación del hablante no está aprobada.',
+        speaker_policy_rejected: 'La política de hablante del dispositivo no permite esta acción.',
+        device_not_trusted_and_healthy: 'El dispositivo no está emparejado y saludable para recibir órdenes.',
+        device_capability_missing: 'El dispositivo no tiene autorización para esa acción.',
+        voice_command_router_unavailable: 'El router de voz no está disponible.',
+        voice_command_status_unavailable: 'No se pudo recuperar el estado seguro del comando.'
+      };
+      const notice = messages[code] || ('La orden directa fue bloqueada: ' + code + '. No se asumió ejecución.');
+      setError(notice);
+      setMessages(current => [...current, { id: crypto.randomUUID(), role: 'aria', text: notice }]);
+      if (voiceModeRef.current) speakAssistantText(notice);
+      return true;
+    } finally {
+      setSending(false);
+    }
+  }
+
   function handleVoiceTranscript(transcript: string): Promise<boolean> | boolean | void {
     if (voiceModeRef.current) {
       if (pendingMissionConfirmation) {
@@ -2532,6 +2649,8 @@ function Chat({
         speakAssistantText(clarification);
         return true;
       }
+      const directIntent = parseExplicitVoiceAction(transcript, caps?.devices ?? []);
+      if (directIntent) return runVoiceV4Intent(directIntent);
       return send(transcript);
     }
     setText(previous => previous.trim() ? previous.replace(/\s+$/, '') + ' ' + transcript : transcript);
@@ -2711,6 +2830,36 @@ function Chat({
                   ? messages.map(m => <div key={m.id} className={'bubble ' + m.role}><div className='markdownBody'>{renderMarkdown(m.text)}</div>{m.role === 'aria' && m.processingMs != null && <small className='messageMeta'>Procesado en {formatProcessingTime(m.processingMs)}</small>}</div>)
                   : <div className='emptyState'>Habla con ARIA. Ella decide si conversa, recuerda, planifica o ejecuta una misión.</div>}
               </div>
+              {voiceCommandStatus && (
+                <section className='voiceCommandStatus' role='status' aria-live='polite'>
+                  <div className='voiceCommandStatusHeader'>
+                    <div>
+                      <strong>Comando directo</strong>
+                      <small>{voiceCommandStatus.operation} · {voiceCommandStatus.deviceId || 'ARIA'}</small>
+                    </div>
+                    <span className={'voiceCommandState voiceCommandState-' + voiceCommandStatus.status}>
+                      {voiceCommandStatus.status === 'queued' ? 'En cola'
+                        : voiceCommandStatus.status === 'claimed' ? 'Recibido por dispositivo'
+                        : voiceCommandStatus.status === 'running' ? 'Ejecutándose'
+                        : voiceCommandStatus.status === 'succeeded' ? 'Completado por dispositivo'
+                        : voiceCommandStatus.status === 'failed' ? 'Fallido'
+                        : voiceCommandStatus.status === 'expired' ? 'Expirado'
+                        : voiceCommandStatus.status === 'cancelled' ? 'Cancelado' : voiceCommandStatus.status}
+                    </span>
+                  </div>
+                  <small>{voiceCommandStatus.terminal
+                    ? 'Estado terminal informado por el agente y consultado en el servidor.'
+                    : voiceCommandStatus.pollingExpired
+                      ? 'No llegó una confirmación terminal dentro de la ventana de consulta. El resultado queda sin confirmar.'
+                      : 'Esperando el acuse real del agente. En cola o recibido no significa completado.'}</small>
+                  {voiceCommandStatus.result && Object.keys(voiceCommandStatus.result).length > 0 && (
+                    <small>{Object.entries(voiceCommandStatus.result).map(([key, value]) => key + ': ' + String(value)).join(' · ')}</small>
+                  )}
+                  {voiceCommandStatus.errorCode && <small>Código informado: {voiceCommandStatus.errorCode}</small>}
+                  {voiceCommandStatus.statusError && <small>{voiceCommandStatus.statusError}</small>}
+                  <button type='button' className='ghost' onClick={() => setVoiceCommandStatus(null)}>Cerrar estado</button>
+                </section>
+              )}
               {pendingMissionConfirmation && (
                 <div className='missionConfirmation' role='dialog' aria-label='Confirmar inicio de misión'>
                   <div>
