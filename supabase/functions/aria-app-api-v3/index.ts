@@ -2477,7 +2477,7 @@ Deno.serve(async (req) => {
         if (result.status === "sent") return json({ ok: true, delivery: result, trace_id: trace }, 200);
         const status = result.status === "unknown" ? 409
           : result.reason === "telegram_provider_not_configured" ? 503 : 409;
-        return json({ ok: false, delivery: result, trace_id: trace }, status);
+        return json({ ok: false, error: String(result.reason || "telegram_delivery_failed"), delivery: result, trace_id: trace }, status);
       } catch {
         return json({ ok: false, error: "telegram_delivery_unavailable", trace_id: trace }, 503);
       }
