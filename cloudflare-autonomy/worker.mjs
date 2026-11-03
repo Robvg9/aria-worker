@@ -1026,8 +1026,11 @@ export class AriaMissionStore {
   }
   async createJob(mission, operation, task, context = {}) {
     this.assertMissionExecutionEnabled();
-    const scope = this.package3ProbeContext && this.package3ProbeContext.mission_id === mission.mission_id
-      ? this.package3ProbeContext : null;
+    const currentProbeScope = this.package3ProbeContext;
+    const scope = currentProbeScope && (
+      currentProbeScope.mission_id === mission.mission_id ||
+      (currentProbeScope.status === 'preparing' && mission.metadata?.probe_id === currentProbeScope.probe_id)
+    ) ? currentProbeScope : null;
     const jobs = scope
       ? await Promise.all((scope.allowed_job_ids || []).map(jobId => this.ctx.storage.get('job:' + jobId)))
       : Array.from((await this.ctx.storage.list({ prefix: 'job:' })).values());
@@ -1059,11 +1062,15 @@ export class AriaMissionStore {
       last_error: null
     };
     await this.ctx.storage.put('job:' + job.job_id, job);
-    if (this.package3ProbeContext && mission.mission_id === this.package3ProbeContext.mission_id) {
-      const scopeKey = 'package3:probe:' + this.package3ProbeContext.probe_id;
+    if (scope) {
+      const scopeKey = 'package3:probe:' + scope.probe_id;
       const currentScope = await this.ctx.storage.get(scopeKey);
-      if (currentScope && currentScope.status === 'active') {
+      if (currentScope && ['preparing', 'active'].includes(currentScope.status) &&
+          (!currentScope.mission_id || currentScope.mission_id === mission.mission_id)) {
+        currentScope.mission_id = mission.mission_id;
         currentScope.allowed_job_ids = Array.from(new Set([...(currentScope.allowed_job_ids || []), job.job_id]));
+        scope.mission_id = mission.mission_id;
+        scope.allowed_job_ids = Array.from(new Set([...(scope.allowed_job_ids || []), job.job_id]));
         await this.ctx.storage.put(scopeKey, currentScope);
       }
     }
@@ -1379,9 +1386,14 @@ export class AriaMissionStore {
 
     // The cloud planner supplies structured tasks; the Windows executor never
     // receives an LLM planning job and never needs a local model credential.
-    const jobRecords = await this.ctx.storage.list({ prefix: 'job:' });
-    for (const job of jobRecords.values()) {
-      if (job.mission_id !== missionId ||
+    const readonlyPilotScope = options.source === 'readonly_git_status_scoped_plan' &&
+      this.package3ProbeContext?.probe_type === 'readonly_git_status' &&
+      this.package3ProbeContext.mission_id === missionId ? this.package3ProbeContext : null;
+    const jobRecords = readonlyPilotScope
+      ? await Promise.all((readonlyPilotScope.allowed_job_ids || []).map(jobId => this.ctx.storage.get('job:' + jobId)))
+      : Array.from((await this.ctx.storage.list({ prefix: 'job:' })).values());
+    for (const job of jobRecords) {
+      if (!job || job.mission_id !== missionId ||
           !['mission.plan', 'mission.replan'].includes(job.operation) ||
           !ACTIVE_JOB_STATES.has(job.status)) continue;
       job.status = 'cancelled';

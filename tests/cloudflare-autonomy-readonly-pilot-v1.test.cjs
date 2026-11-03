@@ -55,6 +55,14 @@ async function payload(response) { return response.json(); }
     ARIA_WORKER_LEASE_MS: '60000',
     ARIA_ALARM_INTERVAL_MS: '5000'
   });
+  const ordinaryList = state.storage.list.bind(state.storage);
+  let forbidGlobalJobList = false;
+  state.storage.list = async options => {
+    if (forbidGlobalJobList && options && options.prefix === 'job:') {
+      throw new Error('readonly_pilot_must_not_scan_global_job_backlog');
+    }
+    return ordinaryList(options);
+  };
   const probeId = 'readonly-pilot-unit-001';
   const scopeToken = 'readonly-pilot-scope-token'.padEnd(64, 's');
   const workerId = 'mw2p3-' + probeId + '-before';
@@ -64,6 +72,7 @@ async function payload(response) { return response.json(); }
   }));
   assert.equal(ordinaryCreateBefore.status, 423);
 
+  forbidGlobalJobList = true;
   const wrongConfirmation = await store.fetch(request('/api/package3/probe/start', {
     method: 'POST',
     body: { mode: 'readonly_git_status', confirm: 'RUN_ONE_MISSION_WONDER_2_PACKAGE3_PROBE', probe_id: probeId, scope_token: scopeToken }
