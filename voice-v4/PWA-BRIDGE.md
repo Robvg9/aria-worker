@@ -35,7 +35,7 @@ The Android companion app PR #6 now goes beyond the original PCM meter:
 - It exposes an explicit server-side trust revocation action, followed by local SecureStore/Keystore cleanup.
 - Its `PwaHostScreen` now injects `window.ariaVoiceV4.createOwnerSession` into the WebView, validates the exact HTTPS origin and checks the owner/device pairing heartbeat before allowing read-only signing.
 
-The Android PWA host callback is implemented in code but not yet physically certified. Windows now has branch-only authenticated read-only pairing/heartbeat endpoints and separate DPAPI RPCs, but the helper still is not wired into `agents/windows/aria-agent.js`, and no secure Windows browser host, owner-token handoff, DPAPI token storage or physical pairing test exists. Do not treat either platform's code contracts as physical E2E evidence.
+The Android PWA host callback is implemented in code but not yet physically certified. Windows now has branch-only authenticated read-only pairing/heartbeat endpoints and a DPAPI CurrentUser keystore for both the Ed25519 private key and voice-pairing token. The keystore exposes pairing material only to an in-process caller, but it is still not wired into `agents/windows/aria-agent.js` or a secure browser/native-messaging host; the authenticated PWA owner-token handoff, pairing UI and physical pairing test remain open. Do not treat either platform's code contracts as physical E2E evidence.
 
 The Android app's APK builds currently use the Android Debug certificate unless a controlled release keystore and its approved `ANDROID_SIGNING_CERT_SHA256` fingerprint are configured. Such artifacts are QA-only, not production distributions.
 
