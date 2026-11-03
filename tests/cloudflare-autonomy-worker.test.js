@@ -105,19 +105,30 @@ async function testAuthAndVerifiedMissionLifecycle() {
 }
 
 async function testVerificationRejectsIncompleteMissionState() {
-  for (const corruption of ['required_task_unfinished', 'active_job_remaining', 'task_evidence_missing', 'task_evidence_arbitrary', 'task_evidence_empty', 'task_evidence_placeholder']) {
+  for (const corruption of [
+    'required_task_unfinished', 'active_job_remaining', 'task_evidence_missing', 'task_evidence_arbitrary',
+    'task_evidence_empty', 'task_evidence_null', 'task_evidence_empty_string', 'task_evidence_placeholder',
+    'workspace_list_empty_path', 'workspace_list_placeholder_entry', 'tests_run_null_exit', 'tests_run_string_exit'
+  ]) {
     const { state, store } = createStore();
     const mission = await createMission(store, 'Do not report success before all work is complete');
     const planJob = await claim(store, 'mission.plan');
+    const evidenceOperation = corruption.startsWith('workspace_list_') ? 'workspace.list' :
+      corruption.startsWith('tests_run_') ? 'tests.run' : 'workspace.read';
     await complete(store, planJob, {
       passed: true,
-      evidence: { tasks: [{ task_id: 'required-read', title: 'Read required input', operation: 'workspace.read', payload: { path: 'README.md' }, depends_on: [], idempotent: true }] }
+      evidence: { tasks: [{ task_id: 'required-read', title: 'Read required input', operation: evidenceOperation, payload: { path: 'README.md' }, depends_on: [], idempotent: true }] }
     });
     const taskJob = await claim(store, 'task.execute');
-    await complete(store, taskJob, { passed: true, evidence: readEvidence('README.md') });
+    const validEvidence = evidenceOperation === 'workspace.list'
+      ? { operation: 'workspace.list', path: '.', entries: [{ path: 'README.md', type: 'file' }], count: 1, truncated: false }
+      : evidenceOperation === 'tests.run'
+        ? { operation: 'tests.run', test_file: 'tests/example.test.js', exit_code: 0, stdout: 'PASS', stderr: '' }
+        : readEvidence('README.md');
+    await complete(store, taskJob, { passed: true, evidence: validEvidence });
     const verifyJob = await claim(store, 'mission.verify');
 
-    if (corruption === 'required_task_unfinished' || corruption.startsWith('task_evidence_')) {
+    if (corruption === 'required_task_unfinished' || corruption.startsWith('task_evidence_') || corruption.startsWith('workspace_list_') || corruption.startsWith('tests_run_')) {
       const persisted = await state.storage.get('mission:' + mission.mission_id);
       if (corruption === 'required_task_unfinished') {
         persisted.tasks.push({ task_id: 'required-followup', status: 'pending', depends_on: [], evidence: [] });
@@ -127,8 +138,21 @@ async function testVerificationRejectsIncompleteMissionState() {
         persisted.tasks[0].evidence = [{ foo: 'bar' }];
       } else if (corruption === 'task_evidence_empty') {
         persisted.tasks[0].evidence = [{}];
+      } else if (corruption === 'task_evidence_null') {
+        persisted.tasks[0].evidence = [null];
+      } else if (corruption === 'task_evidence_empty_string') {
+        persisted.tasks[0].evidence = [''];
       } else {
-        persisted.tasks[0].evidence = [{ operation: 'workspace.read', path: 'placeholder', content: 'placeholder', bytes: 11, truncated: false }];
+        const invalidEvidence = corruption === 'workspace_list_empty_path'
+          ? { operation: 'workspace.list', path: '.', entries: [{ path: '', type: 'file' }], count: 1, truncated: false }
+          : corruption === 'workspace_list_placeholder_entry'
+            ? { operation: 'workspace.list', path: '.', entries: [{ path: 'placeholder', type: 'file' }], count: 1, truncated: false }
+            : corruption === 'tests_run_null_exit'
+              ? { operation: 'tests.run', test_file: 'tests/example.test.js', exit_code: null, stdout: 'PASS', stderr: '' }
+              : corruption === 'tests_run_string_exit'
+                ? { operation: 'tests.run', test_file: 'tests/example.test.js', exit_code: '0', stdout: 'PASS', stderr: '' }
+                : { operation: 'workspace.read', path: 'placeholder', content: 'placeholder', bytes: 11, truncated: false };
+        persisted.tasks[0].evidence = [invalidEvidence];
       }
       await state.storage.put('mission:' + mission.mission_id, persisted);
     }
@@ -375,6 +399,16 @@ async function testRetryPolicyDoesNotRepeatAmbiguousNonIdempotentFailure() {
     method: 'POST', body: { reconcile_tasks: [{ task_id: 'write-once', outcome: 'completed', evidence: { foo: 'bar' } }] }
   }));
   assert.equal(invalidReconciliation.status, 422, 'arbitrary objects do not qualify as reconciled evidence');
+  const syntacticWriteEvidenceWithoutReadback = await store.fetch(request('/api/missions/' + encodeURIComponent(mission.mission_id) + '/resume', {
+    method: 'POST', body: { actor: 'operator-7', reconcile_tasks: [{
+      task_id: 'write-once', outcome: 'not_applied',
+      evidence: { operation: 'workspace.write', path: 'notes/once.txt', backup: null, bytes_written: 4, sha256: 'b'.repeat(64) }
+    }] }
+  }));
+  assert.equal(syntacticWriteEvidenceWithoutReadback.status, 422, 'syntactically valid write evidence cannot prove the destination was not changed');
+  const stillAmbiguous = await state.storage.get('mission:' + mission.mission_id);
+  assert.equal(stillAmbiguous.tasks[0].ambiguous_result, true);
+  assert.equal(stillAmbiguous.tasks[0].status, 'waiting_human');
   assert.equal(Array.from((await state.storage.list({ prefix: 'job:' })).values()).filter(job => job.mission_id === mission.mission_id && job.operation === 'task.execute').length, 1);
 
   const explicitReplay = await store.fetch(request('/api/missions/' + encodeURIComponent(mission.mission_id) + '/resume', {
@@ -392,21 +426,30 @@ async function testAmbiguousOutcomeCanBeReconciledWithoutReplay() {
   const { state, store } = createStore();
   const mission = await createMission(store, 'Reconcile a completed remote write without repeating it');
   const planJob = await claim(store, 'mission.plan');
-  await complete(store, planJob, { passed: true, evidence: { tasks: [{ task_id: 'write-once', operation: 'workspace.write', payload: { relative_path: 'notes/once.txt', content: 'once' }, idempotent: false, depends_on: [] }] } });
+  await complete(store, planJob, { passed: true, evidence: { tasks: [
+    { task_id: 'write-once', operation: 'workspace.write', payload: { path: 'notes/once.txt', content: 'once' }, idempotent: false, depends_on: [] },
+    { task_id: 'readback-once', operation: 'workspace.read', payload: { path: 'notes/once.txt' }, idempotent: true, depends_on: [] }
+  ] } });
   const writeJob = await claim(store, 'task.execute');
   await complete(store, writeJob, { passed: false, error: 'timeout after write may have completed' });
+  const readbackJob = await claim(store, 'task.execute');
+  assert.equal(readbackJob.task.task_id, 'readback-once');
+  await complete(store, readbackJob, { passed: true, evidence: {
+    operation: 'workspace.read', path: 'notes/once.txt', content: 'once', truncated: false, bytes: 4
+  } });
   const reconciled = await store.fetch(request('/api/missions/' + encodeURIComponent(mission.mission_id) + '/resume', {
     method: 'POST', body: { actor: 'operator-8', reconcile_tasks: [{
-      task_id: 'write-once', outcome: 'completed',
-      evidence: { operation: 'workspace.write', path: 'notes/once.txt', backup: null, bytes_written: 4, sha256: 'b'.repeat(64) }
+      task_id: 'write-once', outcome: 'completed', readback_task_id: 'readback-once'
     }] }
   }));
   assert.equal(reconciled.status, 200);
-  const result = (await body(reconciled)).mission.tasks[0];
+  const result = (await body(reconciled)).mission.tasks.find(task => task.task_id === 'write-once');
   assert.equal(result.status, 'succeeded');
   assert.equal(result.reconciled_by, 'operator-8');
+  assert.equal(result.reconciled_via_readback_task_id, 'readback-once');
+  assert.equal(result.attempts, 1, 'readback reconciliation preserves the original write attempt history');
   const jobs = Array.from((await state.storage.list({ prefix: 'job:' })).values()).filter(job => job.mission_id === mission.mission_id && job.operation === 'task.execute');
-  assert.equal(jobs.length, 1, 'reconciliation records the outcome without creating a replay job');
+  assert.equal(jobs.length, 2, 'reconciliation records the independently read destination without creating a replay job');
 }
 
 async function testGlobalFreezeStopsMutationsAndAlarmRecovery() {
@@ -584,6 +627,11 @@ async function testNotificationGuidanceMatchesGateEvent() {
   const firstCompletion = await store.notify({ type: 'mission_completed', mission_id: 'same-completion', details: 'verification wording one' });
   const duplicateCompletion = await store.notify({ details: 'verification wording changed', mission_id: 'same-completion', type: 'mission_completed' });
   assert.equal(firstCompletion.notification_id, duplicateCompletion.notification_id, 'semantic dedupe ignores changing presentation details for a persisted mission transition');
+  const firstGateTransition = await store.notify({ type: 'human_intervention_required', mission_id: 'reopened-gate', task_id: 'blocked-task', reason: 'task_dependency_blocked', transition_id: 'gate-open-1' });
+  const duplicateGateTransition = await store.notify({ type: 'human_intervention_required', mission_id: 'reopened-gate', task_id: 'blocked-task', reason: 'updated wording', transition_id: 'gate-open-1' });
+  const reopenedGate = await store.notify({ type: 'human_intervention_required', mission_id: 'reopened-gate', task_id: 'blocked-task', reason: 'task_dependency_blocked', transition_id: 'gate-open-2' });
+  assert.equal(firstGateTransition.notification_id, duplicateGateTransition.notification_id, 'the same persisted gate transition retains its semantic notification ID');
+  assert.notEqual(firstGateTransition.notification_id, reopenedGate.notification_id, 'a later reopening of the same gate produces a distinct notification');
   await Promise.all(state.pending);
 }
 

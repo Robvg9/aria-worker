@@ -44,7 +44,7 @@ const hasTaskEvidence = task => {
       !/^(?:placeholder|todo|unknown|n\/a|passed_without_detail)$/i.test(value.trim());
     if (task.operation === 'workspace.list') return validPath(item.path) && Array.isArray(item.entries) &&
       Number.isSafeInteger(item.count) && item.count >= item.entries.length && item.count <= 1000 &&
-      item.entries.every(entry => entry && typeof entry.path === 'string' && ['file', 'directory'].includes(entry.type)) && typeof item.truncated === 'boolean';
+      item.entries.every(entry => entry && validPath(entry.path) && ['file', 'directory'].includes(entry.type)) && typeof item.truncated === 'boolean';
     if (task.operation === 'workspace.read') return validPath(item.path) && typeof item.content === 'string' &&
       Number.isSafeInteger(item.bytes) && item.bytes >= 0 && typeof item.truncated === 'boolean' &&
       (item.truncated || item.content.length <= item.bytes);
@@ -65,7 +65,7 @@ const hasTaskEvidence = task => {
       return (item.operation === task.operation && standardFileEvidence) || package3WriteEvidence;
     }
     if (item.operation !== task.operation) return false;
-    if (task.operation === 'tests.run') return validPath(item.test_file) && Number(item.exit_code) === 0 &&
+    if (task.operation === 'tests.run') return validPath(item.test_file) && Number.isSafeInteger(item.exit_code) && item.exit_code === 0 &&
       typeof item.stdout === 'string' && typeof item.stderr === 'string';
     if (task.operation === 'git.status' || task.operation === 'git.diff') return typeof item.output === 'string';
     return false;
@@ -112,8 +112,8 @@ function semanticNotificationKey(event) {
   const missionId = normalize(event && event.mission_id);
   const taskId = normalize(event && event.task_id);
   const approvalId = normalize(event && event.approval_id);
-  const reason = normalize(event && (event.fingerprint || event.error_code || event.reason || (!missionId ? event.details : '')));
   const transition = normalize(event && (event.transition_id || event.transition || event.status));
+  const reason = transition ? '' : normalize(event && (event.fingerprint || event.error_code || event.reason || (!missionId ? event.details : '')));
   return JSON.stringify([type, missionId, taskId, approvalId, reason, transition]);
 }
 function constantTimeTextEqual(left, right) {
@@ -1507,6 +1507,8 @@ export class AriaMissionStore {
       fingerprint
     };
     task.last_error = classification.error_code;
+    task.last_attempt_finished_at = nowIso();
+    task.failure_transition_id = [task.task_id, task.attempts, fingerprint].map(value => safeDiagnosticLabel(value) || 'unknown').join(':');
     task.failure_diagnostics = [...(Array.isArray(task.failure_diagnostics) ? task.failure_diagnostics : []), diagnostic].slice(-5);
     mission.current_task_id = null;
     job.status = 'failed';
@@ -1535,6 +1537,7 @@ export class AriaMissionStore {
     }
     task.status = task.idempotent === false && classification.retryable ? 'waiting_human' : 'failed';
     task.ambiguous_result = task.idempotent === false && classification.retryable;
+    if (task.ambiguous_result) task.ambiguous_transition_id = task.failure_transition_id;
     mission.status = 'running';
     mission.last_error = classification.error_code;
     await this.saveMission(mission, 'task_failed_human_gate', { task_id: task.task_id, diagnostic });
@@ -1546,6 +1549,7 @@ export class AriaMissionStore {
       reason: task.ambiguous_result ? 'ambiguous_non_idempotent_result' : classification.error_code,
       error_code: classification.error_code,
       fingerprint,
+      transition_id: task.ambiguous_result ? task.ambiguous_transition_id : task.failure_transition_id,
       details: JSON.stringify(diagnostic)
     });
     await this.scheduleNext(mission);
@@ -1597,12 +1601,15 @@ export class AriaMissionStore {
       if (current && ['running', 'pending'].includes(current.status)) return;
       mission.current_task_id = null;
     }
-    const ready = mission.tasks.filter(task => task.status === 'pending' && task.depends_on.every(dep => {
+    const dependencySatisfied = dep => {
       const parent = mission.tasks.find(item => item.task_id === dep);
       return parent && (parent.status === 'succeeded' ||
         (parent.status === 'skipped' && parent.superseded_by_task_id &&
           mission.tasks.some(replacement => replacement.task_id === parent.superseded_by_task_id && replacement.status === 'succeeded')));
-    }));
+    };
+    const ready = mission.tasks.filter(task => task.status === 'pending' && task.depends_on.every(dependencySatisfied));
+    const dependencyGateStillOpen = mission.tasks.some(task => task.status === 'pending' && !task.depends_on.every(dependencySatisfied));
+    if (!dependencyGateStillOpen) mission.dependency_gate_transition_id = null;
     const requiresApproval = task => {
       const risk = parseRisk(task.risk);
       const maxRisk = parseRisk(mission.policy && mission.policy.max_risk || 'medium');
@@ -1622,7 +1629,7 @@ export class AriaMissionStore {
         created_at: nowIso()
       };
       await this.saveMission(mission, 'human_approval_required', { approval: mission.approval });
-      await this.notify({ type: 'human_approval_required', mission_id: mission.mission_id, task_id: approvalTask.task_id, approval_id: mission.approval.approval_id, reason: mission.approval.reason });
+      await this.notify({ type: 'human_approval_required', mission_id: mission.mission_id, task_id: approvalTask.task_id, approval_id: mission.approval.approval_id, reason: mission.approval.reason, transition_id: mission.approval.approval_id });
       if (pending) return this.scheduleNext(mission);
       mission.status = 'waiting_human';
       return this.saveMission(mission, 'mission_waiting_for_human_gate', { task_id: approvalTask.task_id, approval_id: mission.approval.approval_id });
@@ -1645,8 +1652,9 @@ export class AriaMissionStore {
       if (blocked.length) {
         mission.status = 'waiting_human';
         mission.last_error = 'Task dependency graph is blocked.';
+        if (!mission.dependency_gate_transition_id) mission.dependency_gate_transition_id = uuid('dependency_transition');
         await this.saveMission(mission, 'mission_dependency_blocked', { task_ids: blocked.map(task => task.task_id) });
-        await this.notify({ type: 'human_intervention_required', mission_id: mission.mission_id, reason: 'task_dependency_blocked', details: mission.last_error });
+        await this.notify({ type: 'human_intervention_required', mission_id: mission.mission_id, reason: 'task_dependency_blocked', transition_id: mission.dependency_gate_transition_id, details: mission.last_error });
       } else if (failed.length) {
         mission.status = 'waiting_human';
         mission.last_error = 'Failed tasks require replanning or intervention.';
@@ -1682,7 +1690,7 @@ export class AriaMissionStore {
       mission.status = 'running';
       mission.last_error = null;
       await this.saveMission(mission, 'human_approval_rejected', { approval: approvalDecision });
-      await this.notify({ type: 'mission_rejected', mission_id: mission.mission_id, task_id: task && task.task_id || null, approval_id: approvalId, reason: 'Human approval rejected.' });
+      await this.notify({ type: 'mission_rejected', mission_id: mission.mission_id, task_id: task && task.task_id || null, approval_id: approvalId, reason: 'Human approval rejected.', transition_id: approvalId });
       await this.scheduleNext(mission);
       await this.scheduleAlarm();
       return json({ ok: true, mission });
@@ -1697,6 +1705,37 @@ export class AriaMissionStore {
     return json({ ok: true, mission });
   }
 
+  async verifyAmbiguousWriteReadback(mission, task, readbackTaskId) {
+    if (task.operation !== 'workspace.write' || typeof task.payload?.path !== 'string' || typeof task.payload?.content !== 'string' ||
+        !readbackTaskId || readbackTaskId === task.task_id) return null;
+    const readbackTask = mission.tasks.find(candidate => candidate.task_id === String(readbackTaskId));
+    if (!readbackTask || readbackTask.operation !== 'workspace.read' || readbackTask.idempotent !== true ||
+        readbackTask.status !== 'succeeded' || readbackTask.payload?.path !== task.payload.path || !hasTaskEvidence(readbackTask)) return null;
+    const evidence = readbackTask.evidence[readbackTask.evidence.length - 1];
+    const canonicalPath = value => String(value || '').replace(/\\/g, '/').replace(/^\.\//, '');
+    if (canonicalPath(evidence.path) !== canonicalPath(task.payload.path) || evidence.truncated === true ||
+        evidence.content !== task.payload.content || evidence.bytes !== new TextEncoder().encode(task.payload.content).length) return null;
+
+    const jobRecords = await this.ctx.storage.list({ prefix: 'job:' });
+    const readbackJobs = Array.from(jobRecords.values())
+      .filter(job => job.mission_id === mission.mission_id && job.operation === 'task.execute' && job.task_id === readbackTask.task_id)
+      .sort((left, right) => String(right.updated_at || right.created_at).localeCompare(String(left.updated_at || left.created_at)));
+    const readbackJob = readbackJobs.find(job => job.status === 'completed' && job.result?.passed === true);
+    const completedAt = Date.parse(task.last_attempt_finished_at || '');
+    if (!readbackJob || !Number.isFinite(completedAt) || Date.parse(readbackJob.created_at || '') <= completedAt ||
+        readbackJob.result.evidence?.operation !== 'workspace.read' ||
+        canonicalPath(readbackJob.result.evidence.path) !== canonicalPath(task.payload.path) ||
+        readbackJob.result.evidence.content !== evidence.content ||
+        readbackJob.result.evidence.bytes !== evidence.bytes || readbackJob.result.evidence.truncated !== evidence.truncated) return null;
+    return {
+      task_id: readbackTask.task_id,
+      job_id: readbackJob.job_id,
+      path: canonicalPath(task.payload.path),
+      bytes: evidence.bytes,
+      sha256: await sha256Hex(task.payload.content)
+    };
+  }
+
   async resume(missionId, request) {
     this.assertMissionExecutionEnabled();
     const mission = await this.getMission(missionId);
@@ -1706,22 +1745,32 @@ export class AriaMissionStore {
     try { body = await request.json(); } catch (_) {}
     const actor = String(body.actor || 'dashboard-operator').slice(0, 200);
     const explicitReplayActor = typeof body.actor === 'string' && body.actor.trim().length > 0;
+    const reconciliations = [];
     for (const item of Array.isArray(body.reconcile_tasks) ? body.reconcile_tasks : []) {
       const task = mission.tasks.find(candidate => candidate.task_id === String(item && item.task_id || ''));
-      if (!task || task.ambiguous_result !== true || !['completed', 'not_applied'].includes(item.outcome) ||
-          !hasTaskEvidence({ operation: task.operation, evidence: [item.evidence] })) return error('ambiguous_task_reconciliation_invalid', 422);
+      if (!task || task.ambiguous_result !== true || item.outcome !== 'completed' || !explicitReplayActor) {
+        return error('ambiguous_task_reconciliation_invalid', 422);
+      }
+      const readback = await this.verifyAmbiguousWriteReadback(mission, task, item.readback_task_id);
+      if (!readback) return error(item.outcome === 'not_applied' ? 'ambiguous_not_applied_requires_explicit_replay' : 'ambiguous_task_readback_required', 422);
+      reconciliations.push({ task, readback });
+    }
+    for (const { task, readback } of reconciliations) {
       task.ambiguous_result = false;
       task.reconciled_at = nowIso();
       task.reconciled_by = actor;
-      if (item.outcome === 'completed') {
-        task.status = 'succeeded';
-        task.evidence = [clone(item.evidence)];
-        task.last_error = null;
-      } else {
-        task.status = 'pending';
-        task.reconciliation_evidence = [clone(item.evidence)];
-        task.last_error = null;
-      }
+      task.status = 'succeeded';
+      task.evidence = [{
+        operation: 'workspace.write',
+        path: readback.path,
+        backup: null,
+        bytes_written: readback.bytes,
+        sha256: readback.sha256
+      }];
+      task.reconciled_via_readback_task_id = readback.task_id;
+      task.reconciled_via_readback_job_id = readback.job_id;
+      task.ambiguous_transition_id = null;
+      task.last_error = null;
     }
     for (const item of Array.isArray(body.replay_authorizations) ? body.replay_authorizations : []) {
       const task = mission.tasks.find(candidate => candidate.task_id === String(item && item.task_id || ''));
@@ -1732,6 +1781,7 @@ export class AriaMissionStore {
       task.replay_authorized_at = nowIso();
       task.replay_authorized_by = actor;
       task.replay_authorization = 'explicit_task_scoped_human_confirmation';
+      task.ambiguous_transition_id = null;
       task.last_error = null;
     }
     for (const task of mission.tasks) {
@@ -1748,7 +1798,11 @@ export class AriaMissionStore {
     mission.approval = null;
     mission.manual_resume_at = nowIso();
     mission.manual_resume_by = actor;
-    await this.saveMission(mission, 'mission_resumed_after_human_review', { actor: mission.manual_resume_by });
+    await this.saveMission(mission, 'mission_resumed_after_human_review', {
+      actor: mission.manual_resume_by,
+      reconciled_task_ids: reconciliations.map(item => item.task.task_id),
+      replay_task_ids: (Array.isArray(body.replay_authorizations) ? body.replay_authorizations : []).map(item => String(item && item.task_id || '')).filter(Boolean)
+    });
     await this.scheduleNext(mission);
     await this.scheduleAlarm();
     return json({ ok: true, mission });
@@ -1799,9 +1853,11 @@ export class AriaMissionStore {
     task.status = 'waiting_human';
     task.ambiguous_result = true;
     task.last_error = 'task_job_missing_non_idempotent';
+    task.last_attempt_finished_at = nowIso();
+    task.ambiguous_transition_id = [task.task_id, task.attempts, task.last_error].map(value => safeDiagnosticLabel(value) || 'unknown').join(':');
     mission.last_error = task.last_error;
     await this.saveMission(mission, 'task_job_missing_requires_human', { task_id: task.task_id, idempotent: false });
-    await this.notify({ type: 'ambiguous_result', mission_id: mission.mission_id, task_id: task.task_id, reason: 'ambiguous_non_idempotent_result', error_code: task.last_error });
+    await this.notify({ type: 'ambiguous_result', mission_id: mission.mission_id, task_id: task.task_id, reason: 'ambiguous_non_idempotent_result', error_code: task.last_error, transition_id: task.ambiguous_transition_id });
     return true;
   }
 
