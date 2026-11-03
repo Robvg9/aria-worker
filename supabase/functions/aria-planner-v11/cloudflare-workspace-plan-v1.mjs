@@ -253,6 +253,9 @@ export const CLOUDflarePlanProducerContract = Object.freeze({
 const SAFE_PLAN_FAILURE_REASONS = new Set([
   'cloudflare_workspace_request_v1_required',
   'goal_required',
+  'goal_too_large',
+  'workspace_path_required',
+  'workspace_test_file_required',
   'workspace_absolute_path_blocked',
   'workspace_path_policy_blocked',
   'workspace_context_too_large',
