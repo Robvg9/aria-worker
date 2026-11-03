@@ -2,6 +2,8 @@
 
 const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
+const fs = require('node:fs');
+const path = require('node:path');
 
 const CONTROL_TOKEN = 'package3-scope-control-token'.padEnd(48, 'c');
 const WORKER_TOKEN = 'package3-scope-worker-token'.padEnd(48, 'w');
@@ -59,6 +61,18 @@ async function payload(response) {
   const { AriaMissionStore, MISSION_EXECUTION_PAUSED } =
     await import('../cloudflare-autonomy/worker.mjs');
   assert.equal(MISSION_EXECUTION_PAUSED, true, 'global production freeze must remain true');
+
+  // Regression contract: LIVE recovery must be observed from durable worker
+  // lease evidence plus the persisted job record, not by sampling "leased".
+  const liveE2ESource = fs.readFileSync(
+    path.join(__dirname, '..', 'scripts', 'mission-wonder-2-package3-live-e2e.cjs'),
+    'utf8'
+  );
+  assert.match(liveE2ESource, /const recoveredClaim = await waitUntil/);
+  assert.match(liveE2ESource, /lease\.worker_id !== afterWorkerId/);
+  assert.match(liveE2ESource, /job\.attempts === 2/);
+  assert.match(liveE2ESource, /\['leased', 'completed'\]\.includes\(job\.status\)/);
+  assert.doesNotMatch(liveE2ESource, /job\.status === 'leased' && job\.attempts === 2/);
 
   const env = {
     ARIA_CONTROL_TOKEN: CONTROL_TOKEN,
