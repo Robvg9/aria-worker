@@ -10,6 +10,8 @@ const deployWorkflow = fs.readFileSync('.github/workflows/aria-cloudflare-deploy
 assert.equal(classifier.classifyFiles(['README.md', 'docs/plan.md', 'tests/example.test.js']).release_bearing, false);
 assert.equal(classifier.classifyFiles(['README.md', 'worker.js']).release_bearing, true);
 assert.equal(classifier.classifyFiles(['.github/workflows/aria-delivery-deterministic-gate.yml']).release_bearing, false);
+assert.equal(classifier.classifyFiles(['scripts/mission-wonder-2-package3-live-e2e.cjs']).release_bearing, false);
+assert.equal(classifier.classifyFiles(['scripts/example-runtime-release.js']).release_bearing, true);
 assert.equal(typeof artifact.prepareReleaseArtifact, 'function');
 assert.equal(typeof artifact.verifyLive, 'function');
 assert.equal(typeof artifact.verifyLiveOnce, 'function');

@@ -5,6 +5,8 @@ const { execFileSync } = require('node:child_process');
 
 const NON_RELEASE_PATTERNS = [
   /^tests\//,
+  // This is a runner-only proof harness for a manual, frozen-scope E2E; it ships no runtime artifact.
+  /^scripts\/mission-wonder-2-package3-live-e2e\.cjs$/,
   /^\.github\/workflows\//,
   /^scripts\/release-bearing\.js$/,
   /^docs\//,
