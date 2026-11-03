@@ -14,6 +14,13 @@ on:
       - '.github/workflows/supabase-canonical-deploy.yml'
       - '.github/workflows/aria-npm-test.yml'
       - 'pwa/src/testCatalog.ts'
+      # Gate 3 is a Supabase harness/contract only; it must not redeploy the legacy Worker/PWA.
+      - '.github/workflows/mission-wonder-2-gate3-contract.yml'
+      - '.github/workflows/mission-wonder-2-gate3-live-e2e.yml'
+      - 'scripts/mission-wonder-2-gate3-live-e2e.py'
+      - 'scripts/mission_wonder_2_deploy_selection.py'
+      - 'tests/mission-wonder-2-deploy-selection.test.py'
+      - 'tests/mission-wonder-2-gate3-scope.test.mjs'
       # Backend-only mission freeze/governance work must not redeploy the unrelated Cloudflare Worker.
       - 'supabase/functions/**'
       - 'autonomy/dynamic-goal-engine.mjs'
