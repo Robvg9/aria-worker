@@ -22,20 +22,55 @@ const RISK_BY_OPERATION = Object.freeze({
 const ACTIVE_JOB_STATES = new Set(['queued', 'leased']);
 const ACTIVE_MISSION_STATES = new Set(['planning', 'queued', 'running']);
 const clone = value => value == null ? value : JSON.parse(JSON.stringify(value));
-const EVIDENCE_FIELDS = new Set(['path', 'relative_path', 'bytes', 'sha256', 'verified', 'write_action', 'execution_attempt']);
-const hasTaskEvidence = task => Array.isArray(task && task.evidence) && task.evidence.some(item => {
-  if (!item || typeof item !== 'object' || Array.isArray(item) || Object.keys(item).length === 0) return false;
-  const keys = Object.keys(item);
-  if (keys.some(key => !EVIDENCE_FIELDS.has(key))) return false;
-  const path = typeof item.path === 'string' ? item.path.trim() : (typeof item.relative_path === 'string' ? item.relative_path.trim() : '');
-  if (!path || /^(?:placeholder|todo|unknown|n\/a|passed_without_detail)$/i.test(path)) return false;
-  if (item.path !== undefined && item.relative_path !== undefined) return false;
-  const verifiedRead = item.path !== undefined && ((item.verified === true && Number.isSafeInteger(item.bytes) && item.bytes > 0) || /^[a-f0-9]{64}$/i.test(String(item.sha256 || '')));
-  const verifiedWrite = item.relative_path !== undefined && Number.isSafeInteger(item.bytes) && item.bytes > 0 &&
-    /^[a-f0-9]{64}$/i.test(String(item.sha256 || '')) && ['created', 'updated', 'already_identical'].includes(item.write_action) &&
-    Number.isSafeInteger(item.execution_attempt) && item.execution_attempt > 0;
-  return verifiedRead || verifiedWrite;
+const EVIDENCE_FIELDS = Object.freeze({
+  'workspace.list': new Set(['operation', 'path', 'entries', 'count', 'truncated']),
+  'workspace.read': new Set(['operation', 'path', 'content', 'truncated', 'bytes']),
+  'workspace.search': new Set(['operation', 'query', 'matches', 'count', 'scanned_files', 'truncated']),
+  'workspace.write': new Set(['operation', 'path', 'backup', 'bytes_written', 'sha256', 'relative_path', 'bytes', 'execution_attempt', 'write_action']),
+  'workspace.edit': new Set(['operation', 'path', 'backup', 'bytes_written', 'sha256', 'already_applied']),
+  'tests.run': new Set(['operation', 'test_file', 'exit_code', 'stdout', 'stderr']),
+  'git.status': new Set(['operation', 'output']),
+  'git.diff': new Set(['operation', 'output'])
 });
+const hasTaskEvidence = task => {
+  const allowedFields = EVIDENCE_FIELDS[task && task.operation];
+  if (!allowedFields || !Array.isArray(task.evidence)) return false;
+  return task.evidence.some(item => {
+    if (!item || typeof item !== 'object' || Array.isArray(item) || Object.keys(item).length === 0 ||
+        Object.keys(item).some(key => !allowedFields.has(key))) return false;
+    if (task.operation !== 'workspace.write' && item.operation !== task.operation) return false;
+    if (task.operation === 'workspace.write' && item.operation !== task.operation && item.operation !== undefined) return false;
+    const validPath = value => typeof value === 'string' && value.trim().length > 0 &&
+      !/^(?:placeholder|todo|unknown|n\/a|passed_without_detail)$/i.test(value.trim());
+    if (task.operation === 'workspace.list') return validPath(item.path) && Array.isArray(item.entries) &&
+      Number.isSafeInteger(item.count) && item.count >= item.entries.length && item.count <= 1000 &&
+      item.entries.every(entry => entry && typeof entry.path === 'string' && ['file', 'directory'].includes(entry.type)) && typeof item.truncated === 'boolean';
+    if (task.operation === 'workspace.read') return validPath(item.path) && typeof item.content === 'string' &&
+      Number.isSafeInteger(item.bytes) && item.bytes >= 0 && typeof item.truncated === 'boolean' &&
+      (item.truncated || item.content.length <= item.bytes);
+    if (task.operation === 'workspace.search') return typeof item.query === 'string' && item.query.trim().length >= 2 &&
+      Array.isArray(item.matches) && item.matches.every(match => match && validPath(match.path) && Number.isSafeInteger(match.line) &&
+        match.line > 0 && typeof match.text === 'string') && Number.isSafeInteger(item.count) && item.count === item.matches.length &&
+      Number.isSafeInteger(item.scanned_files) && item.scanned_files >= 0 && item.scanned_files <= 250 && typeof item.truncated === 'boolean';
+    if (task.operation === 'workspace.write' || task.operation === 'workspace.edit') {
+      const standardFileEvidence = validPath(item.path) && /^[a-f0-9]{64}$/i.test(String(item.sha256 || '')) &&
+        (item.bytes_written === undefined || (Number.isSafeInteger(item.bytes_written) && item.bytes_written >= 0)) &&
+        (item.backup === undefined || item.backup === null || typeof item.backup === 'string') &&
+        (item.already_applied === undefined || item.already_applied === true);
+      const package3WriteEvidence = task.operation === 'workspace.write' && validPath(item.relative_path) &&
+        Number.isSafeInteger(item.bytes) && item.bytes > 0 && /^[a-f0-9]{64}$/i.test(String(item.sha256 || '')) &&
+        ['created', 'updated', 'already_identical'].includes(item.write_action) &&
+        Number.isSafeInteger(item.execution_attempt) && item.execution_attempt > 0 && item.operation === undefined;
+      if (item.operation !== task.operation && !package3WriteEvidence) return false;
+      return (item.operation === task.operation && standardFileEvidence) || package3WriteEvidence;
+    }
+    if (item.operation !== task.operation) return false;
+    if (task.operation === 'tests.run') return validPath(item.test_file) && Number(item.exit_code) === 0 &&
+      typeof item.stdout === 'string' && typeof item.stderr === 'string';
+    if (task.operation === 'git.status' || task.operation === 'git.diff') return typeof item.output === 'string';
+    return false;
+  });
+};
 function classifyTaskFailure(reason) {
   const value = String(reason || '').toLowerCase();
   if (/capacity|quota|rate.?limit|\b429\b|overload|resource_exhausted/.test(value)) {
@@ -77,7 +112,7 @@ function semanticNotificationKey(event) {
   const missionId = normalize(event && event.mission_id);
   const taskId = normalize(event && event.task_id);
   const approvalId = normalize(event && event.approval_id);
-  const reason = normalize(event && (event.fingerprint || event.error_code || event.reason || event.details));
+  const reason = normalize(event && (event.fingerprint || event.error_code || event.reason || (!missionId ? event.details : '')));
   const transition = normalize(event && (event.transition_id || event.transition || event.status));
   return JSON.stringify([type, missionId, taskId, approvalId, reason, transition]);
 }
@@ -1674,7 +1709,7 @@ export class AriaMissionStore {
     for (const item of Array.isArray(body.reconcile_tasks) ? body.reconcile_tasks : []) {
       const task = mission.tasks.find(candidate => candidate.task_id === String(item && item.task_id || ''));
       if (!task || task.ambiguous_result !== true || !['completed', 'not_applied'].includes(item.outcome) ||
-          !hasTaskEvidence({ evidence: [item.evidence] })) return error('ambiguous_task_reconciliation_invalid', 422);
+          !hasTaskEvidence({ operation: task.operation, evidence: [item.evidence] })) return error('ambiguous_task_reconciliation_invalid', 422);
       task.ambiguous_result = false;
       task.reconciled_at = nowIso();
       task.reconciled_by = actor;
@@ -1732,7 +1767,7 @@ export class AriaMissionStore {
     const latest = taskJobs[0];
     if (latest && latest.status === 'completed') {
       const result = latest.result && typeof latest.result === 'object' ? latest.result : {};
-      if (result.passed === true && hasTaskEvidence({ evidence: [result.evidence] })) {
+      if (result.passed === true && hasTaskEvidence({ operation: task.operation, evidence: [result.evidence] })) {
         task.status = 'succeeded';
         task.evidence = [clone(result.evidence)];
         task.last_error = null;
