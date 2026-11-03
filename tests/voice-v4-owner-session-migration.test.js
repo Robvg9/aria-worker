@@ -29,6 +29,28 @@ assert.match(migration, /CREATE TABLE IF NOT EXISTS aria_internal[.]voice_truste
 assert.ok(migration.includes("CREATE UNIQUE INDEX IF NOT EXISTS voice_trusted_device_keys_single_owner_idx" + String.fromCharCode(10) + "  ON aria_internal.voice_trusted_device_keys (device_id);"),
   'a physical voice device must not be paired to multiple owner accounts');
 assert.match(migration, /register_voice_trusted_device_key/);
+assert.match(migration, /pair_voice_owner_device/);
+assert.match(migration, /touch_voice_owner_device/);
+assert.match(migration, /voice-v4-owner-readonly-v1/);
+const pairedAndroidResolver = migration.slice(
+  migration.indexOf('CREATE OR REPLACE FUNCTION aria_internal.resolve_voice_trusted_device_key'),
+  migration.indexOf('CREATE OR REPLACE FUNCTION aria_internal.pair_voice_owner_device')
+);
+assert.doesNotMatch(pairedAndroidResolver, /audio[.]wake_word/,
+  'a paired native Android identity may authenticate read-only sessions without wake-word permission');
+const androidPairFunction = migration.slice(
+  migration.indexOf('CREATE OR REPLACE FUNCTION aria_internal.pair_voice_owner_device'),
+  migration.indexOf('CREATE OR REPLACE FUNCTION aria_internal.touch_voice_owner_device')
+);
+assert.match(androidPairFunction, /capabilities, metadata/);
+assert.match(androidPairFunction, /'\\[\\]'::jsonb|\\'\\[\\]'::jsonb/);
+assert.match(androidPairFunction, /wake_word_enabled/);
+const androidTouchFunction = migration.slice(
+  migration.indexOf('CREATE OR REPLACE FUNCTION aria_internal.touch_voice_owner_device'),
+  migration.indexOf('CREATE OR REPLACE FUNCTION aria_internal.revoke_voice_trusted_device_key')
+);
+assert.match(androidTouchFunction, /capabilities = '\\[\\]'::jsonb/);
+assert.match(androidTouchFunction, /voice_trusted_device_keys/);
 assert.match(migration, /resolve_voice_trusted_device_key/);
 assert.match(migration, /revoke_voice_trusted_device_key/);
 const registerTrustedVoiceDevice = migration.slice(
