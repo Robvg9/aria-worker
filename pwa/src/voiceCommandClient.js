@@ -74,6 +74,15 @@ function parseExplicitVoiceAction(transcript, devices = []) {
     return { lane: 'read', operation: 'aria.status', params: {} };
   }
 
+  let match = text.match(/^(?:env[ií]a|manda)\s+(?:(?:un\s+)?mensaje\s+)?(?:por\s+telegram\s+)?(?:a|para)\s+([a-z0-9][a-z0-9._-]{2,63})\s*:\s*(.{1,4000})$/i);
+  if (match) {
+    return {
+      lane: 'device.action',
+      operation: 'message.send',
+      params: { recipient_id: match[1], body: match[2].trim() }
+    };
+  }
+
   let match = text.match(/^(?:dime\s+)?(?:el\s+)?estado\s+de\s+(.+)$/i);
   if (match) return unresolvedDeviceIntent(match[1], devices, 'device.status', {});
 
