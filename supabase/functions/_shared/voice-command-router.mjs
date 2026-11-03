@@ -363,6 +363,7 @@ function createVoiceCommandRouter({
         params: request.params || {},
         requestId: request.request_id,
         idempotencyKey: request.idempotency_key,
+        expiresAt: request.expires_at,
         ownerId: auth.ownerId
       });
       if (!result || result.ok !== true) return { status: 'failed', reason: 'device_action_failed', executed: false };
