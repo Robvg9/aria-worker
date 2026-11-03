@@ -25,6 +25,7 @@
 ## Current limitations
 
 - The first implementation supports one owner-scoped bot token per deployment. Do not share the same bot across unrelated owners.
+- **Use a dedicated bot exclusively for ARIA.** Chat discovery polls Telegram `getUpdates` and acknowledges every pending `message` update by advancing to `highest_update_id + 1`, including messages that are not `/start` and messages from other chats. Do not reuse this bot for personal conversations, other integrations, groups, or unrelated automations; discovery can consume their pending updates.
 - Chat discovery uses Telegram \`getUpdates\`; it will fail if a webhook is configured for that bot. Do not configure both polling and a webhook at the same time.
 - Telegram delivery does not imply end-to-end encryption. Telegram Bot API messages are bot messages, not Secret Chats.
 - This feature remains disabled until the migration is reviewed/applied, the Edge Function is deployed, both secrets are set, and a recipient is registered.
