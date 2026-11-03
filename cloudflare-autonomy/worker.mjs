@@ -97,6 +97,7 @@ const json = (value, status = 200, headers = {}) => new Response(JSON.stringify(
 const error = (message, status = 400) => json({ error: message }, status);
 
 const PACKAGE3_PROBE_TTL_MS = 10 * 60 * 1000;
+const READONLY_PILOT_TTL_MS = 5 * 60 * 1000;
 const PACKAGE3_PROBE_LEASE_MS = 8000;
 const PACKAGE3_PROBE_ALLOWED_JOB_OPERATIONS = new Set(['task.execute', 'mission.verify']);
 const PACKAGE3_PROBE_ID_PATTERN = /^[a-z0-9][a-z0-9-]{7,70}$/;
@@ -126,7 +127,19 @@ function constantTimeTextEqual(left, right) {
 }
 function package3ProbeWorkerIdAllowed(scope, workerId) {
   const prefix = String(scope && scope.worker_id_prefix || '');
-  return Boolean(prefix && (workerId === prefix + 'before' || workerId === prefix + 'after'));
+  if (!prefix) return false;
+  if (scope.probe_type === 'readonly_git_status') return workerId === prefix + 'before';
+  return workerId === prefix + 'before' || workerId === prefix + 'after';
+}
+function package3ProbeJobAllowed(scope, job) {
+  if (!scope || !job || job.mission_id !== scope.mission_id ||
+      !PACKAGE3_PROBE_ALLOWED_JOB_OPERATIONS.has(String(job.operation)) ||
+      !Array.isArray(scope.allowed_job_ids) || !scope.allowed_job_ids.includes(job.job_id)) return false;
+  if (job.operation === 'task.execute') {
+    const requiredOperation = scope.probe_type === 'readonly_git_status' ? 'git.status' : 'workspace.write';
+    return job.task && job.task.operation === requiredOperation;
+  }
+  return job.operation === 'mission.verify';
 }
 
 function authorized(request, token) {
@@ -250,7 +263,8 @@ export class AriaMissionStore {
       return json({ ok: true, service: 'aria-autonomy-coordinator', storage: 'durable-object', supabase_independent: true, time: nowIso() });
     }
 
-    const workerRoute = url.pathname === '/api/worker/claim' || /^\/api\/worker\/jobs\/[^/]+\/(heartbeat|complete|fail)$/.test(url.pathname);
+    const presenceRoute = url.pathname === '/api/worker/presence';
+    const workerRoute = url.pathname === '/api/worker/claim' || presenceRoute || /^\/api\/worker\/jobs\/[^/]+\/(heartbeat|complete|fail)$/.test(url.pathname);
     if (workerRoute) {
       if (!authorized(request, this.env.ARIA_WORKER_TOKEN)) return error('unauthorized_worker', 401);
       if (this.isMissionExecutionPaused()) {
@@ -277,6 +291,7 @@ export class AriaMissionStore {
             return error('package3_probe_worker_identity_mismatch', 403);
           }
           if (url.pathname === '/api/worker/claim') return this.claim(request);
+          if (presenceRoute) return this.presence(request);
           if (!match) return error('method_not_allowed', 405);
           if (match[2] === 'heartbeat') return this.heartbeat(jobId, request);
           if (match[2] === 'complete') return this.complete(jobId, request);
@@ -358,10 +373,7 @@ export class AriaMissionStore {
     if (!package3ProbeWorkerIdAllowed(scope, workerId)) return null;
     if (jobId) {
       const job = await this.ctx.storage.get('job:' + jobId);
-      if (!job || job.mission_id !== scope.mission_id ||
-          !PACKAGE3_PROBE_ALLOWED_JOB_OPERATIONS.has(String(job.operation))) return null;
-      if (!(Array.isArray(scope.allowed_job_ids) && scope.allowed_job_ids.includes(job.job_id))) return null;
-      if (job.operation === 'task.execute' && job.task?.operation !== 'workspace.write') return null;
+      if (!package3ProbeJobAllowed(scope, job)) return null;
     }
     return scope;
   }
@@ -369,8 +381,13 @@ export class AriaMissionStore {
   async startPackage3Probe(request) {
     let body;
     try { body = await request.json(); } catch (_) { return error('invalid_json', 400); }
-    if (!body || body.confirm !== 'RUN_ONE_MISSION_WONDER_2_PACKAGE3_PROBE') {
-      return error('explicit_package3_probe_confirmation_required', 400);
+    const probeType = String(body && body.mode || 'package3_write_recovery');
+    const readonlyPilot = probeType === 'readonly_git_status';
+    const expectedConfirmation = readonlyPilot
+      ? 'RUN_ONE_READONLY_GIT_STATUS_PILOT'
+      : 'RUN_ONE_MISSION_WONDER_2_PACKAGE3_PROBE';
+    if (!body || body.confirm !== expectedConfirmation || !['package3_write_recovery', 'readonly_git_status'].includes(probeType)) {
+      return error('explicit_scoped_probe_confirmation_required', 400);
     }
     const probeId = String(body.probe_id || '');
     const scopeToken = String(body.scope_token || '');
@@ -408,6 +425,7 @@ export class AriaMissionStore {
     const scope = {
       version: 'v1',
       probe_id: probeId,
+      probe_type: probeType,
       status: 'preparing',
       mission_id: null,
       scope_token_sha256: await sha256Hex(scopeToken),
@@ -415,8 +433,14 @@ export class AriaMissionStore {
       allowed_job_ids: [],
       claim_count: 0,
       claimed_worker_ids: [],
+      presence_count: 0,
+      last_presence_at: null,
+      last_presence_state: null,
+      last_presence_worker_id: null,
+      alarm_tick_count: 0,
+      last_alarm_at: null,
       created_at: nowIso(),
-      expires_at: new Date(Date.now() + PACKAGE3_PROBE_TTL_MS).toISOString(),
+      expires_at: new Date(Date.now() + (readonlyPilot ? READONLY_PILOT_TTL_MS : PACKAGE3_PROBE_TTL_MS)).toISOString(),
       lease_ms: PACKAGE3_PROBE_LEASE_MS,
       closed_at: null,
       close_reason: null,
@@ -433,17 +457,20 @@ export class AriaMissionStore {
           'idempotency-key': idempotencyKey
         },
         body: JSON.stringify({
-          goal: 'Mission Wonder 2 Package 3 LIVE synthetic recovery probe ' + probeId + ': write one temporary proof artifact, recover the same job after a process interruption, and verify its SHA-256.',
+          goal: readonlyPilot
+            ? 'Mission Wonder 2 Step 2 LIVE read-only pilot ' + probeId + ': execute exactly one git.status task on the approved ROBVG workspace, verify its output, demonstrate a lease heartbeat and idle worker presence, then revoke the scope.'
+            : 'Mission Wonder 2 Package 3 LIVE synthetic recovery probe ' + probeId + ': write one temporary proof artifact, recover the same job after a process interruption, and verify its SHA-256.',
           metadata: {
             mission: 'Mission Wonder 2',
-            package: 3,
+            package: readonlyPilot ? 2 : 3,
             environment: 'production-live-probe',
-            execution_scope: 'one-mission-one-artifact',
-            package3_live_probe: true,
+            execution_scope: readonlyPilot ? 'one-mission-one-readonly-git-status' : 'one-mission-one-artifact',
+            package3_live_probe: !readonlyPilot,
+            readonly_scheduler_pilot: readonlyPilot,
             probe_id: probeId
           },
           policy: {
-            max_risk: 'medium',
+            max_risk: 'low',
             require_human_approval: true,
             max_steps: 1
           }
@@ -463,37 +490,45 @@ export class AriaMissionStore {
       scope.status = 'active';
       await this.ctx.storage.put(scopeKey, scope);
 
-      // Package 3 validates Durable Object lease recovery, not planner recovery.
-      // Materialize its exact one-task proof inside the approved one-shot scope.
-      // The Windows worker remains execution-only and never receives a planner job.
+      // Both probes use a fixed, exact one-task plan. The Windows worker remains
+      // execution-only; the read-only pilot is restricted to git.status (no writes).
       const relativePath = 'package3-proof-' + probeId + '.txt';
       const proofContent = 'Mission Wonder 2 Package 3 LIVE proof ' + probeId + '\n';
+      const readonlyTask = {
+        task_id: 'readonly-pilot-git-status',
+        title: 'One read-only Git status check on ROBVG',
+        operation: 'git.status',
+        payload: {},
+        idempotent: true,
+        max_attempts: 1,
+        depends_on: []
+      };
+      const package3Task = {
+        task_id: 'package3-live-write-proof',
+        title: 'Create one isolated temporary Package 3 proof artifact',
+        operation: 'workspace.write',
+        payload: { relative_path: relativePath, content: proofContent },
+        idempotent: true,
+        max_attempts: 2,
+        depends_on: []
+      };
+      const planTask = readonlyPilot ? readonlyTask : package3Task;
       const planResponse = await this.submitPlan(
         scope.mission_id,
         new Request('https://aria.internal/api/missions/' + encodeURIComponent(scope.mission_id) + '/plan', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            tasks: [{
-              task_id: 'package3-live-write-proof',
-              title: 'Create one isolated temporary Package 3 proof artifact',
-              operation: 'workspace.write',
-              payload: { relative_path: relativePath, content: proofContent },
-              idempotent: true,
-              max_attempts: 2,
-              depends_on: []
-            }]
-          })
+          body: JSON.stringify({ tasks: [planTask] })
         }),
-        { source: 'package3_scoped_static_plan' }
+        { source: readonlyPilot ? 'readonly_git_status_scoped_plan' : 'package3_scoped_static_plan' }
       );
       const planPayload = await planResponse.json().catch(() => ({}));
       const plannedMission = planPayload.mission;
       if (!planResponse.ok || !plannedMission || plannedMission.status !== 'running' ||
           !Array.isArray(plannedMission.tasks) || plannedMission.tasks.length !== 1 ||
-          plannedMission.tasks[0]?.operation !== 'workspace.write' ||
-          plannedMission.tasks[0]?.payload?.relative_path !== relativePath ||
-          plannedMission.tasks[0]?.payload?.content !== proofContent ||
+          plannedMission.tasks[0]?.operation !== planTask.operation ||
+          (readonlyPilot && (Object.keys(plannedMission.tasks[0]?.payload || {}).length !== 0 || plannedMission.tasks[0]?.task_id !== readonlyTask.task_id)) ||
+          (!readonlyPilot && (plannedMission.tasks[0]?.payload?.relative_path !== relativePath || plannedMission.tasks[0]?.payload?.content !== proofContent)) ||
           plannedMission.tasks[0]?.status !== 'running') {
         const cleanup = await this.closePackage3Probe(new Request('https://aria.internal/api/package3/probe/close', {
           method: 'POST',
@@ -535,6 +570,7 @@ export class AriaMissionStore {
           mission_id: scope.mission_id,
           expires_at: scope.expires_at,
           lease_ms: scope.lease_ms,
+          probe_type: scope.probe_type,
           allowed_job_operations: Array.from(PACKAGE3_PROBE_ALLOWED_JOB_OPERATIONS)
         },
         mission: plannedMission
@@ -573,6 +609,8 @@ export class AriaMissionStore {
         status: job.status,
         worker_id: job.worker_id,
         attempts: job.attempts,
+        heartbeat_count: Number(job.heartbeat_count || 0),
+        last_heartbeat_at: job.last_heartbeat_at || null,
         lease_until: job.lease_until,
         created_at: job.created_at,
         updated_at: job.updated_at,
@@ -596,12 +634,19 @@ export class AriaMissionStore {
       scope: {
         version: scope.version,
         probe_id: scope.probe_id,
+        probe_type: scope.probe_type || 'package3_write_recovery',
         status: scope.status,
         mission_id: scope.mission_id,
         worker_id_prefix: scope.worker_id_prefix,
         allowed_job_ids: scope.allowed_job_ids,
         claim_count: scope.claim_count,
         claimed_worker_ids: scope.claimed_worker_ids,
+        presence_count: Number(scope.presence_count || 0),
+        last_presence_at: scope.last_presence_at || null,
+        last_presence_state: scope.last_presence_state || null,
+        last_presence_worker_id: scope.last_presence_worker_id || null,
+        alarm_tick_count: Number(scope.alarm_tick_count || 0),
+        last_alarm_at: scope.last_alarm_at || null,
         created_at: scope.created_at,
         expires_at: scope.expires_at,
         lease_ms: scope.lease_ms,
@@ -935,14 +980,25 @@ export class AriaMissionStore {
     await this.ctx.storage.put('notification:' + notificationId, record);
   }
   async scheduleAlarm() {
-    if (this.isMissionExecutionPaused()) return false;
+    const scope = this.package3ProbeContext;
+    const scopedReadonlyPilot = this.isMissionExecutionPaused() && scope?.probe_type === 'readonly_git_status' && scope.status === 'active';
+    if (this.isMissionExecutionPaused() && !scopedReadonlyPilot) return false;
     const missions = await this.ctx.storage.list({ prefix: 'mission:' });
-    const hasActive = Array.from(missions.values()).some(m => ACTIVE_MISSION_STATES.has(m.status));
+    const hasActive = Array.from(missions.values()).some(m => ACTIVE_MISSION_STATES.has(m.status) &&
+      (!scopedReadonlyPilot || m.mission_id === scope.mission_id));
     const jobs = await this.ctx.storage.list({ prefix: 'job:' });
-    const hasJobs = Array.from(jobs.values()).some(job => ACTIVE_JOB_STATES.has(job.status));
-    const notices = await this.ctx.storage.list({ prefix: 'notification:' });
-    const hasPendingNotifications = Array.from(notices.values()).some(item => ['pending', 'waiting_config'].includes(item.status));
-    if (hasActive || hasJobs || hasPendingNotifications) await this.ctx.storage.setAlarm(Date.now() + this.alarmMs);
+    const hasJobs = Array.from(jobs.values()).some(job => ACTIVE_JOB_STATES.has(job.status) &&
+      (!scopedReadonlyPilot || package3ProbeJobAllowed(scope, job)));
+    let hasPendingNotifications = false;
+    if (!scopedReadonlyPilot) {
+      const notices = await this.ctx.storage.list({ prefix: 'notification:' });
+      hasPendingNotifications = Array.from(notices.values()).some(item => ['pending', 'waiting_config'].includes(item.status));
+    }
+    if (hasActive || hasJobs || hasPendingNotifications) {
+      await this.ctx.storage.setAlarm(Date.now() + this.alarmMs);
+      return true;
+    }
+    return false;
   }
   async createJob(mission, operation, task, context = {}) {
     this.assertMissionExecutionEnabled();
@@ -1277,13 +1333,22 @@ export class AriaMissionStore {
       const probeId = String(scope && scope.probe_id || '');
       const expectedPath = 'package3-proof-' + probeId + '.txt';
       const expectedContent = 'Mission Wonder 2 Package 3 LIVE proof ' + probeId + '\n';
-      if (!scope || scope.status !== 'active' || scope.mission_id !== missionId ||
+      if (!scope || scope.probe_type === 'readonly_git_status' || scope.status !== 'active' || scope.mission_id !== missionId ||
           tasks.length !== 1 || tasks[0].operation !== 'workspace.write' ||
           tasks[0].payload.relative_path !== expectedPath ||
           tasks[0].payload.content !== expectedContent ||
           tasks[0].idempotent !== true || tasks[0].max_attempts !== 2 ||
           tasks[0].depends_on.length !== 0) {
         return error('package3_probe_plan_scope_violation', 403);
+      }
+    }
+    if (options.source === 'readonly_git_status_scoped_plan') {
+      const scope = this.package3ProbeContext;
+      if (!scope || scope.probe_type !== 'readonly_git_status' || scope.status !== 'active' || scope.mission_id !== missionId ||
+          tasks.length !== 1 || tasks[0].task_id !== 'readonly-pilot-git-status' ||
+          tasks[0].operation !== 'git.status' || Object.keys(tasks[0].payload || {}).length !== 0 ||
+          tasks[0].idempotent !== true || tasks[0].max_attempts !== 1 || tasks[0].depends_on.length !== 0) {
+        return error('readonly_git_status_plan_scope_violation', 403);
       }
     }
 
@@ -1301,7 +1366,9 @@ export class AriaMissionStore {
       job.updated_at = nowIso();
       job.last_error = options.source === 'package3_scoped_static_plan'
         ? 'superseded_by_package3_scoped_static_plan'
-        : 'superseded_by_authenticated_remote_plan';
+        : options.source === 'readonly_git_status_scoped_plan'
+          ? 'superseded_by_readonly_git_status_static_plan'
+          : 'superseded_by_authenticated_remote_plan';
       await this.ctx.storage.put('job:' + job.job_id, job);
     }
 
@@ -1343,12 +1410,7 @@ export class AriaMissionStore {
     const records = await this.ctx.storage.list({ prefix: 'job:' });
     const candidate = Array.from(records.values())
       .filter(job => {
-        if (probeScope) {
-          if (job.mission_id !== probeScope.mission_id) return false;
-          if (!Array.isArray(probeScope.allowed_job_ids) || !probeScope.allowed_job_ids.includes(job.job_id)) return false;
-          if (!PACKAGE3_PROBE_ALLOWED_JOB_OPERATIONS.has(String(job.operation))) return false;
-          if (job.operation === 'task.execute' && job.task?.operation !== 'workspace.write') return false;
-        }
+        if (probeScope && !package3ProbeJobAllowed(probeScope, job)) return false;
         if (job.operation === 'mission.plan' && !claimedCapabilities.has('mission.plan')) return false;
         if (job.operation === 'mission.replan' && !claimedCapabilities.has('mission.replan')) return false;
         if (job.operation === 'task.execute') {
@@ -1388,6 +1450,30 @@ export class AriaMissionStore {
     return json({ job: { ...job, context: { ...job.context, mission } } });
   }
 
+  async presence(request) {
+    this.assertMissionExecutionEnabled();
+    const scope = this.package3ProbeContext;
+    if (!scope || scope.probe_type !== 'readonly_git_status' || scope.status !== 'active') {
+      return error('worker_presence_requires_readonly_pilot_scope', 403);
+    }
+    let body;
+    try { body = await request.json(); } catch (_) { return error('invalid_json', 400); }
+    const workerId = String(body && body.worker_id || '');
+    if (!package3ProbeWorkerIdAllowed(scope, workerId) || !['idle', 'working'].includes(String(body && body.state || ''))) {
+      return error('worker_presence_scope_mismatch', 403);
+    }
+    const scopeKey = 'package3:probe:' + scope.probe_id;
+    const current = await this.ctx.storage.get(scopeKey);
+    if (!current || current.status !== 'active' || Date.parse(current.expires_at) <= Date.now() ||
+        current.mission_id !== scope.mission_id) return this.pausedResponse();
+    current.presence_count = Number(current.presence_count || 0) + 1;
+    current.last_presence_at = nowIso();
+    current.last_presence_state = String(body.state);
+    current.last_presence_worker_id = workerId;
+    await this.ctx.storage.put(scopeKey, current);
+    return json({ ok: true, presence_count: current.presence_count, last_presence_at: current.last_presence_at });
+  }
+
   async heartbeat(jobId, request) {
     this.assertMissionExecutionEnabled();
     let body;
@@ -1399,7 +1485,9 @@ export class AriaMissionStore {
       ? PACKAGE3_PROBE_LEASE_MS
       : Math.max(5000, Number(this.env.ARIA_WORKER_LEASE_MS) || 60000);
     job.lease_until = new Date(Date.now() + leaseMs).toISOString();
-    job.updated_at = nowIso();
+    job.heartbeat_count = Number(job.heartbeat_count || 0) + 1;
+    job.last_heartbeat_at = nowIso();
+    job.updated_at = job.last_heartbeat_at;
     await this.ctx.storage.put('job:' + jobId, job);
     await this.ctx.storage.setAlarm(Date.now() + this.alarmMs);
     return json({ ok: true, lease_until: job.lease_until });
@@ -1478,13 +1566,20 @@ export class AriaMissionStore {
       if (result.passed !== true) return this.handleTaskFailure(job, mission, task, String(result.error || 'task_result_not_passed'));
       if (this.package3ProbeContext) {
         const evidence = result.evidence && typeof result.evidence === 'object' ? result.evidence : {};
-        const expectedPath = 'package3-proof-' + this.package3ProbeContext.probe_id + '.txt';
-        if (job.task?.operation !== 'workspace.write' ||
-            evidence.relative_path !== expectedPath ||
-            !/^[a-f0-9]{64}$/.test(String(evidence.sha256 || '')) ||
-            evidence.execution_attempt !== 2 ||
-            evidence.write_action !== 'already_identical') {
-          return this.failAfterResult(job, mission, 'package3_probe_artifact_evidence_invalid');
+        if (this.package3ProbeContext.probe_type === 'readonly_git_status') {
+          if (job.task?.operation !== 'git.status' || evidence.operation !== 'git.status' ||
+              typeof evidence.output !== 'string' || !hasTaskEvidence({ operation: 'git.status', evidence: [evidence] })) {
+            return this.failAfterResult(job, mission, 'readonly_git_status_evidence_invalid');
+          }
+        } else {
+          const expectedPath = 'package3-proof-' + this.package3ProbeContext.probe_id + '.txt';
+          if (job.task?.operation !== 'workspace.write' ||
+              evidence.relative_path !== expectedPath ||
+              !/^[a-f0-9]{64}$/.test(String(evidence.sha256 || '')) ||
+              evidence.execution_attempt !== 2 ||
+              evidence.write_action !== 'already_identical') {
+            return this.failAfterResult(job, mission, 'package3_probe_artifact_evidence_invalid');
+          }
         }
       }
       task.status = 'succeeded';
@@ -1531,7 +1626,23 @@ export class AriaMissionStore {
         missingEvidenceTaskIds.length === 0 && activeJobIds.length === 0;
       mission.verification = clone(verification || { passed: false, reason: 'verification_result_missing' });
       let package3ProofVerified = true;
-      if (this.package3ProbeContext) {
+      if (this.package3ProbeContext?.probe_type === 'readonly_git_status') {
+        const task = mission.tasks.find(item => item.task_id === 'readonly-pilot-git-status');
+        const evidence = task?.evidence?.[0];
+        package3ProofVerified = Boolean(
+          task && task.operation === 'git.status' && task.status === 'succeeded' &&
+          hasTaskEvidence({ operation: 'git.status', evidence: [evidence] }) && typeof evidence.output === 'string'
+        );
+        if (package3ProofVerified) {
+          const completedJob = await this.ctx.storage.get('job:' + task.completed_job_id);
+          mission.verification = clone({
+            ...verification,
+            pilot_operation: 'git.status',
+            read_only: true,
+            heartbeat_count: Number(completedJob && completedJob.heartbeat_count || 0)
+          });
+        }
+      } else if (this.package3ProbeContext) {
         const task = mission.tasks.find(item => item.operation === 'workspace.write');
         const taskEvidence = task?.evidence?.[0];
         const artifact = verification?.artifact;
@@ -1973,9 +2084,12 @@ export class AriaMissionStore {
   }
 
   async reconcile() {
-    if (this.isMissionExecutionPaused()) return false;
+    const scope = this.package3ProbeContext;
+    const scopedReadonlyPilot = this.isMissionExecutionPaused() && scope?.probe_type === 'readonly_git_status' && scope.status === 'active';
+    if (this.isMissionExecutionPaused() && !scopedReadonlyPilot) return false;
     const jobs = await this.ctx.storage.list({ prefix: 'job:' });
     for (const job of jobs.values()) {
+      if (scopedReadonlyPilot && !package3ProbeJobAllowed(scope, job)) continue;
       if (job.status === 'leased' && job.lease_until && Date.parse(job.lease_until) <= Date.now()) {
         job.status = 'queued';
         job.worker_id = null;
@@ -1987,7 +2101,9 @@ export class AriaMissionStore {
     }
     const missions = await this.ctx.storage.list({ prefix: 'mission:' });
     for (const mission of missions.values()) {
+      if (scopedReadonlyPilot && mission.mission_id !== scope.mission_id) continue;
       if (mission.status === 'planning') {
+        if (scopedReadonlyPilot) continue;
         await this.createJob(mission, mission.plan_kind === 'replan' ? 'mission.replan' : 'mission.plan', null, { reason: mission.last_error || 'recovery' });
       } else if (mission.status === 'running') {
         await this.reconcileCurrentTask(mission);
@@ -1998,7 +2114,23 @@ export class AriaMissionStore {
   }
 
   async alarm() {
-    if (this.isMissionExecutionPaused()) return;
+    if (this.isMissionExecutionPaused()) {
+      const records = await this.ctx.storage.list({ prefix: 'package3:probe:' });
+      const activeReadonlyScopes = Array.from(records.values()).filter(scope =>
+        scope.probe_type === 'readonly_git_status' && scope.status === 'active' && Date.parse(scope.expires_at) > Date.now());
+      if (activeReadonlyScopes.length !== 1) return;
+      const activeScope = activeReadonlyScopes[0];
+      await this.exclusive(async () => {
+        const scopeKey = 'package3:probe:' + activeScope.probe_id;
+        const current = await this.ctx.storage.get(scopeKey);
+        if (!current || current.status !== 'active' || Date.parse(current.expires_at) <= Date.now()) return;
+        current.alarm_tick_count = Number(current.alarm_tick_count || 0) + 1;
+        current.last_alarm_at = nowIso();
+        await this.ctx.storage.put(scopeKey, current);
+        await this.reconcile();
+      }, { probeScope: activeScope });
+      return;
+    }
     await this.exclusive(() => this.reconcile());
     const notices = await this.ctx.storage.list({ prefix: 'notification:' });
     const pending = Array.from(notices.values()).filter(item => ['pending', 'waiting_config'].includes(item.status)).slice(0, 10);
