@@ -156,6 +156,42 @@ function fixture({ token = '123456:TelegramFakeBotToken_forContractTests', fetch
   assert.equal(noRetry.status, 'blocked');
   assert.equal(noRetry.reason, 'telegram_delivery_outcome_uncertain');
 
+  const discoveryFx = fixture({
+    fetchImpl: async (url, init) => {
+      assert.match(url, /getUpdates$/);
+      const requestBody = JSON.parse(init.body);
+      assert.deepEqual(requestBody.allowed_updates, ['message']);
+      return {
+        ok: true, status: 200,
+        async json() {
+          return {
+            ok: true,
+            result: [
+              { update_id: 1, message: { text: '/start', chat: { id: 123456789, type: 'private' }, from: { first_name: 'Robert', username: 'robert' } } },
+              { update_id: 2, message: { text: 'texto privado que no debe aparecer', chat: { id: 123456789, type: 'private' }, from: { first_name: 'Robert' } } },
+              { update_id: 3, message: { text: '/start', chat: { id: -100123456789, type: 'supergroup', title: 'Familia' } } },
+              { update_id: 4, message: { text: 'hola', chat: { id: 999999, type: 'private' } } }
+            ]
+          };
+        }
+      };
+    }
+  });
+  const discoveredChats = await discoveryFx.delivery.listStartChats({
+    ownerId: 'owner-uuid',
+    configuredOwnerId: 'owner-uuid'
+  });
+  assert.equal(discoveredChats.ok, true);
+  assert.equal(discoveredChats.chats.length, 2);
+  assert.equal(discoveredChats.chats[0].chat_id, '123456789');
+  assert.equal(JSON.stringify(discoveredChats).includes('texto privado'), false);
+  const wrongOwner = await discoveryFx.delivery.listStartChats({
+    ownerId: 'another-owner',
+    configuredOwnerId: 'owner-uuid'
+  });
+  assert.equal(wrongOwner.ok, false);
+  assert.equal(wrongOwner.reason, 'telegram_bot_owner_mismatch');
+
   const verifyFx = fixture({
     fetchImpl: async (url, init) => ({
       ok: true, status: 200,
