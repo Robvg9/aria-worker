@@ -153,6 +153,7 @@ function createVoiceCommandRouter({
   readStatus,
   executeAction,
   idempotencyStore,
+  prepareMessage,
   isMissionExecutionPaused = () => true,
   allowedApps = [],
   allowedUrlHosts = [],
@@ -251,11 +252,44 @@ function createVoiceCommandRouter({
         || typeof params.body !== 'string' || !params.body.trim() || params.body.length > 2000) {
         return { status: 'blocked', reason: 'message_draft_invalid', executed: false };
       }
+      if (typeof prepareMessage !== 'function') {
+        return { status: 'blocked', reason: 'message_delivery_not_configured', executed: false };
+      }
+      let prepared;
+      try {
+        prepared = await prepareMessage({
+          ownerId: config.ownerId,
+          recipientId: params.recipient_id,
+          body: params.body.trim(),
+          idempotencyKey: request.idempotency_key,
+          requestId: request.request_id
+        });
+      } catch {
+        return { status: 'blocked', reason: 'message_delivery_prepare_failed', executed: false };
+      }
+      if (!prepared || prepared.ok !== true
+          || typeof prepared.confirmation_id !== 'string'
+          || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(prepared.confirmation_id)
+          || typeof prepared.recipient_name !== 'string'
+          || typeof prepared.body !== 'string'
+          || prepared.recipient_id !== params.recipient_id) {
+        return {
+          status: 'blocked',
+          reason: typeof prepared?.reason === 'string' ? prepared.reason : 'message_delivery_prepare_failed',
+          executed: false
+        };
+      }
       return {
         status: 'confirmation_required',
         reason: 'message_requires_explicit_recipient_and_content_confirmation',
         executed: false,
-        preview: { recipient_id: params.recipient_id, body: params.body.trim() },
+        preview: {
+          confirmation_id: prepared.confirmation_id,
+          recipient_id: prepared.recipient_id,
+          recipient_name: prepared.recipient_name,
+          body: prepared.body,
+          expires_at: prepared.expires_at
+        },
         confirmation_channel: 'visible_authenticated_ui'
       };
     }
