@@ -2274,7 +2274,7 @@ Deno.serve(async (req) => {
       const expectedFields = ["device_id", "device_token", "public_key_id", "public_key_ed25519"];
       if (!body || typeof body !== "object" || Array.isArray(body)
           || Object.keys(body).sort().join(",") !== [...expectedFields].sort().join(",")
-          || typeof body.device_id !== "string" || !/^windows-voice-[A-Za-z0-9._:-]{1,120}$/.test(body.device_id)
+          || typeof body.device_id !== "string" || !/^windows-[A-Za-z0-9._:-]{1,120}$/.test(body.device_id)
           || typeof body.device_token !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(body.device_token)
           || body.public_key_id !== "aria-windows-dpapi-ed25519-v1"
           || typeof body.public_key_ed25519 !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(body.public_key_ed25519)) {
@@ -2313,7 +2313,7 @@ Deno.serve(async (req) => {
       const body = await req.json().catch(() => null);
       if (!body || typeof body !== "object" || Array.isArray(body)
           || Object.keys(body).sort().join(",") !== "device_id,device_token"
-          || typeof body.device_id !== "string" || !/^windows-voice-[A-Za-z0-9._:-]{1,120}$/.test(body.device_id)
+          || typeof body.device_id !== "string" || !/^windows-[A-Za-z0-9._:-]{1,120}$/.test(body.device_id)
           || typeof body.device_token !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(body.device_token)) {
         return json({ ok: false, error: "voice_windows_heartbeat_invalid", trace_id: trace }, 400);
       }
