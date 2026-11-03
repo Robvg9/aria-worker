@@ -197,7 +197,9 @@ function createTelegramMessageDelivery({
         provider_message_id: claimed.provider_message_id ?? null
       };
     }
-    if (claimed.status !== 'dispatching' || !CHAT_ID_RE.test(String(claimed.telegram_chat_id || ''))) {
+    if (claimed.claim_state !== 'claimed_for_send'
+        || claimed.status !== 'dispatching'
+        || !CHAT_ID_RE.test(String(claimed.telegram_chat_id || ''))) {
       return {
         ok: false, status: 'blocked', executed: false,
         reason: claimed.status === 'expired' ? 'telegram_confirmation_expired'
