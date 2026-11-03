@@ -29,8 +29,8 @@ The PWA has a visible dashboard entry, **“Abrir modo voz”**, that opens the 
 
 The Android companion app PR #6 now goes beyond the original PCM meter:
 - It creates and retains an Ed25519 key in Android Keystore after an explicit user action.
-- It can register the Android public key and a random pairing token through the authenticated owner-pairing route.
-- It sends a signed, short-lived `aria.status` request on the `read` lane and checks `executed=false`.
+- Its code calls the authenticated owner-pairing route to register the Android public key and a random pairing token. The matching SQL migration is not yet applied to Supabase LIVE, so this is not yet a live pairing capability.
+- It implements the client path for a signed, short-lived `aria.status` request on the `read` lane and checks `executed=false`; an Android physical end-to-end run has not yet certified that path.
 - Its Android pairing is forced to `read_only`, with empty capabilities and `wake_word_enabled=false`.
 - It exposes an explicit server-side trust revocation action, followed by local SecureStore/Keystore cleanup.
 
