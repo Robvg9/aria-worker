@@ -2409,7 +2409,7 @@ Deno.serve(async (req) => {
         });
         if (discovered.ok !== true) {
           const status = discovered.reason === "telegram_provider_not_configured" ? 503
-            : discovered.reason === "telegram_bot_owner_mismatch" ? 403 : 502;
+            : discovered.reason === "telegram_owner_mismatch" ? 403 : 502;
           return json({ ok: false, error: discovered.reason, trace_id: trace }, status);
         }
         return json({ ok: true, chats: discovered.chats, trace_id: trace }, 200);
@@ -2444,7 +2444,10 @@ Deno.serve(async (req) => {
         });
         const verified = await delivery.verifyChat(body.telegram_chat_id, String(user.id));
         if (verified.ok !== true) {
-          return json({ ok: false, error: verified.reason || "telegram_chat_not_reachable", trace_id: trace }, 409);
+          const reason = String(verified.reason || "telegram_chat_not_reachable");
+          const status = reason === "telegram_owner_mismatch" ? 403
+            : reason === "telegram_provider_not_configured" ? 503 : 409;
+          return json({ ok: false, error: reason, trace_id: trace }, status);
         }
         const recipient = await stores.upsertTelegramRecipient({
           recipientId: body.recipient_id,
