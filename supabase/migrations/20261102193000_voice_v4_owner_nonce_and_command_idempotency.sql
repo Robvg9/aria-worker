@@ -166,7 +166,6 @@ GRANT EXECUTE ON FUNCTION aria_internal.consume_voice_owner_session_nonce(uuid,t
 GRANT EXECUTE ON FUNCTION aria_internal.claim_voice_command_idempotency(uuid,text,text,text,text,timestamptz)
   TO service_role;
 
-COMMIT;
 
 
 -- Public key registry: the private Ed25519 key stays in the device OS keystore.
@@ -384,7 +383,6 @@ GRANT EXECUTE ON FUNCTION aria_internal.revoke_voice_trusted_device_key(uuid,tex
 
 -- Speaker policy contains only the owner-selected local model ID and threshold.
 -- The acoustic template and all voice samples stay encrypted on each device.
-BEGIN;
 
 CREATE TABLE IF NOT EXISTS aria_internal.voice_speaker_policies (
   owner_user_id uuid NOT NULL,
@@ -548,13 +546,11 @@ GRANT EXECUTE ON FUNCTION aria_internal.resolve_voice_speaker_policy(uuid,text)
 GRANT EXECUTE ON FUNCTION aria_internal.revoke_voice_speaker_policy(uuid,text)
   TO service_role;
 
-COMMIT;
 
 
 -- Model allowlist remains empty until a model passes real target-language,
 -- cross-speaker, replay and spoofing evaluations. A synthetic shortlist is
 -- never sufficient to approve a production speaker verifier.
-BEGIN;
 
 CREATE TABLE IF NOT EXISTS aria_internal.voice_speaker_model_catalog (
   model_id text PRIMARY KEY,
@@ -619,7 +615,7 @@ LANGUAGE sql
 STABLE
 SECURITY DEFINER
 SET search_path = aria_internal, pg_catalog
-AS $
+AS $$
   SELECT jsonb_build_object(
     'enabled', p.enabled,
     'modelId', p.speaker_model_id,
@@ -646,7 +642,7 @@ AS $
     AND d.capabilities @> '["audio.wake_word"]'::jsonb
     AND d.last_seen_at >= now() - interval '90 seconds'
   LIMIT 1;
-$;
+$$;
 
 CREATE OR REPLACE FUNCTION aria_internal.set_voice_speaker_policy(
   p_owner_user_id uuid,
@@ -729,12 +725,10 @@ BEGIN
 END;
 $$;
 
-COMMIT;
 
 
 -- Direct device-command queue. Deliberately independent of execution_jobs:
 -- no mission_id, job_id, shell, transcript, audio, message body, or arbitrary code.
-BEGIN;
 
 CREATE TABLE IF NOT EXISTS aria_internal.voice_device_commands (
   command_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -1097,7 +1091,7 @@ BEGIN
 
   RETURN coalesce(affected,0) = 1;
 END;
-$;
+$$;
 
 -- Device revocation is a kill switch for trust and speaker authorization.
 -- Queued direct commands involving this device are cancelled atomically.
@@ -1109,28 +1103,13 @@ RETURNS boolean
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = aria_internal, pg_catalog
-AS $
+AS $$
 DECLARE
   affected integer;
 BEGIN
   IF p_owner_user_id IS NULL OR p_device_id IS NULL
      OR length(p_device_id) NOT BETWEEN 8 AND 160
-     OR p_device_id !~ '^[A-Za-z0-9._:-]+ FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION aria_internal.enqueue_voice_device_command(uuid,text,text,text,text,text,jsonb,timestamptz)
-  FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION aria_internal.claim_voice_device_command(text,text)
-  FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION aria_internal.complete_voice_device_command(uuid,text,text,text,jsonb,text)
-  FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION aria_internal.enqueue_voice_device_command(uuid,text,text,text,text,text,jsonb,timestamptz)
-  TO service_role;
-GRANT EXECUTE ON FUNCTION aria_internal.claim_voice_device_command(text,text)
-  TO service_role;
-GRANT EXECUTE ON FUNCTION aria_internal.complete_voice_device_command(uuid,text,text,text,jsonb,text)
-  TO service_role;
-
-COMMIT;
- THEN
+     OR p_device_id !~ '^[A-Za-z0-9._:-]+$' THEN
     RAISE EXCEPTION 'owner and valid device ID are required';
   END IF;
 
@@ -1162,7 +1141,7 @@ COMMIT;
 
   RETURN coalesce(affected,0) = 1;
 END;
-$;
+$$;
 
 REVOKE ALL ON FUNCTION aria_internal.revoke_voice_trusted_device_key(uuid,text)
   FROM PUBLIC, anon, authenticated;
