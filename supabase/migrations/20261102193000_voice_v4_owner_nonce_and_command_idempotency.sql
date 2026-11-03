@@ -549,6 +549,7 @@ CREATE TABLE IF NOT EXISTS aria_internal.voice_speaker_model_catalog (
   model_family text NOT NULL,
   model_sha256 text NOT NULL,
   supported_languages text[] NOT NULL DEFAULT ARRAY[]::text[],
+  minimum_score_floor numeric(5,4) NOT NULL CHECK (minimum_score_floor > 0 AND minimum_score_floor <= 1),
   status text NOT NULL DEFAULT 'candidate' CHECK (status IN ('candidate','approved','rejected')),
   evaluation_evidence_ref text,
   created_at timestamptz NOT NULL DEFAULT now(),
@@ -610,7 +611,7 @@ AS $
   SELECT jsonb_build_object(
     'enabled', p.enabled,
     'modelId', p.speaker_model_id,
-    'minimumScore', p.minimum_score
+    'minimumScore', GREATEST(p.minimum_score, m.minimum_score_floor)
   )
   FROM aria_internal.voice_speaker_policies p
   JOIN aria_internal.voice_trusted_device_keys k
@@ -664,8 +665,9 @@ BEGIN
       AND m.status = 'approved'
       AND m.approved_at IS NOT NULL
       AND m.evaluation_evidence_ref IS NOT NULL
+      AND p_minimum_score >= m.minimum_score_floor
   ) THEN
-    RAISE EXCEPTION 'speaker model is not approved for production';
+    RAISE EXCEPTION 'speaker model is not approved or threshold is below its calibrated floor';
   END IF;
 
   IF NOT EXISTS (
