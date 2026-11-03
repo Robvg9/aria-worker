@@ -81,6 +81,23 @@ function fixture({ token = '123456:TelegramFakeBotToken_forContractTests', fetch
   assert.equal(blocked.reason, 'telegram_provider_not_configured');
   assert.equal(unconfigured.sent.length, 0);
 
+  const wrongOwnerFx = fixture();
+  const wrongOwnerPrepare = await wrongOwnerFx.delivery.prepare({
+    ownerId: 'another-owner',
+    recipientId: 'contact-mom',
+    body: 'No autorizado.',
+    idempotencyKey: 'voice-idem-key-000008'
+  });
+  assert.equal(wrongOwnerPrepare.reason, 'telegram_owner_mismatch');
+  assert.equal((await wrongOwnerFx.delivery.verifyChat('123456789', 'another-owner')).reason, 'telegram_owner_mismatch');
+  assert.equal((await wrongOwnerFx.delivery.listStartChats({ ownerId: 'another-owner' })).reason, 'telegram_owner_mismatch');
+  assert.equal((await wrongOwnerFx.delivery.confirm({
+    ownerId: 'another-owner',
+    confirmationId: '123e4567-e89b-42d3-a456-426614174100',
+    body: 'No autorizado.'
+  })).reason, 'telegram_owner_mismatch');
+  assert.equal(wrongOwnerFx.sent.length, 0, 'the configured bot owner must be the only account allowed to use this bot');
+
   const fx = fixture();
   const preview = await fx.delivery.prepare({
     ownerId: 'owner-uuid',
