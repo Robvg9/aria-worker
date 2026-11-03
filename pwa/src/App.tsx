@@ -70,6 +70,7 @@ type Session = {
 
 type Message = { id: string; role: 'user' | 'aria'; text: string; processingMs?: number };
 type VoiceCommandUiState = { commandId: string; deviceId: string; operation: string; status: string; terminal: boolean; result?: Record<string, unknown>; errorCode?: string | null; pollingExpired?: boolean; statusError?: string };
+type PendingVoiceMessage = { confirmationId: string; recipientId: string; recipientName: string; body: string; };
 type CapabilityCatalog = {
   summary: Record<string, number>;
   executors: any[];
@@ -2169,6 +2170,7 @@ function Chat({
   voiceModeRef.current = voiceMode;
   const [sending, setSending] = useState(false);
   const [voiceCommandStatus, setVoiceCommandStatus] = useState<VoiceCommandUiState | null>(null);
+  const [pendingVoiceMessage, setPendingVoiceMessage] = useState<PendingVoiceMessage | null>(null);
   const [missionCreatedNotice, setMissionCreatedNotice] = useState('');
   const [system, setSystem] = useState<any>(() => readCached('system', session.userId));
   const [caps, setCaps] = useState<CapabilityCatalog | null>(() => readCached('capabilities', session.userId));
@@ -2565,6 +2567,53 @@ function Chat({
     return true;
   }
 
+  async function confirmPendingVoiceMessage(): Promise<boolean> {
+    const pending = pendingVoiceMessage;
+    if (!pending || sending) return false;
+    setSending(true);
+    setError('');
+    try {
+      const response = await api('/voice/messages/confirm', session.accessToken, {
+        method: 'POST',
+        body: JSON.stringify({
+          confirmation_id: pending.confirmationId,
+          body: pending.body
+        })
+      });
+      const delivery = response?.delivery;
+      if (response?.ok !== true || delivery?.status !== 'sent' || delivery?.executed !== true) {
+        throw new Error(String(delivery?.reason || response?.error || 'telegram_delivery_not_confirmed'));
+      }
+      const notice = 'Telegram confirmó la entrega al destinatario ' + pending.recipientName
+        + '. ID del mensaje: ' + String(delivery.provider_message_id || 'no disponible') + '.';
+      setPendingVoiceMessage(null);
+      setMessages(current => [...current, { id: crypto.randomUUID(), role: 'aria', text: notice }]);
+      if (voiceModeRef.current) speakAssistantText(notice);
+      return true;
+    } catch (cause) {
+      const detail = cause instanceof Error ? cause.message : 'telegram_delivery_failed';
+      const uncertain = /uncertain|unknown|ack_not_persisted/i.test(detail);
+      const notice = uncertain
+        ? 'Telegram pudo haber aceptado el mensaje, pero no llegó un acuse verificable. No lo reenviaré automáticamente para evitar duplicados. Comprueba el chat antes de crear otro envío.'
+        : 'No pude confirmar el envío por Telegram. El mensaje no se marcará como entregado.';
+      setError(notice);
+      setMessages(current => [...current, { id: crypto.randomUUID(), role: 'aria', text: notice }]);
+      if (voiceModeRef.current) speakAssistantText(notice);
+      return false;
+    } finally {
+      setSending(false);
+    }
+  }
+
+  function cancelPendingVoiceMessage(): boolean {
+    if (!pendingVoiceMessage) return false;
+    const notice = 'Envío por Telegram cancelado. No se envió ningún mensaje.';
+    setPendingVoiceMessage(null);
+    setMessages(current => [...current, { id: crypto.randomUUID(), role: 'aria', text: notice }]);
+    if (voiceModeRef.current) speakAssistantText(notice);
+    return true;
+  }
+
   async function runVoiceV4Intent(intent: any): Promise<boolean> {
     chatMutationVersionRef.current += 1;
     setSending(true);
@@ -2577,8 +2626,25 @@ function Chat({
         ownerId: session.userId
       });
       if (response?.confirmation_required === true || response?.command?.status === 'confirmation_required') {
-        // The PWA never confirms or dispatches a message from voice recognition.
-        const notice = 'ARIA preparó una vista previa que exige confirmación visible. Todavía no se ha enviado ningún mensaje.';
+        const preview = response?.command?.preview;
+        if (intent.operation === 'message.send'
+            && typeof preview?.confirmation_id === 'string'
+            && typeof preview?.recipient_id === 'string'
+            && typeof preview?.recipient_name === 'string'
+            && typeof preview?.body === 'string') {
+          setPendingVoiceMessage({
+            confirmationId: preview.confirmation_id,
+            recipientId: preview.recipient_id,
+            recipientName: preview.recipient_name,
+            body: preview.body
+          });
+          const notice = 'Revisa el destinatario y el texto en la vista previa. No se enviará nada hasta que pulses «Enviar por Telegram».';
+          setMessages(current => [...current, { id: crypto.randomUUID(), role: 'aria', text: notice }]);
+          if (voiceModeRef.current) speakAssistantText(notice);
+          return true;
+        }
+        // Any other confirmation-required result remains non-mutating.
+        const notice = 'ARIA requiere una confirmación visible. Todavía no se ha enviado ningún mensaje.';
         setMessages(current => [...current, { id: crypto.randomUUID(), role: 'aria', text: notice }]);
         if (voiceModeRef.current) speakAssistantText(notice);
         return true;
@@ -2858,6 +2924,18 @@ function Chat({
                   {voiceCommandStatus.errorCode && <small>Código informado: {voiceCommandStatus.errorCode}</small>}
                   {voiceCommandStatus.statusError && <small>{voiceCommandStatus.statusError}</small>}
                   <button type='button' className='ghost' onClick={() => setVoiceCommandStatus(null)}>Cerrar estado</button>
+                </section>
+              )}
+              {pendingVoiceMessage && (
+                <section className='voiceMessageConfirmation' role='dialog' aria-label='Confirmar mensaje por Telegram'>
+                  <div className='panelTitle'>CONFIRMAR ENVÍO POR TELEGRAM</div>
+                  <div className='voiceMessageRecipient'><strong>Destinatario:</strong> {pendingVoiceMessage.recipientName}</div>
+                  <div className='voiceMessageBody' aria-label='Contenido exacto del mensaje'>{pendingVoiceMessage.body}</div>
+                  <small>El mensaje anterior se enviará exactamente como aparece. El reconocimiento de voz por sí solo nunca lo envía.</small>
+                  <div className='missionConfirmationActions'>
+                    <button type='button' className='ghost' disabled={sending} onClick={cancelPendingVoiceMessage}>Cancelar</button>
+                    <button type='button' className='primary' disabled={sending} onClick={() => void confirmPendingVoiceMessage()}>{sending ? 'Enviando…' : 'Enviar por Telegram'}</button>
+                  </div>
                 </section>
               )}
               {pendingMissionConfirmation && (
