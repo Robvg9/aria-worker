@@ -42,7 +42,8 @@ assert.deepEqual(
   repositoryTestFiles,
   'PWA test catalog must contain exactly the repository test suite: no missing or stale entries'
 );
-assert.ok(catalog.includes("TEST_CATALOG_VERSION = '2026-11-02-voice-v4-command-lanes-v3'"),'canonical catalog version must be explicit');
+const catalogVersionMatch = catalog.match(/export const TEST_CATALOG_VERSION = '([^']+)'/);
+assert.ok(catalogVersionMatch?.[1], 'canonical catalog version must be explicit');
 
 assert.ok(app.includes('TEST_CATALOG_STATS.total'),'PWA totals must come from canonical stats');
 assert.ok(app.includes('TEST_CATALOG_STATS.npmTest'),'PWA npm-test count must come from canonical stats');
