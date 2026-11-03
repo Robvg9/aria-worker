@@ -72,6 +72,51 @@ function createTelegramMessageDelivery({
     };
   }
 
+  async function listStartChats({ ownerId, configuredOwnerId }) {
+    if (!token) return { ok: false, reason: 'telegram_provider_not_configured' };
+    if (typeof configuredOwnerId !== 'string' || !configuredOwnerId || ownerId !== configuredOwnerId) {
+      return { ok: false, reason: 'telegram_bot_owner_mismatch' };
+    }
+    let response;
+    try {
+      response = await fetchImpl(TELEGRAM_API + '/bot' + token + '/getUpdates', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ limit: 100, timeout: 0, allowed_updates: ['message'] })
+      });
+    } catch {
+      return { ok: false, reason: 'telegram_updates_unavailable' };
+    }
+    let payload;
+    try { payload = await response.json(); } catch { return { ok: false, reason: 'telegram_updates_unavailable' }; }
+    if (!response.ok || payload?.ok !== true || !Array.isArray(payload.result)) {
+      return { ok: false, reason: 'telegram_updates_unavailable' };
+    }
+    const unique = new Map();
+    for (const update of payload.result) {
+      const message = update?.message;
+      const chat = message?.chat;
+      const from = message?.from;
+      const textValue = typeof message?.text === 'string' ? message.text.trim() : '';
+      if (!/^\/start(?:@[a-z0-9_]+)?(?:\s+[a-z0-9_-]{1,64})?$/i.test(textValue)) continue;
+      if (!chat || !['private','group','supergroup'].includes(String(chat.type))
+          || !Number.isSafeInteger(chat.id)) continue;
+      const chatId = String(chat.id);
+      const first = typeof from?.first_name === 'string' ? from.first_name.trim() : '';
+      const last = typeof from?.last_name === 'string' ? from.last_name.trim() : '';
+      const username = typeof from?.username === 'string' ? '@' + from.username : '';
+      const title = typeof chat.title === 'string' ? chat.title.trim() : '';
+      const displayHint = (title || [first, last].filter(Boolean).join(' ') || username || 'Telegram chat').slice(0, 120);
+      unique.set(chatId, {
+        chat_id: chatId,
+        chat_type: String(chat.type),
+        display_hint: displayHint,
+        username: username || null
+      });
+    }
+    return { ok: true, chats: [...unique.values()].slice(0, 50) };
+  }
+
   async function prepare({ ownerId, recipientId, body, idempotencyKey }) {
     if (!token) return { ok: false, reason: 'telegram_provider_not_configured' };
     if (typeof ownerId !== 'string' || !ownerId) return { ok: false, reason: 'message_owner_invalid' };
@@ -223,7 +268,7 @@ function createTelegramMessageDelivery({
     };
   }
 
-  return Object.freeze({ verifyChat, prepare, confirm });
+  return Object.freeze({ verifyChat, listStartChats, prepare, confirm });
 }
 
 export { createTelegramMessageDelivery, sha256Hex, RECIPIENT_ID_RE, CONFIRMATION_ID_RE, CHAT_ID_RE };
