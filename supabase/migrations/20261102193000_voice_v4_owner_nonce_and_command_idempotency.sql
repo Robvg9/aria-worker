@@ -361,7 +361,7 @@ BEGIN
   IF p_owner_user_id IS NULL
      OR p_device_token IS NULL OR length(p_device_token) <> 43
      OR p_device_token !~ '^[A-Za-z0-9_-]{43}$'
-     OR p_public_key_id <> 'aria-android-keystore-ed25519-v1'
+     OR p_public_key_id IS DISTINCT FROM 'aria-android-keystore-ed25519-v1'
      OR p_public_key_ed25519 IS NULL OR length(p_public_key_ed25519) <> 43
      OR p_public_key_ed25519 !~ '^[A-Za-z0-9_-]{43}$' THEN
     RAISE EXCEPTION 'invalid Android owner pairing request';
@@ -377,7 +377,7 @@ BEGIN
   END IF;
 
   v_fingerprint := encode(extensions.digest(v_public_key_bytes, 'sha256'), 'hex');
-  IF p_device_id <> 'android-voice-' || v_fingerprint THEN
+  IF p_device_id IS DISTINCT FROM ('android-voice-' || v_fingerprint) THEN
     RAISE EXCEPTION 'Android pairing device ID does not match public key fingerprint';
   END IF;
   v_token_hash := encode(extensions.digest(p_device_token, 'sha256'), 'hex');
@@ -399,9 +399,10 @@ BEGIN
     IF NOT v_device_exists OR NOT v_key_exists THEN
       RAISE EXCEPTION 'incomplete Android owner pairing state';
     END IF;
-    IF v_device.agent_type <> 'android-native'
-       OR v_device.metadata->>'voice_pairing' <> 'voice-v4-owner-readonly-v1'
-       OR v_device.metadata->>'public_key_fingerprint' <> v_fingerprint
+    IF v_device.agent_type IS DISTINCT FROM 'android-native'
+       OR v_device.status = 'disabled'
+       OR v_device.metadata->>'voice_pairing' IS DISTINCT FROM 'voice-v4-owner-readonly-v1'
+       OR v_device.metadata->>'public_key_fingerprint' IS DISTINCT FROM v_fingerprint
        OR v_key.owner_user_id <> p_owner_user_id
        OR v_key.public_key_id <> p_public_key_id
        OR v_key.public_key_ed25519 <> p_public_key_ed25519
