@@ -20,6 +20,15 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "capabilities": "Evita envíos desde voz sin confirmación visible, duplicados por doble clic y repetición automática cuando el proveedor pudo haber aceptado el mensaje."
   },
   {
+    "id": "voice-v4-telegram-migration",
+    "file": "tests/voice-v4-telegram-migration.test.js",
+    "title": "Voice V4 Telegram Migration and API",
+    "category": "Voz / mensajería / seguridad",
+    "includedInNpmTest": true,
+    "how": "Comprueba RLS, privilegios mínimos, idempotencia, almacenamiento exclusivo del hash del texto, configuración de bot solo en servidor y confirmación explícita en la PWA.",
+    "capabilities": "Detecta regresiones que permitan acceso directo de clientes, persistencia del cuerpo del mensaje o envío sin una confirmación visible y autenticada."
+  },
+  {
     "id": "mission-job-authorization-fence",
     "file": "tests/mission-job-authorization-fence-contract.test.js",
     "title": "Mission Job Authorization Fence",
