@@ -1183,4 +1183,18 @@ GRANT EXECUTE ON FUNCTION aria_internal.claim_voice_device_command(text,text)
 GRANT EXECUTE ON FUNCTION aria_internal.complete_voice_device_command(uuid,text,text,text,jsonb,text)
   TO service_role;
 
+
+-- Defence in depth for the private Voice V4 schema. No client role receives
+-- policies; service_role uses BYPASSRLS, while ordinary roles are deny-by-default.
+ALTER TABLE aria_internal.voice_owner_session_nonces ENABLE ROW LEVEL SECURITY;
+ALTER TABLE aria_internal.voice_command_idempotency ENABLE ROW LEVEL SECURITY;
+ALTER TABLE aria_internal.voice_trusted_device_keys ENABLE ROW LEVEL SECURITY;
+ALTER TABLE aria_internal.voice_speaker_policies ENABLE ROW LEVEL SECURITY;
+ALTER TABLE aria_internal.voice_speaker_model_catalog ENABLE ROW LEVEL SECURITY;
+ALTER TABLE aria_internal.voice_device_commands ENABLE ROW LEVEL SECURITY;
+
+-- The authenticated API reads only the result/status row; mutations stay behind
+-- the SECURITY DEFINER enqueue/claim/complete RPCs.
+GRANT SELECT ON TABLE aria_internal.voice_device_commands TO service_role;
+
 COMMIT;
