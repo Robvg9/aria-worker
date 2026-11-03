@@ -16,6 +16,8 @@ import time
 import urllib.error
 import urllib.request
 
+from mission_wonder_2_deploy_selection import is_successful_canonical_supabase_deploy
+
 GOOGLE = {
     "provider_id": "google",
     "account_id": "acct_google_gemini_free",
@@ -128,12 +130,7 @@ def github_deploy_exact_sha():
     payload = github_api_json(runs_url)
     deployments = [
         run for run in payload.get("workflow_runs", [])
-        if run.get("name") == "Deploy ARIA Supabase Runtime"
-        and run.get("head_branch") == "main"
-        and run.get("event") == "push"
-        and run.get("status") == "completed"
-        and run.get("conclusion") == "success"
-        and re.fullmatch(r"[0-9a-f]{40}", str(run.get("head_sha", "")))
+        if is_successful_canonical_supabase_deploy(run)
     ]
     deployments.sort(key=lambda run: str(run.get("updated_at", "")), reverse=True)
     if not deployments:
@@ -154,7 +151,12 @@ def github_deploy_exact_sha():
     # Any functions, migrations, runtime, worker or config path change forces
     # a new successful canonical deployment before this probe can proceed.
     safe_post_deploy_files = {
+        # Only isolated Gate 3 harness, selector helper, and their contracts may
+        # advance past the last canonical Supabase runtime deployment.
+        ".github/workflows/mission-wonder-2-gate3-contract.yml",
         "scripts/mission-wonder-2-gate3-live-e2e.py",
+        "scripts/mission_wonder_2_deploy_selection.py",
+        "tests/mission-wonder-2-deploy-selection.test.py",
         "tests/mission-wonder-2-gate3-scope.test.mjs",
     }
     changed_files = {
