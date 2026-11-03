@@ -140,8 +140,10 @@ function fixture({ token = '123456:TelegramFakeBotToken_forContractTests', fetch
   assert.equal(duplicate.duplicate, true);
   assert.equal(fx.sent.length, 1, 'a repeated confirmation must not send twice');
 
+  let concurrentSendCalls = 0;
   const concurrentFx = fixture({
     fetchImpl: async () => {
+      concurrentSendCalls += 1;
       await new Promise(resolve => setTimeout(resolve, 50));
       return {
         ok: true,
@@ -168,7 +170,7 @@ function fixture({ token = '123456:TelegramFakeBotToken_forContractTests', fetch
       body: concurrentPreview.body
     })
   ]);
-  assert.equal(concurrentFx.sent.length, 1, 'only the process winning the SQL dispatch claim may call Telegram');
+  assert.equal(concurrentSendCalls, 1, 'only the process winning the SQL dispatch claim may call Telegram');
   assert.equal(concurrentResults.filter(item => item.status === 'sent' && item.duplicate !== true).length, 1);
   assert.equal(concurrentResults.filter(item => item.reason === 'telegram_delivery_outcome_uncertain').length, 1);
 
