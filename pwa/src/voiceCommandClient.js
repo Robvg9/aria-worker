@@ -202,8 +202,16 @@ async function getVoiceCommandStatus(api, commandId) {
   }
   const response = await api('/voice/commands/' + encodeURIComponent(commandId));
   const command = response?.command;
+  const status = String(command?.status ?? '');
+  const deviceId = typeof command?.device_id === 'string' ? command.device_id : '';
+  const operation = String(command?.operation ?? '');
+  const terminalStatus = TERMINAL_STATUSES.has(status);
   if (response?.ok !== true || !command || command.command_id !== commandId
-      || !COMMAND_STATUSES.has(String(command.status))) {
+      || !COMMAND_STATUSES.has(status)
+      || !DEVICE_ID_RE.test(deviceId)
+      || !['display.brightness.set', 'app.open', 'browser.open_url'].includes(operation)
+      || typeof response.terminal !== 'boolean'
+      || response.terminal !== terminalStatus) {
     throw new Error('voice_command_status_response_invalid');
   }
   const rawResult = command.result && typeof command.result === 'object' && !Array.isArray(command.result)
@@ -216,9 +224,9 @@ async function getVoiceCommandStatus(api, commandId) {
   }
   return {
     command_id: command.command_id,
-    device_id: String(command.device_id ?? ''),
-    operation: String(command.operation ?? ''),
-    status: String(command.status),
+    device_id: deviceId,
+    operation,
+    status,
     requested_at: command.requested_at ?? null,
     expires_at: command.expires_at ?? null,
     claimed_at: command.claimed_at ?? null,
@@ -226,7 +234,7 @@ async function getVoiceCommandStatus(api, commandId) {
     completed_at: command.completed_at ?? null,
     error_code: typeof command.error_code === 'string' ? command.error_code : null,
     result,
-    terminal: response.terminal === true && TERMINAL_STATUSES.has(String(command.status))
+    terminal: response.terminal
   };
 }
 
