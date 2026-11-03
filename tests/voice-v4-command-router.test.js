@@ -380,7 +380,11 @@ function request(overrides = {}) {
   }).router.route(request());
   assert.equal(clockUnavailable.reason, 'clock_unavailable');
 
-\n\n  // PWA direct-command client contract: no browser-held private keys, no guessed targets, no assumed success.\n  {\n  const devices = [
+
+
+  // PWA direct-command client contract: no browser-held private keys, no guessed targets, no assumed success.
+  {
+const devices = [
   { device_id: 'robvg9-pc-001', display_name: 'RobVG', aliases: ['PC principal'] },
   { device_id: 'lacueva-pc-001', display_name: 'LaCueva', aliases: ['portátil'] }
 ];
@@ -565,7 +569,8 @@ await assert.rejects(
   /voice_command_status_response_invalid/
 );
 
-  }\n
+  }
+
   console.log('ARIA VOICE V4 COMMAND ROUTER POLICY CONTRACT: PASS');
 })().catch(error => {
   console.error(error);
