@@ -74,7 +74,7 @@ def supabase_sql(query, allow_write=False):
         statement = query.strip()
         if statement.endswith(";"):
             statement = statement[:-1].rstrip()
-        if not re.match(r"(?is)^SELECT\\b", statement) or ";" in statement:
+        if not re.match(r"(?is)^SELECT\b", statement) or ";" in statement:
             fail("read-only SQL must be a single SELECT statement")
         args.append("--read-only")
 
