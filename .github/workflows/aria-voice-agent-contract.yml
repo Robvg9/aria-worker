@@ -76,12 +76,10 @@ jobs:
         env:
           PGPASSWORD: postgres
         run: |
-          psql -h localhost -U postgres -d voice_contract -v ON_ERROR_STOP=1 \\
-            -f tests/fixtures/voice-v4-migration-prerequisites.sql
-          psql -h localhost -U postgres -d voice_contract -v ON_ERROR_STOP=1 \\
-            -f supabase/migrations/20261102193000_voice_v4_owner_nonce_and_command_idempotency.sql
+          psql -h localhost -U postgres -d voice_contract -v ON_ERROR_STOP=1 -f tests/fixtures/voice-v4-migration-prerequisites.sql
+          psql -h localhost -U postgres -d voice_contract -v ON_ERROR_STOP=1 -f supabase/migrations/20261102193000_voice_v4_owner_nonce_and_command_idempotency.sql
           psql -h localhost -U postgres -d voice_contract -v ON_ERROR_STOP=1 <<'SQL'
-          DO $
+          DO $v4$
           DECLARE
             protected_tables integer;
             public_policies integer;
@@ -134,7 +132,7 @@ jobs:
             IF model_rows <> 0 THEN
               RAISE EXCEPTION 'voice_v4_speaker_catalog_must_start_empty';
             END IF;
-          END $;
+          END $v4$;
           SQL
 
   windows-owner-session-keystore:
