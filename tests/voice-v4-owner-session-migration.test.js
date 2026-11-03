@@ -81,7 +81,7 @@ assert.match(migration, /GRANT SELECT ON TABLE aria_internal[.]voice_device_comm
   'the authenticated status API needs the minimum direct SELECT grant; writes remain RPC-only');
 
 // Guard against SQL corruption that static CI previously missed.
-const sqlLines = migration.split(/\\r?\\n/).map(line => line.trim());
+const sqlLines = migration.split(String.fromCharCode(10)).map(line => line.trim());
 assert.equal(sqlLines.filter(line => line === 'BEGIN;').length, 1, 'migration must use one transaction opener');
 assert.equal(sqlLines.filter(line => line === 'COMMIT;').length, 1, 'migration must use one transaction closer');
 assert.equal(sqlLines.filter(line => line === 'AS $$' || line === 'DO $$').length,
