@@ -202,6 +202,10 @@ CREATE TABLE IF NOT EXISTS aria_internal.voice_trusted_device_keys (
 CREATE INDEX IF NOT EXISTS voice_trusted_device_keys_device_idx
   ON aria_internal.voice_trusted_device_keys (device_id, enabled, security);
 
+-- A paired physical device belongs to one Voice V4 owner at a time.
+CREATE UNIQUE INDEX IF NOT EXISTS voice_trusted_device_keys_single_owner_idx
+  ON aria_internal.voice_trusted_device_keys (device_id);
+
 COMMENT ON TABLE aria_internal.voice_trusted_device_keys IS
   'Owner-authorized Ed25519 public keys for signed ARIA Voice V4 requests. Private keys remain in Android Keystore / Windows DPAPI; this table stores public keys only.';
 

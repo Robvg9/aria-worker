@@ -77,3 +77,6 @@ This branch is not LIVE. The migration is unapplied, the API/gateway routes are 
 
 
 Production speaker model allowlisting requires the explicit `es-CU` supported-language tag, approved evaluation evidence and the model's calibrated threshold floor. The same language gate is re-checked when resolving a policy, enabling it, enqueueing a command, claiming a command, and completing a command. No model is currently approved for this target language.
+
+
+Each physical device can be paired to one Voice V4 owner at a time. A unique index on the trusted-device registry prevents the same device token from creating cross-owner command lanes; transferring a device requires revoking its prior owner pairing first.

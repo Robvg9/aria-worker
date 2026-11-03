@@ -56,3 +56,8 @@ Status is still OPEN / DRAFT and NOT LIVE. The new migration is unapplied, the p
 
 
 A speaker model is eligible only when its server catalog status is `approved`, its evaluation evidence and approval timestamp are present, and `supported_languages` includes `es-CU`. This gate is repeated at policy resolution and every direct-command queue lifecycle stage; generic Spanish, English, Chinese or synthetic-only models cannot be substituted for Cuban Spanish approval.
+
+
+## Single-owner device pairing
+
+The trusted Ed25519 registry enforces one owner per physical device ID. A device token cannot be used to add a second owner row while an earlier owner pairing exists. Owner transfer requires the current owner to revoke the pairing before the next authenticated owner registers the device.
