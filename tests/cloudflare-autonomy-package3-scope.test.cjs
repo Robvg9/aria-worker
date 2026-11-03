@@ -365,8 +365,9 @@ async function payload(response) {
   assert.equal(expiredReadback.scope.mission_id, orphanedMissionId);
   assert.equal(expiredReadback.scope.scope_token_revoked_at != null, true);
   assert.equal(expiredReadback.mission.status, 'cancelled');
-  assert.equal(expiredReadback.jobs.length, 1);
-  assert.equal(expiredReadback.jobs[0].status, 'cancelled');
+  assert.equal(expiredReadback.jobs.length, 2, 'expired cleanup must retain both the cancelled planner audit row and the cancelled scoped task');
+  assert.deepEqual(expiredReadback.jobs.map(job => job.operation).sort(), ['mission.plan', 'task.execute']);
+  assert.ok(expiredReadback.jobs.every(job => job.status === 'cancelled'));
 
   const nextProbeClose = await call(store, '/api/package3/probe/close', {
     method: 'POST',
