@@ -58,12 +58,12 @@ jobs:
           cp dist/manifest.json "dist/manifest-$GITHUB_SHA.json"
           sed "s/__BUILD__/$GITHUB_SHA/g" public/sw.js > "dist/sw-$GITHUB_SHA.js"
           grep -q "aria-pwa-$GITHUB_SHA" "dist/sw-$GITHUB_SHA.js"
-          grep -q "2026-11-02-voice-v4-command-lanes-v2" "dist/index-$GITHUB_SHA.html"
-          grep -q "content='341'" "dist/index-$GITHUB_SHA.html"
+          grep -q "2026-11-02-voice-v4-command-lanes-v3" "dist/index-$GITHUB_SHA.html"
+          grep -q "content='342'" "dist/index-$GITHUB_SHA.html"
           rm -f dist/index.html
           echo "PWA_BUILD_EXACT_SHA=$GITHUB_SHA"
-          echo "PWA_TEST_CATALOG_VERSION=2026-11-02-voice-v4-command-lanes-v2"
-          echo "PWA_TEST_CATALOG_TOTAL=341"
+          echo "PWA_TEST_CATALOG_VERSION=2026-11-02-voice-v4-command-lanes-v3"
+          echo "PWA_TEST_CATALOG_TOTAL=342"
 
   omniroute-final-live:
     runs-on: windows-latest
