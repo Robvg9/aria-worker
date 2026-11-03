@@ -16,6 +16,7 @@ const storage = fs.readFileSync(path.join(
 const router = fs.readFileSync(path.join(root, 'supabase/functions/_shared/voice-command-router.mjs'), 'utf8');
 const verifier = fs.readFileSync(path.join(root, 'supabase/functions/_shared/voice-owner-session-verifier.mjs'), 'utf8');
 const deviceGateway = fs.readFileSync(path.join(root, 'supabase/functions/aria-device-gateway/index.ts'), 'utf8');
+const appApi = fs.readFileSync(path.join(root, 'supabase/functions/aria-app-api-v3/index.ts'), 'utf8');
 
 assert.match(migration, /CREATE TABLE IF NOT EXISTS aria_internal[.]voice_owner_session_nonces/);
 assert.match(migration, /PRIMARY KEY [(]owner_user_id, nonce[)]/);
@@ -45,6 +46,24 @@ const androidPairFunction = migration.slice(
 assert.match(androidPairFunction, /capabilities, metadata/);
 assert.ok(androidPairFunction.includes("'[]'::jsonb"), 'pairing must create no device capabilities');
 assert.match(androidPairFunction, /wake_word_enabled/);
+assert.match(androidPairFunction, /p_owner_user_id IS NULL/);
+assert.match(androidPairFunction, /IS DISTINCT FROM 'android-native'/);
+assert.match(androidPairFunction, /v_key.revoked_at IS NOT NULL/);
+assert.match(androidPairFunction, /pg_advisory_xact_lock/);
+assert.match(androidTouchFunction, /d.token_hash = v_token_hash/);
+assert.match(androidTouchFunction, /k.owner_user_id = p_owner_user_id/);
+assert.match(migration, /REVOKE ALL ON FUNCTION aria_internal[.]pair_voice_owner_device/);
+assert.match(migration, /REVOKE ALL ON FUNCTION aria_internal[.]touch_voice_owner_device/);
+assert.match(migration, /GRANT EXECUTE ON FUNCTION aria_internal[.]pair_voice_owner_device/);
+assert.match(migration, /GRANT EXECUTE ON FUNCTION aria_internal[.]touch_voice_owner_device/);
+assert.match(storage, /pairOwnerDeviceKey/);
+assert.match(storage, /heartbeatOwnerDeviceKey/);
+assert.match(storage, /internal[.]rpc[(]"pair_voice_owner_device"/);
+assert.match(storage, /internal[.]rpc[(]"touch_voice_owner_device"/);
+assert.ok(appApi.includes('path.endsWith("/voice/devices/pair")'));
+assert.ok(appApi.includes('path.endsWith("/voice/devices/heartbeat")'));
+assert.ok(appApi.includes('wake_word_enabled: false'));
+assert.ok(appApi.includes('mode: "read_only"'));
 const androidTouchFunction = migration.slice(
   migration.indexOf('CREATE OR REPLACE FUNCTION aria_internal.touch_voice_owner_device'),
   migration.indexOf('CREATE OR REPLACE FUNCTION aria_internal.revoke_voice_trusted_device_key')
