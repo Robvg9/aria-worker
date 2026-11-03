@@ -2611,7 +2611,7 @@ function Chat({
       const code = cause instanceof Error ? cause.message : 'telegram_chat_discovery_unavailable';
       const friendly: Record<string, string> = {
         telegram_provider_not_configured: 'Falta configurar ARIA_TELEGRAM_BOT_TOKEN en los secretos de Supabase.',
-        telegram_bot_owner_mismatch: 'El bot está vinculado a otro propietario o falta ARIA_TELEGRAM_OWNER_ID.',
+        telegram_owner_mismatch: 'Esta cuenta no coincide con ARIA_TELEGRAM_OWNER_ID o el propietario del bot no está configurado.',
         telegram_updates_unavailable: 'No se pudieron leer los chats. Comprueba el bot, su token y que no tenga un webhook activo.'
       };
       setTelegramSetupNotice(friendly[code] || code);
