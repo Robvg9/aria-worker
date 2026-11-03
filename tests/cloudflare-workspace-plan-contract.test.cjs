@@ -40,6 +40,8 @@ const {
   assert.equal(sanitizeCloudflarePlanFailureReason('goal_too_large'), 'goal_too_large');
   assert.equal(sanitizeCloudflarePlanFailureReason('workspace_path_required'), 'workspace_path_required');
   assert.equal(sanitizeCloudflarePlanFailureReason('workspace_test_file_required'), 'workspace_test_file_required');
+  const plannerBridgeImport = plannerSource.split(/\r?\n/).find(line => line.includes('from "./cloudflare-workspace-plan-v1.mjs"')) || '';
+  assert.match(plannerBridgeImport, /\bbuildCloudflareWorkspacePrompt\b/, 'planner must import the prompt builder it invokes');
   assert.ok(plannerSource.includes('promptValidationStage="goal_validation"'));
   assert.ok(plannerSource.includes('promptValidationStage="workspace_request_validation"'));
   assert.ok(plannerSource.includes('promptValidationStage="prompt_assembly"'));
