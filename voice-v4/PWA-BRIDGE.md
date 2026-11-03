@@ -39,3 +39,12 @@ This native flow is inside the React Native app. It does **not** inject `window.
 The Android app's APK builds currently use the Android Debug certificate unless a controlled release keystore and its approved `ANDROID_SIGNING_CERT_SHA256` fingerprint are configured. Such artifacts are QA-only, not production distributions.
 
 This document describes the required PWA host bridge, not evidence that the Android/Windows bridge exists or has passed physical certification. No Cuban-Spanish speaker model has been approved for `es-CU`; direct/device actions remain gated. The mission pause remains active, and no physical microphone, wake-word or mission-execution path is enabled.
+
+
+## Windows owner pairing backend contract — 2026-11-03
+
+- The Worker branch now defines authenticated owner endpoints `POST /voice/devices/pair-windows` and `POST /voice/devices/heartbeat-windows`, backed by service-role-only RPCs `pair_voice_windows_owner_device` and `touch_voice_windows_owner_device`.
+- The pairing identity is fixed to `aria-windows-dpapi-ed25519-v1`; device IDs must use the `windows-voice-` prefix, and the public key is the only signing-key material sent to the API.
+- Pairing creates a `windows-native` trusted identity with empty capabilities, `wake_word_enabled=false`, and `mode=read_only`. Heartbeats preserve the empty capability set and cannot reactivate an administratively disabled device. Revocation uses the existing owner-scoped voice device revocation route.
+- This is backend contract/code only. The Windows DPAPI key is still not wired into the agent or a browser host; there is no local HTTP bridge, no authenticated Windows owner-token handoff, no token persistence/enrollment UI, and no physical Windows pairing test. Do not claim Windows signing is ready to use.
+- No migration is applied to Supabase LIVE. The endpoints become usable only after the governed migration/API release and after a separately reviewed native host securely handles the device token and authenticated owner session.
