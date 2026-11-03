@@ -251,13 +251,13 @@ jobs:
       - name: Execute one scoped LIVE git.status mission on ROBVG
         shell: powershell
         env:
-          ARIA_CONTROL_TOKEN: \${{ secrets.ARIA_AUTONOMY_CONTROL_TOKEN }}
-          ARIA_WORKER_TOKEN: \${{ secrets.ARIA_AUTONOMY_WORKER_TOKEN }}
+          ARIA_CONTROL_TOKEN: ${{ secrets.ARIA_AUTONOMY_CONTROL_TOKEN }}
+          ARIA_WORKER_TOKEN: ${{ secrets.ARIA_AUTONOMY_WORKER_TOKEN }}
           ARIA_CONTROL_URL: https://aria-autonomy-coordinator.robvg9.workers.dev
           ARIA_WORKSPACE_ROOT: ${{ github.workspace }}
-          ARIA_AUTONOMY_ADAPTER: \${{ github.workspace }}\autonomy\aria-windows-execution-adapter-v1.js
+          ARIA_AUTONOMY_ADAPTER: ${{ github.workspace }}\autonomy\aria-windows-execution-adapter-v1.js
           ARIA_NODE_PATH: D:\Databank\node\node.exe
-          ARIA_READONLY_PILOT_EVIDENCE_PATH: \${{ runner.temp }}\aria-readonly-pilot-evidence.json
+          ARIA_READONLY_PILOT_EVIDENCE_PATH: ${{ runner.temp }}\aria-readonly-pilot-evidence.json
         run: |
           $ErrorActionPreference = 'Stop'
           if ($env:COMPUTERNAME -ne 'ROBVG') { throw "Wrong runner host '$env:COMPUTERNAME'; no LIVE pilot started." }
@@ -277,6 +277,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: aria-readonly-git-status-pilot-evidence
-          path: \${{ runner.temp }}\aria-readonly-pilot-evidence.json
+          path: ${{ runner.temp }}\aria-readonly-pilot-evidence.json
           if-no-files-found: ignore
           retention-days: 7
