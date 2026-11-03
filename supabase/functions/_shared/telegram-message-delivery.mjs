@@ -95,7 +95,9 @@ function createTelegramMessageDelivery({
       return { ok: false, reason: 'telegram_updates_unavailable' };
     }
     const unique = new Map();
+    let highestUpdateId = -1;
     for (const update of payload.result) {
+      if (Number.isSafeInteger(update?.update_id)) highestUpdateId = Math.max(highestUpdateId, update.update_id);
       const message = update?.message;
       const chat = message?.chat;
       const from = message?.from;
@@ -115,6 +117,23 @@ function createTelegramMessageDelivery({
         display_hint: displayHint,
         username: username || null
       });
+    }
+    if (highestUpdateId >= 0) {
+      // Acknowledge the updates after reducing them to minimal chat metadata.
+      // If acknowledgement fails, the next discovery may return the same
+      // candidates again; it never causes a message send.
+      try {
+        await fetchImpl(TELEGRAM_API + '/bot' + token + '/getUpdates', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            offset: highestUpdateId + 1,
+            limit: 1,
+            timeout: 0,
+            allowed_updates: ['message']
+          })
+        });
+      } catch { /* safe to rediscover the same /start candidates */ }
     }
     return { ok: true, chats: [...unique.values()].slice(0, 50) };
   }
