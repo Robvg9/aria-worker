@@ -8,8 +8,17 @@ export type TestCatalogItem = {
   capabilities: string;
 };
 
-export const TEST_CATALOG_VERSION = '2026-11-02-voice-v4-command-lanes-v3';
+export const TEST_CATALOG_VERSION = '2026-11-03-voice-v4-telegram-v1';
 export const TEST_CATALOG: TestCatalogItem[] = [
+  {
+    "id": "voice-v4-telegram-delivery",
+    "file": "tests/voice-v4-telegram-delivery.test.js",
+    "title": "Voice V4 Telegram Delivery",
+    "category": "Voz / mensajería / seguridad",
+    "includedInNpmTest": true,
+    "how": "Comprueba el adaptador Telegram, la previsualización, la confirmación autenticada, la idempotencia, el acuse del proveedor y el bloqueo de reintentos ante resultados inciertos.",
+    "capabilities": "Evita envíos desde voz sin confirmación visible, duplicados por doble clic y repetición automática cuando el proveedor pudo haber aceptado el mensaje."
+  },
   {
     "id": "mission-job-authorization-fence",
     "file": "tests/mission-job-authorization-fence-contract.test.js",
