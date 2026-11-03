@@ -16,7 +16,7 @@ import time
 import urllib.error
 import urllib.request
 
-from mission_wonder_2_deploy_selection import is_successful_canonical_supabase_deploy
+from mission_wonder_2_deploy_selection import collect_successful_canonical_supabase_deploys
 
 GOOGLE = {
     "provider_id": "google",
@@ -126,12 +126,20 @@ def github_deploy_exact_sha():
     # Prefer a successful canonical deploy for this exact SHA. If main has
     # advanced only by the isolated harness/test changes, reuse the most recent
     # successful deployment after proving no runtime-bearing paths changed.
-    runs_url = f"https://api.github.com/repos/{GH_REPO}/actions/runs?branch=main&per_page=100"
-    payload = github_api_json(runs_url)
-    deployments = [
-        run for run in payload.get("workflow_runs", [])
-        if is_successful_canonical_supabase_deploy(run)
-    ]
+    # Scope the query to the canonical workflow and page through its complete
+    # main history. The repository-wide endpoint can return 2,500+ main runs;
+    # the first 100 are often unrelated workflows and can hide valid deploys.
+    runs_url = (
+        f"https://api.github.com/repos/{GH_REPO}/actions/workflows/"
+        "supabase-canonical-deploy.yml/runs?branch=main&per_page=100"
+    )
+
+    def fetch_deploy_page(page):
+        return github_api_json(runs_url + "&page=" + str(page))
+
+    deployments = collect_successful_canonical_supabase_deploys(
+        fetch_deploy_page, page_size=100, max_pages=10
+    )
     deployments.sort(key=lambda run: str(run.get("updated_at", "")), reverse=True)
     if not deployments:
         fail("no successful canonical Supabase runtime deployment exists on main")
