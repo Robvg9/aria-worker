@@ -595,6 +595,45 @@ $$;
 REVOKE ALL ON TABLE aria_internal.voice_speaker_model_catalog FROM PUBLIC, anon, authenticated;
 GRANT SELECT ON TABLE aria_internal.voice_speaker_model_catalog TO service_role;
 
+-- A previously enabled speaker policy must stop resolving immediately if its
+-- model is no longer production-approved or its approval evidence is removed.
+CREATE OR REPLACE FUNCTION aria_internal.resolve_voice_speaker_policy(
+  p_owner_user_id uuid,
+  p_device_id text
+)
+RETURNS jsonb
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = aria_internal, pg_catalog
+AS $
+  SELECT jsonb_build_object(
+    'enabled', p.enabled,
+    'modelId', p.speaker_model_id,
+    'minimumScore', p.minimum_score
+  )
+  FROM aria_internal.voice_speaker_policies p
+  JOIN aria_internal.voice_trusted_device_keys k
+    ON k.owner_user_id = p.owner_user_id AND k.device_id = p.device_id
+  JOIN aria_internal.device_registry d ON d.device_id = p.device_id
+  JOIN aria_internal.voice_speaker_model_catalog m
+    ON m.model_id = p.speaker_model_id
+   AND m.status = 'approved'
+   AND m.approved_at IS NOT NULL
+   AND m.evaluation_evidence_ref IS NOT NULL
+  WHERE p.owner_user_id = p_owner_user_id
+    AND p.device_id = p_device_id
+    AND p.enabled = true
+    AND p.revoked_at IS NULL
+    AND k.enabled = true
+    AND k.security = 'trusted'
+    AND k.revoked_at IS NULL
+    AND d.status = 'online'
+    AND d.capabilities @> '["audio.wake_word"]'::jsonb
+    AND d.last_seen_at >= now() - interval '90 seconds'
+  LIMIT 1;
+$;
+
 CREATE OR REPLACE FUNCTION aria_internal.set_voice_speaker_policy(
   p_owner_user_id uuid,
   p_device_id text,
