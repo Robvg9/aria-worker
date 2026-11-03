@@ -1,6 +1,13 @@
 name: Mission Wonder 2 — Package 2 execution-only validation
 
 on:
+  workflow_dispatch:
+    inputs:
+      confirm_readonly_pilot:
+        description: 'Run one scoped LIVE git.status pilot on ROBVG after deployment.'
+        required: true
+        type: boolean
+        default: false
   pull_request:
     branches: [main]
     paths:
@@ -235,7 +242,7 @@ jobs:
 
   robvg-readonly-git-status-pilot:
     name: ROBVG LIVE one-job read-only scheduler + worker pilot
-    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'fix/verified-mission-completion-invariants-20261103'
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.confirm_readonly_pilot == true
     needs: [node-contracts, windows-config-validation]
     runs-on: [self-hosted, Windows, X64]
     timeout-minutes: 12
