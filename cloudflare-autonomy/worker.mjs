@@ -22,7 +22,28 @@ const RISK_BY_OPERATION = Object.freeze({
 const ACTIVE_JOB_STATES = new Set(['queued', 'leased']);
 const ACTIVE_MISSION_STATES = new Set(['planning', 'queued', 'running']);
 const clone = value => value == null ? value : JSON.parse(JSON.stringify(value));
-const bodyRetryable = reason => /timeout|temporar|network|\b429\b|\b502\b|\b503\b|\b504\b/i.test(String(reason || ''));
+const hasTaskEvidence = task => Array.isArray(task && task.evidence) && task.evidence.some(item => {
+  if (typeof item === 'string') return item.trim().length > 0;
+  if (!item || typeof item !== 'object' || Array.isArray(item)) return false;
+  return Object.keys(item).some(key => !(key === 'result' && item[key] === 'passed_without_detail'));
+});
+function classifyTaskFailure(reason) {
+  const value = String(reason || '').toLowerCase();
+  if (/capacity|quota|rate.?limit|\b429\b|overload|resource_exhausted/.test(value)) {
+    return { category: 'capacity', error_code: 'provider_capacity', retryable: true };
+  }
+  if (/timeout|temporar|network|econn|\b408\b|\b502\b|\b503\b|\b504\b|unavailable/.test(value)) {
+    return { category: 'transient', error_code: 'transient_network_or_timeout', retryable: true };
+  }
+  if (/unauthori[sz]ed|forbidden|invalid.?credential|configuration/.test(value)) {
+    return { category: 'configuration', error_code: 'provider_or_auth_configuration', retryable: false };
+  }
+  return { category: 'permanent', error_code: 'execution_failed', retryable: false };
+}
+function safeDiagnosticLabel(value) {
+  const label = String(value || '').trim().replace(/[^a-zA-Z0-9_.:/-]/g, '_').slice(0, 80);
+  return label || null;
+}
 const nowIso = () => new Date().toISOString();
 const uuid = prefix => prefix + '_' + crypto.randomUUID();
 const json = (value, status = 200, headers = {}) => new Response(JSON.stringify(value), {
@@ -35,6 +56,7 @@ const PACKAGE3_PROBE_TTL_MS = 10 * 60 * 1000;
 const PACKAGE3_PROBE_LEASE_MS = 8000;
 const PACKAGE3_PROBE_ALLOWED_JOB_OPERATIONS = new Set(['mission.plan', 'task.execute', 'mission.verify']);
 const PACKAGE3_PROBE_ID_PATTERN = /^[a-z0-9][a-z0-9-]{7,70}$/;
+const MISSION_CONTROL_URL = 'https://aria-autonomy-coordinator.robvg9.workers.dev/';
 
 async function sha256Hex(value) {
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(String(value)));
@@ -593,13 +615,33 @@ export class AriaMissionStore {
 
   async notify(event) {
     this.assertMissionExecutionEnabled();
+    const dedupeKey = await sha256Hex(JSON.stringify(event));
+    const notificationId = 'notification_' + dedupeKey.slice(0, 32);
+    const existing = await this.ctx.storage.get('notification:' + notificationId);
+    if (existing) return existing;
     const telegramRequested = Boolean(this.env.ARIA_TELEGRAM_BOT_TOKEN || this.env.ARIA_TELEGRAM_CHAT_ID);
     const telegramConfigured = Boolean(this.env.ARIA_TELEGRAM_BOT_TOKEN && this.env.ARIA_TELEGRAM_CHAT_ID);
     const webhookConfigured = Boolean(this.env.ARIA_NOTIFICATION_WEBHOOK_URL);
     const configured = telegramRequested ? telegramConfigured : webhookConfigured;
     const isPackage3Probe = Boolean(this.package3ProbeContext);
+    const mission = event.mission_id ? await this.getMission(String(event.mission_id)) : null;
+    const intervention = event.type === 'human_intervention_required' || event.type === 'mission_rejected';
+    const resolutionSteps = intervention
+      ? event.approval_id
+        ? [
+            'Abre ARIA Mission Control y localiza la misión indicada.',
+            'Revisa el objetivo, el paso bloqueado y el motivo exacto.',
+            'Aprueba o rechaza ese paso desde el panel; ARIA no puede aprobarlo por sí misma.'
+          ]
+        : [
+            'Abre ARIA Mission Control y localiza la misión indicada.',
+            'Revisa el objetivo, el paso o job afectado y el diagnóstico.',
+            'Resuelve el requisito humano y usa Reanudar en el panel si aparece disponible.'
+          ]
+      : [];
     const record = {
-      notification_id: uuid('notification'),
+      notification_id: notificationId,
+      dedupe_key: dedupeKey,
       created_at: nowIso(),
       updated_at: nowIso(),
       status: isPackage3Probe ? 'suppressed_package3_probe' : (configured ? 'pending' : 'waiting_config'),
@@ -608,13 +650,21 @@ export class AriaMissionStore {
       last_error: isPackage3Probe
         ? 'external_delivery_disabled_for_package3_probe'
         : (configured ? null : (telegramRequested ? 'telegram_configuration_incomplete' : 'notification_webhook_not_configured')),
-      event: clone(event)
+      event: clone({
+        ...event,
+        mission_goal: mission && mission.goal || event.mission_goal || null,
+        mission_control_url: MISSION_CONTROL_URL,
+        resolution_steps: resolutionSteps,
+        after_resolution: intervention
+          ? 'ARIA continúa desde el checkpoint persistido, procesa el trabajo independiente restante y vuelve a verificar antes de declarar éxito.'
+          : null
+      })
     };
     await this.ctx.storage.put('notification:' + record.notification_id, record);
     if (configured && !isPackage3Probe) {
       this.ctx.waitUntil((async () => {
         try {
-          await this.deliverNotification(record.notification_id);
+          await this.exclusive(() => this.deliverNotification(record.notification_id));
         } finally {
           await this.scheduleAlarm();
         }
@@ -680,6 +730,10 @@ export class AriaMissionStore {
       approval_id: event.approval_id == null ? null : String(event.approval_id).slice(0, 128),
       reason: event.reason == null ? null : String(event.reason).slice(0, 1000),
       details: event.details == null ? null : String(event.details).slice(0, 1000),
+      mission_goal: event.mission_goal == null ? null : String(event.mission_goal).slice(0, 1000),
+      mission_control_url: event.mission_control_url == null ? null : String(event.mission_control_url),
+      resolution_steps: Array.isArray(event.resolution_steps) ? event.resolution_steps.map(step => String(step).slice(0, 300)).slice(0, 5) : [],
+      after_resolution: event.after_resolution == null ? null : String(event.after_resolution).slice(0, 500),
       created_at: record.created_at
     };
     const telegramText = [
@@ -687,8 +741,12 @@ export class AriaMissionStore {
       payload.mission_id ? 'Misión: ' + payload.mission_id : null,
       payload.task_id ? 'Tarea: ' + payload.task_id : null,
       payload.approval_id ? 'Aprobación: ' + payload.approval_id : null,
+      payload.mission_goal ? 'Objetivo: ' + payload.mission_goal : null,
       payload.reason ? 'Motivo: ' + payload.reason : null,
       payload.details ? 'Detalles: ' + payload.details : null,
+      ...payload.resolution_steps.map((step, index) => (index + 1) + '. ' + step),
+      payload.mission_control_url ? 'Mission Control: ' + payload.mission_control_url : null,
+      payload.after_resolution ? 'Después: ' + payload.after_resolution : null,
       'Aviso: ' + payload.notification_id,
       'Fecha: ' + payload.created_at
     ].filter(Boolean).join('\n').slice(0, 4096);
@@ -1163,7 +1221,9 @@ export class AriaMissionStore {
     if (!mission) return error('mission_not_found', 404);
     const result = body.result && typeof body.result === 'object' ? body.result : {};
     job.status = 'completed';
-    job.result = clone(result);
+    job.result = result.passed === false
+      ? { passed: false, error_code: classifyTaskFailure(result.error).error_code }
+      : clone(result);
     job.updated_at = nowIso();
     await this.ctx.storage.put('job:' + jobId, job);
 
@@ -1232,6 +1292,23 @@ export class AriaMissionStore {
 
     if (job.operation === 'mission.verify') {
       const verification = result.evidence && result.evidence.verification;
+      const unresolvedTaskIds = mission.tasks
+        .filter(task => !['succeeded', 'skipped'].includes(task.status))
+        .map(task => task.task_id);
+      const missingEvidenceTaskIds = mission.tasks
+        .filter(task => task.status === 'succeeded' && !hasTaskEvidence(task))
+        .map(task => task.task_id);
+      const jobRecords = await this.ctx.storage.list({ prefix: 'job:' });
+      const activeJobIds = Array.from(jobRecords.values())
+        .filter(item => item.mission_id === mission.mission_id && ACTIVE_JOB_STATES.has(item.status))
+        .map(item => item.job_id);
+      const completionInvariantFailures = {
+        unresolved_task_ids: unresolvedTaskIds,
+        missing_evidence_task_ids: missingEvidenceTaskIds,
+        active_job_ids: activeJobIds
+      };
+      const completionInvariantsPassed = unresolvedTaskIds.length === 0 &&
+        missingEvidenceTaskIds.length === 0 && activeJobIds.length === 0;
       mission.verification = clone(verification || { passed: false, reason: 'verification_result_missing' });
       let package3ProofVerified = true;
       if (this.package3ProbeContext) {
@@ -1246,7 +1323,7 @@ export class AriaMissionStore {
           artifact.sha256 === taskEvidence.sha256
         );
       }
-      if (result.passed === true && verification && verification.passed === true && package3ProofVerified) {
+      if (result.passed === true && verification && verification.passed === true && package3ProofVerified && completionInvariantsPassed) {
         mission.status = 'succeeded';
         mission.progress_percent = 100;
         mission.last_error = null;
@@ -1254,9 +1331,19 @@ export class AriaMissionStore {
         await this.notify({ type: 'mission_completed', mission_id: mission.mission_id, details: String(verification.reason || 'verified') });
       } else {
         mission.status = 'waiting_human';
-        mission.last_error = String(verification && verification.reason || 'final_verification_failed');
-        await this.saveMission(mission, 'mission_verification_failed', { verification: mission.verification });
-        await this.notify({ type: 'human_intervention_required', mission_id: mission.mission_id, reason: 'final_verification_failed', details: mission.last_error });
+        mission.last_error = !completionInvariantsPassed
+          ? 'mission_completion_invariants_failed'
+          : String(verification && verification.reason || 'final_verification_failed');
+        await this.saveMission(mission, 'mission_verification_failed', {
+          verification: mission.verification,
+          completion_invariants: completionInvariantFailures
+        });
+        await this.notify({
+          type: 'human_intervention_required',
+          mission_id: mission.mission_id,
+          reason: !completionInvariantsPassed ? 'mission_completion_invariants_failed' : 'final_verification_failed',
+          details: !completionInvariantsPassed ? JSON.stringify(completionInvariantFailures) : mission.last_error
+        });
       }
       await this.scheduleAlarm();
       return json({ ok: true, mission });
@@ -1266,51 +1353,80 @@ export class AriaMissionStore {
 
   async failAfterResult(job, mission, reason) {
     this.assertMissionExecutionEnabled();
+    const errorCode = classifyTaskFailure(reason).error_code;
     job.status = 'failed';
-    job.last_error = reason;
+    job.last_error = errorCode;
+    job.result = { passed: false, error_code: errorCode };
     job.updated_at = nowIso();
     await this.ctx.storage.put('job:' + job.job_id, job);
-    mission.last_error = reason;
+    mission.last_error = errorCode;
     mission.status = 'waiting_human';
     mission.current_task_id = null;
-    await this.saveMission(mission, 'mission_worker_result_rejected', { job_id: job.job_id, reason });
-    await this.notify({ type: 'human_intervention_required', mission_id: mission.mission_id, reason, details: reason });
+    await this.saveMission(mission, 'mission_worker_result_rejected', { job_id: job.job_id, reason: errorCode });
+    await this.notify({ type: 'human_intervention_required', mission_id: mission.mission_id, reason: errorCode, details: errorCode });
     await this.scheduleAlarm();
     return error(reason, 422);
   }
 
   async handleTaskFailure(job, mission, task, reason) {
     this.assertMissionExecutionEnabled();
-    task.last_error = reason.slice(0, 1000);
+    const classification = classifyTaskFailure(reason);
+    const fingerprint = [task.operation, classification.category, classification.error_code].map(value => safeDiagnosticLabel(value) || 'unknown').join(':');
+    task.failure_fingerprint_counts = task.failure_fingerprint_counts && typeof task.failure_fingerprint_counts === 'object'
+      ? task.failure_fingerprint_counts
+      : {};
+    const fingerprintAttempts = (Number(task.failure_fingerprint_counts[fingerprint]) || 0) + 1;
+    task.failure_fingerprint_counts[fingerprint] = fingerprintAttempts;
+    const recovery = task.idempotent === true && classification.retryable && task.attempts < task.max_attempts && fingerprintAttempts < task.max_attempts
+      ? 'retry'
+      : task.idempotent === true && (mission.replans || 0) < 2
+        ? 'bounded_replan'
+        : 'human_intervention';
+    const diagnostic = {
+      phase: 'task_execution',
+      agent: safeDiagnosticLabel(job.worker_id),
+      provider: safeDiagnosticLabel(job.provider || job.result && job.result.provider),
+      model: safeDiagnosticLabel(job.model || job.result && job.result.model),
+      error_category: classification.category,
+      error_code: classification.error_code,
+      attempts: task.attempts,
+      fingerprint_attempts: fingerprintAttempts,
+      recovery,
+      fingerprint
+    };
+    task.last_error = classification.error_code;
+    task.failure_diagnostics = [...(Array.isArray(task.failure_diagnostics) ? task.failure_diagnostics : []), diagnostic].slice(-5);
     mission.current_task_id = null;
     job.status = 'failed';
     job.last_error = task.last_error;
+    job.result = { passed: false, error_code: classification.error_code };
     job.updated_at = nowIso();
     await this.ctx.storage.put('job:' + job.job_id, job);
-    if ((task.idempotent === true || (bodyRetryable(reason))) && task.attempts < task.max_attempts) {
+    if (recovery === 'retry') {
       task.status = 'pending';
-      await this.saveMission(mission, 'task_retrying', { task_id: task.task_id, reason, attempts: task.attempts });
+      await this.saveMission(mission, 'task_retrying', { task_id: task.task_id, diagnostic });
       await this.scheduleNext(mission);
       await this.scheduleAlarm();
       return json({ ok: true, retrying: true, mission });
     }
     task.status = 'failed';
-    if ((mission.replans || 0) < 2) {
+    if (recovery === 'bounded_replan') {
       for (const other of mission.tasks) if (other.status === 'pending') other.status = 'skipped';
       task.status = 'skipped';
-      task.last_error = 'Superseded by bounded replan after: ' + reason.slice(0, 500);
+      task.last_error = 'superseded_by_bounded_replan:' + classification.error_code;
       mission.status = 'planning';
       mission.plan_kind = 'replan';
-      mission.last_error = reason;
-      await this.saveMission(mission, 'mission_replan_started', { task_id: task.task_id, reason });
-      await this.createJob(mission, 'mission.replan', null, { reason });
+      mission.last_error = classification.error_code;
+      await this.saveMission(mission, 'mission_replan_started', { task_id: task.task_id, diagnostic });
+      await this.createJob(mission, 'mission.replan', null, { reason: classification.error_code });
       await this.scheduleAlarm();
       return json({ ok: true, replanning: true, mission });
     }
-    mission.status = 'waiting_human';
-    mission.last_error = reason;
-    await this.saveMission(mission, 'task_failed_human_gate', { task_id: task.task_id, reason });
-    await this.notify({ type: 'human_intervention_required', mission_id: mission.mission_id, task_id: task.task_id, reason, details: reason });
+    mission.status = 'running';
+    mission.last_error = classification.error_code;
+    await this.saveMission(mission, 'task_failed_human_gate', { task_id: task.task_id, diagnostic });
+    await this.notify({ type: 'human_intervention_required', mission_id: mission.mission_id, task_id: task.task_id, reason: classification.error_code, details: JSON.stringify(diagnostic) });
+    await this.scheduleNext(mission);
     await this.scheduleAlarm();
     return json({ ok: true, waiting_human: true, mission });
   }
@@ -1324,20 +1440,23 @@ export class AriaMissionStore {
     if (job.status !== 'leased' || job.worker_id !== body.worker_id || job.lease_token !== body.lease_token) return error('lease_mismatch', 409);
     const mission = await this.getMission(job.mission_id);
     if (!mission) return error('mission_not_found', 404);
+    const failureReason = String(body.error || 'worker_execution_failed').slice(0, 1000);
+    const failureCode = classifyTaskFailure(failureReason).error_code;
     job.status = 'failed';
-    job.last_error = String(body.error || 'worker_execution_failed').slice(0, 1000);
+    job.last_error = failureCode;
+    job.result = { passed: false, error_code: failureCode };
     job.updated_at = nowIso();
     await this.ctx.storage.put('job:' + jobId, job);
     if (job.operation === 'task.execute') {
       const task = mission.tasks.find(item => item.task_id === job.task_id);
       if (!task) return error('task_not_found', 404);
-      return this.handleTaskFailure(job, mission, task, job.last_error);
+      return this.handleTaskFailure(job, mission, task, failureReason);
     }
     mission.status = 'waiting_human';
     mission.current_task_id = null;
-    mission.last_error = job.last_error;
-    await this.saveMission(mission, 'worker_job_failed_human_gate', { job_id: job.job_id, error: job.last_error });
-    await this.notify({ type: 'human_intervention_required', mission_id: mission.mission_id, reason: 'worker_job_failed', details: job.last_error });
+    mission.last_error = failureCode;
+    await this.saveMission(mission, 'worker_job_failed_human_gate', { job_id: job.job_id, error: failureCode });
+    await this.notify({ type: 'human_intervention_required', mission_id: mission.mission_id, reason: 'worker_job_failed', details: failureCode });
     await this.scheduleAlarm();
     return json({ ok: true, waiting_human: true, mission });
   }
@@ -1350,29 +1469,35 @@ export class AriaMissionStore {
       if (current && ['running', 'pending'].includes(current.status)) return;
       mission.current_task_id = null;
     }
-    const pending = mission.tasks.find(task => task.status === 'pending' && task.depends_on.every(dep => {
+    const ready = mission.tasks.filter(task => task.status === 'pending' && task.depends_on.every(dep => {
       const parent = mission.tasks.find(item => item.task_id === dep);
       return parent && parent.status === 'succeeded';
     }));
-    if (pending) {
-      const risk = parseRisk(pending.risk);
+    const requiresApproval = task => {
+      const risk = parseRisk(task.risk);
       const maxRisk = parseRisk(mission.policy && mission.policy.max_risk || 'medium');
       const riskRank = { low: 0, medium: 1, high: 2, critical: 3 };
-      if (pending.approved !== true && (pending.irreversible || riskRank[risk] >= riskRank.high || (mission.policy && mission.policy.require_human_approval !== false && riskRank[risk] > riskRank[maxRisk]))) {
-        pending.status = 'waiting_human';
-        mission.status = 'waiting_human';
-        mission.approval = {
-          approval_id: uuid('approval'),
-          status: 'pending',
-          task_id: pending.task_id,
-          task_title: pending.title,
-          reason: pending.irreversible ? 'Irreversible action requires approval.' : 'Task risk exceeds mission policy.',
-          created_at: nowIso()
-        };
-        await this.saveMission(mission, 'human_approval_required', { approval: mission.approval });
-        await this.notify({ type: 'human_intervention_required', mission_id: mission.mission_id, task_id: pending.task_id, approval_id: mission.approval.approval_id, reason: mission.approval.reason });
-        return;
-      }
+      return task.approved !== true && (task.irreversible || riskRank[risk] >= riskRank.high || (mission.policy && mission.policy.require_human_approval !== false && riskRank[risk] > riskRank[maxRisk]));
+    };
+    const pending = ready.find(task => !requiresApproval(task));
+    const approvalTask = ready.find(requiresApproval);
+    if (approvalTask && !(mission.approval && mission.approval.status === 'pending')) {
+      approvalTask.status = 'waiting_human';
+      mission.approval = {
+        approval_id: uuid('approval'),
+        status: 'pending',
+        task_id: approvalTask.task_id,
+        task_title: approvalTask.title,
+        reason: approvalTask.irreversible ? 'Irreversible action requires approval.' : 'Task risk exceeds mission policy.',
+        created_at: nowIso()
+      };
+      await this.saveMission(mission, 'human_approval_required', { approval: mission.approval });
+      await this.notify({ type: 'human_intervention_required', mission_id: mission.mission_id, task_id: approvalTask.task_id, approval_id: mission.approval.approval_id, reason: mission.approval.reason });
+      if (pending) return this.scheduleNext(mission);
+      mission.status = 'waiting_human';
+      return this.saveMission(mission, 'mission_waiting_for_human_gate', { task_id: approvalTask.task_id, approval_id: mission.approval.approval_id });
+    }
+    if (pending) {
       pending.status = 'running';
       pending.attempts += 1;
       mission.current_task_id = pending.task_id;
@@ -1386,11 +1511,23 @@ export class AriaMissionStore {
       await this.createJob(mission, 'mission.verify', null);
     } else {
       const blocked = mission.tasks.filter(task => task.status === 'pending');
+      const failed = mission.tasks.filter(task => task.status === 'failed');
       if (blocked.length) {
         mission.status = 'waiting_human';
         mission.last_error = 'Task dependency graph is blocked.';
         await this.saveMission(mission, 'mission_dependency_blocked', { task_ids: blocked.map(task => task.task_id) });
         await this.notify({ type: 'human_intervention_required', mission_id: mission.mission_id, reason: 'task_dependency_blocked', details: mission.last_error });
+      } else if (failed.length) {
+        mission.status = 'waiting_human';
+        mission.last_error = 'Failed tasks require replanning or intervention.';
+        await this.saveMission(mission, 'mission_failed_tasks_need_intervention', { task_ids: failed.map(task => task.task_id) });
+        await this.notify({ type: 'human_intervention_required', mission_id: mission.mission_id, reason: 'failed_tasks_need_intervention', details: failed.map(task => task.task_id).join(', ') });
+      } else if (mission.tasks.some(task => task.status === 'waiting_human')) {
+        mission.status = 'waiting_human';
+        await this.saveMission(mission, 'mission_waiting_for_human_gate', {
+          task_ids: mission.tasks.filter(task => task.status === 'waiting_human').map(task => task.task_id),
+          approval_id: mission.approval && mission.approval.approval_id || null
+        });
       }
     }
   }
@@ -1403,17 +1540,21 @@ export class AriaMissionStore {
     const records = await this.ctx.storage.list({ prefix: 'mission:' });
     const mission = Array.from(records.values()).find(item => item.approval && item.approval.approval_id === approvalId);
     if (!mission) return error('approval_not_found', 404);
-    if (mission.approval.status !== 'pending' || mission.status !== 'waiting_human') return error('approval_not_pending', 409);
+    if (mission.approval.status !== 'pending' || !['running', 'waiting_human'].includes(mission.status)) return error('approval_not_pending', 409);
     mission.approval.status = body.decision;
     mission.approval.decided_at = nowIso();
     mission.approval.decided_by = String(body.actor || 'dashboard-operator').slice(0, 200);
+    const approvalDecision = clone(mission.approval);
     const task = mission.tasks.find(item => item.task_id === mission.approval.task_id);
     if (body.decision === 'rejected') {
       if (task) { task.status = 'failed'; task.last_error = 'Human approval rejected.'; }
-      mission.status = 'failed';
-      mission.last_error = 'Human approval rejected.';
-      await this.saveMission(mission, 'human_approval_rejected', { approval: mission.approval });
-      await this.notify({ type: 'mission_rejected', mission_id: mission.mission_id, approval_id: approvalId, reason: mission.last_error });
+      mission.approval = null;
+      mission.status = 'running';
+      mission.last_error = null;
+      await this.saveMission(mission, 'human_approval_rejected', { approval: approvalDecision });
+      await this.notify({ type: 'mission_rejected', mission_id: mission.mission_id, task_id: task && task.task_id || null, approval_id: approvalId, reason: 'Human approval rejected.' });
+      await this.scheduleNext(mission);
+      await this.scheduleAlarm();
       return json({ ok: true, mission });
     }
     if (task) { task.status = 'pending'; task.last_error = null; task.approved = true; }
@@ -1452,6 +1593,56 @@ export class AriaMissionStore {
     return json({ ok: true, mission });
   }
 
+  async reconcileCurrentTask(mission) {
+    if (!mission.current_task_id) return false;
+    const task = mission.tasks.find(item => item.task_id === mission.current_task_id);
+    if (!task || !['running', 'pending'].includes(task.status)) return false;
+    const records = await this.ctx.storage.list({ prefix: 'job:' });
+    const taskJobs = Array.from(records.values())
+      .filter(job => job.mission_id === mission.mission_id && job.operation === 'task.execute' && job.task_id === task.task_id)
+      .sort((left, right) => String(right.updated_at || right.created_at).localeCompare(String(left.updated_at || left.created_at)));
+    if (taskJobs.some(job => ACTIVE_JOB_STATES.has(job.status))) return false;
+
+    const latest = taskJobs[0];
+    if (latest && latest.status === 'completed') {
+      const result = latest.result && typeof latest.result === 'object' ? latest.result : {};
+      if (result.passed === true && hasTaskEvidence({ evidence: [result.evidence] })) {
+        task.status = 'succeeded';
+        task.evidence = [clone(result.evidence)];
+        task.last_error = null;
+        mission.current_task_id = null;
+        mission.last_error = null;
+        await this.saveMission(mission, 'task_succeeded_recovered_from_job', {
+          task_id: task.task_id,
+          job_id: latest.job_id,
+          attempts: latest.attempts
+        });
+        return true;
+      }
+      await this.handleTaskFailure(latest, mission, task, String(result.error || 'completed_task_result_invalid'));
+      return true;
+    }
+    if (latest && latest.status === 'failed') {
+      await this.handleTaskFailure(latest, mission, task, String(latest.last_error || 'task_job_failed_before_checkpoint'));
+      return true;
+    }
+
+    mission.current_task_id = null;
+    if (task.idempotent === true && task.attempts < task.max_attempts) {
+      task.status = 'pending';
+      task.last_error = 'task_job_missing_requeued_after_reconciliation';
+      await this.saveMission(mission, 'task_requeued_after_missing_job', { task_id: task.task_id, attempts: task.attempts });
+      return true;
+    }
+
+    task.status = 'failed';
+    task.last_error = 'task_job_missing_non_idempotent';
+    mission.last_error = task.last_error;
+    await this.saveMission(mission, 'task_job_missing_requires_human', { task_id: task.task_id, idempotent: false });
+    await this.notify({ type: 'human_intervention_required', mission_id: mission.mission_id, task_id: task.task_id, reason: task.last_error });
+    return true;
+  }
+
   async reconcile() {
     if (this.isMissionExecutionPaused()) return false;
     const jobs = await this.ctx.storage.list({ prefix: 'job:' });
@@ -1470,7 +1661,8 @@ export class AriaMissionStore {
       if (mission.status === 'planning') {
         await this.createJob(mission, mission.plan_kind === 'replan' ? 'mission.replan' : 'mission.plan', null, { reason: mission.last_error || 'recovery' });
       } else if (mission.status === 'running') {
-        await this.scheduleNext(mission);
+        await this.reconcileCurrentTask(mission);
+        if (mission.status === 'running') await this.scheduleNext(mission);
       }
     }
     await this.scheduleAlarm();
@@ -1481,7 +1673,7 @@ export class AriaMissionStore {
     await this.exclusive(() => this.reconcile());
     const notices = await this.ctx.storage.list({ prefix: 'notification:' });
     const pending = Array.from(notices.values()).filter(item => item.status === 'pending').slice(0, 10);
-    for (const item of pending) await this.deliverNotification(item.notification_id);
+    for (const item of pending) await this.exclusive(() => this.deliverNotification(item.notification_id));
   }
 }
 

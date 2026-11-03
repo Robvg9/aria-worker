@@ -103,6 +103,49 @@ async function testAuthAndVerifiedMissionLifecycle() {
   assert.ok((await body(notices)).notifications.some(item => item.event.type === 'mission_completed' && item.status === 'waiting_config'));
 }
 
+async function testVerificationRejectsIncompleteMissionState() {
+  for (const corruption of ['required_task_unfinished', 'active_job_remaining', 'task_evidence_missing']) {
+    const { state, store } = createStore();
+    const mission = await createMission(store, 'Do not report success before all work is complete');
+    const planJob = await claim(store, 'mission.plan');
+    await complete(store, planJob, {
+      passed: true,
+      evidence: { tasks: [{ task_id: 'required-read', title: 'Read required input', operation: 'workspace.read', payload: { path: 'README.md' }, depends_on: [], idempotent: true }] }
+    });
+    const taskJob = await claim(store, 'task.execute');
+    await complete(store, taskJob, { passed: true, evidence: { path: 'README.md', verified: true } });
+    const verifyJob = await claim(store, 'mission.verify');
+
+    if (corruption === 'required_task_unfinished' || corruption === 'task_evidence_missing') {
+      const persisted = await state.storage.get('mission:' + mission.mission_id);
+      if (corruption === 'required_task_unfinished') {
+        persisted.tasks.push({ task_id: 'required-followup', status: 'pending', depends_on: [], evidence: [] });
+      } else {
+        persisted.tasks[0].evidence = [{ result: 'passed_without_detail' }];
+      }
+      await state.storage.put('mission:' + mission.mission_id, persisted);
+    }
+    if (corruption === 'active_job_remaining') {
+      await state.storage.put('job:orphan-active-job', {
+        job_id: 'orphan-active-job', mission_id: mission.mission_id, operation: 'task.execute', status: 'leased'
+      });
+    }
+
+    const verifyResponse = await complete(store, verifyJob, {
+      passed: true,
+      evidence: { verification: { passed: true, reason: 'Worker claims the goal is complete.' } }
+    });
+    assert.equal(verifyResponse.status, 200);
+    const final = await state.storage.get('mission:' + mission.mission_id);
+    assert.equal(final.status, 'waiting_human', corruption + ' must fail closed');
+    assert.equal(final.last_error, 'mission_completion_invariants_failed');
+    assert.notEqual(final.progress_percent, 100);
+    const notices = Array.from((await state.storage.list({ prefix: 'notification:' })).values());
+    assert.ok(notices.some(item => item.event.reason === 'mission_completion_invariants_failed'));
+    assert.equal(notices.some(item => item.event.type === 'mission_completed'), false);
+  }
+}
+
 async function testIrreversibleTaskNeedsExplicitApproval() {
   const { store } = createStore();
   const mission = await createMission(store, 'Make an irreversible change only after approval');
@@ -130,6 +173,149 @@ async function testIrreversibleTaskNeedsExplicitApproval() {
   const missionAfterApprovalResponse = await store.fetch(request('/api/missions/' + encodeURIComponent(mission.mission_id)));
   current = (await body(missionAfterApprovalResponse)).mission;
   assert.equal(current.status, 'succeeded');
+}
+
+async function testHumanGateDoesNotStopIndependentTasks() {
+  const { store } = createStore();
+  const mission = await createMission(store, 'Complete safe independent work while approval is pending');
+  const planJob = await claim(store, 'mission.plan');
+  await complete(store, planJob, {
+    passed: true,
+    evidence: { tasks: [
+      { task_id: 'gated-write', title: 'Write only after approval', operation: 'workspace.write', payload: { path: 'notes/approved.txt', content: 'approved' }, irreversible: true, depends_on: [] },
+      { task_id: 'independent-read', title: 'Read independent context', operation: 'workspace.read', payload: { path: 'README.md' }, depends_on: [] }
+    ] }
+  });
+
+  let current = (await body(await store.fetch(request('/api/missions/' + encodeURIComponent(mission.mission_id))))).mission;
+  assert.equal(current.status, 'running');
+  assert.equal(current.approval.status, 'pending');
+  assert.equal(current.tasks.find(task => task.task_id === 'gated-write').status, 'waiting_human');
+  assert.equal(current.tasks.find(task => task.task_id === 'independent-read').status, 'running');
+
+  const independentJob = await claim(store, 'task.execute');
+  assert.equal(independentJob.task.task_id, 'independent-read');
+  await complete(store, independentJob, { passed: true, evidence: { path: 'README.md', read_while_approval_pending: true } });
+  current = (await body(await store.fetch(request('/api/missions/' + encodeURIComponent(mission.mission_id))))).mission;
+  assert.equal(current.status, 'waiting_human');
+  assert.equal(current.tasks.find(task => task.task_id === 'independent-read').status, 'succeeded');
+  assert.equal(current.tasks.find(task => task.task_id === 'gated-write').status, 'waiting_human');
+
+  const approval = await store.fetch(request('/api/approvals/' + encodeURIComponent(current.approval.approval_id), {
+    method: 'POST', body: { decision: 'approved', actor: 'test-reviewer' }
+  }));
+  assert.equal(approval.status, 200, 'the gate remains resolvable after independent work finishes');
+  const gatedJob = await claim(store, 'task.execute');
+  assert.equal(gatedJob.task.task_id, 'gated-write');
+  await complete(store, gatedJob, { passed: true, evidence: { approved: true } });
+  const verifyJob = await claim(store, 'mission.verify');
+  await complete(store, verifyJob, { passed: true, evidence: { verification: { passed: true, reason: 'Both independent and approved work completed.' } } });
+  current = (await body(await store.fetch(request('/api/missions/' + encodeURIComponent(mission.mission_id))))).mission;
+  assert.equal(current.status, 'succeeded');
+}
+
+async function testRejectedHumanGateDoesNotCancelIndependentWork() {
+  const { store } = createStore();
+  const mission = await createMission(store, 'Keep independent work moving after a gated action is rejected');
+  const planJob = await claim(store, 'mission.plan');
+  await complete(store, planJob, {
+    passed: true,
+    evidence: { tasks: [
+      { task_id: 'rejected-write', title: 'Write only after approval', operation: 'workspace.write', payload: { path: 'notes/rejected.txt', content: 'blocked' }, irreversible: true, depends_on: [] },
+      { task_id: 'independent-read', title: 'Read independent context', operation: 'workspace.read', payload: { path: 'README.md' }, depends_on: [] }
+    ] }
+  });
+  let current = (await body(await store.fetch(request('/api/missions/' + encodeURIComponent(mission.mission_id))))).mission;
+  const approval = await store.fetch(request('/api/approvals/' + encodeURIComponent(current.approval.approval_id), {
+    method: 'POST', body: { decision: 'rejected', actor: 'test-reviewer' }
+  }));
+  assert.equal(approval.status, 200);
+
+  const independentJob = await claim(store, 'task.execute');
+  assert.equal(independentJob.task.task_id, 'independent-read');
+  await complete(store, independentJob, { passed: true, evidence: { path: 'README.md', continued_after_rejection: true } });
+  current = (await body(await store.fetch(request('/api/missions/' + encodeURIComponent(mission.mission_id))))).mission;
+  assert.equal(current.status, 'waiting_human');
+  assert.equal(current.tasks.find(task => task.task_id === 'independent-read').status, 'succeeded');
+  assert.equal(current.tasks.find(task => task.task_id === 'rejected-write').status, 'failed');
+  assert.notEqual(current.status, 'failed', 'a rejected step must not prematurely terminalize the whole mission');
+}
+
+async function testRecoveryReconcilesJobAndMissionCheckpointDivergence() {
+  {
+    const { state, store } = createStore();
+    const mission = await createMission(store, 'Recover a committed task result after an interrupted checkpoint');
+    const planJob = await claim(store, 'mission.plan');
+    await complete(store, planJob, {
+      passed: true,
+      evidence: { tasks: [{ task_id: 'read-once', operation: 'workspace.read', payload: { path: 'README.md' }, depends_on: [], idempotent: true }] }
+    });
+    const records = await state.storage.list({ prefix: 'job:' });
+    const taskJob = Array.from(records.values()).find(job => job.mission_id === mission.mission_id && job.operation === 'task.execute');
+    taskJob.status = 'completed';
+    taskJob.result = { passed: true, evidence: { path: 'README.md', recovered_without_reexecution: true } };
+    taskJob.updated_at = new Date().toISOString();
+    await state.storage.put('job:' + taskJob.job_id, taskJob);
+
+    await store.alarm();
+    const recovered = await state.storage.get('mission:' + mission.mission_id);
+    assert.equal(recovered.tasks[0].status, 'succeeded');
+    assert.equal(recovered.tasks[0].evidence[0].recovered_without_reexecution, true);
+    const allJobs = Array.from((await state.storage.list({ prefix: 'job:' })).values());
+    assert.equal(allJobs.filter(job => job.mission_id === mission.mission_id && job.operation === 'task.execute').length, 1);
+    assert.ok(allJobs.some(job => job.mission_id === mission.mission_id && job.operation === 'mission.verify' && job.status === 'queued'));
+  }
+
+  for (const idempotent of [true, false]) {
+    const { state, store } = createStore();
+    const mission = await createMission(store, 'Recover a missing task job safely');
+    const planJob = await claim(store, 'mission.plan');
+    await complete(store, planJob, {
+      passed: true,
+      evidence: { tasks: [{ task_id: 'possibly-applied', operation: 'workspace.write', payload: { path: 'notes/state.txt', content: 'state' }, depends_on: [], idempotent }] }
+    });
+    const records = await state.storage.list({ prefix: 'job:' });
+    const taskJob = Array.from(records.values()).find(job => job.mission_id === mission.mission_id && job.operation === 'task.execute');
+    state.storage.values.delete('job:' + taskJob.job_id);
+
+    await store.alarm();
+    const recovered = await state.storage.get('mission:' + mission.mission_id);
+    const remainingJobs = Array.from((await state.storage.list({ prefix: 'job:' })).values())
+      .filter(job => job.mission_id === mission.mission_id && job.operation === 'task.execute');
+    if (idempotent) {
+      assert.equal(recovered.tasks[0].status, 'running');
+      assert.equal(remainingJobs.length, 1, 'an idempotent missing job gets one replacement');
+      assert.equal(remainingJobs[0].status, 'queued');
+    } else {
+      assert.equal(recovered.status, 'waiting_human');
+      assert.equal(recovered.tasks[0].status, 'failed');
+      assert.equal(remainingJobs.length, 0, 'a non-idempotent task is not repeated without its durable job result');
+    }
+  }
+}
+
+async function testRetryPolicyDoesNotRepeatAmbiguousNonIdempotentFailure() {
+  const { state, store } = createStore();
+  const mission = await createMission(store, 'Escalate an ambiguous write timeout without repeating it');
+  const planJob = await claim(store, 'mission.plan');
+  await complete(store, planJob, {
+    passed: true,
+    evidence: { tasks: [{ task_id: 'write-once', operation: 'workspace.write', payload: { path: 'notes/once.txt', content: 'once' }, idempotent: false, max_attempts: 3, depends_on: [] }] }
+  });
+  const writeJob = await claim(store, 'task.execute');
+  const failed = await complete(store, writeJob, { passed: false, error: 'provider timeout after remote write may have completed' });
+  assert.equal(failed.status, 200);
+
+  const persisted = await state.storage.get('mission:' + mission.mission_id);
+  const durableJobs = Array.from((await state.storage.list({ prefix: 'job:' })).values()).filter(job => job.mission_id === mission.mission_id);
+  assert.equal(persisted.status, 'waiting_human');
+  assert.equal(persisted.tasks[0].attempts, 1, 'an ambiguous non-idempotent operation is never automatically repeated');
+  assert.equal(persisted.tasks[0].failure_diagnostics[0].error_code, 'transient_network_or_timeout');
+  assert.equal(persisted.tasks[0].failure_diagnostics[0].recovery, 'human_intervention');
+  assert.equal(persisted.tasks[0].failure_diagnostics[0].phase, 'task_execution');
+  assert.equal(persisted.tasks[0].last_error, 'transient_network_or_timeout');
+  assert.equal(durableJobs.some(job => job.operation === 'mission.replan'), false);
+  assert.equal(JSON.stringify(durableJobs).includes('remote write may have completed'), false, 'raw provider detail must not be persisted');
 }
 
 async function testGlobalFreezeStopsMutationsAndAlarmRecovery() {
@@ -311,14 +497,18 @@ async function testTelegramNotificationDeliveryAndRetry() {
       ARIA_TELEGRAM_BOT_TOKEN: token,
       ARIA_TELEGRAM_CHAT_ID: chatId
     } });
-    const notice = await store.notify({
+    await state.storage.put('mission:mission_telegram', { mission_id: 'mission_telegram', goal: 'Approve the deployment plan after reviewing its evidence.' });
+    const event = {
       type: 'human_intervention_required',
       mission_id: 'mission_telegram',
       task_id: 'approval_task',
       reason: 'Needs a human review.',
       details: 'Review the pending approval.',
       secret_field: 'must-not-be-sent'
-    });
+    };
+    const notice = await store.notify(event);
+    const duplicate = await store.notify(event);
+    assert.equal(duplicate.notification_id, notice.notification_id, 'the same persisted event deduplicates to one notification');
     await Promise.all(state.pending);
 
     let persisted = await state.storage.get('notification:' + notice.notification_id);
@@ -330,7 +520,11 @@ async function testTelegramNotificationDeliveryAndRetry() {
     assert.equal(calls[0].body.chat_id, chatId);
     assert.match(calls[0].body.text, /ARIA · human_intervention_required/);
     assert.match(calls[0].body.text, /Misión: mission_telegram/);
+    assert.match(calls[0].body.text, /Objetivo: Approve the deployment plan/);
     assert.match(calls[0].body.text, /Motivo: Needs a human review\./);
+    assert.match(calls[0].body.text, /1\. Abre ARIA Mission Control/);
+    assert.match(calls[0].body.text, /https:\/\/aria-autonomy-coordinator\.robvg9\.workers\.dev\//);
+    assert.match(calls[0].body.text, /Después: ARIA continúa desde el checkpoint persistido/);
     assert.equal(calls[0].body.secret_field, undefined);
     assert.equal(calls[0].options.redirect, 'manual');
     assert.equal(calls[0].options.headers.authorization, undefined);
@@ -497,7 +691,7 @@ async function testRetryReplanAndLeaseProtection() {
   const planJob = await claim(store, 'mission.plan');
   await complete(store, planJob, {
     passed: true,
-    evidence: { tasks: [{ task_id: 'unstable', title: 'Unstable task', operation: 'workspace.read', payload: { path: 'missing.txt' }, idempotent: false, max_attempts: 1, depends_on: [] }] }
+    evidence: { tasks: [{ task_id: 'unstable', title: 'Unstable task', operation: 'workspace.read', payload: { path: 'missing.txt' }, idempotent: true, max_attempts: 1, depends_on: [] }] }
   });
   const taskJob = await claim(store, 'task.execute');
   const failed = await complete(store, taskJob, { passed: false, error: 'hard failure' });
@@ -531,7 +725,12 @@ async function testRetryReplanAndLeaseProtection() {
   await testGlobalFreezeStopsMutationsAndAlarmRecovery();
   await testControlAndWorkerTokensMustDiffer();
   await testAuthAndVerifiedMissionLifecycle();
+  await testVerificationRejectsIncompleteMissionState();
   await testIrreversibleTaskNeedsExplicitApproval();
+  await testHumanGateDoesNotStopIndependentTasks();
+  await testRejectedHumanGateDoesNotCancelIndependentWork();
+  await testRecoveryReconcilesJobAndMissionCheckpointDivergence();
+  await testRetryPolicyDoesNotRepeatAmbiguousNonIdempotentFailure();
   await testNotificationPayloadAllowlistAndAutomaticRetry();
   await testTelegramNotificationDeliveryAndRetry();
   await testAuthenticatedTelegramProbeWorksDuringGlobalFreeze();
