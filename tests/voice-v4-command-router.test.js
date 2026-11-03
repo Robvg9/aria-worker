@@ -35,6 +35,14 @@ function fixture(overrides = {}) {
       calls.action.push(input);
       return { ok: true, status: 'queued', command_id: '123e4567-e89b-42d3-a456-426614174000' };
     },
+    prepareMessage: async input => ({
+      ok: true,
+      confirmation_id: '123e4567-e89b-42d3-a456-426614174100',
+      recipient_id: input.recipientId,
+      recipient_name: 'Mamá',
+      body: input.body,
+      expires_at: new Date(1793644567000).toISOString()
+    }),
     idempotencyStore: {
       claim: async input => {
         calls.claim.push(input);
@@ -271,7 +279,16 @@ function request(overrides = {}) {
   assert.equal(message.status, 'confirmation_required');
   assert.equal(message.executed, false);
   assert.equal(message.confirmation_channel, 'visible_authenticated_ui');
+  assert.equal(message.preview.confirmation_id, '123e4567-e89b-42d3-a456-426614174100');
+  assert.equal(message.preview.recipient_name, 'Mamá');
+  assert.equal(message.preview.body, 'Te quiero.');
   assert.equal(messageFx.calls.action.length, 0, 'voice biometrics alone must never send a message');
+  const noMessageDelivery = await fixture({ prepareMessage: undefined }).router.route(request({
+    operation: 'message.send',
+    params: { recipient_id: 'contact-mom', body: 'Te quiero.' }
+  }));
+  assert.equal(noMessageDelivery.status, 'blocked');
+  assert.equal(noMessageDelivery.reason, 'message_delivery_not_configured');
   const messageNoSpeaker = await fixture().router.route(request({
     operation: 'message.send',
     owner_session: { valid: true, speakerVerified: false },
