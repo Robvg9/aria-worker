@@ -3041,6 +3041,7 @@ function Chat({
                   <div className='telegramSetupContent'>
                     <div className='panelTitle'>DESTINATARIOS TELEGRAM</div>
                     <small className='muted'>El token del bot no se introduce aquí. Permanece como secreto del servidor.</small>
+                    <small className='muted'>UUID del propietario autorizado para configurar ARIA_TELEGRAM_OWNER_ID: <code>{session.userId}</code></small>
                     <div className='telegramRecipientList'>
                       {telegramRecipients.map(item => (
                         <div className='telegramRecipientRow' key={String(item.recipient_id)}>
