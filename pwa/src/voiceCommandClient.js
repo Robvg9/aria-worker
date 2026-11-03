@@ -69,7 +69,7 @@ function parseExplicitVoiceAction(transcript, devices = []) {
   const original = String(transcript ?? '').trim();
   if (!original || original.length > 4500) return null;
 
-  let match = original.match(/^(?:env[ií]a|manda)\s+(?:(?:un\s+)?mensaje\s+)?(?:por\s+telegram\s+)?(?:a|para)\s+([a-z0-9][a-z0-9._-]{2,63})\s*:\s*(.{1,4000})$/i);
+  let match = original.match(/^(?:env[ií]a|manda)\s+(?:(?:un\s+)?mensaje\s+)?(?:por\s+telegram\s+)?(?:a|para)\s+([a-z0-9][a-z0-9._-]{2,63})\s*:\s*([\s\S]{1,4000})$/i);
   if (match) {
     return {
       lane: 'device.action',
