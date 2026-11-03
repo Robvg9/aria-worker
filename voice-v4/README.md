@@ -67,3 +67,10 @@ This is a pure policy contract, not a connected runtime. No API, Supabase, Andro
 A separate hosted-only smoke test evaluates the public sherpa-onnx / 3D-Speaker CAM++ model (about 28.3 MB). The workflow uses public sample clips only; it reports aggregate embeddings similarity, model load/latency and peak memory. It never downloads, records or uploads Robert's voice. The model card covers Chinese/English, so its transfer to Cuban Spanish is not assumed. Model and runtime license review is documented in `voice-v4/speaker-verification/README.md`.
 
 The candidate test is preliminary and must not be treated as identity authentication acceptance. A production enrollment would need owner-consented samples, local encrypted storage via Android Keystore / Windows DPAPI, owner-controlled erase/reset, per-device threshold calibration, replay/deepfake defenses and separate human confirmation for high-impact actions.
+
+
+## Voice V4 production-port status — 2026-11-02
+
+The pure policy reference in `voice-v4/command-router.js` remains isolated. A separate Deno production port is under review in [PR #1382](https://github.com/Robvg9/aria-worker/pull/1382): `supabase/functions/_shared/voice-command-router.mjs`, Ed25519 owner-session verification, one-time nonce/idempotency storage, authenticated device-key and speaker-policy management routes, and the isolated `voice_device_commands` queue. The speaker-policy API reads the threshold floor from the approved server catalog; it does not accept a threshold from the client.
+
+This branch is not LIVE. The migration is unapplied, the API/gateway routes are not deployed, no speaker model is approved, and no Android/Windows resident listener is implemented. The hosted Heed result remains a synthetic shortlist only. Keep microphone activation and physical certification deferred to the final gate.

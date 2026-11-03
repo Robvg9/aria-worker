@@ -102,6 +102,10 @@ assert.match(storage, /registerTrustedDeviceKey/);
 assert.match(storage, /resolveTrustedDeviceKey/);
 assert.match(storage, /revokeTrustedDeviceKey/);
 assert.match(storage, /setSpeakerPolicy/);
+assert.match(storage, /from\("voice_speaker_model_catalog"\)/);
+assert.match(storage, /minimum_score_floor/);
+assert.doesNotMatch(storage, /minimumScore: number/,
+  'the API caller must not choose a weaker speaker threshold than the server-approved model floor');
 assert.match(storage, /resolveSpeakerPolicy/);
 assert.match(storage, /revokeSpeakerPolicy/);
 assert.match(storage, /sourceDeviceId/);

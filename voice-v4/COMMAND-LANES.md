@@ -46,3 +46,10 @@ The direct device-action lane does not import or call the mission dispatcher and
 5. Add a two-stage message draft/visible confirmation/send path. No voice-only message send.
 6. Keep PWA foreground mode as fallback UI. Do not describe it as always-on.
 7. Run the one final physical acceptance round on Android, RobVG and LaCueva only after code, tests and exact-SHA deploy are complete.
+
+
+## Current production-port review — 2026-11-02
+
+The Deno implementation in PR #1382 now ports these rules into the authenticated API, with a separate owner-session verifier, durable one-time nonce and idempotency stores, exact device targeting, and `voice_device_commands` separate from `execution_jobs`. The owner API exposes device-key register/revoke and approved speaker-model list, explicit-consent policy activation, and speaker-policy revocation. The minimum speaker score is read from the server-approved model catalog and cannot be lowered by the client.
+
+Status is still OPEN / DRAFT and NOT LIVE. The new migration is unapplied, the production API and gateway do not yet include these routes, no model is approved for Cuban Spanish, and the resident Android/Windows listeners are not implemented. The reference file `voice-v4/command-router.js` remains a pure contract; the Deno port is a separate implementation under review. No raw audio, transcript, voiceprint or private key is stored in Supabase.

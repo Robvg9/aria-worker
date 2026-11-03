@@ -157,25 +157,30 @@ export function createVoiceCommandStores(serviceClient: any, authenticatedOwnerI
     ownerId: string;
     deviceId: string;
     modelId: string;
-    minimumScore: number;
-    enabled: boolean;
   }): Promise<any | null> {
     if (input.ownerId !== authenticatedOwnerId) throw new Error("voice_speaker_owner_mismatch");
     requireDeviceId(input.deviceId);
     if (typeof input.modelId !== "string" || !/^[A-Za-z0-9._:-]{3,160}$/.test(input.modelId)) {
       throw new Error("voice_speaker_model_id_invalid");
     }
-    if (typeof input.minimumScore !== "number" || !Number.isFinite(input.minimumScore)
-        || input.minimumScore < 0 || input.minimumScore > 1) {
-      throw new Error("voice_speaker_threshold_invalid");
+    const { data: model, error: modelError } = await internal.from("voice_speaker_model_catalog")
+      .select("minimum_score_floor,status,approved_at,evaluation_evidence_ref")
+      .eq("model_id", input.modelId)
+      .eq("status", "approved")
+      .not("approved_at", "is", null)
+      .not("evaluation_evidence_ref", "is", null)
+      .maybeSingle();
+    if (modelError || !model) throw new Error("voice_speaker_model_not_approved");
+    const minimumScore = Number(model.minimum_score_floor);
+    if (!Number.isFinite(minimumScore) || minimumScore <= 0 || minimumScore > 1) {
+      throw new Error("voice_speaker_threshold_floor_invalid");
     }
-    if (typeof input.enabled !== "boolean") throw new Error("voice_speaker_enabled_invalid");
     const { data, error } = await internal.rpc("set_voice_speaker_policy", {
       p_owner_user_id: authenticatedOwnerId,
       p_device_id: input.deviceId,
       p_speaker_model_id: input.modelId,
-      p_minimum_score: input.minimumScore,
-      p_enabled: input.enabled
+      p_minimum_score: minimumScore,
+      p_enabled: true
     });
     if (error) throw new Error("voice_speaker_policy_update_failed");
     return data || null;

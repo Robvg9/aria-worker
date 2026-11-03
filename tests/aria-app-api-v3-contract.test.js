@@ -163,6 +163,12 @@ assertContains(appApi,'path.endsWith("/voice/devices/revoke")','owners must have
 assertContains(appApi,'stores.revokeTrustedDeviceKey','revocation must use the scoped service-role RPC adapter');
 assertContains(appApi,'voice_device_key_registration_rejected','registration failures must be normalized without disclosing pairing/token state');
 assertContains(appApi,'voice_device_key_revocation_rejected','revocation failures must be normalized');
+assertContains(appApi,'path.endsWith("/voice/speakers/models")','only approved speaker models with evidence may be listed to an authenticated owner');
+assertContains(appApi,'path.endsWith("/voice/speakers/policy")','speaker policy enrollment must be explicitly owner-authorized');
+assertContains(appApi,'body.consented !== true','speaker policy activation must require explicit owner consent');
+assertContains(appApi,'stores.setSpeakerPolicy','speaker policy writes must use the service-role storage adapter');
+assertContains(appApi,'path.endsWith("/voice/speakers/revoke")','the owner must have an authenticated speaker-policy kill switch');
+assertContains(appApi,'stores.revokeSpeakerPolicy','speaker-policy revocation must use the scoped storage adapter');
 
 assertContains(appApi,'await router.route(body)','all direct commands must pass through the safety router');
 assertContains(appApi,'return json({ ok: true, command: result, trace_id: trace }, 202);','device actions must return queued rather than falsely reporting execution');

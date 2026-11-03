@@ -2260,6 +2260,74 @@ Deno.serve(async (req) => {
         return json({ ok: false, error: "voice_device_key_revocation_rejected", trace_id: trace }, 409);
       }
     }
+    if (req.method === "GET" && path.endsWith("/voice/speakers/models")) {
+      try {
+        const { data, error } = await serviceClient().schema("aria_internal")
+          .from("voice_speaker_model_catalog")
+          .select("model_id,model_family,supported_languages,minimum_score_floor")
+          .eq("status", "approved")
+          .not("approved_at", "is", null)
+          .not("evaluation_evidence_ref", "is", null)
+          .order("model_family", { ascending: true });
+        if (error) throw new Error("voice_speaker_model_catalog_unavailable");
+        const models = Array.isArray(data) ? data : [];
+        return json({ ok: true, models, available: models.length > 0, trace_id: trace }, 200);
+      } catch {
+        return json({ ok: false, error: "voice_speaker_model_catalog_unavailable", trace_id: trace }, 503);
+      }
+    }
+    if (req.method === "POST" && path.endsWith("/voice/speakers/policy")) {
+      const body = await req.json().catch(() => null);
+      const expectedFields = ["device_id", "model_id", "consented"];
+      if (!body || typeof body !== "object" || Array.isArray(body)
+          || Object.keys(body).sort().join(",") !== [...expectedFields].sort().join(",")
+          || typeof body.device_id !== "string" || body.device_id.length < 8 || body.device_id.length > 160
+          || typeof body.model_id !== "string" || !/^[A-Za-z0-9._:-]{3,160}$/.test(body.model_id)
+          || body.consented !== true) {
+        return json({ ok: false, error: "voice_speaker_policy_invalid", trace_id: trace }, 400);
+      }
+      try {
+        const stores = createVoiceCommandStores(serviceClient(), String(user.id));
+        const policy = await stores.setSpeakerPolicy({
+          ownerId: String(user.id),
+          deviceId: body.device_id,
+          modelId: body.model_id
+        });
+        if (!policy || policy.enabled !== true) {
+          return json({ ok: false, error: "voice_speaker_policy_rejected", trace_id: trace }, 409);
+        }
+        return json({
+          ok: true,
+          policy: {
+            device_id: policy.device_id,
+            model_id: policy.speaker_model_id,
+            minimum_score: policy.minimum_score,
+            enabled: policy.enabled
+          },
+          trace_id: trace
+        }, 201);
+      } catch {
+        return json({ ok: false, error: "voice_speaker_policy_rejected", trace_id: trace }, 409);
+      }
+    }
+    if (req.method === "POST" && path.endsWith("/voice/speakers/revoke")) {
+      const body = await req.json().catch(() => null);
+      if (!body || typeof body !== "object" || Array.isArray(body)
+          || Object.keys(body).length !== 1
+          || typeof body.device_id !== "string" || body.device_id.length < 8 || body.device_id.length > 160) {
+        return json({ ok: false, error: "voice_speaker_policy_revocation_invalid", trace_id: trace }, 400);
+      }
+      try {
+        const stores = createVoiceCommandStores(serviceClient(), String(user.id));
+        const revoked = await stores.revokeSpeakerPolicy({
+          ownerId: String(user.id),
+          deviceId: body.device_id
+        });
+        return json({ ok: true, revoked, trace_id: trace }, 200);
+      } catch {
+        return json({ ok: false, error: "voice_speaker_policy_revocation_rejected", trace_id: trace }, 409);
+      }
+    }
     if (req.method === "POST" && path.endsWith("/voice/commands")) {
       const body = await req.json().catch(() => null);
       try {
