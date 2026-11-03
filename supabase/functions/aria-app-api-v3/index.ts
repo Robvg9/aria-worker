@@ -2269,6 +2269,67 @@ Deno.serve(async (req) => {
         return json({ ok: false, error: "voice_android_heartbeat_rejected", trace_id: trace }, 409);
       }
     }
+    if (req.method === "POST" && path.endsWith("/voice/devices/pair-windows")) {
+      const body = await req.json().catch(() => null);
+      const expectedFields = ["device_id", "device_token", "public_key_id", "public_key_ed25519"];
+      if (!body || typeof body !== "object" || Array.isArray(body)
+          || Object.keys(body).sort().join(",") !== [...expectedFields].sort().join(",")
+          || typeof body.device_id !== "string" || !/^windows-voice-[A-Za-z0-9._:-]{1,120}$/.test(body.device_id)
+          || typeof body.device_token !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(body.device_token)
+          || body.public_key_id !== "aria-windows-dpapi-ed25519-v1"
+          || typeof body.public_key_ed25519 !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(body.public_key_ed25519)) {
+        return json({ ok: false, error: "voice_windows_pairing_invalid", trace_id: trace }, 400);
+      }
+      try {
+        const stores = createVoiceCommandStores(serviceClient(), String(user.id));
+        const pairing = await stores.pairWindowsOwnerDeviceKey({
+          ownerId: String(user.id),
+          deviceId: body.device_id,
+          deviceToken: body.device_token,
+          publicKeyId: body.public_key_id,
+          publicKeyEd25519: body.public_key_ed25519
+        });
+        return json({
+          ok: true,
+          device: {
+            owner_id: pairing.owner_id,
+            device_id: pairing.device_id,
+            public_key_id: pairing.public_key_id,
+            public_key_fingerprint: pairing.public_key_fingerprint,
+            security: pairing.security,
+            enabled: pairing.enabled,
+            registered_at: pairing.registered_at,
+            capabilities: [],
+            wake_word_enabled: false,
+            mode: "read_only"
+          },
+          trace_id: trace
+        }, 201);
+      } catch {
+        return json({ ok: false, error: "voice_windows_pairing_rejected", trace_id: trace }, 409);
+      }
+    }
+    if (req.method === "POST" && path.endsWith("/voice/devices/heartbeat-windows")) {
+      const body = await req.json().catch(() => null);
+      if (!body || typeof body !== "object" || Array.isArray(body)
+          || Object.keys(body).sort().join(",") !== "device_id,device_token"
+          || typeof body.device_id !== "string" || !/^windows-voice-[A-Za-z0-9._:-]{1,120}$/.test(body.device_id)
+          || typeof body.device_token !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(body.device_token)) {
+        return json({ ok: false, error: "voice_windows_heartbeat_invalid", trace_id: trace }, 400);
+      }
+      try {
+        const stores = createVoiceCommandStores(serviceClient(), String(user.id));
+        const heartbeat = await stores.heartbeatWindowsOwnerDeviceKey({
+          ownerId: String(user.id),
+          deviceId: body.device_id,
+          deviceToken: body.device_token
+        });
+        if (!heartbeat) return json({ ok: false, heartbeat: false, trace_id: trace }, 409);
+        return json({ ok: true, heartbeat: true, device_id: body.device_id, mode: "read_only", trace_id: trace }, 200);
+      } catch {
+        return json({ ok: false, error: "voice_windows_heartbeat_rejected", trace_id: trace }, 409);
+      }
+    }
     if (req.method === "POST" && path.endsWith("/voice/devices/register")) {
       const body = await req.json().catch(() => null);
       const expectedFields = ["device_id", "device_token", "public_key_id", "public_key_ed25519"];
