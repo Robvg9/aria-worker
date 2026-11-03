@@ -2171,6 +2171,15 @@ function Chat({
   const [sending, setSending] = useState(false);
   const [voiceCommandStatus, setVoiceCommandStatus] = useState<VoiceCommandUiState | null>(null);
   const [pendingVoiceMessage, setPendingVoiceMessage] = useState<PendingVoiceMessage | null>(null);
+  const [showTelegramSetup, setShowTelegramSetup] = useState(false);
+  const [telegramRecipients, setTelegramRecipients] = useState<any[]>([]);
+  const [telegramStartChats, setTelegramStartChats] = useState<any[]>([]);
+  const [telegramRecipientId, setTelegramRecipientId] = useState('');
+  const [telegramDisplayName, setTelegramDisplayName] = useState('');
+  const [telegramChatId, setTelegramChatId] = useState('');
+  const [telegramSetupBusy, setTelegramSetupBusy] = useState(false);
+  const [telegramSetupNotice, setTelegramSetupNotice] = useState('');
+
   const [missionCreatedNotice, setMissionCreatedNotice] = useState('');
   const [system, setSystem] = useState<any>(() => readCached('system', session.userId));
   const [caps, setCaps] = useState<CapabilityCatalog | null>(() => readCached('capabilities', session.userId));
@@ -2567,6 +2576,98 @@ function Chat({
     return true;
   }
 
+  async function loadTelegramRecipients(): Promise<void> {
+    setTelegramSetupBusy(true);
+    setTelegramSetupNotice('');
+    try {
+      const response = await api('/voice/messages/recipients', session.accessToken);
+      if (response?.ok !== true || !Array.isArray(response.recipients)) {
+        throw new Error(String(response?.error || 'telegram_recipient_list_unavailable'));
+      }
+      setTelegramRecipients(response.recipients);
+      setTelegramSetupNotice(response.recipients.length
+        ? 'Destinatarios Telegram cargados.'
+        : 'Todavía no hay destinatarios guardados.');
+    } catch (cause) {
+      setTelegramSetupNotice(cause instanceof Error ? cause.message : 'No se pudieron cargar los destinatarios.');
+    } finally {
+      setTelegramSetupBusy(false);
+    }
+  }
+
+  async function discoverTelegramChats(): Promise<void> {
+    setTelegramSetupBusy(true);
+    setTelegramSetupNotice('');
+    try {
+      const response = await api('/voice/messages/telegram/chats', session.accessToken);
+      if (response?.ok !== true || !Array.isArray(response.chats)) {
+        throw new Error(String(response?.error || 'telegram_chat_discovery_unavailable'));
+      }
+      setTelegramStartChats(response.chats);
+      setTelegramSetupNotice(response.chats.length
+        ? 'Chats que han iniciado el bot encontrados. Selecciona uno para crear su alias.'
+        : 'No hay chats nuevos. Abre el bot en Telegram, pulsa Iniciar o envía /start y vuelve a actualizar.');
+    } catch (cause) {
+      const code = cause instanceof Error ? cause.message : 'telegram_chat_discovery_unavailable';
+      const friendly: Record<string, string> = {
+        telegram_provider_not_configured: 'Falta configurar ARIA_TELEGRAM_BOT_TOKEN en los secretos de Supabase.',
+        telegram_bot_owner_mismatch: 'El bot está vinculado a otro propietario o falta ARIA_TELEGRAM_OWNER_ID.',
+        telegram_updates_unavailable: 'No se pudieron leer los chats. Comprueba el bot, su token y que no tenga un webhook activo.'
+      };
+      setTelegramSetupNotice(friendly[code] || code);
+    } finally {
+      setTelegramSetupBusy(false);
+    }
+  }
+
+  async function saveTelegramRecipient(): Promise<void> {
+    if (telegramSetupBusy) return;
+    const recipientId = telegramRecipientId.trim();
+    const displayName = telegramDisplayName.trim();
+    const chatId = telegramChatId.trim();
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]{2,63}$/.test(recipientId)) {
+      setTelegramSetupNotice('El alias debe tener entre 3 y 64 caracteres: letras, números, punto, guion o guion bajo.');
+      return;
+    }
+    if (!displayName || displayName.length > 120 || !/^-?[0-9]{1,20}$/.test(chatId)) {
+      setTelegramSetupNotice('Revisa el nombre y el chat_id seleccionado.');
+      return;
+    }
+    setTelegramSetupBusy(true);
+    setTelegramSetupNotice('');
+    try {
+      const response = await api('/voice/messages/recipients', session.accessToken, {
+        method: 'POST',
+        body: JSON.stringify({
+          recipient_id: recipientId,
+          display_name: displayName,
+          telegram_chat_id: chatId
+        })
+      });
+      if (response?.ok !== true || response?.verified !== true || !response?.recipient) {
+        throw new Error(String(response?.error || 'telegram_recipient_save_failed'));
+      }
+      setTelegramRecipients(current => [
+        ...current.filter(item => item.recipient_id !== recipientId),
+        response.recipient
+      ].sort((a, b) => String(a.display_name).localeCompare(String(b.display_name))));
+      setTelegramSetupNotice('Destinatario guardado y verificado por Telegram.');
+      setTelegramRecipientId('');
+      setTelegramDisplayName('');
+      setTelegramChatId('');
+    } catch (cause) {
+      const code = cause instanceof Error ? cause.message : 'telegram_recipient_save_failed';
+      const friendly: Record<string, string> = {
+        telegram_provider_not_configured: 'Falta configurar ARIA_TELEGRAM_BOT_TOKEN en los secretos de Supabase.',
+        telegram_chat_not_reachable: 'Telegram no encuentra ese chat. La persona debe abrir primero el bot y pulsar Iniciar.',
+        telegram_recipient_save_failed: 'No se pudo guardar el destinatario.'
+      };
+      setTelegramSetupNotice(friendly[code] || code);
+    } finally {
+      setTelegramSetupBusy(false);
+    }
+  }
+
   async function confirmPendingVoiceMessage(): Promise<boolean> {
     const pending = pendingVoiceMessage;
     if (!pending || sending) return false;
@@ -2926,6 +3027,60 @@ function Chat({
                   <button type='button' className='ghost' onClick={() => setVoiceCommandStatus(null)}>Cerrar estado</button>
                 </section>
               )}
+              <section className='telegramSetupPanel'>
+                <button type='button' className='ghost telegramSetupToggle'
+                  aria-expanded={showTelegramSetup}
+                  onClick={() => {
+                    const next = !showTelegramSetup;
+                    setShowTelegramSetup(next);
+                    if (next) void loadTelegramRecipients();
+                  }}>
+                  {showTelegramSetup ? 'Ocultar Telegram' : '⚙ Configurar destinatarios Telegram'}
+                </button>
+                {showTelegramSetup && (
+                  <div className='telegramSetupContent'>
+                    <div className='panelTitle'>DESTINATARIOS TELEGRAM</div>
+                    <small className='muted'>El token del bot no se introduce aquí. Permanece como secreto del servidor.</small>
+                    <div className='telegramRecipientList'>
+                      {telegramRecipients.map(item => (
+                        <div className='telegramRecipientRow' key={String(item.recipient_id)}>
+                          <strong>{String(item.display_name || item.recipient_id)}</strong>
+                          <small>{String(item.recipient_id)} · {String(item.channel || 'telegram')}</small>
+                        </div>
+                      ))}
+                      {!telegramRecipients.length && <small className='muted'>No hay destinatarios configurados.</small>}
+                    </div>
+                    <div className='telegramSetupActions'>
+                      <button type='button' className='ghost' disabled={telegramSetupBusy} onClick={() => void discoverTelegramChats()}>
+                        {telegramSetupBusy ? 'Consultando…' : 'Buscar chats que enviaron /start'}
+                      </button>
+                    </div>
+                    {telegramStartChats.length > 0 && (
+                      <div className='telegramRecipientList'>
+                        {telegramStartChats.map((item:any) => (
+                          <button type='button' className='telegramStartChat' key={String(item.chat_id)}
+                            onClick={() => {
+                              setTelegramChatId(String(item.chat_id));
+                              setTelegramDisplayName(String(item.display_hint || 'Telegram'));
+                            }}>
+                            <span><strong>{String(item.display_hint || 'Telegram')}</strong><small>{String(item.chat_type)} · {String(item.chat_id)}</small></span>
+                            <span>Usar</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    <div className='telegramSetupFields'>
+                      <label>Alias para ARIA<input value={telegramRecipientId} onChange={e => setTelegramRecipientId(e.target.value)} placeholder='mama' maxLength={64}/></label>
+                      <label>Nombre visible<input value={telegramDisplayName} onChange={e => setTelegramDisplayName(e.target.value)} placeholder='Mamá' maxLength={120}/></label>
+                      <label>Chat ID<input value={telegramChatId} onChange={e => setTelegramChatId(e.target.value)} placeholder='Se completa al seleccionar un chat' maxLength={20}/></label>
+                      <button type='button' className='primary' disabled={telegramSetupBusy} onClick={() => void saveTelegramRecipient()}>
+                        {telegramSetupBusy ? 'Verificando…' : 'Guardar destinatario'}
+                      </button>
+                    </div>
+                    {telegramSetupNotice && <small className='telegramSetupNotice' role='status'>{telegramSetupNotice}</small>}
+                  </div>
+                )}
+              </section>
               {pendingVoiceMessage && (
                 <section className='voiceMessageConfirmation' role='dialog' aria-label='Confirmar mensaje por Telegram'>
                   <div className='panelTitle'>CONFIRMAR ENVÍO POR TELEGRAM</div>
