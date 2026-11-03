@@ -66,15 +66,10 @@ function unresolvedDeviceIntent(label, devices, operation, params) {
  * conversation. Never infer a target device or broaden the action allowlist.
  */
 function parseExplicitVoiceAction(transcript, devices = []) {
-  const text = String(transcript ?? '').trim().replace(/[.!?]+$/, '');
-  if (!text || text.length > 500) return null;
+  const original = String(transcript ?? '').trim();
+  if (!original || original.length > 4500) return null;
 
-  if (/^(?:(?:oye|hey)\s+)?aria\s*,?\s*(?:dime\s+)?(?:el\s+)?estado(?:\s+general)?$/i.test(text)
-      || /^estado\s+de\s+aria$/i.test(text)) {
-    return { lane: 'read', operation: 'aria.status', params: {} };
-  }
-
-  let match = text.match(/^(?:env[ií]a|manda)\s+(?:(?:un\s+)?mensaje\s+)?(?:por\s+telegram\s+)?(?:a|para)\s+([a-z0-9][a-z0-9._-]{2,63})\s*:\s*(.{1,4000})$/i);
+  let match = original.match(/^(?:env[ií]a|manda)\s+(?:(?:un\s+)?mensaje\s+)?(?:por\s+telegram\s+)?(?:a|para)\s+([a-z0-9][a-z0-9._-]{2,63})\s*:\s*(.{1,4000})$/i);
   if (match) {
     return {
       lane: 'device.action',
@@ -83,7 +78,15 @@ function parseExplicitVoiceAction(transcript, devices = []) {
     };
   }
 
-  let match = text.match(/^(?:dime\s+)?(?:el\s+)?estado\s+de\s+(.+)$/i);
+  const text = original.replace(/[.!?]+$/, '');
+  if (!text) return null;
+
+  if (/^(?:(?:oye|hey)\s+)?aria\s*,?\s*(?:dime\s+)?(?:el\s+)?estado(?:\s+general)?$/i.test(text)
+      || /^estado\s+de\s+aria$/i.test(text)) {
+    return { lane: 'read', operation: 'aria.status', params: {} };
+  }
+
+  match = text.match(/^(?:dime\s+)?(?:el\s+)?estado\s+de\s+(.+)$/i);
   if (match) return unresolvedDeviceIntent(match[1], devices, 'device.status', {});
 
   match = text.match(/^(?:pon|ajusta|establece|configura)\s+(?:el\s+)?brillo(?:\s+de\s+la\s+pantalla)?\s+(?:al?|en)\s*(\d{1,3})\s*%?\s+(?:en|de)\s+(.+)$/i);
