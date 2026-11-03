@@ -1,11 +1,12 @@
 'use strict';
 
 const assert = require('node:assert/strict');
-const {
-  parseExplicitVoiceAction,
-  dispatchVoiceAction,
-  getVoiceCommandStatus
-} = await import('../pwa/src/voiceCommandClient.js');
+(async () => {
+  const {
+    parseExplicitVoiceAction,
+    dispatchVoiceAction,
+    getVoiceCommandStatus
+  } = await import('../pwa/src/voiceCommandClient.js');
 
 const devices = [
   { device_id: 'robvg9-pc-001', display_name: 'RobVG', aliases: ['PC principal'] },
@@ -193,3 +194,7 @@ await assert.rejects(
 );
 
 console.log('VOICE V4 PWA SIGNED COMMAND + OWNER STATUS CLIENT: PASS');
+})().catch(error => {
+  console.error(error);
+  process.exitCode = 1;
+});
