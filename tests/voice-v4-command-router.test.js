@@ -81,6 +81,8 @@ function request(overrides = {}) {
   assert.equal(allowed.operation, 'display.brightness.set');
   assert.equal(Object.hasOwn(allowed, 'result'), false);
   assert.equal(fx.calls.action.length, 1);
+  assert.equal(fx.calls.action[0].expiresAt, request().expires_at,
+    'the signed request expiry must be forwarded unchanged to the durable device command queue');
   assert.equal(fx.calls.claim.length, 1);
   assert.equal(fx.calls.auth[0].options.requireSpeaker, true);
   assert.equal(fx.calls.auth[0].options.expectedOwnerId, 'owner-123');
