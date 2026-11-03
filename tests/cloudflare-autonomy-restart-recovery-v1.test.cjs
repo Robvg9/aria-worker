@@ -161,7 +161,7 @@ async function expireLease(state, jobId) {
 
     const taskCompleted = await complete(store, recoveredTaskLease, {
       passed: true,
-      evidence: { path: 'README.md', verified: true, recovered_after_do_restart: true }
+      evidence: { path: 'README.md', bytes: 24, verified: true }
     });
     assert.equal(taskCompleted.status, 200);
 
@@ -181,7 +181,7 @@ async function expireLease(state, jobId) {
     const finalMission = (await json(finalMissionResponse)).mission;
     assert.equal(finalMission.status, 'succeeded');
     assert.equal(finalMission.progress_percent, 100);
-    assert.equal(finalMission.tasks[0].evidence[0].recovered_after_do_restart, true);
+    assert.equal(finalMission.tasks[0].evidence[0].verified, true);
 
     const eventsResponse = await store.fetch(request('/api/missions/' + created.mission_id + '/events'));
     const events = (await json(eventsResponse)).events;

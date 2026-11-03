@@ -241,6 +241,7 @@ async function payload(response) {
         passed: true,
         evidence: {
           relative_path: relativePath,
+          bytes: Buffer.byteLength(proofContent),
           sha256: proofHash,
           execution_attempt: 2,
           write_action: 'already_identical'
