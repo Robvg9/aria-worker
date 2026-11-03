@@ -470,7 +470,7 @@ export class AriaMissionStore {
             probe_id: probeId
           },
           policy: {
-            max_risk: 'low',
+            max_risk: readonlyPilot ? 'low' : 'medium',
             require_human_approval: true,
             max_steps: 1
           }
@@ -489,6 +489,7 @@ export class AriaMissionStore {
       scope.mission_id = String(createdPayload.mission.mission_id);
       scope.status = 'active';
       await this.ctx.storage.put(scopeKey, scope);
+      if (readonlyPilot) await this.ctx.storage.put('package3:readonly-pilot:active-probe', probeId);
 
       // Both probes use a fixed, exact one-task plan. The Windows worker remains
       // execution-only; the read-only pilot is restricted to git.status (no writes).
@@ -542,12 +543,19 @@ export class AriaMissionStore {
         return error('package3_probe_plan_initialization_failed', 503);
       }
 
-      const records = await this.ctx.storage.list({ prefix: 'job:' });
-      scope.allowed_job_ids = Array.from(records.values())
-        .filter(job => job.mission_id === scope.mission_id &&
-          PACKAGE3_PROBE_ALLOWED_JOB_OPERATIONS.has(String(job.operation)) &&
-          (job.status === 'queued' || job.status === 'leased'))
-        .map(job => String(job.job_id));
+      if (readonlyPilot) {
+        const persistedScope = await this.ctx.storage.get(scopeKey);
+        const scopedJobs = await Promise.all((persistedScope && persistedScope.allowed_job_ids || []).map(jobId => this.ctx.storage.get('job:' + jobId)));
+        scope.allowed_job_ids = scopedJobs.filter(job => job && package3ProbeJobAllowed({ ...scope, allowed_job_ids: [job.job_id] }, job) &&
+          (job.status === 'queued' || job.status === 'leased')).map(job => String(job.job_id));
+      } else {
+        const records = await this.ctx.storage.list({ prefix: 'job:' });
+        scope.allowed_job_ids = Array.from(records.values())
+          .filter(job => job.mission_id === scope.mission_id &&
+            PACKAGE3_PROBE_ALLOWED_JOB_OPERATIONS.has(String(job.operation)) &&
+            (job.status === 'queued' || job.status === 'leased'))
+          .map(job => String(job.job_id));
+      }
       await this.ctx.storage.put(scopeKey, scope);
       if (scope.allowed_job_ids.length !== 1) {
         const cleanup = await this.closePackage3Probe(new Request('https://aria.internal/api/package3/probe/close', {
@@ -691,6 +699,9 @@ export class AriaMissionStore {
         await this.ctx.storage.put('job:' + job.job_id, job);
       }
       const mission = scope.mission_id ? await this.getMission(scope.mission_id) : null;
+      if (scope.probe_type === 'readonly_git_status' && await this.ctx.storage.get('package3:readonly-pilot:active-probe') === probeId) {
+        await this.ctx.storage.put('package3:readonly-pilot:active-probe', null);
+      }
       if (mission && !['succeeded', 'failed', 'cancelled'].includes(mission.status)) {
         mission.status = 'cancelled';
         mission.current_task_id = null;
@@ -983,12 +994,19 @@ export class AriaMissionStore {
     const scope = this.package3ProbeContext;
     const scopedReadonlyPilot = this.isMissionExecutionPaused() && scope?.probe_type === 'readonly_git_status' && scope.status === 'active';
     if (this.isMissionExecutionPaused() && !scopedReadonlyPilot) return false;
-    const missions = await this.ctx.storage.list({ prefix: 'mission:' });
-    const hasActive = Array.from(missions.values()).some(m => ACTIVE_MISSION_STATES.has(m.status) &&
-      (!scopedReadonlyPilot || m.mission_id === scope.mission_id));
-    const jobs = await this.ctx.storage.list({ prefix: 'job:' });
-    const hasJobs = Array.from(jobs.values()).some(job => ACTIVE_JOB_STATES.has(job.status) &&
-      (!scopedReadonlyPilot || package3ProbeJobAllowed(scope, job)));
+    let hasActive = false;
+    let hasJobs = false;
+    if (scopedReadonlyPilot) {
+      const mission = await this.ctx.storage.get('mission:' + scope.mission_id);
+      hasActive = Boolean(mission && ACTIVE_MISSION_STATES.has(mission.status));
+      const jobs = await Promise.all((scope.allowed_job_ids || []).map(jobId => this.ctx.storage.get('job:' + jobId)));
+      hasJobs = jobs.some(job => job && package3ProbeJobAllowed(scope, job) && ACTIVE_JOB_STATES.has(job.status));
+    } else {
+      const missions = await this.ctx.storage.list({ prefix: 'mission:' });
+      hasActive = Array.from(missions.values()).some(m => ACTIVE_MISSION_STATES.has(m.status));
+      const jobs = await this.ctx.storage.list({ prefix: 'job:' });
+      hasJobs = Array.from(jobs.values()).some(job => ACTIVE_JOB_STATES.has(job.status));
+    }
     let hasPendingNotifications = false;
     if (!scopedReadonlyPilot) {
       const notices = await this.ctx.storage.list({ prefix: 'notification:' });
@@ -1002,13 +1020,14 @@ export class AriaMissionStore {
   }
   async createJob(mission, operation, task, context = {}) {
     this.assertMissionExecutionEnabled();
-    const jobs = await this.ctx.storage.list({ prefix: 'job:' });
-    const existing = Array.from(jobs.values()).find(job =>
-      job.mission_id === mission.mission_id &&
-      job.operation === operation &&
-      ACTIVE_JOB_STATES.has(job.status) &&
-      (!task || job.task_id === task.task_id)
-    );
+    const scope = this.package3ProbeContext && this.package3ProbeContext.mission_id === mission.mission_id
+      ? this.package3ProbeContext : null;
+    const jobs = scope
+      ? await Promise.all((scope.allowed_job_ids || []).map(jobId => this.ctx.storage.get('job:' + jobId)))
+      : Array.from((await this.ctx.storage.list({ prefix: 'job:' })).values());
+    const existing = jobs.find(job => job && job.mission_id === mission.mission_id &&
+      job.operation === operation && ACTIVE_JOB_STATES.has(job.status) &&
+      (!task || job.task_id === task.task_id));
     if (existing) return existing;
     const job = {
       job_id: uuid('job'),
@@ -1407,7 +1426,9 @@ export class AriaMissionStore {
     if (probeScope && !package3ProbeWorkerIdAllowed(probeScope, workerId)) {
       return error('package3_probe_worker_not_allowed', 403);
     }
-    const records = await this.ctx.storage.list({ prefix: 'job:' });
+    const records = probeScope
+      ? new Map((await Promise.all((probeScope.allowed_job_ids || []).map(async jobId => [jobId, await this.ctx.storage.get('job:' + jobId)]))).filter(([, job]) => Boolean(job)))
+      : await this.ctx.storage.list({ prefix: 'job:' });
     const candidate = Array.from(records.values())
       .filter(job => {
         if (probeScope && !package3ProbeJobAllowed(probeScope, job)) return false;
@@ -1614,8 +1635,11 @@ export class AriaMissionStore {
         .filter(task => task.status === 'succeeded' && !hasTaskEvidence(task))
         .map(task => task.task_id);
       const jobRecords = await this.ctx.storage.list({ prefix: 'job:' });
-      const activeJobIds = Array.from(jobRecords.values())
-        .filter(item => item.mission_id === mission.mission_id && ACTIVE_JOB_STATES.has(item.status))
+      const verificationJobs = this.package3ProbeContext?.probe_type === 'readonly_git_status' &&
+        this.package3ProbeContext.mission_id === mission.mission_id
+        ? await Promise.all((this.package3ProbeContext.allowed_job_ids || []).map(jobId => this.ctx.storage.get('job:' + jobId)))
+        : Array.from(jobRecords.values());
+      const activeJobIds = verificationJobs.filter(item => item && item.mission_id === mission.mission_id && ACTIVE_JOB_STATES.has(item.status))
         .map(item => item.job_id);
       const completionInvariantFailures = {
         unresolved_task_ids: unresolvedTaskIds,
@@ -2030,11 +2054,13 @@ export class AriaMissionStore {
     return json({ ok: true, mission });
   }
 
-  async reconcileCurrentTask(mission) {
+  async reconcileCurrentTask(mission, scope = null) {
     if (!mission.current_task_id) return false;
     const task = mission.tasks.find(item => item.task_id === mission.current_task_id);
     if (!task || !['running', 'pending'].includes(task.status)) return false;
-    const records = await this.ctx.storage.list({ prefix: 'job:' });
+    const records = scope
+      ? new Map((await Promise.all((scope.allowed_job_ids || []).map(async jobId => [jobId, await this.ctx.storage.get('job:' + jobId)]))).filter(([, job]) => Boolean(job)))
+      : await this.ctx.storage.list({ prefix: 'job:' });
     const taskJobs = Array.from(records.values())
       .filter(job => job.mission_id === mission.mission_id && job.operation === 'task.execute' && job.task_id === task.task_id)
       .sort((left, right) => String(right.updated_at || right.created_at).localeCompare(String(left.updated_at || left.created_at)));
@@ -2087,7 +2113,9 @@ export class AriaMissionStore {
     const scope = this.package3ProbeContext;
     const scopedReadonlyPilot = this.isMissionExecutionPaused() && scope?.probe_type === 'readonly_git_status' && scope.status === 'active';
     if (this.isMissionExecutionPaused() && !scopedReadonlyPilot) return false;
-    const jobs = await this.ctx.storage.list({ prefix: 'job:' });
+    const jobs = scopedReadonlyPilot
+      ? new Map((await Promise.all((scope.allowed_job_ids || []).map(async jobId => [jobId, await this.ctx.storage.get('job:' + jobId)]))).filter(([, job]) => Boolean(job)))
+      : await this.ctx.storage.list({ prefix: 'job:' });
     for (const job of jobs.values()) {
       if (scopedReadonlyPilot && !package3ProbeJobAllowed(scope, job)) continue;
       if (job.status === 'leased' && job.lease_until && Date.parse(job.lease_until) <= Date.now()) {
@@ -2099,14 +2127,16 @@ export class AriaMissionStore {
         await this.ctx.storage.put('job:' + job.job_id, job);
       }
     }
-    const missions = await this.ctx.storage.list({ prefix: 'mission:' });
+    const missions = scopedReadonlyPilot
+      ? new Map([[scope.mission_id, await this.ctx.storage.get('mission:' + scope.mission_id)]])
+      : await this.ctx.storage.list({ prefix: 'mission:' });
     for (const mission of missions.values()) {
-      if (scopedReadonlyPilot && mission.mission_id !== scope.mission_id) continue;
+      if (!mission || (scopedReadonlyPilot && mission.mission_id !== scope.mission_id)) continue;
       if (mission.status === 'planning') {
         if (scopedReadonlyPilot) continue;
         await this.createJob(mission, mission.plan_kind === 'replan' ? 'mission.replan' : 'mission.plan', null, { reason: mission.last_error || 'recovery' });
       } else if (mission.status === 'running') {
-        await this.reconcileCurrentTask(mission);
+        await this.reconcileCurrentTask(mission, scopedReadonlyPilot ? scope : null);
         if (mission.status === 'running') await this.scheduleNext(mission);
       }
     }
@@ -2115,11 +2145,17 @@ export class AriaMissionStore {
 
   async alarm() {
     if (this.isMissionExecutionPaused()) {
-      const records = await this.ctx.storage.list({ prefix: 'package3:probe:' });
-      const activeReadonlyScopes = Array.from(records.values()).filter(scope =>
-        scope.probe_type === 'readonly_git_status' && scope.status === 'active' && Date.parse(scope.expires_at) > Date.now());
-      if (activeReadonlyScopes.length !== 1) return;
-      const activeScope = activeReadonlyScopes[0];
+      const activeProbeId = await this.ctx.storage.get('package3:readonly-pilot:active-probe');
+      if (typeof activeProbeId !== 'string' || !PACKAGE3_PROBE_ID_PATTERN.test(activeProbeId)) return;
+      const activeScope = await this.ctx.storage.get('package3:probe:' + activeProbeId);
+      if (!activeScope || activeScope.probe_type !== 'readonly_git_status' || activeScope.status !== 'active') return;
+      if (Date.parse(activeScope.expires_at) <= Date.now()) {
+        await this.exclusive(() => this.closePackage3Probe(new Request('https://aria.internal/api/package3/probe/close', {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ probe_id: activeProbeId, reason: 'readonly_pilot_ttl_expired' })
+        })), { probeScope: activeScope });
+        return;
+      }
       await this.exclusive(async () => {
         const scopeKey = 'package3:probe:' + activeScope.probe_id;
         const current = await this.ctx.storage.get(scopeKey);
