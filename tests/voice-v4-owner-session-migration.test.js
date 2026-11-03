@@ -36,7 +36,7 @@ assert.match(migration, /last_seen_at >= now[(][)] - interval '90 seconds'/);
 
 assert.match(migration, /CREATE TABLE IF NOT EXISTS aria_internal[.]voice_speaker_model_catalog/);
 assert.match(migration, /status = 'approved'/);
-assert.match(migration, /speaker model is not approved for production/);
+assert.match(migration, /speaker model is not approved or threshold is below its calibrated floor/);
 assert.match(migration, /FOREIGN KEY [(]speaker_model_id[)]/);
 assert.match(migration, /evaluation_evidence_ref IS NOT NULL/);
 assert.match(migration, /approved_at IS NOT NULL/);
