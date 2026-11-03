@@ -8,7 +8,7 @@ export type TestCatalogItem = {
   capabilities: string;
 };
 
-export const TEST_CATALOG_VERSION = '2026-11-02-voice-v4-command-lanes-v2';
+export const TEST_CATALOG_VERSION = '2026-11-02-voice-v4-command-lanes-v3';
 export const TEST_CATALOG: TestCatalogItem[] = [
   {
     "id": "mission-job-authorization-fence",
@@ -3002,6 +3002,15 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "includedInNpmTest": true,
     "how": "Verifica la validación y el despacho de comandos directos desde la cola Voice V4 para agentes Windows y Android, sin usar la cola de misiones.",
     "capabilities": "Bloquea dispositivos discordantes, comandos expirados, operaciones no permitidas, aplicaciones fuera de allowlist y URLs que no estén autorizadas; exige confirmación real del adaptador antes de reportar éxito."
+  },
+  {
+    "id": "voice-v4-windows-dpapi-signer",
+    "file": "tests/voice-v4-windows-dpapi-signer.test.js",
+    "title": "ARIA Windows DPAPI Ed25519 Owner Key",
+    "category": "Seguridad / Windows / identidad",
+    "includedInNpmTest": false,
+    "how": "Prueba el almacenamiento cifrado de una clave Ed25519 con DPAPI CurrentUser, su vinculación a propietario/dispositivo, firma canónica y revocación local.",
+    "capabilities": "Detecta claves privadas en claro, firmas inválidas, identidad cruzada, payload no canónico y afirmaciones de hablante no aprobadas. La prueba DPAPI real corre en el job Windows dedicado."
   },
 
   {
