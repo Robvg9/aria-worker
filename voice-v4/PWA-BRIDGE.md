@@ -29,12 +29,13 @@ The PWA has a visible dashboard entry, **“Abrir modo voz”**, that opens the 
 
 The Android companion app PR #6 now goes beyond the original PCM meter:
 - It creates and retains an Ed25519 key in Android Keystore after an explicit user action.
-- Its code calls the authenticated owner-pairing route to register the Android public key and a random pairing token. The matching SQL migration is not yet applied to Supabase LIVE, so this is not yet a live pairing capability.
+- It calls the authenticated owner-pairing route to register the Android public key and a random pairing token. The matching SQL migration is not yet applied to Supabase LIVE, so this is not yet a live pairing capability.
 - It implements the client path for a signed, short-lived `aria.status` request on the `read` lane and checks `executed=false`; an Android physical end-to-end run has not yet certified that path.
 - Its Android pairing is forced to `read_only`, with empty capabilities and `wake_word_enabled=false`.
 - It exposes an explicit server-side trust revocation action, followed by local SecureStore/Keystore cleanup.
+- Its `PwaHostScreen` now injects `window.ariaVoiceV4.createOwnerSession` into the WebView, validates the exact HTTPS origin and checks the owner/device pairing heartbeat before allowing read-only signing.
 
-This native flow is inside the React Native app. It does **not** inject `window.ariaVoiceV4` into the separate web PWA and does not yet satisfy this document's browser-host bridge contract. The Windows DPAPI signing helper is also not yet integrated into `agents/windows/aria-agent.js`.
+The Android PWA host callback is implemented in code but not yet physically certified. Windows now has branch-only authenticated read-only pairing/heartbeat endpoints and separate DPAPI RPCs, but the helper still is not wired into `agents/windows/aria-agent.js`, and no secure Windows browser host, owner-token handoff, DPAPI token storage or physical pairing test exists. Do not treat either platform's code contracts as physical E2E evidence.
 
 The Android app's APK builds currently use the Android Debug certificate unless a controlled release keystore and its approved `ANDROID_SIGNING_CERT_SHA256` fingerprint are configured. Such artifacts are QA-only, not production distributions.
 
