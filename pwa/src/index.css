@@ -814,3 +814,16 @@ button{touch-action:manipulation;}
   font:inherit;
   cursor:pointer;
 }
+
+
+/* Voice V4 PWA — exact lifecycle status; queued never implies success. */
+.voiceCommandStatus{display:grid;gap:8px;margin:10px 0 2px;padding:11px 12px;border:1px solid rgba(97,217,255,.2);border-radius:13px;background:rgba(97,217,255,.045)}
+.voiceCommandStatusHeader{display:flex;justify-content:space-between;align-items:center;gap:10px;min-width:0}
+.voiceCommandStatusHeader>div{display:grid;gap:3px;min-width:0}
+.voiceCommandStatusHeader strong{font-size:12px}
+.voiceCommandStatusHeader small,.voiceCommandStatus>small{font-size:10px;line-height:1.45;color:var(--muted);overflow-wrap:anywhere}
+.voiceCommandState{font-size:10px;font-weight:900;padding:5px 8px;border-radius:999px;background:rgba(255,255,255,.07);white-space:nowrap}
+.voiceCommandState-succeeded{color:var(--green);background:rgba(92,231,169,.1)}
+.voiceCommandState-failed,.voiceCommandState-expired,.voiceCommandState-cancelled{color:var(--red);background:rgba(255,120,149,.1)}
+.voiceCommandStatus .ghost{justify-self:start;min-height:32px;padding:6px 9px;font-size:10px}
+@media(max-width:520px){.voiceCommandStatusHeader{align-items:flex-start;flex-direction:column}.voiceCommandState{white-space:normal}}
