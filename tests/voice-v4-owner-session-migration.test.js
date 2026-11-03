@@ -65,6 +65,21 @@ const latestSpeakerSetter = migration.slice(migration.lastIndexOf('CREATE OR REP
 assert.match(latestSpeakerSetter, /p_minimum_score >= m[.]minimum_score_floor/,
   'owner policy cannot lower a speaker model below its server-calibrated threshold floor');
 
+const voiceInternalTables = [
+  'voice_owner_session_nonces',
+  'voice_command_idempotency',
+  'voice_trusted_device_keys',
+  'voice_speaker_policies',
+  'voice_speaker_model_catalog',
+  'voice_device_commands'
+];
+for (const table of voiceInternalTables) {
+  assert.ok(migration.includes(`ALTER TABLE aria_internal.${table} ENABLE ROW LEVEL SECURITY;`),
+    `${table} must enforce deny-by-default RLS in the private schema`);
+}
+assert.match(migration, /GRANT SELECT ON TABLE aria_internal[.]voice_device_commands TO service_role/,
+  'the authenticated status API needs the minimum direct SELECT grant; writes remain RPC-only');
+
 assert.match(migration, /CREATE TABLE IF NOT EXISTS aria_internal[.]voice_device_commands/);
 assert.match(migration, /source_device_id text NOT NULL/);
 assert.match(migration, /enqueue_voice_device_command/);
