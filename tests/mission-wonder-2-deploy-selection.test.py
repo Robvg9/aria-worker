@@ -6,7 +6,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
-from mission_wonder_2_deploy_selection import is_successful_canonical_supabase_deploy
+from mission_wonder_2_deploy_selection import (
+    collect_successful_canonical_supabase_deploys,
+    is_successful_canonical_supabase_deploy,
+)
 
 
 class CanonicalDeploySelectionTests(unittest.TestCase):
@@ -64,6 +67,42 @@ class CanonicalDeploySelectionTests(unittest.TestCase):
     def test_rejects_non_object_values(self):
         self.assertFalse(is_successful_canonical_supabase_deploy(None))
         self.assertFalse(is_successful_canonical_supabase_deploy("workflow_dispatch"))
+
+    def test_finds_successful_deploy_on_second_page(self):
+        # Reproduce the observed failure: the first full page has only failed
+        # canonical attempts; the successful protected dispatch is on page 2.
+        failed = {**self.valid_dispatch, "conclusion": "failure"}
+        pages = {
+            1: {"workflow_runs": [failed] * 100},
+            2: {"workflow_runs": [self.valid_dispatch]},
+        }
+        requested_pages = []
+
+        def fetch_page(page):
+            requested_pages.append(page)
+            return pages[page]
+
+        deployments = collect_successful_canonical_supabase_deploys(
+            fetch_page, page_size=100, max_pages=10
+        )
+        self.assertEqual(requested_pages, [1, 2])
+        self.assertEqual(deployments, [self.valid_dispatch])
+
+    def test_stops_after_short_final_page_when_no_success_exists(self):
+        failed = {**self.valid_dispatch, "conclusion": "failure"}
+        requested_pages = []
+
+        def fetch_page(page):
+            requested_pages.append(page)
+            return {"workflow_runs": [failed]}
+
+        deployments = collect_successful_canonical_supabase_deploys(fetch_page)
+        self.assertEqual(requested_pages, [1])
+        self.assertEqual(deployments, [])
+
+    def test_rejects_malformed_pagination_response(self):
+        with self.assertRaises(ValueError):
+            collect_successful_canonical_supabase_deploys(lambda _page: {})
 
 
 if __name__ == "__main__":

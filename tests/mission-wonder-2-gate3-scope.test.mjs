@@ -65,7 +65,9 @@ check(workflowSource.includes("default: false")&&workflowSource.includes("type: 
 check(workflowSource.includes("environment: production"),"live probe uses the production approval environment");
 check(workflowSource.includes("github.ref == 'refs/heads/main'"),"live probe only runs from main");
 const deploySelectorSource=await readFile(new URL("../scripts/mission_wonder_2_deploy_selection.py",import.meta.url),"utf8");
-check(liveScript.includes("is_successful_canonical_supabase_deploy"),"live probe delegates deployment selection to the tested helper");
+check(liveScript.includes("collect_successful_canonical_supabase_deploys"),"live probe delegates deployment history selection to the tested pagination helper");
+check(liveScript.includes("/actions/workflows/")&&liveScript.includes("supabase-canonical-deploy.yml/runs"),"live probe queries only the canonical Supabase workflow history");
+check(liveScript.includes("&page=")&&liveScript.includes("max_pages=10"),"live probe paginates canonical workflow history up to the bounded API limit");
 check(deploySelectorSource.includes('CANONICAL_DEPLOY_NAME = "Deploy ARIA Supabase Runtime"')&&deploySelectorSource.includes('CANONICAL_DEPLOY_EVENTS = frozenset({"push", "workflow_dispatch"})'),"live probe accepts successful canonical deployments from push or protected workflow dispatch");
 check(liveScript.includes("CANONICAL_RUNTIME_SHA_REUSE=PASS"),"live probe may reuse a deployed runtime after an ancestry check");
 check(liveScript.includes("safe_post_deploy_files"),"runtime deploy reuse has a strict post-deploy allowlist");
