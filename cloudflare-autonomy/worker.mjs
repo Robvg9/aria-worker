@@ -599,14 +599,18 @@ export class AriaMissionStore {
     const scope = await this.ctx.storage.get('package3:probe:' + probeId);
     if (!scope) return error('package3_probe_not_found', 404);
     const mission = scope.mission_id ? await this.getMission(scope.mission_id) : null;
+    const readonlyPilot = scope.probe_type === 'readonly_git_status';
     const [jobRecords, eventRecords, notificationRecords] = await Promise.all([
-      this.ctx.storage.list({ prefix: 'job:' }),
+      readonlyPilot
+        ? Promise.all((scope.allowed_job_ids || []).map(jobId => this.ctx.storage.get('job:' + jobId)))
+        : this.ctx.storage.list({ prefix: 'job:' }),
       scope.mission_id
         ? this.ctx.storage.list({ prefix: 'event:' + scope.mission_id + ':' })
         : Promise.resolve(new Map()),
-      this.ctx.storage.list({ prefix: 'notification:' })
+      readonlyPilot ? Promise.resolve(new Map()) : this.ctx.storage.list({ prefix: 'notification:' })
     ]);
-    const jobs = Array.from(jobRecords.values())
+    const jobValues = readonlyPilot ? jobRecords.filter(Boolean) : Array.from(jobRecords.values());
+    const jobs = jobValues
       .filter(job => job.mission_id === scope.mission_id)
       .map(job => ({
         job_id: job.job_id,
@@ -687,9 +691,11 @@ export class AriaMissionStore {
     const previousProbeContext = this.package3ProbeContext;
     this.package3ProbeContext = scope;
     try {
-      const jobs = await this.ctx.storage.list({ prefix: 'job:' });
-      for (const job of jobs.values()) {
-        if (job.mission_id !== scope.mission_id || !ACTIVE_JOB_STATES.has(job.status)) continue;
+      const jobs = scope.probe_type === 'readonly_git_status'
+        ? await Promise.all((scope.allowed_job_ids || []).map(jobId => this.ctx.storage.get('job:' + jobId)))
+        : Array.from((await this.ctx.storage.list({ prefix: 'job:' })).values());
+      for (const job of jobs) {
+        if (!job || job.mission_id !== scope.mission_id || !ACTIVE_JOB_STATES.has(job.status)) continue;
         job.status = 'cancelled';
         job.last_error = 'package3_probe_scope_closed';
         job.worker_id = null;
@@ -1634,11 +1640,11 @@ export class AriaMissionStore {
       const missingEvidenceTaskIds = mission.tasks
         .filter(task => task.status === 'succeeded' && !hasTaskEvidence(task))
         .map(task => task.task_id);
-      const jobRecords = await this.ctx.storage.list({ prefix: 'job:' });
-      const verificationJobs = this.package3ProbeContext?.probe_type === 'readonly_git_status' &&
-        this.package3ProbeContext.mission_id === mission.mission_id
-        ? await Promise.all((this.package3ProbeContext.allowed_job_ids || []).map(jobId => this.ctx.storage.get('job:' + jobId)))
-        : Array.from(jobRecords.values());
+      const readonlyPilotScope = this.package3ProbeContext?.probe_type === 'readonly_git_status' &&
+        this.package3ProbeContext.mission_id === mission.mission_id ? this.package3ProbeContext : null;
+      const verificationJobs = readonlyPilotScope
+        ? await Promise.all((readonlyPilotScope.allowed_job_ids || []).map(jobId => this.ctx.storage.get('job:' + jobId)))
+        : Array.from((await this.ctx.storage.list({ prefix: 'job:' })).values());
       const activeJobIds = verificationJobs.filter(item => item && item.mission_id === mission.mission_id && ACTIVE_JOB_STATES.has(item.status))
         .map(item => item.job_id);
       const completionInvariantFailures = {
