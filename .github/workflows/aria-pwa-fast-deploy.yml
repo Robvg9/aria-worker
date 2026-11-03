@@ -39,6 +39,8 @@ on:
       - 'scripts/release-bearing.js'
       - 'tests/delivery-deterministic-v1.test.js'
       - 'tests/cloudflare-autonomy-package3-scope.test.cjs'
+      - 'tests/cloudflare-autonomy-readonly-pilot-v1.test.cjs'
+      - 'scripts/mission-wonder-2-readonly-pilot-live-e2e.cjs'
       - 'pwa/src/testCatalog.ts'
       - 'scripts/Start-ARIA-Persistent-Worker.ps1'
       - 'scripts/aria-worker-task-host.cs'
