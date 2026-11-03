@@ -165,7 +165,9 @@ BEGIN
   IF v_row.confirmation_id IS NULL THEN
     SELECT * INTO v_row
     FROM aria_internal.voice_message_dispatches
-    WHERE owner_user_id = p_owner_user_id AND confirmation_id = p_confirmation_id;
+    WHERE owner_user_id = p_owner_user_id
+      AND confirmation_id = p_confirmation_id
+      AND body_sha256 = p_body_sha256;
   END IF;
 
   IF v_row.confirmation_id IS NULL THEN RETURN NULL; END IF;
@@ -205,7 +207,7 @@ DECLARE
   v_count integer;
 BEGIN
   IF p_owner_user_id IS NULL OR p_confirmation_id IS NULL
-     OR p_status NOT IN ('sent','failed','unknown')
+     OR p_status IS NULL OR p_status NOT IN ('sent','failed','unknown')
      OR (p_status = 'sent' AND (p_provider_message_id IS NULL OR p_provider_message_id <= 0 OR p_provider_chat_id IS NULL))
      OR (p_status <> 'sent' AND p_provider_message_id IS NOT NULL)
      OR (p_error_code IS NOT NULL AND p_error_code NOT IN (
