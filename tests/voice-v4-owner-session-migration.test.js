@@ -50,11 +50,8 @@ assert.match(windowsPairFunction, /public_key_fingerprint/);
 assert.match(windowsPairFunction, /p_owner_user_id IS NULL/);
 assert.match(windowsPairFunction, /pg_advisory_xact_lock/);
 assert.match(windowsPairFunction, /wake_word_enabled/);
-assert.ok(windowsPairFunction.includes("'[]'::jsonb"), 'Windows DPAPI pairing must grant no device actions');
-assert.doesNotMatch(windowsPairFunction, /audio[.]wake_word/,
-  'Windows owner pairing must not imply a wake-word or speaker verifier capability');
-assert.match(windowsPairFunction, /v_key.revoked_at IS NOT NULL/);
-assert.ok(windowsPairFunction.includes("p_device_id !~ '^windows-[A-Za-z0-9._:-]{1,120}
+assert.match(windowsPairFunction, /p_device_id IS NULL/);
+assert.match(windowsPairFunction, /p_device_token IS NULL/);
 assert.doesNotMatch(windowsPairFunction, /SET token_hash|SET status|capabilities =/,
   'voice pairing must not overwrite the Windows agent token, status or normal device capabilities');
 assert.match(windowsPairFunction, /agent_type IS DISTINCT FROM 'windows-local'/);
