@@ -2050,6 +2050,7 @@ async function createVoiceCommandApiRouter(ownerId: string) {
   const stores = createVoiceCommandStores(sb, ownerId);
   const telegramDelivery = createTelegramMessageDelivery({
     botToken: Deno.env.get("ARIA_TELEGRAM_BOT_TOKEN") ?? "",
+    authorizedOwnerId: Deno.env.get("ARIA_TELEGRAM_OWNER_ID") ?? "",
     stores
   });
   const verifyOwnerSession = createOwnerSessionVerifier({
@@ -2400,11 +2401,11 @@ Deno.serve(async (req) => {
       try {
         const delivery = createTelegramMessageDelivery({
           botToken: Deno.env.get("ARIA_TELEGRAM_BOT_TOKEN") ?? "",
+          authorizedOwnerId: Deno.env.get("ARIA_TELEGRAM_OWNER_ID") ?? "",
           stores: createVoiceCommandStores(serviceClient(), String(user.id))
         });
         const discovered = await delivery.listStartChats({
-          ownerId: String(user.id),
-          configuredOwnerId: Deno.env.get("ARIA_TELEGRAM_OWNER_ID") ?? ""
+          ownerId: String(user.id)
         });
         if (discovered.ok !== true) {
           const status = discovered.reason === "telegram_provider_not_configured" ? 503
@@ -2438,9 +2439,10 @@ Deno.serve(async (req) => {
         const stores = createVoiceCommandStores(serviceClient(), String(user.id));
         const delivery = createTelegramMessageDelivery({
           botToken: Deno.env.get("ARIA_TELEGRAM_BOT_TOKEN") ?? "",
+          authorizedOwnerId: Deno.env.get("ARIA_TELEGRAM_OWNER_ID") ?? "",
           stores
         });
-        const verified = await delivery.verifyChat(body.telegram_chat_id);
+        const verified = await delivery.verifyChat(body.telegram_chat_id, String(user.id));
         if (verified.ok !== true) {
           return json({ ok: false, error: verified.reason || "telegram_chat_not_reachable", trace_id: trace }, 409);
         }
@@ -2467,6 +2469,7 @@ Deno.serve(async (req) => {
         const stores = createVoiceCommandStores(serviceClient(), String(user.id));
         const delivery = createTelegramMessageDelivery({
           botToken: Deno.env.get("ARIA_TELEGRAM_BOT_TOKEN") ?? "",
+          authorizedOwnerId: Deno.env.get("ARIA_TELEGRAM_OWNER_ID") ?? "",
           stores
         });
         const result = await delivery.confirm({
