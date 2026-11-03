@@ -85,6 +85,7 @@ const sqlHelper=liveScript.slice(sqlHelperStart,sqlHelperEnd);
 check(sqlHelper.includes('args = ["supabase", "db", "query", query, "--remote"]'),"hosted SQL commands explicitly target the remote project");
 check(sqlHelper.includes('if allow_write:\n        args.append("--yes")\n    else:'),"only reviewed SQL writes receive explicit --yes consent");
 check(sqlHelper.includes('args.append("--read-only")'),"validated SELECT queries use explicit read-only consent");
+check(sqlHelper.includes("proc = subprocess.run(") && sqlHelper.includes("if proc.returncode != 0:") && sqlHelper.includes("return output"),"SQL helper executes the selected command and preserves validated result handling");
 check(!sqlHelper.includes('"--linked"'),"the helper avoids the deprecated --linked alias");
 check(liveScript.includes('args.append("--yes")'),"remote SQL writes require explicit affirmative CLI consent");
 check(liveScript.includes('if not re.match(r"(?is)^SELECT\\b", statement) or ";" in statement'),"read mode accepts exactly one SELECT statement");
