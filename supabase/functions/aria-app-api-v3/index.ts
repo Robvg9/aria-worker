@@ -2396,6 +2396,26 @@ Deno.serve(async (req) => {
         return json({ ok: false, error: "voice_speaker_policy_revocation_rejected", trace_id: trace }, 409);
       }
     }
+    if (req.method === "GET" && path.endsWith("/voice/messages/telegram/chats")) {
+      try {
+        const delivery = createTelegramMessageDelivery({
+          botToken: Deno.env.get("ARIA_TELEGRAM_BOT_TOKEN") ?? "",
+          stores: createVoiceCommandStores(serviceClient(), String(user.id))
+        });
+        const discovered = await delivery.listStartChats({
+          ownerId: String(user.id),
+          configuredOwnerId: Deno.env.get("ARIA_TELEGRAM_OWNER_ID") ?? ""
+        });
+        if (discovered.ok !== true) {
+          const status = discovered.reason === "telegram_provider_not_configured" ? 503
+            : discovered.reason === "telegram_bot_owner_mismatch" ? 403 : 502;
+          return json({ ok: false, error: discovered.reason, trace_id: trace }, status);
+        }
+        return json({ ok: true, chats: discovered.chats, trace_id: trace }, 200);
+      } catch {
+        return json({ ok: false, error: "telegram_chat_discovery_unavailable", trace_id: trace }, 503);
+      }
+    }
     if (req.method === "GET" && path.endsWith("/voice/messages/recipients")) {
       try {
         const stores = createVoiceCommandStores(serviceClient(), String(user.id));
