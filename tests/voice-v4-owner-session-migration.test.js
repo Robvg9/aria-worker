@@ -47,6 +47,11 @@ assert.match(latestSpeakerResolver, /JOIN aria_internal[.]voice_speaker_model_ca
   'revoked or unapproved speaker models must not resolve as an enabled speaker policy');
 assert.match(latestSpeakerResolver, /m[.]approved_at IS NOT NULL/);
 assert.match(latestSpeakerResolver, /m[.]evaluation_evidence_ref IS NOT NULL/);
+assert.match(migration, /minimum_score_floor numeric[(]5,4[)] NOT NULL CHECK [(]minimum_score_floor > 0 AND minimum_score_floor <= 1[)]/);
+assert.match(latestSpeakerResolver, /'minimumScore', GREATEST[(]p[.]minimum_score, m[.]minimum_score_floor[)]/i);
+const latestSpeakerSetter = migration.slice(migration.lastIndexOf('CREATE OR REPLACE FUNCTION aria_internal.set_voice_speaker_policy'));
+assert.match(latestSpeakerSetter, /p_minimum_score >= m[.]minimum_score_floor/,
+  'owner policy cannot lower a speaker model below its server-calibrated threshold floor');
 
 assert.match(migration, /CREATE TABLE IF NOT EXISTS aria_internal[.]voice_device_commands/);
 assert.match(migration, /source_device_id text NOT NULL/);
