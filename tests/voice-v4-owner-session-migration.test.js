@@ -26,7 +26,7 @@ assert.match(migration, /ON CONFLICT [(]owner_user_id, idempotency_key[)] DO NOT
 assert.match(migration, /interval '30 seconds'/);
 
 assert.match(migration, /CREATE TABLE IF NOT EXISTS aria_internal[.]voice_trusted_device_keys/);
-assert.match(migration, /CREATE UNIQUE INDEX IF NOT EXISTS voice_trusted_device_keys_single_owner_idx[\\s\\S]*?ON aria_internal[.]voice_trusted_device_keys [(]device_id[)]/,
+assert.ok(migration.includes("CREATE UNIQUE INDEX IF NOT EXISTS voice_trusted_device_keys_single_owner_idx\\n  ON aria_internal.voice_trusted_device_keys (device_id);"),
   'a physical voice device must not be paired to multiple owner accounts');
 assert.match(migration, /register_voice_trusted_device_key/);
 assert.match(migration, /resolve_voice_trusted_device_key/);
