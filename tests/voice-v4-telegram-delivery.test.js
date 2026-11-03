@@ -206,10 +206,12 @@ function fixture({ token = '123456:TelegramFakeBotToken_forContractTests', fetch
   assert.equal(noRetry.status, 'blocked');
   assert.equal(noRetry.reason, 'telegram_delivery_outcome_uncertain');
 
+  const discoveryRequests = [];
   const discoveryFx = fixture({
     fetchImpl: async (url, init) => {
       assert.match(url, /getUpdates$/);
       const requestBody = JSON.parse(init.body);
+      discoveryRequests.push(requestBody);
       assert.deepEqual(requestBody.allowed_updates, ['message']);
       return {
         ok: true, status: 200,
@@ -233,6 +235,8 @@ function fixture({ token = '123456:TelegramFakeBotToken_forContractTests', fetch
   assert.equal(discoveredChats.ok, true);
   assert.equal(discoveredChats.chats.length, 2);
   assert.equal(discoveredChats.chats[0].chat_id, '123456789');
+  assert.equal(discoveryRequests.length, 2);
+  assert.equal(discoveryRequests[1].offset, 4, 'discovered updates must be acknowledged so Telegram polling does not stall');
   assert.equal(JSON.stringify(discoveredChats).includes('texto privado'), false);
   const wrongOwner = await discoveryFx.delivery.listStartChats({
     ownerId: 'another-owner'
