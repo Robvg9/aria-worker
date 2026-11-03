@@ -292,16 +292,16 @@ function createWindowsVoiceOwnerKeystore(options = {}) {
       return getOrCreateDeviceToken(record);
     },
     getPairingMaterial() {
-      const key = this.getDeviceKey();
-      const deviceToken = this.getDeviceToken();
+      const record = readRecord() || createRecord();
+      const deviceToken = getOrCreateDeviceToken(record);
       return Object.freeze({
-        ownerId: key.ownerId,
-        deviceId: key.deviceId,
-        publicKeyId: key.keyId,
-        publicKeyEd25519: key.publicKey,
-        publicKeyFingerprintSha256: key.fingerprintSha256,
+        ownerId: record.owner_id,
+        deviceId: record.device_id,
+        publicKeyId: record.key_id,
+        publicKeyEd25519: record.public_key,
+        publicKeyFingerprintSha256: record.fingerprint_sha256,
         deviceToken,
-        keyStorage: key.keyStorage
+        keyStorage: 'WindowsDPAPI_CurrentUser'
       });
     },
     signCanonicalPayload(input) {
