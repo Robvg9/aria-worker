@@ -23,4 +23,19 @@ The native implementation must:
 
 The browser client supports explicit, narrow command phrases only (ARIA/device status, brightness, a small app alias list and HTTPS URL open). It requires an exact inventory match for the destination device. Other language remains ordinary conversation.
 
-This document describes the PWA contract only. It is **not** evidence that the Android/Windows native bridge exists or has passed physical certification. The current Android PR #6 is only a foreground PCM harness, and no Cuban-Spanish speaker model is approved. Direct actions remain unavailable until a native bridge and speaker evaluation satisfy the gates.
+## Current implementation boundary (2026-11-03)
+
+The PWA has a visible dashboard entry, **“Abrir modo voz”**, that opens the conversation screen with voice mode enabled. This is browser-based speech conversation and foreground hands-free recognition; it is not the native signing bridge. The PWA UI/test contract verifies that dashboard navigation and the explicit voice-mode toggle are present.
+
+The Android companion app PR #6 now goes beyond the original PCM meter:
+- It creates and retains an Ed25519 key in Android Keystore after an explicit user action.
+- It can register the Android public key and a random pairing token through the authenticated owner-pairing route.
+- It sends a signed, short-lived `aria.status` request on the `read` lane and checks `executed=false`.
+- Its Android pairing is forced to `read_only`, with empty capabilities and `wake_word_enabled=false`.
+- It exposes an explicit server-side trust revocation action, followed by local SecureStore/Keystore cleanup.
+
+This native flow is inside the React Native app. It does **not** inject `window.ariaVoiceV4` into the separate web PWA and does not yet satisfy this document's browser-host bridge contract. The Windows DPAPI signing helper is also not yet integrated into `agents/windows/aria-agent.js`.
+
+The Android app's APK builds currently use the Android Debug certificate unless a controlled release keystore and its approved `ANDROID_SIGNING_CERT_SHA256` fingerprint are configured. Such artifacts are QA-only, not production distributions.
+
+This document describes the required PWA host bridge, not evidence that the Android/Windows bridge exists or has passed physical certification. No Cuban-Spanish speaker model has been approved for `es-CU`; direct/device actions remain gated. The mission pause remains active, and no physical microphone, wake-word or mission-execution path is enabled.
