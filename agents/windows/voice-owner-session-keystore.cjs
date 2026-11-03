@@ -155,7 +155,10 @@ function createWindowsVoiceOwnerKeystore(options = {}) {
         || typeof record.public_key !== 'string'
         || typeof record.fingerprint_sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(record.fingerprint_sha256)
         || typeof record.protected_private_key !== 'string'
-        || !/^[A-Za-z0-9+/]+=*$/.test(record.protected_private_key)) {
+        || !/^[A-Za-z0-9+/]+=*$/.test(record.protected_private_key)
+        || (record.protected_device_token !== undefined
+          && (typeof record.protected_device_token !== 'string'
+            || !/^[A-Za-z0-9+/]+=*$/.test(record.protected_device_token)))) {
       throw new Error('voice_dpapi_keystore_record_invalid');
     }
     return record;
@@ -179,6 +182,43 @@ function createWindowsVoiceOwnerKeystore(options = {}) {
       throw new Error('voice_dpapi_keystore_write_failed');
     }
     return record;
+  }
+
+  function loadDeviceToken(record) {
+    if (!record || record.protected_device_token === undefined) return null;
+    const protectedBytes = Buffer.from(record.protected_device_token, 'base64');
+    let tokenBytes;
+    try { tokenBytes = dpapi.unprotect(protectedBytes); } catch {
+      throw new Error('voice_dpapi_device_token_unprotect_failed');
+    } finally { protectedBytes.fill(0); }
+    if (!Buffer.isBuffer(tokenBytes) || tokenBytes.length !== 32) {
+      if (Buffer.isBuffer(tokenBytes)) tokenBytes.fill(0);
+      throw new Error('voice_dpapi_device_token_invalid');
+    }
+    try { return base64Url(tokenBytes); } finally { tokenBytes.fill(0); }
+  }
+
+  function getOrCreateDeviceToken(record) {
+    let current = record;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const existing = loadDeviceToken(current);
+      if (existing) return existing;
+      const tokenBytes = crypto.randomBytes(32);
+      let protectedBytes;
+      try { protectedBytes = dpapi.protect(tokenBytes); } finally { tokenBytes.fill(0); }
+      if (!Buffer.isBuffer(protectedBytes) || protectedBytes.length < 32 || protectedBytes.length > 8192) {
+        if (Buffer.isBuffer(protectedBytes)) protectedBytes.fill(0);
+        throw new Error('voice_dpapi_protected_device_token_invalid');
+      }
+      const nextRecord = { ...current, protected_device_token: protectedBytes.toString('base64') };
+      protectedBytes.fill(0);
+      current = persistRecord(nextRecord);
+      if (!current.protected_device_token) {
+        current = readRecord();
+        if (!current) throw new Error('voice_dpapi_keystore_read_failed');
+      }
+    }
+    throw new Error('voice_dpapi_device_token_persist_failed');
   }
 
   function createRecord() {
@@ -245,6 +285,23 @@ function createWindowsVoiceOwnerKeystore(options = {}) {
         publicKey: record.public_key,
         fingerprintSha256: record.fingerprint_sha256,
         keyStorage: 'WindowsDPAPI_CurrentUser'
+      });
+    },
+    getDeviceToken() {
+      const record = readRecord() || createRecord();
+      return getOrCreateDeviceToken(record);
+    },
+    getPairingMaterial() {
+      const key = this.getDeviceKey();
+      const deviceToken = this.getDeviceToken();
+      return Object.freeze({
+        ownerId: key.ownerId,
+        deviceId: key.deviceId,
+        publicKeyId: key.keyId,
+        publicKeyEd25519: key.publicKey,
+        publicKeyFingerprintSha256: key.fingerprintSha256,
+        deviceToken,
+        keyStorage: key.keyStorage
       });
     },
     signCanonicalPayload(input) {
