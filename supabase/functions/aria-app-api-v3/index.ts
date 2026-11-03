@@ -12,6 +12,7 @@ import { handlePrivateVaultRequest, isPrivateVaultRoute, privateVaultAuthFailure
 import { createVoiceCommandRouter } from "../_shared/voice-command-router.mjs";
 import { createOwnerSessionVerifier } from "../_shared/voice-owner-session-verifier.mjs";
 import { createVoiceCommandStores } from "./voice-command-storage.ts";
+import { createTelegramMessageDelivery } from "../_shared/telegram-message-delivery.mjs";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
@@ -2047,6 +2048,10 @@ function readVoiceAllowList(name: string): string[] {
 async function createVoiceCommandApiRouter(ownerId: string) {
   const sb = serviceClient();
   const stores = createVoiceCommandStores(sb, ownerId);
+  const telegramDelivery = createTelegramMessageDelivery({
+    botToken: Deno.env.get("ARIA_TELEGRAM_BOT_TOKEN") ?? "",
+    stores
+  });
   const verifyOwnerSession = createOwnerSessionVerifier({
     resolveTrustedDeviceKey: (deviceId: string) => stores.resolveTrustedDeviceKey(deviceId),
     resolveSpeakerPolicy: (input: any) => stores.resolveSpeakerPolicy({
@@ -2147,6 +2152,7 @@ async function createVoiceCommandApiRouter(ownerId: string) {
     readStatus,
     executeAction,
     idempotencyStore: stores.idempotencyStore,
+    prepareMessage: input => telegramDelivery.prepare(input),
     isMissionExecutionPaused: () => MISSION_EXECUTION_PAUSED,
     allowedApps: readVoiceAllowList("ARIA_VOICE_ALLOWED_APPS"),
     allowedUrlHosts: readVoiceAllowList("ARIA_VOICE_ALLOWED_URL_HOSTS"),
@@ -2388,6 +2394,72 @@ Deno.serve(async (req) => {
         return json({ ok: true, revoked, trace_id: trace }, 200);
       } catch {
         return json({ ok: false, error: "voice_speaker_policy_revocation_rejected", trace_id: trace }, 409);
+      }
+    }
+    if (req.method === "GET" && path.endsWith("/voice/messages/recipients")) {
+      try {
+        const stores = createVoiceCommandStores(serviceClient(), String(user.id));
+        const recipients = await stores.listTelegramRecipients();
+        return json({ ok: true, recipients, trace_id: trace }, 200);
+      } catch {
+        return json({ ok: false, error: "telegram_recipient_list_unavailable", trace_id: trace }, 503);
+      }
+    }
+    if (req.method === "POST" && path.endsWith("/voice/messages/recipients")) {
+      const body = await req.json().catch(() => null);
+      if (!body || typeof body !== "object" || Array.isArray(body)
+          || Object.keys(body).sort().join(",") !== "display_name,recipient_id,telegram_chat_id"
+          || typeof body.recipient_id !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._-]{2,63}$/.test(body.recipient_id)
+          || typeof body.display_name !== "string" || body.display_name.trim().length < 1 || body.display_name.trim().length > 120
+          || typeof body.telegram_chat_id !== "string" || !/^-?[0-9]{1,20}$/.test(body.telegram_chat_id)) {
+        return json({ ok: false, error: "telegram_recipient_input_invalid", trace_id: trace }, 400);
+      }
+      try {
+        const stores = createVoiceCommandStores(serviceClient(), String(user.id));
+        const delivery = createTelegramMessageDelivery({
+          botToken: Deno.env.get("ARIA_TELEGRAM_BOT_TOKEN") ?? "",
+          stores
+        });
+        const verified = await delivery.verifyChat(body.telegram_chat_id);
+        if (verified.ok !== true) {
+          return json({ ok: false, error: verified.reason || "telegram_chat_not_reachable", trace_id: trace }, 409);
+        }
+        const recipient = await stores.upsertTelegramRecipient({
+          recipientId: body.recipient_id,
+          displayName: body.display_name,
+          telegramChatId: body.telegram_chat_id
+        });
+        return json({ ok: true, recipient, verified: true, trace_id: trace }, 201);
+      } catch {
+        return json({ ok: false, error: "telegram_recipient_save_failed", trace_id: trace }, 409);
+      }
+    }
+    if (req.method === "POST" && path.endsWith("/voice/messages/confirm")) {
+      const body = await req.json().catch(() => null);
+      if (!body || typeof body !== "object" || Array.isArray(body)
+          || Object.keys(body).sort().join(",") !== "body,confirmation_id"
+          || typeof body.confirmation_id !== "string"
+          || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(body.confirmation_id)
+          || typeof body.body !== "string" || !body.body.trim() || body.body.length > 4000) {
+        return json({ ok: false, error: "telegram_confirmation_input_invalid", trace_id: trace }, 400);
+      }
+      try {
+        const stores = createVoiceCommandStores(serviceClient(), String(user.id));
+        const delivery = createTelegramMessageDelivery({
+          botToken: Deno.env.get("ARIA_TELEGRAM_BOT_TOKEN") ?? "",
+          stores
+        });
+        const result = await delivery.confirm({
+          ownerId: String(user.id),
+          confirmationId: body.confirmation_id,
+          body: body.body
+        });
+        if (result.status === "sent") return json({ ok: true, delivery: result, trace_id: trace }, 200);
+        const status = result.status === "unknown" ? 409
+          : result.reason === "telegram_provider_not_configured" ? 503 : 409;
+        return json({ ok: false, delivery: result, trace_id: trace }, status);
+      } catch {
+        return json({ ok: false, error: "telegram_delivery_unavailable", trace_id: trace }, 503);
       }
     }
     const voiceCommandStatusPath = path.match(/\/voice\/commands\/([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$/i);
