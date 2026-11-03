@@ -122,7 +122,16 @@ function fixture({ token = '123456:TelegramFakeBotToken_forContractTests', fetch
   assert.equal(duplicate.duplicate, true);
   assert.equal(fx.sent.length, 1, 'a repeated confirmation must not send twice');
 
-  const concurrentFx = fixture();
+  const concurrentFx = fixture({
+    fetchImpl: async () => {
+      await new Promise(resolve => setTimeout(resolve, 50));
+      return {
+        ok: true,
+        status: 200,
+        async json() { return { ok: true, result: { message_id: 88, chat: { id: 123456789 } } }; }
+      };
+    }
+  });
   const concurrentPreview = await concurrentFx.delivery.prepare({
     ownerId: 'owner-uuid',
     recipientId: 'contact-mom',
