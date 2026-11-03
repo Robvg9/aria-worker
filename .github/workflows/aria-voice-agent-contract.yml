@@ -244,6 +244,46 @@ jobs:
               RAISE EXCEPTION 'voice_v4_android_rotated_pairing_token_rejected';
             END IF;
 
+            -- Administrative disablement is also terminal: the same key/token cannot revive it.
+            UPDATE aria_internal.device_registry
+            SET status = 'disabled'
+            WHERE device_id = v_device_id;
+
+            IF aria_internal.touch_voice_owner_device(
+              '123e4567-e89b-12d3-a456-426614174000'::uuid,
+              v_device_id,
+              repeat('B', 43)
+            ) IS DISTINCT FROM false THEN
+              RAISE EXCEPTION 'voice_v4_android_disabled_device_heartbeat_allowed';
+            END IF;
+            IF NOT EXISTS (
+              SELECT 1 FROM aria_internal.device_registry
+              WHERE device_id = v_device_id AND status = 'disabled'
+            ) THEN
+              RAISE EXCEPTION 'voice_v4_android_disabled_device_status_was_reactivated';
+            END IF;
+
+            v_pair_rejected := false;
+            BEGIN
+              PERFORM aria_internal.pair_voice_owner_device(
+                '123e4567-e89b-12d3-a456-426614174000'::uuid,
+                v_device_id,
+                repeat('C', 43),
+                'aria-android-keystore-ed25519-v1',
+                v_public_key
+              );
+            EXCEPTION WHEN OTHERS THEN
+              v_pair_rejected := true;
+            END;
+            IF NOT v_pair_rejected THEN
+              RAISE EXCEPTION 'voice_v4_android_disabled_device_pairing_allowed';
+            END IF;
+
+            -- Reset the isolated SQL fixture so the separate revocation assertions can run.
+            UPDATE aria_internal.device_registry
+            SET status = 'online'
+            WHERE device_id = v_device_id;
+
             -- Revocation is terminal: heartbeat and pairing cannot silently revive it.
             IF aria_internal.revoke_voice_trusted_device_key(
               '123e4567-e89b-12d3-a456-426614174000'::uuid,
