@@ -9,6 +9,10 @@ const migration = fs.readFileSync(path.join(
   root,
   'supabase/migrations/20261102193000_voice_v4_owner_nonce_and_command_idempotency.sql'
 ), 'utf8');
+const windowsMigration = fs.readFileSync(path.join(
+  root,
+  'supabase/migrations/20261103193000_voice_v4_windows_owner_readonly_pairing.sql'
+), 'utf8');
 const storage = fs.readFileSync(path.join(
   root,
   'supabase/functions/aria-app-api-v3/voice-command-storage.ts'
@@ -33,12 +37,12 @@ assert.match(migration, /register_voice_trusted_device_key/);
 assert.match(migration, /pair_voice_owner_device/);
 assert.match(migration, /touch_voice_owner_device/);
 
-assert.match(migration, /pair_voice_windows_owner_device/);
-assert.match(migration, /touch_voice_windows_owner_device/);
-assert.match(migration, /aria-windows-dpapi-ed25519-v1/);
-const windowsPairFunction = migration.slice(
-  migration.indexOf('CREATE OR REPLACE FUNCTION aria_internal.pair_voice_windows_owner_device'),
-  migration.indexOf('CREATE OR REPLACE FUNCTION aria_internal.touch_voice_windows_owner_device')
+assert.match(windowsMigration, /pair_voice_windows_owner_device/);
+assert.match(windowsMigration, /touch_voice_windows_owner_device/);
+assert.match(windowsMigration, /aria-windows-dpapi-ed25519-v1/);
+const windowsPairFunction = windowsMigration.slice(
+  windowsMigration.indexOf('CREATE OR REPLACE FUNCTION aria_internal.pair_voice_windows_owner_device'),
+  windowsMigration.indexOf('CREATE OR REPLACE FUNCTION aria_internal.touch_voice_windows_owner_device')
 );
 assert.match(windowsPairFunction, /IS DISTINCT FROM 'windows-native'/);
 assert.match(windowsPairFunction, /voice-v4-owner-readonly-v1/);
@@ -50,9 +54,9 @@ assert.ok(windowsPairFunction.includes("'[]'::jsonb"), 'Windows DPAPI pairing mu
 assert.doesNotMatch(windowsPairFunction, /audio[.]wake_word/,
   'Windows owner pairing must not imply a wake-word or speaker verifier capability');
 assert.match(windowsPairFunction, /v_key.revoked_at IS NOT NULL/);
-const windowsTouchFunction = migration.slice(
-  migration.indexOf('CREATE OR REPLACE FUNCTION aria_internal.touch_voice_windows_owner_device'),
-  migration.indexOf('CREATE OR REPLACE FUNCTION aria_internal.revoke_voice_trusted_device_key')
+const windowsTouchFunction = windowsMigration.slice(
+  windowsMigration.indexOf('CREATE OR REPLACE FUNCTION aria_internal.touch_voice_windows_owner_device'),
+  windowsMigration.indexOf('CREATE OR REPLACE FUNCTION aria_internal.revoke_voice_trusted_device_key')
 );
 assert.doesNotMatch(windowsTouchFunction, /audio[.]wake_word/);
 assert.ok(windowsTouchFunction.includes("capabilities = '[]'::jsonb"),
@@ -61,10 +65,10 @@ assert.match(windowsTouchFunction, /d[.]status <> 'disabled'/,
   'Windows heartbeat must never reactivate an administratively disabled device');
 assert.match(windowsTouchFunction, /d[.]token_hash = v_token_hash/);
 assert.match(windowsTouchFunction, /k[.]owner_user_id = p_owner_user_id/);
-assert.match(migration, /REVOKE ALL ON FUNCTION aria_internal[.]pair_voice_windows_owner_device/);
-assert.match(migration, /REVOKE ALL ON FUNCTION aria_internal[.]touch_voice_windows_owner_device/);
-assert.match(migration, /GRANT EXECUTE ON FUNCTION aria_internal[.]pair_voice_windows_owner_device/);
-assert.match(migration, /GRANT EXECUTE ON FUNCTION aria_internal[.]touch_voice_windows_owner_device/);
+assert.match(windowsMigration, /REVOKE ALL ON FUNCTION aria_internal[.]pair_voice_windows_owner_device/);
+assert.match(windowsMigration, /REVOKE ALL ON FUNCTION aria_internal[.]touch_voice_windows_owner_device/);
+assert.match(windowsMigration, /GRANT EXECUTE ON FUNCTION aria_internal[.]pair_voice_windows_owner_device/);
+assert.match(windowsMigration, /GRANT EXECUTE ON FUNCTION aria_internal[.]touch_voice_windows_owner_device/);
 assert.match(storage, /pairWindowsOwnerDeviceKey/);
 assert.match(storage, /heartbeatWindowsOwnerDeviceKey/);
 assert.match(storage, /internal[.]rpc[(]"pair_voice_windows_owner_device"/);
