@@ -58,9 +58,29 @@ async function main() {
     assert.equal(key.deviceId, 'windows-lacueva-780886');
     assert.match(key.fingerprintSha256, /^[a-f0-9]{64}$/);
 
+    const pairing = store.getPairingMaterial();
+    assert.equal(pairing.ownerId, key.ownerId);
+    assert.equal(pairing.deviceId, key.deviceId);
+    assert.equal(pairing.publicKeyId, key.keyId);
+    assert.equal(pairing.publicKeyEd25519, key.publicKey);
+    assert.equal(pairing.publicKeyFingerprintSha256, key.fingerprintSha256);
+    assert.equal(pairing.keyStorage, 'WindowsDPAPI_CurrentUser');
+    assert.match(pairing.deviceToken, /^[A-Za-z0-9_-]{43}$/);
+    assert.equal(store.getDeviceToken(), pairing.deviceToken, 'device token must remain stable across reads');
+
+    const reloaded = createWindowsVoiceOwnerKeystore({
+      platform: 'win32', baseDirectory: root, ownerId: '123e4567-e89b-42d3-a456-426614174000',
+      deviceId: 'windows-lacueva-780886', dpapi: makeTestDpapi()
+    });
+    assert.equal(reloaded.getPairingMaterial().deviceToken, pairing.deviceToken,
+      'DPAPI-protected device token must survive keystore reload');
+
     const stored = fs.readFileSync(store.filePath, 'utf8');
+    const storedRecord = JSON.parse(stored);
     assert.equal(stored.includes('BEGIN PRIVATE KEY'), false);
     assert.equal(stored.includes('TEST-DPAPI:'), false);
+    assert.equal(stored.includes(pairing.deviceToken), false, 'raw device token must never be persisted');
+    assert.match(storedRecord.protected_device_token, /^[A-Za-z0-9+/]+=*$/);
 
     const canonical = canonicalizeOwnerSessionPayload(makePayload());
     const signed = store.signCanonicalPayload(canonical);
