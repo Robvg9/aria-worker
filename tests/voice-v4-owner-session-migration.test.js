@@ -71,6 +71,15 @@ assert.match(migration, /enqueue_voice_device_command/);
 assert.match(migration, /p_source_device_id text/);
 assert.match(migration, /claim_voice_device_command/);
 assert.match(migration, /complete_voice_device_command/);
+const latestDeviceRevoker = migration.slice(migration.lastIndexOf('CREATE OR REPLACE FUNCTION aria_internal.revoke_voice_trusted_device_key'));
+assert.ok(latestDeviceRevoker.includes('UPDATE aria_internal.voice_trusted_device_keys'));
+assert.ok(latestDeviceRevoker.includes('UPDATE aria_internal.voice_speaker_policies'));
+assert.ok(latestDeviceRevoker.includes("SET enabled = false"));
+assert.ok(latestDeviceRevoker.includes("status = 'cancelled'"));
+assert.ok(latestDeviceRevoker.includes("error_code = 'command_cancelled'"),
+  'revoking a device must disable its speaker policy and cancel queued actions');
+assert.ok(migration.includes("status IN ('queued','claimed','running') AND expires_at <= now()"),
+  'stale claimed/running commands must become terminal after their short TTL');
 assert.match(migration, /jsonb_object_length[(]params[)] = 1/);
 assert.match(migration, /display[.]brightness[.]set/);
 assert.match(migration, /app[.]open/);

@@ -80,3 +80,6 @@ Production speaker model allowlisting requires the explicit `es-CU` supported-la
 
 
 Each physical device can be paired to one Voice V4 owner at a time. A unique index on the trusted-device registry prevents the same device token from creating cross-owner command lanes; transferring a device requires revoking its prior owner pairing first.
+
+
+Revoking a trusted device key also disables that device's speaker policy and cancels queued commands where the device is either source or target. The next claim poll marks any expired queued/claimed/running command terminal. A command already claimed before revocation is in flight and cannot be recalled from hardware; its completion is still subject to the current authorization and TTL checks.

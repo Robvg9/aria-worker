@@ -936,7 +936,7 @@ BEGIN
 
   UPDATE aria_internal.voice_device_commands
   SET status = 'expired', completed_at = now(), error_code = 'command_expired'
-  WHERE device_id = p_device_id AND status = 'queued' AND expires_at <= now();
+  WHERE device_id = p_device_id AND status IN ('queued','claimed','running') AND expires_at <= now();
 
   WITH next_command AS (
     SELECT c.command_id
@@ -1097,7 +1097,77 @@ BEGIN
 
   RETURN coalesce(affected,0) = 1;
 END;
-$$;
+$;
+
+-- Device revocation is a kill switch for trust and speaker authorization.
+-- Queued direct commands involving this device are cancelled atomically.
+CREATE OR REPLACE FUNCTION aria_internal.revoke_voice_trusted_device_key(
+  p_owner_user_id uuid,
+  p_device_id text
+)
+RETURNS boolean
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = aria_internal, pg_catalog
+AS $
+DECLARE
+  affected integer;
+BEGIN
+  IF p_owner_user_id IS NULL OR p_device_id IS NULL
+     OR length(p_device_id) NOT BETWEEN 8 AND 160
+     OR p_device_id !~ '^[A-Za-z0-9._:-]+ FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION aria_internal.enqueue_voice_device_command(uuid,text,text,text,text,text,jsonb,timestamptz)
+  FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION aria_internal.claim_voice_device_command(text,text)
+  FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION aria_internal.complete_voice_device_command(uuid,text,text,text,jsonb,text)
+  FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION aria_internal.enqueue_voice_device_command(uuid,text,text,text,text,text,jsonb,timestamptz)
+  TO service_role;
+GRANT EXECUTE ON FUNCTION aria_internal.claim_voice_device_command(text,text)
+  TO service_role;
+GRANT EXECUTE ON FUNCTION aria_internal.complete_voice_device_command(uuid,text,text,text,jsonb,text)
+  TO service_role;
+
+COMMIT;
+ THEN
+    RAISE EXCEPTION 'owner and valid device ID are required';
+  END IF;
+
+  UPDATE aria_internal.voice_trusted_device_keys
+  SET enabled = false,
+      security = 'blocked',
+      revoked_at = coalesce(revoked_at, now()),
+      updated_at = now()
+  WHERE owner_user_id = p_owner_user_id
+    AND device_id = p_device_id
+    AND enabled = true;
+  GET DIAGNOSTICS affected = ROW_COUNT;
+
+  UPDATE aria_internal.voice_speaker_policies
+  SET enabled = false,
+      revoked_at = coalesce(revoked_at, now()),
+      updated_at = now()
+  WHERE owner_user_id = p_owner_user_id
+    AND device_id = p_device_id
+    AND enabled = true;
+
+  UPDATE aria_internal.voice_device_commands
+  SET status = 'cancelled',
+      completed_at = now(),
+      error_code = 'command_cancelled'
+  WHERE owner_user_id = p_owner_user_id
+    AND (device_id = p_device_id OR source_device_id = p_device_id)
+    AND status = 'queued';
+
+  RETURN coalesce(affected,0) = 1;
+END;
+$;
+
+REVOKE ALL ON FUNCTION aria_internal.revoke_voice_trusted_device_key(uuid,text)
+  FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION aria_internal.revoke_voice_trusted_device_key(uuid,text)
+  TO service_role;
 
 REVOKE ALL ON TABLE aria_internal.voice_device_commands FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION aria_internal.enqueue_voice_device_command(uuid,text,text,text,text,text,jsonb,timestamptz)

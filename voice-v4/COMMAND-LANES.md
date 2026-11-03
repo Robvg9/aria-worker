@@ -61,3 +61,6 @@ A speaker model is eligible only when its server catalog status is `approved`, i
 ## Single-owner device pairing
 
 The trusted Ed25519 registry enforces one owner per physical device ID. A device token cannot be used to add a second owner row while an earlier owner pairing exists. Owner transfer requires the current owner to revoke the pairing before the next authenticated owner registers the device.
+
+
+Device-key revocation is a kill switch: it disables the device's speaker policy and cancels queued commands involving the device as source or target. The 30-second command TTL cleanup marks stale queued/claimed/running entries expired. A command already claimed by an agent cannot be recalled from that hardware, so it must remain explicitly classified as in-flight/uncertain until the acknowledgement or TTL outcome is known.
