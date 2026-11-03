@@ -766,19 +766,19 @@ CREATE TABLE IF NOT EXISTS aria_internal.voice_device_commands (
           params ? 'brightness'
           AND jsonb_typeof(params->'brightness') = 'number'
           AND (params->>'brightness')::numeric BETWEEN 0 AND 100
-          AND jsonb_object_length(params) = 1
+          AND params - 'brightness' = '{}'::jsonb
         WHEN 'app.open' THEN
           params ? 'app_id'
           AND jsonb_typeof(params->'app_id') = 'string'
           AND length(params->>'app_id') BETWEEN 1 AND 120
           AND params->>'app_id' ~ '^[A-Za-z0-9._-]+$'
-          AND jsonb_object_length(params) = 1
+          AND params - 'app_id' = '{}'::jsonb
         WHEN 'browser.open_url' THEN
           params ? 'url'
           AND jsonb_typeof(params->'url') = 'string'
           AND length(params->>'url') BETWEEN 9 AND 2048
           AND params->>'url' ~ '^https://'
-          AND jsonb_object_length(params) = 1
+          AND params - 'url' = '{}'::jsonb
         ELSE false
       END
     END
