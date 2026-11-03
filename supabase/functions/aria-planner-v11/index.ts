@@ -1469,7 +1469,7 @@ async function generateCloudflareWorkspacePlan(goal:string,workspaceRequest:any)
     prompt=buildCloudflareWorkspacePrompt(goal,workspaceRequest);
   }catch(error){
     const rawReason=error instanceof SyntaxError?"planner_model_output_invalid_json":String(error instanceof Error?error.message:error);
-    return {ok:false,status:422,reason:sanitizeCloudflarePlanFailureReason(rawReason)};
+    return {ok:false,status:422,stage:"prompt_validation",reason:sanitizeCloudflarePlanFailureReason(rawReason)};
   }
   const freeModelId="nvidia/nemotron-3.5-lightning:free";
   const routes=await modelRoutes();
@@ -1479,12 +1479,12 @@ async function generateCloudflareWorkspacePlan(goal:string,workspaceRequest:any)
     candidate?.model_id===freeModelId &&
     candidate?.capability_status==="verified"
   );
-  if(!route)return {ok:false,status:503,reason:"verified_free_plan_model_unavailable"};
+  if(!route)return {ok:false,status:503,stage:"model_route_selection",reason:"verified_free_plan_model_unavailable"};
   let previewToken:string;
   try{
     previewToken=await deriveCloudflarePlanPreviewToken(PLAN_BRIDGE_SECRET);
   }catch{
-    return {ok:false,status:503,reason:"plan_preview_auth_unavailable"};
+    return {ok:false,status:503,stage:"preview_auth",reason:"plan_preview_auth_unavailable"};
   }
   let response:Response;
   try{
@@ -1516,12 +1516,12 @@ async function generateCloudflareWorkspacePlan(goal:string,workspaceRequest:any)
       signal:AbortSignal.timeout(25000)
     });
   }catch{
-    return {ok:false,status:503,reason:"canonical_model_executor_unreachable"};
+    return {ok:false,status:503,stage:"runtime_transport",reason:"canonical_model_executor_unreachable"};
   }
   const payload=await response.json().catch(()=>null);
   if(!response.ok||payload?.status!=="succeeded"||typeof payload?.response?.content!=="string"){
     const reason=String(payload?.error?.code||payload?.reason||"canonical_model_execution_rejected").slice(0,180);
-    return {ok:false,status:response.status||503,reason};
+    return {ok:false,status:response.status||503,stage:"runtime_response",reason};
   }
   try{
     const plan=buildCloudflareWorkspacePlan(goal,workspaceRequest,payload.response.content);
@@ -1537,7 +1537,7 @@ async function generateCloudflareWorkspacePlan(goal:string,workspaceRequest:any)
     };
   }catch(error){
     const rawReason=error instanceof SyntaxError?"planner_model_output_invalid_json":String(error instanceof Error?error.message:error);
-    return {ok:false,status:422,reason:sanitizeCloudflarePlanFailureReason(rawReason)};
+    return {ok:false,status:422,stage:"model_plan_validation",reason:sanitizeCloudflarePlanFailureReason(rawReason)};
   }
 }
 
@@ -1556,8 +1556,10 @@ Deno.serve(async r=>{
     const produced=await generateCloudflareWorkspacePlan(producerGoal,producerContext.cloudflare_workspace_request);
     if(!produced.ok){
       const safeReason=sanitizeCloudflarePlanFailureReason(produced.reason);
+      const safeStage=["prompt_validation","model_route_selection","preview_auth","runtime_transport","runtime_response","model_plan_validation"].includes(produced.stage)?produced.stage:"unknown";
+      console.warn("ARIA_CLOUDFLARE_WORKSPACE_PLAN_STAGE="+safeStage);
       console.warn("ARIA_CLOUDFLARE_WORKSPACE_PLAN_REJECTED="+safeReason);
-      return out({error:"cloudflare_workspace_plan_unavailable",reason:safeReason},produced.status||503);
+      return out({error:"cloudflare_workspace_plan_unavailable",reason:safeReason,diagnostic_stage:safeStage},produced.status||503);
     }
     return out({
       ok:true,
