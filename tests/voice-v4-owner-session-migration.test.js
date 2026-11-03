@@ -67,6 +67,7 @@ const androidTouchFunction = migration.slice(
   migration.indexOf('CREATE OR REPLACE FUNCTION aria_internal.revoke_voice_trusted_device_key')
 );
 assert.ok(androidTouchFunction.includes("capabilities = '[]'::jsonb"), 'heartbeat must preserve empty capabilities');
+assert.match(androidTouchFunction, /d[.]status <> 'disabled'/, 'heartbeat must never reactivate an administratively disabled Android device');
 assert.match(androidTouchFunction, /voice_trusted_device_keys/);
 assert.match(androidTouchFunction, /d.token_hash = v_token_hash/);
 assert.match(androidTouchFunction, /k.owner_user_id = p_owner_user_id/);
