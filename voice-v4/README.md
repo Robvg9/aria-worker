@@ -83,3 +83,6 @@ Each physical device can be paired to one Voice V4 owner at a time. A unique ind
 
 
 Revoking a trusted device key also disables that device's speaker policy and cancels queued commands where the device is either source or target. The next claim poll marks any expired queued/claimed/running command terminal. A command already claimed before revocation is in flight and cannot be recalled from hardware; its completion is still subject to the current authorization and TTL checks.
+
+
+The authenticated owner API now exposes `GET /voice/commands/{command_id}` for a bounded status/result view. The storage query scopes both the owner UUID and command UUID, omits command params, and returns only an explicit result-field allowlist. The response identifies whether the command is terminal; HTTP 202 from the creation route still means only queued, never completed.

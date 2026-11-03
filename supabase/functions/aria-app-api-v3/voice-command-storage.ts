@@ -218,6 +218,36 @@ export function createVoiceCommandStores(serviceClient: any, authenticatedOwnerI
     return data === true;
   }
 
+  async function getDeviceCommandStatus(input: {
+    ownerId: string;
+    commandId: string;
+  }): Promise<any | null> {
+    if (input.ownerId !== authenticatedOwnerId) throw new Error("voice_command_status_owner_mismatch");
+    if (typeof input.commandId !== "string"
+        || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(input.commandId)) {
+      throw new Error("voice_command_status_id_invalid");
+    }
+
+    const { data, error } = await internal.from("voice_device_commands")
+      .select("command_id,device_id,operation,status,requested_at,expires_at,claimed_at,started_at,completed_at,result,error_code")
+      .eq("owner_user_id", authenticatedOwnerId)
+      .eq("command_id", input.commandId)
+      .maybeSingle();
+    if (error) throw new Error("voice_command_status_lookup_failed");
+    if (!data) return null;
+
+    const rawResult = data.result && typeof data.result === "object" && !Array.isArray(data.result)
+      ? data.result : {};
+    const allowedResultFields = new Set(["ok","brightness","app_id","opened","verified"]);
+    const safeResult: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(rawResult)) {
+      if (!allowedResultFields.has(key)) continue;
+      if (typeof value === "string" && value.length <= 160) safeResult[key] = value;
+      else if (typeof value === "boolean" || (typeof value === "number" && Number.isFinite(value))) safeResult[key] = value;
+    }
+    return { ...data, result: safeResult };
+  }
+
   async function enqueueDeviceCommand(input: {
     ownerId: string;
     deviceId: string;
@@ -289,6 +319,7 @@ export function createVoiceCommandStores(serviceClient: any, authenticatedOwnerI
     nonceStore,
     idempotencyStore,
     enqueueDeviceCommand,
+    getDeviceCommandStatus,
     registerTrustedDeviceKey,
     resolveTrustedDeviceKey,
     revokeTrustedDeviceKey,

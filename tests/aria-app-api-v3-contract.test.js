@@ -359,3 +359,8 @@ console.log('MEDITATION STALE VERIFIED NOTIFICATION CONTRACT: PASS');
 
 
 assertContains(appApi,'.contains("supported_languages", ["es-CU"])','the authenticated speaker model list must return only models evaluated for Cuban Spanish');
+
+assertContains(appApi,'voiceCommandStatusPath = path.match','command status lookup must require a UUID path segment');
+assertContains(appApi,'stores.getDeviceCommandStatus','command status lookup must be scoped to the authenticated owner');
+assertContains(appApi,'voice_command_not_found','unknown or other-owner command IDs must not disclose command contents');
+assertContains(appApi,'terminal: ["succeeded","failed","expired","cancelled"].includes(command.status)','the UI must distinguish terminal command states from queued/in-flight states');

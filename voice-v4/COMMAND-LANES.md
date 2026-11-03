@@ -64,3 +64,8 @@ The trusted Ed25519 registry enforces one owner per physical device ID. A device
 
 
 Device-key revocation is a kill switch: it disables the device's speaker policy and cancels queued commands involving the device as source or target. The 30-second command TTL cleanup marks stale queued/claimed/running entries expired. A command already claimed by an agent cannot be recalled from that hardware, so it must remain explicitly classified as in-flight/uncertain until the acknowledgement or TTL outcome is known.
+
+
+## Owner-scoped command status
+
+After a direct command is accepted, the authenticated owner may read `GET /voice/commands/{command_id}`. The API scopes the query by both the validated owner UUID and command UUID and returns bounded lifecycle timestamps, status, safe result fields and an explicit terminal boolean. No command params, transcript, payload or arbitrary result fields are returned. `queued` / `claimed` / `running` are not success.

@@ -2329,6 +2329,25 @@ Deno.serve(async (req) => {
         return json({ ok: false, error: "voice_speaker_policy_revocation_rejected", trace_id: trace }, 409);
       }
     }
+    const voiceCommandStatusPath = path.match(/\/voice\/commands\/([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$/i);
+    if (req.method === "GET" && voiceCommandStatusPath) {
+      try {
+        const stores = createVoiceCommandStores(serviceClient(), String(user.id));
+        const command = await stores.getDeviceCommandStatus({
+          ownerId: String(user.id),
+          commandId: voiceCommandStatusPath[1]
+        });
+        if (!command) return json({ ok: false, error: "voice_command_not_found", trace_id: trace }, 404);
+        return json({
+          ok: true,
+          command,
+          terminal: ["succeeded","failed","expired","cancelled"].includes(command.status),
+          trace_id: trace
+        }, 200);
+      } catch {
+        return json({ ok: false, error: "voice_command_status_unavailable", trace_id: trace }, 503);
+      }
+    }
     if (req.method === "POST" && path.endsWith("/voice/commands")) {
       const body = await req.json().catch(() => null);
       try {

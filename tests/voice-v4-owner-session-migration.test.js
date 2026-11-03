@@ -110,6 +110,12 @@ assert.match(storage, /schema[(]"aria_internal"[)]/);
 assert.match(storage, /consume_voice_owner_session_nonce/);
 assert.match(storage, /claim_voice_command_idempotency/);
 assert.match(storage, /enqueue_voice_device_command/);
+assert.match(storage, /getDeviceCommandStatus/);
+assert.match(storage, /from\("voice_device_commands"\)/);
+assert.match(storage, /eq\("owner_user_id", authenticatedOwnerId\)/);
+assert.match(storage, /eq\("command_id", input[.]commandId\)/);
+assert.match(storage, /allowedResultFields = new Set\(\["ok","brightness","app_id","opened","verified"\]\)/,
+  'command status reads must not expose params or arbitrary result fields');
 assert.match(storage, /createVoiceDeviceAgentQueue/);
 assert.match(storage, /claim_voice_device_command/);
 assert.match(storage, /complete_voice_device_command/);
