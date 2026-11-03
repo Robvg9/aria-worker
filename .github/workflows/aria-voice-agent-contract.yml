@@ -14,6 +14,9 @@ on:
       - 'tests/voice-v4-device-agent.test.js'
       - 'agents/windows/voice-owner-session-keystore.cjs'
       - 'tests/voice-v4-windows-dpapi-signer.test.js'
+      - 'supabase/migrations/20261102193000_voice_v4_owner_nonce_and_command_idempotency.sql'
+      - 'tests/voice-v4-owner-session-migration.test.js'
+      - 'tests/fixtures/voice-v4-migration-prerequisites.sql'
       - '.github/workflows/aria-voice-agent-contract.yml'
 
 permissions:
@@ -47,6 +50,92 @@ jobs:
           node tests/voice-v4-owner-session.test.js
           node tests/voice-v4-owner-session-migration.test.js
           node tests/voice-v4-windows-dpapi-signer.test.js
+
+  migration-sql-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: voice_contract
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d voice_contract"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Execute the Voice V4 migration on real PostgreSQL
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d voice_contract -v ON_ERROR_STOP=1 \\
+            -f tests/fixtures/voice-v4-migration-prerequisites.sql
+          psql -h localhost -U postgres -d voice_contract -v ON_ERROR_STOP=1 \\
+            -f supabase/migrations/20261102193000_voice_v4_owner_nonce_and_command_idempotency.sql
+          psql -h localhost -U postgres -d voice_contract -v ON_ERROR_STOP=1 <<'SQL'
+          DO $
+          DECLARE
+            protected_tables integer;
+            public_policies integer;
+            model_rows integer;
+          BEGIN
+            SELECT count(*) INTO protected_tables
+            FROM pg_class c
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE n.nspname = 'aria_internal'
+              AND c.relname IN (
+                'voice_owner_session_nonces',
+                'voice_command_idempotency',
+                'voice_trusted_device_keys',
+                'voice_speaker_policies',
+                'voice_speaker_model_catalog',
+                'voice_device_commands'
+              )
+              AND c.relrowsecurity;
+            IF protected_tables <> 6 THEN
+              RAISE EXCEPTION 'voice_v4_rls_table_count_invalid: %', protected_tables;
+            END IF;
+
+            SELECT count(*) INTO public_policies
+            FROM pg_policies
+            WHERE schemaname = 'aria_internal'
+              AND tablename IN (
+                'voice_owner_session_nonces',
+                'voice_command_idempotency',
+                'voice_trusted_device_keys',
+                'voice_speaker_policies',
+                'voice_speaker_model_catalog',
+                'voice_device_commands'
+              );
+            IF public_policies <> 0 THEN
+              RAISE EXCEPTION 'voice_v4_unexpected_client_policy_count: %', public_policies;
+            END IF;
+
+            IF has_function_privilege('anon',
+                 'aria_internal.register_voice_trusted_device_key(uuid,text,text,text,text)', 'EXECUTE')
+               OR has_function_privilege('authenticated',
+                 'aria_internal.register_voice_trusted_device_key(uuid,text,text,text,text)', 'EXECUTE') THEN
+              RAISE EXCEPTION 'voice_v4_pairing_rpc_exposed_to_client_role';
+            END IF;
+            IF NOT has_function_privilege('service_role',
+                 'aria_internal.register_voice_trusted_device_key(uuid,text,text,text,text)', 'EXECUTE') THEN
+              RAISE EXCEPTION 'voice_v4_service_role_registration_grant_missing';
+            END IF;
+
+            SELECT count(*) INTO model_rows FROM aria_internal.voice_speaker_model_catalog;
+            IF model_rows <> 0 THEN
+              RAISE EXCEPTION 'voice_v4_speaker_catalog_must_start_empty';
+            END IF;
+          END $;
+          SQL
 
   windows-owner-session-keystore:
     runs-on: windows-latest
