@@ -384,13 +384,43 @@ function spawnWorker({ workerId, root, adapterPath, leaseEvidenceDir, probeId, s
       scopeToken
     });
 
-    await waitUntil(async () => {
+    // The recovered worker can finish task.execute and transition the job to
+    // "completed" before the next 300 ms poll. Observe the durable claim record
+    // written synchronously by the worker, then reconcile it with Durable Object
+    // state. Never require sampling the transient "leased" status.
+    const afterLeasePath = path.join(
+      leaseEvidenceDir,
+      safeName(afterWorkerId) + '__' + safeName(firstTaskJob.job_id) + '.json'
+    );
+    const recoveredClaim = await waitUntil(async () => {
+      if (!fs.existsSync(afterLeasePath)) return null;
+      let lease;
+      try {
+        lease = JSON.parse(await fsp.readFile(afterLeasePath, 'utf8'));
+      } catch (_) {
+        return null;
+      }
+      if (lease.probe_id !== PROBE_ID ||
+          lease.job_id !== firstTaskJob.job_id ||
+          lease.worker_id !== afterWorkerId ||
+          lease.attempts !== 2 ||
+          !lease.lease_token) return null;
+
       const current = (await api('/api/package3/probes/' + PROBE_ID, { expectedStatus: 200 })).data;
       const job = current.jobs.find(item => item.job_id === firstTaskJob.job_id);
-      return job && job.status === 'leased' && job.attempts === 2 && job.worker_id === afterWorkerId
-        ? current
+      return job &&
+        job.attempts === 2 &&
+        job.worker_id === afterWorkerId &&
+        ['leased', 'completed'].includes(job.status)
+        ? { current, job, lease }
         : null;
-    }, 'same_job_reclaimed_by_second_process', 45000, workerAfter);
+    }, 'same_job_reclaimed_by_second_process_and_persisted', 45000, workerAfter);
+    const newLease = recoveredClaim.lease;
+    evidence.reclaimed_job_observation = {
+      status: recoveredClaim.job.status,
+      attempts: recoveredClaim.job.attempts,
+      worker_id: recoveredClaim.job.worker_id
+    };
     evidence.checks.same_durable_job_reclaimed_after_process_restart = 'PASS';
 
     const completed = await waitUntil(async () => {
@@ -403,11 +433,6 @@ function spawnWorker({ workerId, root, adapterPath, leaseEvidenceDir, probeId, s
     const recoveredTaskJob = completed.jobs.find(job => job.job_id === firstTaskJob.job_id);
     assert.equal(recoveredTaskJob.status, 'completed');
     assert.equal(recoveredTaskJob.attempts, 2);
-    const afterLeasePath = path.join(
-      leaseEvidenceDir,
-      safeName(afterWorkerId) + '__' + safeName(firstTaskJob.job_id) + '.json'
-    );
-    const newLease = JSON.parse(await fsp.readFile(afterLeasePath, 'utf8'));
     assert.equal(newLease.job_id, oldLease.job_id);
     assert.equal(newLease.attempts, 2);
     assert.notEqual(newLease.lease_token, oldLease.lease_token);
