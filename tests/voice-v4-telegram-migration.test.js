@@ -14,6 +14,8 @@ const setupDocs = fs.readFileSync(path.join(root, 'voice-v4/TELEGRAM-SETUP.md'),
 assert.match(setupDocs, /ARIA_TELEGRAM_BOT_TOKEN/);
 assert.match(setupDocs, /ARIA_TELEGRAM_OWNER_ID/);
 assert.match(setupDocs, /Never put it in the PWA/i);
+assert.match(setupDocs, /Use a dedicated bot exclusively for ARIA/i, 'Telegram polling must warn that discovery consumes every pending message update, not only /start');
+assert.match(setupDocs, /highest_update_id \+ 1/i, 'Telegram operator docs must disclose the update acknowledgement boundary');
 
 assert.match(migration, /CREATE TABLE IF NOT EXISTS aria_internal\.voice_message_recipients/i);
 assert.match(migration, /CREATE TABLE IF NOT EXISTS aria_internal\.voice_message_dispatches/i);
