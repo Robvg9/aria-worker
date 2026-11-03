@@ -13,7 +13,10 @@ const voiceOutputSource = fs.readFileSync(path.join(root, 'pwa/src/voiceOutput.j
 
 assert.match(voice, /SpeechRecognitionConstructor/);
 assert.match(voice, /webkitSpeechRecognition/);
-assert.match(voice, /recognition\.lang = resolveVoiceRecognitionLocale\(navigator\.language, navigator\.languages\)/);
+assert.match(voice, /recognition\.lang = locale/);
+assert.match(voice, /startRecognition\(resolveVoiceRecognitionLocale\(navigator\.language, navigator\.languages\)\)/);
+assert.match(voice, /code === 'language-not-supported'/);
+assert.match(voice, /startRecognition\('es-ES'\)/);
 assert.match(voice, /code === 'language-not-supported'/, 'push-to-talk must fall back when the selected locale is unsupported');
 assert.match(voice, /startRecognition\('es-ES'\)/, 'push-to-talk must retry with general Spanish after an unsupported locale');
 assert.match(voice, /recognition\.onresult/);
