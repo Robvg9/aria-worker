@@ -81,13 +81,14 @@ assert.match(migration, /GRANT SELECT ON TABLE aria_internal[.]voice_device_comm
   'the authenticated status API needs the minimum direct SELECT grant; writes remain RPC-only');
 
 // Guard against SQL corruption that static CI previously missed.
-assert.equal((migration.match(/^BEGIN;$/gm) || []).length, 1, 'migration must use a single transaction opener');
-assert.equal((migration.match(/^COMMIT;$/gm) || []).length, 1, 'migration must use a single transaction closer');
-assert.doesNotMatch(migration, /^AS \\$\s*$/m, 'SQL function bodies must use complete dollar delimiters');
-assert.doesNotMatch(migration, /^\\$;$/m, 'SQL function bodies must not use a truncated dollar delimiter');
-assert.equal((migration.match(/^(?:AS|DO) \\$\\$/gm) || []).length,
-  (migration.match(/^\\$\\$;$/gm) || []).length,
+const sqlLines = migration.split(/\\r?\\n/).map(line => line.trim());
+assert.equal(sqlLines.filter(line => line === 'BEGIN;').length, 1, 'migration must use one transaction opener');
+assert.equal(sqlLines.filter(line => line === 'COMMIT;').length, 1, 'migration must use one transaction closer');
+assert.equal(sqlLines.filter(line => line === 'AS $$' || line === 'DO $$').length,
+  sqlLines.filter(line => line === '$$;').length,
   'every SQL/DO dollar-quoted body must have a matching terminator');
+assert.ok(!sqlLines.includes('AS $') && !sqlLines.includes('$;'),
+  'SQL function bodies must not use truncated dollar delimiters');
 assert.match(migration, /CREATE OR REPLACE FUNCTION aria_internal[.]revoke_voice_trusted_device_key/);
 assert.match(migration, /RAISE EXCEPTION 'owner and valid device ID are required'/);
 assert.match(migration, /error_code = 'command_cancelled'/);
