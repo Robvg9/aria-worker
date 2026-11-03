@@ -64,10 +64,10 @@ expires_at = (now + dt.timedelta(minutes=10)).isoformat(timespec="seconds").repl
 
 
 def supabase_sql(query, allow_write=False):
-    # Supabase CLI db query has no --read-only flag. Keep read-mode safe by
-    # accepting exactly one SELECT statement; only the reviewed INSERT/UPDATE
-    # and the Human Gate approval RPC may use --yes.
-    args = ["supabase", "db", "query", "--linked", query]
+    # Hosted Supabase CLI queries require an explicit non-interactive intent.
+    # Permit exactly one SELECT in read mode and mark it --read-only; only the
+    # reviewed INSERT/UPDATE and Human Gate approval RPC may use --yes.
+    args = ["supabase", "db", "query", query, "--remote"]
     if allow_write:
         args.append("--yes")
     else:
@@ -76,6 +76,7 @@ def supabase_sql(query, allow_write=False):
             statement = statement[:-1].rstrip()
         if not re.match(r"(?is)^SELECT\b", statement) or ";" in statement:
             fail("read-only SQL must be a single SELECT statement")
+        args.append("--read-only")
     proc = subprocess.run(
         args,
         text=True,
@@ -89,7 +90,6 @@ def supabase_sql(query, allow_write=False):
         print(output[-5000:])
         fail("Supabase SQL command failed")
     return output
-
 
 def check_sql(query, marker, label, allow_write=False):
     output = supabase_sql(query, allow_write=allow_write)
