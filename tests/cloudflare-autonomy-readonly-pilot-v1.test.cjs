@@ -131,6 +131,15 @@ async function payload(response) { return response.json(); }
   const claimed = (await payload(claimResponse)).job;
   assert.equal(claimed.task.operation, 'git.status');
   assert.notEqual(claimed.job_id, maliciousJobId);
+  const blockedWriteClaim = await store.fetch(request('/api/worker/claim', {
+    method: 'POST', token: WORKER_TOKEN, probeId, scopeToken,
+    body: { worker_id: workerId, capabilities: ['git.status', 'mission.verify', 'workspace'] }
+  }));
+  assert.equal(blockedWriteClaim.status, 200);
+  assert.equal((await payload(blockedWriteClaim)).job, null, 'the allow-listed scope cannot claim workspace.write even when its job ID is present in the scope record');
+  const cancelledMaliciousJob = await state.storage.get('job:' + maliciousJobId);
+  cancelledMaliciousJob.status = 'cancelled';
+  await state.storage.put('job:' + maliciousJobId, cancelledMaliciousJob);
 
   // Invoke the real Durable Object alarm entrypoint while frozen; the scoped
   // reconciler must run for this mission only and must not touch foreign jobs.
