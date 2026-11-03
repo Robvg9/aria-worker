@@ -108,7 +108,10 @@ assert.ok(latestDeviceRevoker.includes("error_code = 'command_cancelled'"),
   'revoking a device must disable its speaker policy and cancel queued actions');
 assert.ok(migration.includes("status IN ('queued','claimed','running') AND expires_at <= now()"),
   'stale claimed/running commands must become terminal after their short TTL');
-assert.match(migration, /jsonb_object_length[(]params[)] = 1/);
+assert.ok(!migration.includes('jsonb_object_length'), 'command constraints must not depend on a nonexistent PostgreSQL function');
+assert.match(migration, /params - 'brightness' = '\{\}'::jsonb/);
+assert.match(migration, /params - 'app_id' = '\{\}'::jsonb/);
+assert.match(migration, /params - 'url' = '\{\}'::jsonb/);
 assert.match(migration, /display[.]brightness[.]set/);
 assert.match(migration, /app[.]open/);
 assert.match(migration, /browser[.]open_url/);
