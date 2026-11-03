@@ -209,8 +209,8 @@ const catalogVersionMatch = pwaTestCatalog.match(/export const TEST_CATALOG_VERS
 assert.ok(catalogVersionMatch?.[1], 'PWA test catalog version must be declared');
 const catalogTotal = [...pwaTestCatalog.matchAll(/"file": "tests\//g)].length;
 assert.ok(catalogTotal > 0, 'PWA test catalog must contain test entries');
-assert.match(pwaViteConfig, /testCatalogSource\.match\(\/export const TEST_CATALOG_VERSION/);
-assert.match(pwaViteConfig, /testCatalogSource\.matchAll\(\/\"file\": \"tests\\/\//);
+assert.match(pwaViteConfig, /const testCatalogVersion = testCatalogSource\.match\(/);
+assert.match(pwaViteConfig, /const testCatalogTotal = \[\.\.\.testCatalogSource\.matchAll\(/);
 assert.match(projectsRwhtWorkflow, /export const TEST_CATALOG_VERSION/);
 assert.match(projectsRwhtWorkflow, /grep -c '"file": "tests\//);
 assert.match(projectsRwhtWorkflow, /PROJECTS_CANONICAL_TEST_CATALOG_LIVE_OK/);
