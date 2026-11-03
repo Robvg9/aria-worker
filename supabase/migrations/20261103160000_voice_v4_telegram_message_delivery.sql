@@ -138,6 +138,7 @@ AS $$
 DECLARE
   v_row aria_internal.voice_message_dispatches%ROWTYPE;
   v_chat_id text;
+  v_claimed boolean := false;
 BEGIN
   IF p_owner_user_id IS NULL OR p_confirmation_id IS NULL
      OR p_body_sha256 IS NULL OR p_body_sha256 !~ '^[a-f0-9]{64}$' THEN
@@ -159,6 +160,7 @@ BEGIN
     AND status = 'prepared'
     AND expires_at > now()
   RETURNING * INTO v_row;
+  v_claimed := v_row.confirmation_id IS NOT NULL;
 
   IF v_row.confirmation_id IS NULL THEN
     SELECT * INTO v_row
@@ -180,6 +182,7 @@ BEGIN
     'recipient_id', v_row.recipient_id,
     'telegram_chat_id', v_chat_id,
     'status', v_row.status,
+    'claim_state', CASE WHEN v_claimed THEN 'claimed_for_send' ELSE 'not_claimed' END,
     'provider_message_id', v_row.provider_message_id
   );
 END;
