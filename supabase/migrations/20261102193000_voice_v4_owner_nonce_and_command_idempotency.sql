@@ -622,6 +622,7 @@ AS $
    AND m.status = 'approved'
    AND m.approved_at IS NOT NULL
    AND m.evaluation_evidence_ref IS NOT NULL
+   AND m.supported_languages @> ARRAY['es-CU']::text[]
   WHERE p.owner_user_id = p_owner_user_id
     AND p.device_id = p_device_id
     AND p.enabled = true
@@ -665,6 +666,7 @@ BEGIN
       AND m.status = 'approved'
       AND m.approved_at IS NOT NULL
       AND m.evaluation_evidence_ref IS NOT NULL
+      AND m.supported_languages @> ARRAY['es-CU']::text[]
       AND p_minimum_score >= m.minimum_score_floor
   ) THEN
     RAISE EXCEPTION 'speaker model is not approved or threshold is below its calibrated floor';
@@ -850,7 +852,11 @@ BEGIN
   JOIN aria_internal.voice_speaker_policies source_policy
     ON source_policy.owner_user_id = p_owner_user_id AND source_policy.device_id = source.device_id
   JOIN aria_internal.voice_speaker_model_catalog model
-    ON model.model_id = source_policy.speaker_model_id AND model.status = 'approved'
+    ON model.model_id = source_policy.speaker_model_id
+   AND model.status = 'approved'
+   AND model.approved_at IS NOT NULL
+   AND model.evaluation_evidence_ref IS NOT NULL
+   AND model.supported_languages @> ARRAY['es-CU']::text[]
   WHERE target.device_id = p_device_id
     AND target.status = 'online'
     AND target.last_seen_at >= now() - interval '90 seconds'
@@ -933,7 +939,11 @@ BEGIN
     JOIN aria_internal.voice_speaker_policies s
       ON s.owner_user_id = c.owner_user_id AND s.device_id = source.device_id
     JOIN aria_internal.voice_speaker_model_catalog m
-      ON m.model_id = s.speaker_model_id AND m.status = 'approved'
+      ON m.model_id = s.speaker_model_id
+       AND m.status = 'approved'
+       AND m.approved_at IS NOT NULL
+       AND m.evaluation_evidence_ref IS NOT NULL
+       AND m.supported_languages @> ARRAY['es-CU']::text[]
     WHERE c.device_id = p_device_id
       AND c.status = 'queued'
       AND c.expires_at > now()
@@ -1055,7 +1065,11 @@ BEGIN
       JOIN aria_internal.voice_speaker_policies s
         ON s.owner_user_id = c.owner_user_id AND s.device_id = source.device_id
       JOIN aria_internal.voice_speaker_model_catalog m
-        ON m.model_id = s.speaker_model_id AND m.status = 'approved'
+        ON m.model_id = s.speaker_model_id
+       AND m.status = 'approved'
+       AND m.approved_at IS NOT NULL
+       AND m.evaluation_evidence_ref IS NOT NULL
+       AND m.supported_languages @> ARRAY['es-CU']::text[]
       WHERE k.owner_user_id = c.owner_user_id
         AND k.device_id = c.device_id
         AND k.enabled = true AND k.security = 'trusted' AND k.revoked_at IS NULL

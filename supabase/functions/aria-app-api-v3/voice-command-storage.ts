@@ -169,6 +169,7 @@ export function createVoiceCommandStores(serviceClient: any, authenticatedOwnerI
       .eq("status", "approved")
       .not("approved_at", "is", null)
       .not("evaluation_evidence_ref", "is", null)
+      .contains("supported_languages", ["es-CU"])
       .maybeSingle();
     if (modelError || !model) throw new Error("voice_speaker_model_not_approved");
     const minimumScore = Number(model.minimum_score_floor);

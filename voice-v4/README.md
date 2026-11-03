@@ -74,3 +74,6 @@ The candidate test is preliminary and must not be treated as identity authentica
 The pure policy reference in `voice-v4/command-router.js` remains isolated. A separate Deno production port is under review in [PR #1382](https://github.com/Robvg9/aria-worker/pull/1382): `supabase/functions/_shared/voice-command-router.mjs`, Ed25519 owner-session verification, one-time nonce/idempotency storage, authenticated device-key and speaker-policy management routes, and the isolated `voice_device_commands` queue. The speaker-policy API reads the threshold floor from the approved server catalog; it does not accept a threshold from the client.
 
 This branch is not LIVE. The migration is unapplied, the API/gateway routes are not deployed, no speaker model is approved, and no Android/Windows resident listener is implemented. The hosted Heed result remains a synthetic shortlist only. Keep microphone activation and physical certification deferred to the final gate.
+
+
+Production speaker model allowlisting requires the explicit `es-CU` supported-language tag, approved evaluation evidence and the model's calibrated threshold floor. The same language gate is re-checked when resolving a policy, enabling it, enqueueing a command, claiming a command, and completing a command. No model is currently approved for this target language.

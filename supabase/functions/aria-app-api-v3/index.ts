@@ -2268,6 +2268,7 @@ Deno.serve(async (req) => {
           .eq("status", "approved")
           .not("approved_at", "is", null)
           .not("evaluation_evidence_ref", "is", null)
+          .contains("supported_languages", ["es-CU"])
           .order("model_family", { ascending: true });
         if (error) throw new Error("voice_speaker_model_catalog_unavailable");
         const models = Array.isArray(data) ? data : [];

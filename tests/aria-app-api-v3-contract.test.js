@@ -355,3 +355,5 @@ assertContains(appApi,'.order("event_id",{ascending:false}).limit(200)','mission
 assertContains(appApi,'events:[...(data??[])].reverse()','mission events endpoint must preserve chronological display order within the newest window');
 console.log('MEDITATION STALE VERIFIED NOTIFICATION CONTRACT: PASS');
 
+
+assertContains(appApi,'.contains("supported_languages", ["es-CU"])','the authenticated speaker model list must return only models evaluated for Cuban Spanish');

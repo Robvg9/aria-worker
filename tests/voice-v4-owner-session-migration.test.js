@@ -105,6 +105,7 @@ assert.match(storage, /revokeTrustedDeviceKey/);
 assert.match(storage, /setSpeakerPolicy/);
 assert.match(storage, /from\("voice_speaker_model_catalog"\)/);
 assert.match(storage, /minimum_score_floor/);
+assert.ok(storage.includes('.contains("supported_languages", ["es-CU"])'), 'speaker policy enrollment must filter to Cuban Spanish approved models');
 assert.doesNotMatch(storage, /minimumScore: number/,
   'the API caller must not choose a weaker speaker threshold than the server-approved model floor');
 assert.match(storage, /resolveSpeakerPolicy/);
@@ -143,3 +144,12 @@ assert.doesNotMatch(voiceAgentQueueRoutes, /execution_jobs|executionJobGatewayCa
   'direct voice agent queue must remain separate from mission execution_jobs');
 
 console.log('ARIA VOICE V4 OWNER, DEVICE KEY, SPEAKER POLICY + DIRECT QUEUE CONTRACT: PASS');
+
+const latestSpeakerEnqueue = migration.slice(migration.lastIndexOf('CREATE OR REPLACE FUNCTION aria_internal.enqueue_voice_device_command'), migration.lastIndexOf('CREATE OR REPLACE FUNCTION aria_internal.claim_voice_device_command'));
+const latestSpeakerClaim = migration.slice(migration.lastIndexOf('CREATE OR REPLACE FUNCTION aria_internal.claim_voice_device_command'), migration.lastIndexOf('CREATE OR REPLACE FUNCTION aria_internal.complete_voice_device_command'));
+const latestSpeakerComplete = migration.slice(migration.lastIndexOf('CREATE OR REPLACE FUNCTION aria_internal.complete_voice_device_command'));
+assert.ok(latestSpeakerResolver.includes("m.supported_languages @> ARRAY['es-CU']::text[]"), 'only models evaluated for Cuban Spanish may resolve');
+assert.ok(latestSpeakerSetter.includes("m.supported_languages @> ARRAY['es-CU']::text[]"), 'speaker policy requires Cuban Spanish approval');
+assert.ok(latestSpeakerEnqueue.includes("model.supported_languages @> ARRAY['es-CU']::text[]"), 'enqueue requires Cuban Spanish approval');
+assert.ok(latestSpeakerClaim.includes("m.supported_languages @> ARRAY['es-CU']::text[]"), 'claim requires Cuban Spanish approval');
+assert.ok(latestSpeakerComplete.includes("m.supported_languages @> ARRAY['es-CU']::text[]"), 'completion re-checks Cuban Spanish approval');
