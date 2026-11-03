@@ -10,6 +10,10 @@ const adapter = fs.readFileSync(path.join(root, 'supabase/functions/_shared/tele
 const api = fs.readFileSync(path.join(root, 'supabase/functions/aria-app-api-v3/index.ts'), 'utf8');
 const pwa = fs.readFileSync(path.join(root, 'pwa/src/App.tsx'), 'utf8');
 const router = fs.readFileSync(path.join(root, 'supabase/functions/_shared/voice-command-router.mjs'), 'utf8');
+const setupDocs = fs.readFileSync(path.join(root, 'voice-v4/TELEGRAM-SETUP.md'), 'utf8');
+assert.match(setupDocs, /ARIA_TELEGRAM_BOT_TOKEN/);
+assert.match(setupDocs, /ARIA_TELEGRAM_OWNER_ID/);
+assert.match(setupDocs, /Never put it in the PWA/i);
 
 assert.match(migration, /CREATE TABLE IF NOT EXISTS aria_internal\.voice_message_recipients/i);
 assert.match(migration, /CREATE TABLE IF NOT EXISTS aria_internal\.voice_message_dispatches/i);
@@ -33,6 +37,14 @@ assert.match(adapter, /telegram_delivery_outcome_uncertain/);
 assert.match(adapter, /No automatic retry|no automatic retry/i);
 assert.doesNotMatch(adapter, /console\.(log|error)\([^)]*token/i);
 
+assert.match(api, /Deno\.env\.get\("ARIA_TELEGRAM_OWNER_ID"\)/);
+assert.match(api, /\/voice\/messages\/telegram\/chats/);
+assert.match(adapter, /getUpdates/);
+assert.match(adapter, /configuredOwnerId/);
+assert.match(migration, /claimed_for_send/);
+assert.match(pwa, /Buscar chats que enviaron \\/start/);
+assert.match(pwa, /session\.userId/);
+assert.match(pwa, /Guardar destinatario/);
 assert.match(api, /Deno\.env\.get\("ARIA_TELEGRAM_BOT_TOKEN"\)/);
 assert.match(api, /\/voice\/messages\/recipients/);
 assert.match(api, /\/voice\/messages\/confirm/);
