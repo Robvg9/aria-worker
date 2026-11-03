@@ -12,6 +12,8 @@ on:
       - 'agents/windows/aria-agent.js'
       - 'agents/termux/aria-agent.js'
       - 'tests/voice-v4-device-agent.test.js'
+      - 'agents/windows/voice-owner-session-keystore.cjs'
+      - 'tests/voice-v4-windows-dpapi-signer.test.js'
       - '.github/workflows/aria-voice-agent-contract.yml'
 
 permissions:
@@ -44,3 +46,19 @@ jobs:
           node tests/voice-v4-command-router.test.js
           node tests/voice-v4-owner-session.test.js
           node tests/voice-v4-owner-session-migration.test.js
+          node tests/voice-v4-windows-dpapi-signer.test.js
+
+  windows-owner-session-keystore:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Validate DPAPI Ed25519 owner-key storage and signing
+        run: node tests/voice-v4-windows-dpapi-signer.test.js
