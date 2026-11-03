@@ -26,8 +26,10 @@ assert.match(migration, /body_sha256/);
 assert.doesNotMatch(migration, /^\s*body\s+text\b/im, 'the raw message body must not be persisted');
 assert.match(migration, /status = 'dispatching'/i, 'the dispatch claim must be an atomic state transition');
 assert.match(migration, /status = 'prepared'/i);
-assert.match(migration, /status = 'sent'/i);
-assert.match(migration, /status = 'unknown'/i);
+assert.match(migration, /status IN \('prepared','dispatching','sent','failed','unknown','expired'\)/i,
+  'the dispatch table must enumerate every supported state');
+assert.match(migration, /SET status = p_status/i,
+  'completion must persist only a terminal status validated by the RPC');
 
 assert.match(adapter, /Deno\.env|botToken/);
 assert.match(adapter, /\/sendMessage/);
