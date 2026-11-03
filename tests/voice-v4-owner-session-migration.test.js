@@ -80,6 +80,18 @@ for (const table of voiceInternalTables) {
 assert.match(migration, /GRANT SELECT ON TABLE aria_internal[.]voice_device_commands TO service_role/,
   'the authenticated status API needs the minimum direct SELECT grant; writes remain RPC-only');
 
+// Guard against SQL corruption that static CI previously missed.
+assert.equal((migration.match(/^BEGIN;$/gm) || []).length, 1, 'migration must use a single transaction opener');
+assert.equal((migration.match(/^COMMIT;$/gm) || []).length, 1, 'migration must use a single transaction closer');
+assert.doesNotMatch(migration, /^AS \\$\s*$/m, 'SQL function bodies must use complete dollar delimiters');
+assert.doesNotMatch(migration, /^\\$;$/m, 'SQL function bodies must not use a truncated dollar delimiter');
+assert.equal((migration.match(/^(?:AS|DO) \\$\\$/gm) || []).length,
+  (migration.match(/^\\$\\$;$/gm) || []).length,
+  'every SQL/DO dollar-quoted body must have a matching terminator');
+assert.match(migration, /CREATE OR REPLACE FUNCTION aria_internal[.]revoke_voice_trusted_device_key/);
+assert.match(migration, /RAISE EXCEPTION 'owner and valid device ID are required'/);
+assert.match(migration, /error_code = 'command_cancelled'/);
+
 assert.match(migration, /CREATE TABLE IF NOT EXISTS aria_internal[.]voice_device_commands/);
 assert.match(migration, /source_device_id text NOT NULL/);
 assert.match(migration, /enqueue_voice_device_command/);
