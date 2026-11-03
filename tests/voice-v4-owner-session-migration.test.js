@@ -44,7 +44,7 @@ const windowsPairFunction = windowsMigration.slice(
   windowsMigration.indexOf('CREATE OR REPLACE FUNCTION aria_internal.pair_voice_windows_owner_device'),
   windowsMigration.indexOf('CREATE OR REPLACE FUNCTION aria_internal.touch_voice_windows_owner_device')
 );
-assert.match(windowsPairFunction, /IS DISTINCT FROM 'windows-native'/);
+assert.match(windowsPairFunction, /IS DISTINCT FROM 'windows-local'/);
 assert.match(windowsPairFunction, /voice-v4-owner-readonly-v1/);
 assert.match(windowsPairFunction, /public_key_fingerprint/);
 assert.match(windowsPairFunction, /p_owner_user_id IS NULL/);
@@ -55,17 +55,23 @@ assert.doesNotMatch(windowsPairFunction, /audio[.]wake_word/,
   'Windows owner pairing must not imply a wake-word or speaker verifier capability');
 assert.match(windowsPairFunction, /v_key.revoked_at IS NOT NULL/);
 assert.ok(windowsPairFunction.includes("p_device_id !~ '^windows-[A-Za-z0-9._:-]{1,120}
-const windowsTouchFunction = windowsMigration.slice(
-  windowsMigration.indexOf('CREATE OR REPLACE FUNCTION aria_internal.touch_voice_windows_owner_device'),
-  windowsMigration.indexOf('CREATE OR REPLACE FUNCTION aria_internal.revoke_voice_trusted_device_key')
-);
+assert.doesNotMatch(windowsPairFunction, /SET token_hash|SET status|capabilities =/,
+  'voice pairing must not overwrite the Windows agent token, status or normal device capabilities');
+assert.match(windowsPairFunction, /agent_type IS DISTINCT FROM 'windows-local'/);
+assert.match(windowsPairFunction, /voice_pairing_token_hash/);
+assert.match(windowsPairFunction, /voice_owner_id/);
+
+const windowsTouchStart = windowsMigration.indexOf('CREATE OR REPLACE FUNCTION aria_internal.touch_voice_windows_owner_device');
+const windowsTouchEnd = windowsMigration.indexOf('REVOKE ALL ON FUNCTION aria_internal.pair_voice_windows_owner_device');
+const windowsTouchFunction = windowsMigration.slice(windowsTouchStart, windowsTouchEnd);
 assert.doesNotMatch(windowsTouchFunction, /audio[.]wake_word/);
-assert.ok(windowsTouchFunction.includes("capabilities = '[]'::jsonb"),
-  'Windows heartbeat must preserve zero capabilities');
-assert.match(windowsTouchFunction, /d[.]status <> 'disabled'/,
-  'Windows heartbeat must never reactivate an administratively disabled device');
-assert.match(windowsTouchFunction, /d[.]token_hash = v_token_hash/);
+assert.doesNotMatch(windowsTouchFunction, /token_hash = v_voice_token_hash/,
+  'voice heartbeat must not overwrite the normal device token hash');
+assert.match(windowsTouchFunction, /d[.]agent_type = 'windows-local'/);
+assert.match(windowsTouchFunction, /voice_pairing_token_hash/);
+assert.match(windowsTouchFunction, /last_voice_heartbeat_at/);
 assert.match(windowsTouchFunction, /k[.]owner_user_id = p_owner_user_id/);
+assert.match(windowsTouchFunction, /d[.]status = 'online'/);
 assert.match(windowsMigration, /REVOKE ALL ON FUNCTION aria_internal[.]pair_voice_windows_owner_device/);
 assert.match(windowsMigration, /REVOKE ALL ON FUNCTION aria_internal[.]touch_voice_windows_owner_device/);
 assert.match(windowsMigration, /GRANT EXECUTE ON FUNCTION aria_internal[.]pair_voice_windows_owner_device/);
