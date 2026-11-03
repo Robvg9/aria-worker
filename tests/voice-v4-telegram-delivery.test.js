@@ -238,7 +238,7 @@ function fixture({ token = '123456:TelegramFakeBotToken_forContractTests', fetch
   assert.equal(discoveredChats.chats.length, 2);
   assert.equal(discoveredChats.chats[0].chat_id, '123456789');
   assert.equal(discoveryRequests.length, 2);
-  assert.equal(discoveryRequests[1].offset, 4, 'discovered updates must be acknowledged so Telegram polling does not stall');
+  assert.equal(discoveryRequests[1].offset, 5, 'acknowledge every discovered update using highest update_id + 1');
   assert.equal(JSON.stringify(discoveredChats).includes('texto privado'), false);
   const wrongOwner = await discoveryFx.delivery.listStartChats({
     ownerId: 'another-owner'
