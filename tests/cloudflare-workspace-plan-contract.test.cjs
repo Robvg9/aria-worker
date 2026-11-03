@@ -6,8 +6,10 @@ const { sanitizeCloudflarePlanFailureReason } = require('../supabase/functions/a
 const {
   buildCloudflareWorkspacePlan,
   buildCloudflareWorkspacePrompt,
+  diagnoseCloudflarePromptValidationFailure,
   deriveCloudflarePlanProducerToken,
-  isCloudflarePlanProducerRequest
+  isCloudflarePlanProducerRequest,
+  validateCloudflareWorkspaceGoal
 } = require('../supabase/functions/aria-planner-v11/cloudflare-workspace-plan-v1.mjs');
 const {
   deriveCloudflarePlanPreviewToken,
@@ -38,10 +40,33 @@ const {
   assert.equal(sanitizeCloudflarePlanFailureReason('goal_too_large'), 'goal_too_large');
   assert.equal(sanitizeCloudflarePlanFailureReason('workspace_path_required'), 'workspace_path_required');
   assert.equal(sanitizeCloudflarePlanFailureReason('workspace_test_file_required'), 'workspace_test_file_required');
-  assert.ok(plannerSource.includes('stage:"prompt_validation"'));
-  assert.ok(plannerSource.includes('stage:"model_plan_validation"'));
+  const plannerBridgeImport = plannerSource.split(/\r?\n/).find(line => line.includes('from "./cloudflare-workspace-plan-v1.mjs"')) || '';
+  assert.match(plannerBridgeImport, /\bbuildCloudflareWorkspacePrompt\b/, 'planner must import the prompt builder it invokes');
+  assert.ok(plannerSource.includes('promptValidationStage="goal_validation"'));
+  assert.ok(plannerSource.includes('promptValidationStage="workspace_request_validation"'));
+  assert.ok(plannerSource.includes('promptValidationStage="prompt_assembly"'));
   assert.ok(plannerSource.includes('ARIA_CLOUDFLARE_WORKSPACE_PLAN_STAGE='));
+  assert.ok(plannerSource.includes('ARIA_CLOUDFLARE_WORKSPACE_PLAN_ERROR_TYPE='));
+  assert.ok(plannerSource.includes('stage:"model_plan_validation"'));
   assert.equal(sanitizeCloudflarePlanFailureReason('Model output rejected: Unexpected <token> in JSON'), 'remote_plan_producer_rejected');
+  assert.deepEqual(
+    diagnoseCloudflarePromptValidationFailure(new Error('plan_operation_rejected')),
+    { reason: 'plan_operation_rejected', error_type: 'error' }
+  );
+  assert.deepEqual(
+    diagnoseCloudflarePromptValidationFailure(new TypeError('sensitive provider detail must not be logged')),
+    { reason: 'remote_plan_producer_rejected', error_type: 'type_error' }
+  );
+
+  // Exact read-only payload used by the protected coordinator LIVE plan-preview.
+  const livePreviewGoal = 'Read-only verification of the canonical workspace plan bridge';
+  const livePreviewRequest = {
+    version: 'v1',
+    allowed_operations: ['git.status'],
+    workspace_context: { root: 'workspace' }
+  };
+  assert.equal(validateCloudflareWorkspaceGoal(livePreviewGoal), livePreviewGoal);
+  assert.doesNotThrow(() => buildCloudflareWorkspacePrompt(livePreviewGoal, livePreviewRequest));
   assert.equal(sanitizeCloudflarePlanFailureReason(''), 'remote_plan_producer_rejected');
 
   // The narrow plan bridge has its own secret; runtime root auth remains separate.
