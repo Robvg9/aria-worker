@@ -51,6 +51,10 @@ function boundedText(value, field, maxBytes, { allowEmpty = false } = {}) {
   return value;
 }
 
+export function validateCloudflareWorkspaceGoal(goal) {
+  return boundedText(goal, 'goal', 10000);
+}
+
 export function validateCloudflareWorkspaceRequest(request) {
   if (!request || typeof request !== 'object' || Array.isArray(request) || request.version !== 'v1') {
     throw new Error('cloudflare_workspace_request_v1_required');
@@ -78,7 +82,7 @@ export function validateCloudflareWorkspaceRequest(request) {
 }
 
 export function buildCloudflareWorkspacePrompt(goal, request) {
-  const normalizedGoal = boundedText(goal, 'goal', 10000);
+  const normalizedGoal = validateCloudflareWorkspaceGoal(goal);
   const contract = validateCloudflareWorkspaceRequest(request);
   const operations = contract.allowedOperations.map(operation => {
     const descriptions = {
@@ -249,3 +253,86 @@ export const CLOUDflarePlanProducerContract = Object.freeze({
   allowedOperations: Object.freeze(Array.from(OPERATIONS)),
   readOnlyOperations: READ_ONLY_OPERATIONS
 });
+
+const SAFE_PLAN_FAILURE_REASONS = new Set([
+  'cloudflare_workspace_request_v1_required',
+  'goal_required',
+  'goal_too_large',
+  'workspace_path_required',
+  'workspace_test_file_required',
+  'workspace_absolute_path_blocked',
+  'workspace_path_policy_blocked',
+  'workspace_context_too_large',
+  'plan_allowed_operations_invalid',
+  'plan_operation_rejected',
+  'workspace_mutations_not_explicitly_allowed',
+  'workspace_mutation_intent_hint_required',
+  'workspace_list_depth_invalid',
+  'workspace_search_query_invalid',
+  'workspace_write_content_required',
+  'workspace_write_content_too_large',
+  'workspace_edit_old_text_required',
+  'workspace_edit_old_text_too_large',
+  'workspace_edit_new_text_too_large',
+  'test_file_policy_blocked',
+  'plan_task_count_invalid',
+  'plan_task_invalid',
+  'plan_task_id_invalid',
+  'plan_dependency_invalid',
+  'plan_dependency_count_invalid',
+  'plan_payload_too_large',
+  'planner_model_output_invalid',
+  'planner_model_output_not_json',
+  'planner_model_output_invalid_json',
+  'verified_free_plan_model_unavailable',
+  'plan_preview_auth_unavailable',
+  'canonical_model_executor_unreachable',
+  'canonical_model_execution_rejected',
+  'route_missing',
+  'authorization_not_approved',
+  'capability_missing',
+  'route_not_selectable',
+  'model_not_verified',
+  'input_missing',
+  'credential_unavailable',
+  'provider_error',
+  'transport_timeout',
+  'transport_error',
+  'invalid_response',
+  'provider_permanently_excluded',
+  'adapter_unavailable',
+  'mission_execution_paused',
+  'remote_plan_producer_rejected'
+]);
+
+export function sanitizeCloudflarePlanFailureReason(value) {
+  const candidate = String(value || '');
+  return SAFE_PLAN_FAILURE_REASONS.has(candidate) ? candidate : 'remote_plan_producer_rejected';
+}
+
+const SAFE_PROMPT_ERROR_TYPES = new Map([
+  ['Error', 'error'],
+  ['TypeError', 'type_error'],
+  ['ReferenceError', 'reference_error'],
+  ['RangeError', 'range_error'],
+  ['SyntaxError', 'syntax_error'],
+  ['URIError', 'uri_error'],
+  ['EvalError', 'eval_error'],
+  ['DOMException', 'dom_exception']
+]);
+
+export function diagnoseCloudflarePromptValidationFailure(error) {
+  const name = error && typeof error === 'object' && typeof error.name === 'string'
+    ? error.name
+    : '';
+  const errorType = SAFE_PROMPT_ERROR_TYPES.get(name) || 'unknown';
+  const rawReason = name === 'SyntaxError'
+    ? 'planner_model_output_invalid_json'
+    : error && typeof error === 'object' && typeof error.message === 'string'
+      ? error.message
+      : '';
+  return Object.freeze({
+    reason: sanitizeCloudflarePlanFailureReason(rawReason),
+    error_type: errorType
+  });
+}

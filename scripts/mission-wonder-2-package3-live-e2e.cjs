@@ -122,21 +122,8 @@ function createAdapterSource({ probeId, relativePath, content, artifactPath, att
     "module.exports = Object.freeze({",
     "  supabaseIndependent: true,",
     "  localInference: false,",
-    "  capabilities: Object.freeze(['mission.plan', 'workspace', 'mission.verify']),",
+    "  capabilities: Object.freeze(['workspace', 'mission.verify']),",
     "  async health() { return { ok: true, local_inference: false, adapter: 'isolated-package3-file-adapter' }; },",
-    "  async plan(goal, context) {",
-    "    if (!String(goal).includes('Mission Wonder 2 Package 3 LIVE synthetic recovery probe')) throw new Error('unexpected_probe_goal');",
-    "    if (context.metadata.package3_live_probe !== true || context.metadata.probe_id !== expectedProbeId) throw new Error('probe_metadata_mismatch');",
-    "    return [{",
-    "      task_id: 'package3-live-write-proof',",
-    "      title: 'Create one isolated temporary Package 3 proof artifact',",
-    "      operation: 'workspace.write',",
-    "      payload: { relative_path: relativePath, content },",
-    "      idempotent: true,",
-    "      max_attempts: 2,",
-    "      depends_on: []",
-    "    }];",
-    "  },",
     "  async executeTask(task, mission, context) {",
     "    if (!task || task.operation !== 'workspace.write') throw new Error('unexpected_task_operation');",
     "    if (mission.metadata.probe_id !== expectedProbeId) throw new Error('mission_probe_id_mismatch');",
@@ -291,7 +278,9 @@ function spawnWorker({ workerId, root, adapterPath, leaseEvidenceDir, probeId, s
     });
     missionId = started.data.mission.mission_id;
     assert.equal(started.data.probe.status, 'active');
-    assert.equal(started.data.mission.status, 'planning');
+    assert.equal(started.data.mission.status, 'running');
+    assert.equal(started.data.mission.tasks.length, 1);
+    assert.equal(started.data.mission.tasks[0].operation, 'workspace.write');
     assert.equal(started.data.mission.metadata.probe_id, PROBE_ID);
     evidence.mission_id = missionId;
     evidence.checks.single_allowlisted_mission_created = 'PASS';
@@ -329,6 +318,14 @@ function spawnWorker({ workerId, root, adapterPath, leaseEvidenceDir, probeId, s
       attemptsPath,
       firstSignal
     }), 'utf8');
+
+    const adapter = require(adapterPath);
+    assert.equal(adapter.supabaseIndependent, true);
+    assert.equal(adapter.localInference, false);
+    assert.equal(typeof adapter.plan, 'undefined');
+    assert.equal(typeof adapter.replan, 'undefined');
+    assert.equal(typeof adapter.executeTask, 'function');
+    assert.equal(typeof adapter.verifyCompletion, 'function');
 
     const beforeWorkerId = 'mw2p3-' + PROBE_ID + '-before';
     const afterWorkerId = 'mw2p3-' + PROBE_ID + '-after';
@@ -387,13 +384,43 @@ function spawnWorker({ workerId, root, adapterPath, leaseEvidenceDir, probeId, s
       scopeToken
     });
 
-    await waitUntil(async () => {
+    // The recovered worker can finish task.execute and transition the job to
+    // "completed" before the next 300 ms poll. Observe the durable claim record
+    // written synchronously by the worker, then reconcile it with Durable Object
+    // state. Never require sampling the transient "leased" status.
+    const afterLeasePath = path.join(
+      leaseEvidenceDir,
+      safeName(afterWorkerId) + '__' + safeName(firstTaskJob.job_id) + '.json'
+    );
+    const recoveredClaim = await waitUntil(async () => {
+      if (!fs.existsSync(afterLeasePath)) return null;
+      let lease;
+      try {
+        lease = JSON.parse(await fsp.readFile(afterLeasePath, 'utf8'));
+      } catch (_) {
+        return null;
+      }
+      if (lease.probe_id !== PROBE_ID ||
+          lease.job_id !== firstTaskJob.job_id ||
+          lease.worker_id !== afterWorkerId ||
+          lease.attempts !== 2 ||
+          !lease.lease_token) return null;
+
       const current = (await api('/api/package3/probes/' + PROBE_ID, { expectedStatus: 200 })).data;
       const job = current.jobs.find(item => item.job_id === firstTaskJob.job_id);
-      return job && job.status === 'leased' && job.attempts === 2 && job.worker_id === afterWorkerId
-        ? current
+      return job &&
+        job.attempts === 2 &&
+        job.worker_id === afterWorkerId &&
+        ['leased', 'completed'].includes(job.status)
+        ? { current, job, lease }
         : null;
-    }, 'same_job_reclaimed_by_second_process', 45000, workerAfter);
+    }, 'same_job_reclaimed_by_second_process_and_persisted', 45000, workerAfter);
+    const newLease = recoveredClaim.lease;
+    evidence.reclaimed_job_observation = {
+      status: recoveredClaim.job.status,
+      attempts: recoveredClaim.job.attempts,
+      worker_id: recoveredClaim.job.worker_id
+    };
     evidence.checks.same_durable_job_reclaimed_after_process_restart = 'PASS';
 
     const completed = await waitUntil(async () => {
@@ -406,11 +433,6 @@ function spawnWorker({ workerId, root, adapterPath, leaseEvidenceDir, probeId, s
     const recoveredTaskJob = completed.jobs.find(job => job.job_id === firstTaskJob.job_id);
     assert.equal(recoveredTaskJob.status, 'completed');
     assert.equal(recoveredTaskJob.attempts, 2);
-    const afterLeasePath = path.join(
-      leaseEvidenceDir,
-      safeName(afterWorkerId) + '__' + safeName(firstTaskJob.job_id) + '.json'
-    );
-    const newLease = JSON.parse(await fsp.readFile(afterLeasePath, 'utf8'));
     assert.equal(newLease.job_id, oldLease.job_id);
     assert.equal(newLease.attempts, 2);
     assert.notEqual(newLease.lease_token, oldLease.lease_token);
@@ -457,10 +479,12 @@ function spawnWorker({ workerId, root, adapterPath, leaseEvidenceDir, probeId, s
     const jobs = completed.jobs;
     assert.equal(jobs.length, 3);
     assert.deepEqual(jobs.map(job => job.operation).sort(), ['mission.plan', 'mission.verify', 'task.execute']);
-    assert.ok(jobs.every(job => job.status === 'completed'));
+    assert.equal(jobs.find(job => job.operation === 'mission.plan').status, 'cancelled');
+    assert.equal(jobs.find(job => job.operation === 'mission.plan').last_error, 'superseded_by_package3_scoped_static_plan');
+    assert.ok(jobs.filter(job => job.operation !== 'mission.plan').every(job => job.status === 'completed'));
     assert.equal(jobs.find(job => job.operation === 'task.execute').attempts, 2);
     const eventTypes = completed.events.map(event => event.type);
-    for (const type of ['mission_created', 'mission_planned', 'task_started', 'task_succeeded', 'mission_verified_complete']) {
+    for (const type of ['mission_created', 'mission_plan_submitted', 'task_started', 'task_succeeded', 'mission_verified_complete']) {
       assert.equal(eventTypes.filter(value => value === type).length, 1, 'duplicate or missing lifecycle event: ' + type);
     }
     assert.equal(completed.events.length, 5);
@@ -480,6 +504,7 @@ function spawnWorker({ workerId, root, adapterPath, leaseEvidenceDir, probeId, s
     });
     scopeClosed = true;
     assert.equal(closed.data.scope.status, 'closed');
+    assert.equal(closed.data.scope.claim_count, 3);
     assert.ok(closed.data.scope.scope_token_revoked_at);
     assert.equal(closed.data.mission.status, 'succeeded');
     evidence.checks.scope_revoked_and_closed = 'PASS';

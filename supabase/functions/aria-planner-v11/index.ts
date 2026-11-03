@@ -4,7 +4,8 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { hasExplicitBattleCruiserGitHubWriteIntent } from "../_shared/battlecruiser-github-write-intent.mjs";
 import { explicitPhysicalExecutionRequirement, validatePhysicalExecutionPlan } from "../_shared/physical-execution-contract.mjs";
-import { buildCloudflareWorkspacePlan, isCloudflarePlanProducerRequest } from "./cloudflare-workspace-plan-v1.mjs";
+import { buildCloudflareWorkspacePlan, buildCloudflareWorkspacePrompt, diagnoseCloudflarePromptValidationFailure, isCloudflarePlanProducerRequest, sanitizeCloudflarePlanFailureReason, validateCloudflareWorkspaceGoal, validateCloudflareWorkspaceRequest } from "./cloudflare-workspace-plan-v1.mjs";
+import { isCloudflarePlanProducerPath } from "./cloudflare-plan-producer-path-v1.mjs";
 import { deriveCloudflarePlanPreviewToken } from "../_shared/cloudflare-plan-preview-auth-v1.mjs";
 const URL=Deno.env.get("SUPABASE_URL")!, KEY=Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, SECRET=Deno.env.get("ARIA_RUNTIME_SHARED_SECRET")!; const PLAN_BRIDGE_SECRET=Deno.env.get("ARIA_PLAN_PRODUCER_SHARED_SECRET")??"";
 const ROOT=createClient(URL,KEY,{auth:{persistSession:false,autoRefreshToken:false,autoRefreshSession:false}});
@@ -1464,10 +1465,16 @@ function cuevacoinStep6Plan(goal: string) {
 
 async function generateCloudflareWorkspacePlan(goal:string,workspaceRequest:any){
   let prompt:string;
+  let promptValidationStage="goal_validation";
   try{
+    validateCloudflareWorkspaceGoal(goal);
+    promptValidationStage="workspace_request_validation";
+    validateCloudflareWorkspaceRequest(workspaceRequest);
+    promptValidationStage="prompt_assembly";
     prompt=buildCloudflareWorkspacePrompt(goal,workspaceRequest);
   }catch(error){
-    return {ok:false,status:422,reason:String(error instanceof Error?error.message:error).slice(0,180)};
+    const diagnostic=diagnoseCloudflarePromptValidationFailure(error);
+    return {ok:false,status:422,stage:promptValidationStage,reason:diagnostic.reason,errorType:diagnostic.error_type};
   }
   const freeModelId="nvidia/nemotron-3.5-lightning:free";
   const routes=await modelRoutes();
@@ -1477,12 +1484,12 @@ async function generateCloudflareWorkspacePlan(goal:string,workspaceRequest:any)
     candidate?.model_id===freeModelId &&
     candidate?.capability_status==="verified"
   );
-  if(!route)return {ok:false,status:503,reason:"verified_free_plan_model_unavailable"};
+  if(!route)return {ok:false,status:503,stage:"model_route_selection",reason:"verified_free_plan_model_unavailable"};
   let previewToken:string;
   try{
     previewToken=await deriveCloudflarePlanPreviewToken(PLAN_BRIDGE_SECRET);
   }catch{
-    return {ok:false,status:503,reason:"plan_preview_auth_unavailable"};
+    return {ok:false,status:503,stage:"preview_auth",reason:"plan_preview_auth_unavailable"};
   }
   let response:Response;
   try{
@@ -1514,12 +1521,12 @@ async function generateCloudflareWorkspacePlan(goal:string,workspaceRequest:any)
       signal:AbortSignal.timeout(25000)
     });
   }catch{
-    return {ok:false,status:503,reason:"canonical_model_executor_unreachable"};
+    return {ok:false,status:503,stage:"runtime_transport",reason:"canonical_model_executor_unreachable"};
   }
   const payload=await response.json().catch(()=>null);
   if(!response.ok||payload?.status!=="succeeded"||typeof payload?.response?.content!=="string"){
     const reason=String(payload?.error?.code||payload?.reason||"canonical_model_execution_rejected").slice(0,180);
-    return {ok:false,status:response.status||503,reason};
+    return {ok:false,status:response.status||503,stage:"runtime_response",reason};
   }
   try{
     const plan=buildCloudflareWorkspacePlan(goal,workspaceRequest,payload.response.content);
@@ -1534,7 +1541,8 @@ async function generateCloudflareWorkspacePlan(goal:string,workspaceRequest:any)
       }
     };
   }catch(error){
-    return {ok:false,status:422,reason:String(error instanceof Error?error.message:error).slice(0,180)};
+    const rawReason=error instanceof SyntaxError?"planner_model_output_invalid_json":String(error instanceof Error?error.message:error);
+    return {ok:false,status:422,stage:"model_plan_validation",reason:sanitizeCloudflarePlanFailureReason(rawReason)};
   }
 }
 
@@ -1544,15 +1552,21 @@ Deno.serve(async r=>{
   if(r.headers.has("x-aria-plan-producer")){
     if(!(await isCloudflarePlanProducerRequest(r,PLAN_BRIDGE_SECRET)))return out({error:"unauthorized_plan_producer"},401);
     if(r.method!=="POST")return out({error:"method_not_allowed"},405);
-    const pathname=new globalThis.URL(r.url).pathname.replace(/\/+$/,"");
-    if(!pathname.endsWith("/functions/v1/aria-planner-v11"))return out({error:"not_found"},404);
+    const pathname=new globalThis.URL(r.url).pathname;
+    if(!isCloudflarePlanProducerPath(pathname))return out({error:"not_found"},404);
     const producerBody=await r.json().catch(()=>null);
     const producerGoal=typeof producerBody?.goal==="string"?producerBody.goal.trim():"";
     const producerContext=producerBody?.context&&typeof producerBody.context==="object"&&!Array.isArray(producerBody.context)?producerBody.context:{};
     if(!producerGoal)return out({error:"goal_required"},400);
     const produced=await generateCloudflareWorkspacePlan(producerGoal,producerContext.cloudflare_workspace_request);
     if(!produced.ok){
-      return out({error:"cloudflare_workspace_plan_unavailable",reason:produced.reason},produced.status||503);
+      const safeReason=sanitizeCloudflarePlanFailureReason(produced.reason);
+      const safeStage=["goal_validation","workspace_request_validation","prompt_assembly","prompt_validation","model_route_selection","preview_auth","runtime_transport","runtime_response","model_plan_validation"].includes(produced.stage)?produced.stage:"unknown";
+      const safeErrorType=["error","type_error","reference_error","range_error","syntax_error","uri_error","eval_error","dom_exception","unknown"].includes(produced.errorType)?produced.errorType:"unknown";
+      console.warn("ARIA_CLOUDFLARE_WORKSPACE_PLAN_STAGE="+safeStage);
+      console.warn("ARIA_CLOUDFLARE_WORKSPACE_PLAN_REJECTED="+safeReason);
+      console.warn("ARIA_CLOUDFLARE_WORKSPACE_PLAN_ERROR_TYPE="+safeErrorType);
+      return out({error:"cloudflare_workspace_plan_unavailable",reason:safeReason,diagnostic_stage:safeStage,diagnostic_error_type:safeErrorType},produced.status||503);
     }
     return out({
       ok:true,

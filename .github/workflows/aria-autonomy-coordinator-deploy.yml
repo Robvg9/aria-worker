@@ -144,7 +144,22 @@ jobs:
             -H "Authorization: Bearer $ARIA_CONTROL_TOKEN" \
             -H 'content-type: application/json' \
             --data '{"goal":"Read-only verification of the canonical workspace plan bridge","cloudflare_workspace_request":{"version":"v1","allowed_operations":["git.status"],"workspace_context":{"root":"workspace"}}}')"
-          test "$preview_code" = "200"
+          if [[ "$preview_code" != "200" ]]; then
+            echo "ARIA_CANONICAL_REMOTE_PLAN_PREVIEW_HTTP_STATUS=$preview_code"
+            PREVIEW_FILE="$preview_file" python - <<'PY'
+          import json, os, re
+          try:
+              with open(os.environ["PREVIEW_FILE"], encoding="utf-8") as handle:
+                  payload = json.load(handle)
+          except Exception:
+              payload = {}
+          for key in ("error", "reason"):
+              value = payload.get(key)
+              if isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9_.:-]{1,180}", value):
+                  print("ARIA_CANONICAL_REMOTE_PLAN_PREVIEW_" + key.upper() + "=" + value)
+          PY
+            exit 1
+          fi
           PREVIEW_FILE="$preview_file" python - <<'PY'
           import json, os
           with open(os.environ["PREVIEW_FILE"], encoding="utf-8") as handle:
