@@ -36,6 +36,8 @@ on:
       - 'cloudflare-autonomy/**'
       - '.github/workflows/mission-wonder-2-package3-live-e2e.yml'
       - 'scripts/mission-wonder-2-package3-live-e2e.cjs'
+      - 'scripts/release-bearing.js'
+      - 'tests/delivery-deterministic-v1.test.js'
       - 'tests/cloudflare-autonomy-package3-scope.test.cjs'
       - 'pwa/src/testCatalog.ts'
       - 'scripts/Start-ARIA-Persistent-Worker.ps1'
