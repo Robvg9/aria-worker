@@ -115,6 +115,63 @@ export function createVoiceCommandStores(serviceClient: any, authenticatedOwnerI
     return data || null;
   }
 
+  async function pairOwnerDeviceKey(input: {
+    ownerId: string;
+    deviceId: string;
+    deviceToken: string;
+    publicKeyId: string;
+    publicKeyEd25519: string;
+  }): Promise<any> {
+    if (input.ownerId !== authenticatedOwnerId) throw new Error("voice_device_owner_mismatch");
+    if (typeof input.deviceId !== "string" || !/^android-voice-[a-f0-9]{64}$/.test(input.deviceId)) {
+      throw new Error("voice_android_device_id_invalid");
+    }
+    if (typeof input.deviceToken !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(input.deviceToken)) {
+      throw new Error("voice_android_pairing_token_invalid");
+    }
+    if (input.publicKeyId !== "aria-android-keystore-ed25519-v1") {
+      throw new Error("voice_android_public_key_id_invalid");
+    }
+    if (typeof input.publicKeyEd25519 !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(input.publicKeyEd25519)) {
+      throw new Error("voice_android_public_key_invalid");
+    }
+    const { data, error } = await internal.rpc("pair_voice_owner_device", {
+      p_owner_user_id: authenticatedOwnerId,
+      p_device_id: input.deviceId,
+      p_device_token: input.deviceToken,
+      p_public_key_id: input.publicKeyId,
+      p_public_key_ed25519: input.publicKeyEd25519
+    });
+    if (error || !data || data.owner_id !== authenticatedOwnerId
+        || data.device_id !== input.deviceId || data.enabled !== true
+        || data.security !== "trusted" || data.wake_word_enabled !== false
+        || JSON.stringify(data.capabilities) !== "[]") {
+      throw new Error("voice_android_owner_pairing_rejected");
+    }
+    return data;
+  }
+
+  async function heartbeatOwnerDeviceKey(input: {
+    ownerId: string;
+    deviceId: string;
+    deviceToken: string;
+  }): Promise<boolean> {
+    if (input.ownerId !== authenticatedOwnerId) throw new Error("voice_device_owner_mismatch");
+    if (typeof input.deviceId !== "string" || !/^android-voice-[a-f0-9]{64}$/.test(input.deviceId)) {
+      throw new Error("voice_android_device_id_invalid");
+    }
+    if (typeof input.deviceToken !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(input.deviceToken)) {
+      throw new Error("voice_android_pairing_token_invalid");
+    }
+    const { data, error } = await internal.rpc("touch_voice_owner_device", {
+      p_owner_user_id: authenticatedOwnerId,
+      p_device_id: input.deviceId,
+      p_device_token: input.deviceToken
+    });
+    if (error) throw new Error("voice_android_owner_heartbeat_failed");
+    return data === true;
+  }
+
   async function resolveTrustedDeviceKey(deviceId: string): Promise<any | null> {
     requireDeviceId(deviceId);
     const { data, error } = await internal.rpc("resolve_voice_trusted_device_key", {
@@ -321,6 +378,8 @@ export function createVoiceCommandStores(serviceClient: any, authenticatedOwnerI
     enqueueDeviceCommand,
     getDeviceCommandStatus,
     registerTrustedDeviceKey,
+    pairOwnerDeviceKey,
+    heartbeatOwnerDeviceKey,
     resolveTrustedDeviceKey,
     revokeTrustedDeviceKey,
     setSpeakerPolicy,
