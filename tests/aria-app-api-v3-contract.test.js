@@ -169,6 +169,8 @@ assertContains(appApi,'body.consented !== true','speaker policy activation must 
 assertContains(appApi,'stores.setSpeakerPolicy','speaker policy writes must use the service-role storage adapter');
 assertContains(appApi,'path.endsWith("/voice/speakers/revoke")','the owner must have an authenticated speaker-policy kill switch');
 assertContains(appApi,'stores.revokeSpeakerPolicy','speaker-policy revocation must use the scoped storage adapter');
+assert.equal(appApi.split('!/^[A-Za-z0-9._:-]{8,160}$/.test(body.device_id)').length - 1, 4,
+  'device registration and revocation endpoints must use the same strict 8-160 character ID rule as storage');
 
 assertContains(appApi,'await router.route(body)','all direct commands must pass through the safety router');
 assertContains(appApi,'return json({ ok: true, command: result, trace_id: trace }, 202);','device actions must return queued rather than falsely reporting execution');
