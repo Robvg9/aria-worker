@@ -84,6 +84,13 @@ jobs:
             protected_tables integer;
             public_policies integer;
             model_rows integer;
+            v_public_key_bytes bytea;
+            v_public_key text;
+            v_fingerprint text;
+            v_device_id text;
+            v_pair_result jsonb;
+            v_resolved_key jsonb;
+            v_device_capabilities jsonb;
           BEGIN
             SELECT count(*) INTO protected_tables
             FROM pg_class c
@@ -131,6 +138,69 @@ jobs:
             SELECT count(*) INTO model_rows FROM aria_internal.voice_speaker_model_catalog;
             IF model_rows <> 0 THEN
               RAISE EXCEPTION 'voice_v4_speaker_catalog_must_start_empty';
+            END IF;
+
+            IF has_function_privilege('anon',
+                 'aria_internal.pair_voice_owner_device(uuid,text,text,text,text)', 'EXECUTE')
+               OR has_function_privilege('authenticated',
+                 'aria_internal.pair_voice_owner_device(uuid,text,text,text,text)', 'EXECUTE')
+               OR has_function_privilege('anon',
+                 'aria_internal.touch_voice_owner_device(uuid,text,text)', 'EXECUTE')
+               OR has_function_privilege('authenticated',
+                 'aria_internal.touch_voice_owner_device(uuid,text,text)', 'EXECUTE') THEN
+              RAISE EXCEPTION 'voice_v4_android_pairing_rpc_exposed_to_client_role';
+            END IF;
+            IF NOT has_function_privilege('service_role',
+                 'aria_internal.pair_voice_owner_device(uuid,text,text,text,text)', 'EXECUTE')
+               OR NOT has_function_privilege('service_role',
+                 'aria_internal.touch_voice_owner_device(uuid,text,text)', 'EXECUTE') THEN
+              RAISE EXCEPTION 'voice_v4_android_pairing_service_role_grant_missing';
+            END IF;
+
+            v_public_key_bytes := decode(
+              'd75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a',
+              'hex'
+            );
+            v_public_key := rtrim(translate(encode(v_public_key_bytes, 'base64'), '+/', '-_'), '=');
+            v_fingerprint := encode(extensions.digest(v_public_key_bytes, 'sha256'), 'hex');
+            v_device_id := 'android-voice-' || v_fingerprint;
+
+            v_pair_result := aria_internal.pair_voice_owner_device(
+              '123e4567-e89b-12d3-a456-426614174000'::uuid,
+              v_device_id,
+              repeat('A', 43),
+              'aria-android-keystore-ed25519-v1',
+              v_public_key
+            );
+            IF v_pair_result->>'device_id' <> v_device_id
+               OR v_pair_result->>'wake_word_enabled' <> 'false'
+               OR v_pair_result->'capabilities' <> '[]'::jsonb THEN
+              RAISE EXCEPTION 'voice_v4_android_pairing_result_not_readonly: %', v_pair_result;
+            END IF;
+
+            IF aria_internal.touch_voice_owner_device(
+              '123e4567-e89b-12d3-a456-426614174000'::uuid,
+              v_device_id,
+              repeat('A', 43)
+            ) IS DISTINCT FROM true THEN
+              RAISE EXCEPTION 'voice_v4_android_owner_heartbeat_failed';
+            END IF;
+
+            SELECT capabilities INTO v_device_capabilities
+            FROM aria_internal.device_registry
+            WHERE device_id = v_device_id;
+            IF v_device_capabilities <> '[]'::jsonb
+               OR v_device_capabilities @> '["audio.wake_word"]'::jsonb THEN
+              RAISE EXCEPTION 'voice_v4_android_pairing_granted_audio_capability';
+            END IF;
+
+            v_resolved_key := aria_internal.resolve_voice_trusted_device_key(
+              '123e4567-e89b-12d3-a456-426614174000'::uuid,
+              v_device_id
+            );
+            IF v_resolved_key IS NULL
+               OR v_resolved_key->>'device_id' <> v_device_id THEN
+              RAISE EXCEPTION 'voice_v4_android_readonly_owner_key_not_resolvable';
             END IF;
           END $v4$;
           SQL
