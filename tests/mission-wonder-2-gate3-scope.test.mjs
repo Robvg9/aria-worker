@@ -58,6 +58,18 @@ check(conversationOnlySource.includes("[\"google\",\"xai\",\"openrouter\"]") && 
 check(runnerSource.includes("routes = [primaryRoute, ...gate3Fallbacks]"),"scoped execution contains exactly two route slots");
 check(runnerSource.includes("model_execution_failures: failures.map((failure: any)"),"scoped success persists sanitized Google 429 evidence");
 check(runnerSource.includes("model_fallback_attempts: failures.length"),"scoped success records exactly one primary route attempt");
+const legacyCloudflareDeploySource=await readFile(new URL("../.github/workflows/aria-cloudflare-deploy.yml",import.meta.url),"utf8");
+const gate3HarnessPaths=[
+  ".github/workflows/mission-wonder-2-gate3-contract.yml",
+  ".github/workflows/mission-wonder-2-gate3-live-e2e.yml",
+  "scripts/mission-wonder-2-gate3-live-e2e.py",
+  "scripts/mission_wonder_2_deploy_selection.py",
+  "tests/mission-wonder-2-deploy-selection.test.py",
+  "tests/mission-wonder-2-gate3-scope.test.mjs",
+];
+for (const path of gate3HarnessPaths) {
+  check(legacyCloudflareDeploySource.includes("      - '"+path+"'"),"legacy Cloudflare deploy ignores Gate 3 harness path "+path);
+}
 const workflowSource=await readFile(new URL("../.github/workflows/mission-wonder-2-gate3-live-e2e.yml",import.meta.url),"utf8");
 const liveScript=await readFile(new URL("../scripts/mission-wonder-2-gate3-live-e2e.py",import.meta.url),"utf8");
 check(workflowSource.includes("workflow_dispatch:"),"live E2E is manual-only");
