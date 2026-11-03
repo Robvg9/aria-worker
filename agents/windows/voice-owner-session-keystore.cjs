@@ -28,7 +28,8 @@ function validIdentifier(value, min = 8, max = 160) {
     && /^[A-Za-z0-9._:-]+$/.test(value);
 }
 
-function canonicalizeOwnerSessionPayload(input, now = Date.now()) {
+function canonicalizeOwnerSessionPayload(input, options = {}) {
+  const now = Number.isSafeInteger(options.now) ? options.now : Date.now();
   let payload = input;
   let original = null;
   if (typeof input === 'string') {
@@ -58,6 +59,8 @@ function canonicalizeOwnerSessionPayload(input, now = Date.now()) {
       || !validIdentifier(payload.nonce, 24, 160)) {
     throw new Error('voice_owner_session_identity_invalid');
   }
+  if (options.ownerId && payload.owner_id !== options.ownerId) throw new Error('voice_owner_session_owner_mismatch');
+  if (options.deviceId && payload.device_id !== options.deviceId) throw new Error('voice_owner_session_device_mismatch');
   if (!Number.isSafeInteger(payload.issued_at) || !Number.isSafeInteger(payload.expires_at)
       || payload.issued_at > now + 5000
       || payload.expires_at <= now
@@ -65,14 +68,8 @@ function canonicalizeOwnerSessionPayload(input, now = Date.now()) {
       || payload.expires_at - payload.issued_at > MAX_SESSION_TTL_MS) {
     throw new Error('voice_owner_session_time_invalid');
   }
-  if (typeof payload.speaker_verified !== 'boolean') throw new Error('voice_owner_session_speaker_flag_invalid');
-  if (payload.speaker_verified) {
-    if (!validIdentifier(payload.speaker_model_id, 3, 160)
-        || typeof payload.speaker_score !== 'number'
-        || payload.speaker_score < 0 || payload.speaker_score > 1) {
-      throw new Error('voice_owner_session_speaker_result_invalid');
-    }
-  } else if (payload.speaker_model_id !== null || payload.speaker_score !== null) {
+  if (payload.speaker_verified !== false) throw new Error('voice_owner_session_speaker_verification_unavailable');
+  if (payload.speaker_model_id !== null || payload.speaker_score !== null) {
     throw new Error('voice_owner_session_unverified_speaker_data_forbidden');
   }
   const canonical = {};
@@ -126,6 +123,11 @@ function createWindowsVoiceOwnerKeystore(options = {}) {
   };
   const baseDirectory = options.baseDirectory || process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local');
   if (platform !== 'win32') throw new Error('voice_dpapi_windows_only');
+  const ownerId = options.ownerId;
+  const deviceId = options.deviceId;
+  if (!validIdentifier(ownerId) || !validIdentifier(deviceId, 4)) {
+    throw new Error('voice_dpapi_owner_and_device_required');
+  }
   if (!path.isAbsolute(baseDirectory)) throw new Error('voice_dpapi_storage_path_invalid');
   if (typeof dpapi.protect !== 'function' || typeof dpapi.unprotect !== 'function') {
     throw new TypeError('voice_dpapi_adapter_invalid');
@@ -149,6 +151,7 @@ function createWindowsVoiceOwnerKeystore(options = {}) {
     }
     if (record.version !== KEY_VERSION || record.algorithm !== 'Ed25519'
         || record.key_id !== KEY_ID
+        || record.owner_id !== ownerId || record.device_id !== deviceId
         || typeof record.public_key !== 'string'
         || typeof record.fingerprint_sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(record.fingerprint_sha256)
         || typeof record.protected_private_key !== 'string'
@@ -196,6 +199,8 @@ function createWindowsVoiceOwnerKeystore(options = {}) {
       version: KEY_VERSION,
       algorithm: 'Ed25519',
       key_id: KEY_ID,
+      owner_id: ownerId,
+      device_id: deviceId,
       public_key: base64Url(publicRaw),
       fingerprint_sha256: crypto.createHash('sha256').update(publicRaw).digest('hex'),
       protected_private_key: protectedBytes.toString('base64')
@@ -235,13 +240,15 @@ function createWindowsVoiceOwnerKeystore(options = {}) {
       return Object.freeze({
         algorithm: 'Ed25519',
         keyId: record.key_id,
+        ownerId: record.owner_id,
+        deviceId: record.device_id,
         publicKey: record.public_key,
         fingerprintSha256: record.fingerprint_sha256,
         keyStorage: 'WindowsDPAPI_CurrentUser'
       });
     },
     signCanonicalPayload(input) {
-      const canonical = canonicalizeOwnerSessionPayload(input);
+      const canonical = canonicalizeOwnerSessionPayload(input, { ownerId, deviceId });
       const record = readRecord();
       if (!record) throw new Error('voice_dpapi_device_key_not_enrolled');
       const privateKey = loadPrivateKey(record);
