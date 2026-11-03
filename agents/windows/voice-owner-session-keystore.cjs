@@ -1,0 +1,263 @@
+'use strict';
+
+const crypto = require('node:crypto');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const { execFileSync } = require('node:child_process');
+
+const KEY_VERSION = 1;
+const KEY_ID = 'aria-windows-dpapi-ed25519-v1';
+const KEY_FILE = 'owner-ed25519.dpapi.json';
+const MAX_SIGNED_PAYLOAD_BYTES = 8192;
+const MAX_SESSION_TTL_MS = 30000;
+const SESSION_VERSION = 'aria-owner-session-v1';
+const SESSION_FIELDS = Object.freeze([
+  'activation_id', 'device_id', 'expires_at', 'issued_at', 'nonce',
+  'owner_id', 'request_id', 'session_id', 'speaker_model_id',
+  'speaker_score', 'speaker_verified', 'version'
+]);
+const ED25519_SPKI_PREFIX = Buffer.from('302a300506032b6570032100', 'hex');
+
+function base64Url(bytes) {
+  return Buffer.from(bytes).toString('base64').replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+}
+
+function validIdentifier(value, min = 8, max = 160) {
+  return typeof value === 'string' && value.length >= min && value.length <= max
+    && /^[A-Za-z0-9._:-]+$/.test(value);
+}
+
+function canonicalizeOwnerSessionPayload(input, now = Date.now()) {
+  let payload = input;
+  let original = null;
+  if (typeof input === 'string') {
+    if (Buffer.byteLength(input, 'utf8') > MAX_SIGNED_PAYLOAD_BYTES) throw new Error('voice_owner_payload_size_invalid');
+    original = input;
+    try { payload = JSON.parse(input); } catch { throw new Error('voice_owner_payload_json_invalid'); }
+  }
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw new Error('voice_owner_payload_invalid');
+  const keys = Object.keys(payload).sort();
+  const expected = [...SESSION_FIELDS].sort();
+  if (keys.length !== expected.length || keys.some((key, index) => key !== expected[index])) {
+    throw new Error('voice_owner_session_fields_invalid');
+  }
+  for (const key of keys) {
+    const value = payload[key];
+    if (value !== null && !['string', 'number', 'boolean'].includes(typeof value)) {
+      throw new Error('voice_owner_session_value_invalid');
+    }
+    if (typeof value === 'number' && !Number.isFinite(value)) throw new Error('voice_owner_session_number_invalid');
+  }
+  if (payload.version !== SESSION_VERSION
+      || !validIdentifier(payload.owner_id)
+      || !validIdentifier(payload.device_id, 4)
+      || !validIdentifier(payload.session_id)
+      || !validIdentifier(payload.activation_id)
+      || !validIdentifier(payload.request_id)
+      || !validIdentifier(payload.nonce, 24, 160)) {
+    throw new Error('voice_owner_session_identity_invalid');
+  }
+  if (!Number.isSafeInteger(payload.issued_at) || !Number.isSafeInteger(payload.expires_at)
+      || payload.issued_at > now + 5000
+      || payload.expires_at <= now
+      || payload.expires_at <= payload.issued_at
+      || payload.expires_at - payload.issued_at > MAX_SESSION_TTL_MS) {
+    throw new Error('voice_owner_session_time_invalid');
+  }
+  if (typeof payload.speaker_verified !== 'boolean') throw new Error('voice_owner_session_speaker_flag_invalid');
+  if (payload.speaker_verified) {
+    if (!validIdentifier(payload.speaker_model_id, 3, 160)
+        || typeof payload.speaker_score !== 'number'
+        || payload.speaker_score < 0 || payload.speaker_score > 1) {
+      throw new Error('voice_owner_session_speaker_result_invalid');
+    }
+  } else if (payload.speaker_model_id !== null || payload.speaker_score !== null) {
+    throw new Error('voice_owner_session_unverified_speaker_data_forbidden');
+  }
+  const canonical = {};
+  for (const key of keys) canonical[key] = payload[key];
+  const serialized = JSON.stringify(canonical);
+  if (original !== null && original !== serialized) throw new Error('voice_owner_session_payload_not_canonical');
+  return serialized;
+}
+
+function defaultDpapiTransform(operation, bytes) {
+  if (process.platform !== 'win32') throw new Error('voice_dpapi_windows_only');
+  if (!['protect', 'unprotect'].includes(operation)) throw new Error('voice_dpapi_operation_invalid');
+  const script = [
+    "$ErrorActionPreference = 'Stop'",
+    "Add-Type -AssemblyName System.Security",
+    '$request = [Console]::In.ReadToEnd() | ConvertFrom-Json',
+    '$inputBytes = [Convert]::FromBase64String([string]$request.payload)',
+    "$entropy = [Text.Encoding]::UTF8.GetBytes('ARIA Voice V4 Windows owner key v1')",
+    "if ($request.operation -eq 'protect') {",
+    '  $outputBytes = [System.Security.Cryptography.ProtectedData]::Protect($inputBytes, $entropy, [System.Security.Cryptography.DataProtectionScope]::CurrentUser)',
+    '} else {',
+    '  $outputBytes = [System.Security.Cryptography.ProtectedData]::Unprotect($inputBytes, $entropy, [System.Security.Cryptography.DataProtectionScope]::CurrentUser)',
+    '}',
+    '[Console]::Out.Write([Convert]::ToBase64String($outputBytes))'
+  ].join('\n');
+  let stdout;
+  try {
+    stdout = execFileSync('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', script], {
+      input: JSON.stringify({ operation, payload: Buffer.from(bytes).toString('base64') }),
+      encoding: 'utf8',
+      timeout: 10000,
+      windowsHide: true,
+      maxBuffer: 16384,
+      stdio: ['pipe', 'pipe', 'ignore']
+    });
+  } catch {
+    throw new Error('voice_dpapi_operation_failed');
+  }
+  const encoded = String(stdout || '').trim();
+  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(encoded)) throw new Error('voice_dpapi_response_invalid');
+  const result = Buffer.from(encoded, 'base64');
+  if (!result.length) throw new Error('voice_dpapi_response_empty');
+  return result;
+}
+
+function createWindowsVoiceOwnerKeystore(options = {}) {
+  const platform = options.platform || process.platform;
+  const dpapi = options.dpapi || {
+    protect: bytes => defaultDpapiTransform('protect', bytes),
+    unprotect: bytes => defaultDpapiTransform('unprotect', bytes)
+  };
+  const baseDirectory = options.baseDirectory || process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local');
+  if (platform !== 'win32') throw new Error('voice_dpapi_windows_only');
+  if (!path.isAbsolute(baseDirectory)) throw new Error('voice_dpapi_storage_path_invalid');
+  if (typeof dpapi.protect !== 'function' || typeof dpapi.unprotect !== 'function') {
+    throw new TypeError('voice_dpapi_adapter_invalid');
+  }
+
+  const directory = path.join(baseDirectory, 'ARIA', 'VoiceV4');
+  const filePath = path.join(directory, KEY_FILE);
+
+  function readRecord() {
+    let stat;
+    try { stat = fs.lstatSync(filePath); } catch (error) {
+      if (error && error.code === 'ENOENT') return null;
+      throw new Error('voice_dpapi_keystore_read_failed');
+    }
+    if (!stat.isFile() || stat.isSymbolicLink() || stat.size < 64 || stat.size > 16384) {
+      throw new Error('voice_dpapi_keystore_file_invalid');
+    }
+    let record;
+    try { record = JSON.parse(fs.readFileSync(filePath, 'utf8')); } catch {
+      throw new Error('voice_dpapi_keystore_record_invalid');
+    }
+    if (record.version !== KEY_VERSION || record.algorithm !== 'Ed25519'
+        || record.key_id !== KEY_ID
+        || typeof record.public_key !== 'string'
+        || typeof record.fingerprint_sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(record.fingerprint_sha256)
+        || typeof record.protected_private_key !== 'string'
+        || !/^[A-Za-z0-9+/]+=*$/.test(record.protected_private_key)) {
+      throw new Error('voice_dpapi_keystore_record_invalid');
+    }
+    return record;
+  }
+
+  function persistRecord(record) {
+    fs.mkdirSync(directory, { recursive: true });
+    const tempPath = path.join(directory, KEY_FILE + '.' + process.pid + '.' + crypto.randomBytes(8).toString('hex') + '.tmp');
+    try {
+      fs.writeFileSync(tempPath, JSON.stringify(record), { encoding: 'utf8', flag: 'wx', mode: 0o600 });
+      try { fs.renameSync(tempPath, filePath); } catch (error) {
+        try { fs.unlinkSync(tempPath); } catch {}
+        if (error && ['EEXIST', 'EPERM', 'EACCES'].includes(error.code)) {
+          const existing = readRecord();
+          if (existing) return existing;
+        }
+        throw error;
+      }
+    } catch {
+      try { fs.unlinkSync(tempPath); } catch {}
+      throw new Error('voice_dpapi_keystore_write_failed');
+    }
+    return record;
+  }
+
+  function createRecord() {
+    const pair = crypto.generateKeyPairSync('ed25519');
+    const privateDer = pair.privateKey.export({ format: 'der', type: 'pkcs8' });
+    const publicDer = pair.publicKey.export({ format: 'der', type: 'spki' });
+    if (publicDer.length !== 44 || !publicDer.subarray(0, 12).equals(ED25519_SPKI_PREFIX)) {
+      privateDer.fill(0);
+      throw new Error('voice_ed25519_public_key_format_unsupported');
+    }
+    const publicRaw = publicDer.subarray(12);
+    let protectedBytes;
+    try { protectedBytes = dpapi.protect(privateDer); } finally { privateDer.fill(0); }
+    if (!Buffer.isBuffer(protectedBytes) || protectedBytes.length < 32 || protectedBytes.length > 8192) {
+      throw new Error('voice_dpapi_protected_key_invalid');
+    }
+    const record = {
+      version: KEY_VERSION,
+      algorithm: 'Ed25519',
+      key_id: KEY_ID,
+      public_key: base64Url(publicRaw),
+      fingerprint_sha256: crypto.createHash('sha256').update(publicRaw).digest('hex'),
+      protected_private_key: protectedBytes.toString('base64')
+    };
+    protectedBytes.fill(0);
+    return persistRecord(record);
+  }
+
+  function loadPrivateKey(record) {
+    const protectedBytes = Buffer.from(record.protected_private_key, 'base64');
+    let privateDer;
+    try { privateDer = dpapi.unprotect(protectedBytes); } catch {
+      throw new Error('voice_dpapi_key_unprotect_failed');
+    } finally { protectedBytes.fill(0); }
+    if (!Buffer.isBuffer(privateDer) || privateDer.length < 32 || privateDer.length > 4096) {
+      throw new Error('voice_dpapi_private_key_invalid');
+    }
+    try {
+      const privateKey = crypto.createPrivateKey({ key: privateDer, format: 'der', type: 'pkcs8' });
+      const publicDer = crypto.createPublicKey(privateKey).export({ format: 'der', type: 'spki' });
+      if (publicDer.length !== 44 || !publicDer.subarray(0, 12).equals(ED25519_SPKI_PREFIX)) {
+        throw new Error('voice_ed25519_public_key_format_unsupported');
+      }
+      const publicRaw = publicDer.subarray(12);
+      const fingerprint = crypto.createHash('sha256').update(publicRaw).digest('hex');
+      if (base64Url(publicRaw) !== record.public_key || fingerprint !== record.fingerprint_sha256) {
+        throw new Error('voice_dpapi_keypair_mismatch');
+      }
+      return privateKey;
+    } finally { privateDer.fill(0); }
+  }
+
+  return Object.freeze({
+    filePath,
+    getDeviceKey() {
+      const record = readRecord() || createRecord();
+      return Object.freeze({
+        algorithm: 'Ed25519',
+        keyId: record.key_id,
+        publicKey: record.public_key,
+        fingerprintSha256: record.fingerprint_sha256,
+        keyStorage: 'WindowsDPAPI_CurrentUser'
+      });
+    },
+    signCanonicalPayload(input) {
+      const canonical = canonicalizeOwnerSessionPayload(input);
+      const record = readRecord();
+      if (!record) throw new Error('voice_dpapi_device_key_not_enrolled');
+      const privateKey = loadPrivateKey(record);
+      return Object.freeze({
+        algorithm: 'Ed25519',
+        keyId: record.key_id,
+        signature: base64Url(crypto.sign(null, Buffer.from(canonical, 'utf8'), privateKey))
+      });
+    },
+    deleteDeviceKey() {
+      try { fs.unlinkSync(filePath); return { deleted: true }; } catch (error) {
+        if (error && error.code === 'ENOENT') return { deleted: false };
+        throw new Error('voice_dpapi_keystore_delete_failed');
+      }
+    }
+  });
+}
+
+module.exports = { createWindowsVoiceOwnerKeystore, canonicalizeOwnerSessionPayload, KEY_ID, SESSION_VERSION };
