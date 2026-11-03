@@ -84,6 +84,10 @@ function request(overrides = {}) {
   const telegramIntent = parseExplicitVoiceAction('Envía por Telegram a contact-mom: Te quiero.');
   const longTelegramBody = 'A'.repeat(1200) + '.';
   const longTelegramIntent = parseExplicitVoiceAction('Envía por Telegram a contact-mom: ' + longTelegramBody);
+  const multilineTelegramBody = 'Primera línea.\\nSegunda línea.';
+  const multilineTelegramIntent = parseExplicitVoiceAction('Envía por Telegram a contact-mom: ' + multilineTelegramBody);
+  assert.equal(multilineTelegramIntent.params.body, multilineTelegramBody);
+
   assert.equal(longTelegramIntent.params.body, longTelegramBody,
     'Telegram message parsing must support longer bodies and preserve final punctuation');
 
