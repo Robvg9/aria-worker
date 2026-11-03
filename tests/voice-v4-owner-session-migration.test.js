@@ -50,8 +50,6 @@ assert.match(androidPairFunction, /p_owner_user_id IS NULL/);
 assert.match(androidPairFunction, /IS DISTINCT FROM 'android-native'/);
 assert.match(androidPairFunction, /v_key.revoked_at IS NOT NULL/);
 assert.match(androidPairFunction, /pg_advisory_xact_lock/);
-assert.match(androidTouchFunction, /d.token_hash = v_token_hash/);
-assert.match(androidTouchFunction, /k.owner_user_id = p_owner_user_id/);
 assert.match(migration, /REVOKE ALL ON FUNCTION aria_internal[.]pair_voice_owner_device/);
 assert.match(migration, /REVOKE ALL ON FUNCTION aria_internal[.]touch_voice_owner_device/);
 assert.match(migration, /GRANT EXECUTE ON FUNCTION aria_internal[.]pair_voice_owner_device/);
@@ -70,6 +68,8 @@ const androidTouchFunction = migration.slice(
 );
 assert.ok(androidTouchFunction.includes("capabilities = '[]'::jsonb"), 'heartbeat must preserve empty capabilities');
 assert.match(androidTouchFunction, /voice_trusted_device_keys/);
+assert.match(androidTouchFunction, /d.token_hash = v_token_hash/);
+assert.match(androidTouchFunction, /k.owner_user_id = p_owner_user_id/);
 assert.match(migration, /resolve_voice_trusted_device_key/);
 assert.match(migration, /revoke_voice_trusted_device_key/);
 const registerTrustedVoiceDevice = migration.slice(
