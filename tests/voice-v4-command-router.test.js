@@ -81,6 +81,13 @@ function request(overrides = {}) {
 (async () => {
   ({ createVoiceCommandRouter, LANES } = await import('../supabase/functions/_shared/voice-command-router.mjs'));
   const { parseExplicitVoiceAction, dispatchVoiceAction, getVoiceCommandStatus } = await import('../pwa/src/voiceCommandClient.js');
+  const telegramIntent = parseExplicitVoiceAction('Envía por Telegram a contact-mom: Te quiero.');
+  assert.deepEqual(telegramIntent, {
+    lane: 'device.action',
+    operation: 'message.send',
+    params: { recipient_id: 'contact-mom', body: 'Te quiero' }
+  }, 'Telegram messages must require an explicit recipient alias and exact body');
+
   const fx = fixture();
   const allowed = await fx.router.route(request());
   assert.equal(allowed.status, 'queued', 'the API must not claim execution before a target agent confirms it');
