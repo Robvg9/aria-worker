@@ -2206,7 +2206,7 @@ Deno.serve(async (req) => {
       const expectedFields = ["device_id", "device_token", "public_key_id", "public_key_ed25519"];
       if (!body || typeof body !== "object" || Array.isArray(body)
           || Object.keys(body).sort().join(",") !== [...expectedFields].sort().join(",")
-          || typeof body.device_id !== "string" || body.device_id.length < 8 || body.device_id.length > 160
+          || typeof body.device_id !== "string" || !/^[A-Za-z0-9._:-]{8,160}$/.test(body.device_id)
           || typeof body.device_token !== "string" || body.device_token.length < 32 || body.device_token.length > 512
           || typeof body.public_key_id !== "string" || !/^[A-Za-z0-9._:-]{8,128}$/.test(body.public_key_id)
           || typeof body.public_key_ed25519 !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(body.public_key_ed25519)) {
@@ -2246,7 +2246,7 @@ Deno.serve(async (req) => {
       const body = await req.json().catch(() => null);
       if (!body || typeof body !== "object" || Array.isArray(body)
           || Object.keys(body).length !== 1
-          || typeof body.device_id !== "string" || body.device_id.length < 4 || body.device_id.length > 160) {
+          || typeof body.device_id !== "string" || !/^[A-Za-z0-9._:-]{8,160}$/.test(body.device_id)) {
         return json({ ok: false, error: "voice_device_key_revocation_invalid", trace_id: trace }, 400);
       }
       try {
@@ -2282,7 +2282,7 @@ Deno.serve(async (req) => {
       const expectedFields = ["device_id", "model_id", "consented"];
       if (!body || typeof body !== "object" || Array.isArray(body)
           || Object.keys(body).sort().join(",") !== [...expectedFields].sort().join(",")
-          || typeof body.device_id !== "string" || body.device_id.length < 8 || body.device_id.length > 160
+          || typeof body.device_id !== "string" || !/^[A-Za-z0-9._:-]{8,160}$/.test(body.device_id)
           || typeof body.model_id !== "string" || !/^[A-Za-z0-9._:-]{3,160}$/.test(body.model_id)
           || body.consented !== true) {
         return json({ ok: false, error: "voice_speaker_policy_invalid", trace_id: trace }, 400);
@@ -2315,7 +2315,7 @@ Deno.serve(async (req) => {
       const body = await req.json().catch(() => null);
       if (!body || typeof body !== "object" || Array.isArray(body)
           || Object.keys(body).length !== 1
-          || typeof body.device_id !== "string" || body.device_id.length < 8 || body.device_id.length > 160) {
+          || typeof body.device_id !== "string" || !/^[A-Za-z0-9._:-]{8,160}$/.test(body.device_id)) {
         return json({ ok: false, error: "voice_speaker_policy_revocation_invalid", trace_id: trace }, 400);
       }
       try {
