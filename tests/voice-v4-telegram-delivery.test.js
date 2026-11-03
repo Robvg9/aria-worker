@@ -1,7 +1,7 @@
 'use strict';
 
 const assert = require('node:assert/strict');
-const { createTelegramMessageDelivery } = await import('../supabase/functions/_shared/telegram-message-delivery.mjs');
+let createTelegramMessageDelivery;
 
 function fixture({ token = '123456:TelegramFakeBotToken_forContractTests', fetchImpl } = {}) {
   const sent = [];
@@ -68,6 +68,7 @@ function fixture({ token = '123456:TelegramFakeBotToken_forContractTests', fetch
 }
 
 (async () => {
+  ({ createTelegramMessageDelivery } = await import('../supabase/functions/_shared/telegram-message-delivery.mjs'));
   const unconfigured = fixture({ token: '' });
   const blocked = await unconfigured.delivery.prepare({
     ownerId: 'owner-uuid',
