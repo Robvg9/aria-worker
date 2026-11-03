@@ -50,10 +50,12 @@ function verifySignature(publicKeyRaw, canonical, signature) {
 async function main() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'aria-voice-v4-dpapi-test-'));
   try {
-    const store = createWindowsVoiceOwnerKeystore({ platform: 'win32', baseDirectory: root, dpapi: makeTestDpapi() });
+    const store = createWindowsVoiceOwnerKeystore({ platform: 'win32', baseDirectory: root, ownerId: '123e4567-e89b-42d3-a456-426614174000', deviceId: 'windows-lacueva-780886', dpapi: makeTestDpapi() });
     const key = store.getDeviceKey();
     assert.equal(key.algorithm, 'Ed25519');
     assert.equal(key.keyStorage, 'WindowsDPAPI_CurrentUser');
+    assert.equal(key.ownerId, '123e4567-e89b-42d3-a456-426614174000');
+    assert.equal(key.deviceId, 'windows-lacueva-780886');
     assert.match(key.fingerprintSha256, /^[a-f0-9]{64}$/);
 
     const stored = fs.readFileSync(store.filePath, 'utf8');
@@ -64,9 +66,27 @@ async function main() {
     const signed = store.signCanonicalPayload(canonical);
     assert.equal(verifySignature(Buffer.from(key.publicKey, 'base64url'), canonical, signed.signature), true);
 
-    const tampered = JSON.parse(canonical);
-    tampered.request_id = 'request-tampered-0001';
-    assert.throws(() => store.signCanonicalPayload(JSON.stringify(tampered)), /not_canonical/);
+    const shuffled = Object.fromEntries(Object.entries(makePayload()).reverse());
+    assert.throws(() => store.signCanonicalPayload(JSON.stringify(shuffled)), /not_canonical/);
+
+    const wrongOwner = makePayload();
+    wrongOwner.owner_id = '123e4567-e89b-42d3-a456-426614174099';
+    assert.throws(() => store.signCanonicalPayload(JSON.stringify(wrongOwner)), /owner_mismatch/);
+
+    const wrongDevice = makePayload();
+    wrongDevice.device_id = 'windows-another-device';
+    assert.throws(() => store.signCanonicalPayload(JSON.stringify(wrongDevice)), /device_mismatch/);
+
+    const unapprovedSpeaker = makePayload();
+    unapprovedSpeaker.speaker_verified = true;
+    unapprovedSpeaker.speaker_model_id = 'synthetic-speaker-v1';
+    unapprovedSpeaker.speaker_score = 0.99;
+    assert.throws(() => store.signCanonicalPayload(JSON.stringify(unapprovedSpeaker)), /speaker_verification_unavailable/);
+
+    const wrongStore = createWindowsVoiceOwnerKeystore({
+      platform: 'win32', baseDirectory: root, ownerId: '123e4567-e89b-42d3-a456-426614174000', deviceId: 'windows-other-device', dpapi: makeTestDpapi()
+    });
+    assert.throws(() => wrongStore.getDeviceKey(), /record_invalid/);
 
     assert.deepEqual(store.deleteDeviceKey(), { deleted: true });
     assert.deepEqual(store.deleteDeviceKey(), { deleted: false });
@@ -80,7 +100,7 @@ async function main() {
   if (process.platform === 'win32') {
     const liveRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aria-voice-v4-live-dpapi-'));
     try {
-      const live = createWindowsVoiceOwnerKeystore({ baseDirectory: liveRoot });
+      const live = createWindowsVoiceOwnerKeystore({ baseDirectory: liveRoot, ownerId: '123e4567-e89b-42d3-a456-426614174000', deviceId: 'windows-lacueva-780886' });
       const key = live.getDeviceKey();
       const canonical = canonicalizeOwnerSessionPayload(makePayload());
       const signature = live.signCanonicalPayload(canonical);
