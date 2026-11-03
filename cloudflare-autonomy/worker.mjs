@@ -33,7 +33,7 @@ const error = (message, status = 400) => json({ error: message }, status);
 
 const PACKAGE3_PROBE_TTL_MS = 10 * 60 * 1000;
 const PACKAGE3_PROBE_LEASE_MS = 8000;
-const PACKAGE3_PROBE_ALLOWED_JOB_OPERATIONS = new Set(['mission.plan', 'task.execute', 'mission.verify']);
+const PACKAGE3_PROBE_ALLOWED_JOB_OPERATIONS = new Set(['task.execute', 'mission.verify']);
 const PACKAGE3_PROBE_ID_PATTERN = /^[a-z0-9][a-z0-9-]{7,70}$/;
 
 async function sha256Hex(value) {
@@ -375,13 +375,75 @@ export class AriaMissionStore {
         await this.ctx.storage.put(scopeKey, scope);
         return error(scope.last_error, createdResponse.status || 500);
       }
+
       scope.mission_id = String(createdPayload.mission.mission_id);
       scope.status = 'active';
+      await this.ctx.storage.put(scopeKey, scope);
+
+      // Package 3 validates Durable Object lease recovery, not planner recovery.
+      // Materialize its exact one-task proof inside the approved one-shot scope.
+      // The Windows worker remains execution-only and never receives a planner job.
+      const relativePath = 'package3-proof-' + probeId + '.txt';
+      const proofContent = 'Mission Wonder 2 Package 3 LIVE proof ' + probeId + '\n';
+      const planResponse = await this.submitPlan(
+        scope.mission_id,
+        new Request('https://aria.internal/api/missions/' + encodeURIComponent(scope.mission_id) + '/plan', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            tasks: [{
+              task_id: 'package3-live-write-proof',
+              title: 'Create one isolated temporary Package 3 proof artifact',
+              operation: 'workspace.write',
+              payload: { relative_path: relativePath, content: proofContent },
+              idempotent: true,
+              max_attempts: 2,
+              depends_on: []
+            }]
+          })
+        }),
+        { source: 'package3_scoped_static_plan' }
+      );
+      const planPayload = await planResponse.json().catch(() => ({}));
+      const plannedMission = planPayload.mission;
+      if (!planResponse.ok || !plannedMission || plannedMission.status !== 'running' ||
+          !Array.isArray(plannedMission.tasks) || plannedMission.tasks.length !== 1 ||
+          plannedMission.tasks[0]?.operation !== 'workspace.write' ||
+          plannedMission.tasks[0]?.payload?.relative_path !== relativePath ||
+          plannedMission.tasks[0]?.payload?.content !== proofContent ||
+          plannedMission.tasks[0]?.status !== 'running') {
+        const cleanup = await this.closePackage3Probe(new Request('https://aria.internal/api/package3/probe/close', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ probe_id: probeId, reason: 'package3_static_plan_initialization_failed' })
+        }));
+        const cleanupPayload = await cleanup.json().catch(() => ({}));
+        if (!cleanup.ok || cleanupPayload.scope?.status !== 'closed') {
+          throw new Error('package3_probe_plan_initialization_failed_cleanup_incomplete');
+        }
+        return error('package3_probe_plan_initialization_failed', 503);
+      }
+
       const records = await this.ctx.storage.list({ prefix: 'job:' });
       scope.allowed_job_ids = Array.from(records.values())
-        .filter(job => job.mission_id === scope.mission_id)
+        .filter(job => job.mission_id === scope.mission_id &&
+          PACKAGE3_PROBE_ALLOWED_JOB_OPERATIONS.has(String(job.operation)) &&
+          (job.status === 'queued' || job.status === 'leased'))
         .map(job => String(job.job_id));
       await this.ctx.storage.put(scopeKey, scope);
+      if (scope.allowed_job_ids.length !== 1) {
+        const cleanup = await this.closePackage3Probe(new Request('https://aria.internal/api/package3/probe/close', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ probe_id: probeId, reason: 'package3_initial_job_scope_invalid' })
+        }));
+        const cleanupPayload = await cleanup.json().catch(() => ({}));
+        if (!cleanup.ok || cleanupPayload.scope?.status !== 'closed') {
+          throw new Error('package3_initial_job_scope_invalid_cleanup_incomplete');
+        }
+        return error('package3_initial_job_scope_invalid', 503);
+      }
+
       return json({
         ok: true,
         probe: {
@@ -392,7 +454,7 @@ export class AriaMissionStore {
           lease_ms: scope.lease_ms,
           allowed_job_operations: Array.from(PACKAGE3_PROBE_ALLOWED_JOB_OPERATIONS)
         },
-        mission: createdPayload.mission
+        mission: plannedMission
       }, 201);
     } catch (cause) {
       scope.status = 'failed';
@@ -1041,7 +1103,7 @@ export class AriaMissionStore {
     return { ok: true, response: submitted, planner_version: result.planner_version };
   }
 
-  async submitPlan(missionId, request) {
+  async submitPlan(missionId, request, options = {}) {
     this.assertMissionExecutionEnabled();
     let body;
     try { body = await request.json(); } catch (_) { return error('invalid_json', 400); }
@@ -1062,6 +1124,21 @@ export class AriaMissionStore {
     const totalSteps = (replan ? (mission.tasks || []).length : 0) + tasks.length;
     if (totalSteps > maxSteps) return error('plan_exceeds_mission_max_steps', 422);
 
+    if (options.source === 'package3_scoped_static_plan') {
+      const scope = this.package3ProbeContext;
+      const probeId = String(scope && scope.probe_id || '');
+      const expectedPath = 'package3-proof-' + probeId + '.txt';
+      const expectedContent = 'Mission Wonder 2 Package 3 LIVE proof ' + probeId + '\n';
+      if (!scope || scope.status !== 'active' || scope.mission_id !== missionId ||
+          tasks.length !== 1 || tasks[0].operation !== 'workspace.write' ||
+          tasks[0].payload.relative_path !== expectedPath ||
+          tasks[0].payload.content !== expectedContent ||
+          tasks[0].idempotent !== true || tasks[0].max_attempts !== 2 ||
+          tasks[0].depends_on.length !== 0) {
+        return error('package3_probe_plan_scope_violation', 403);
+      }
+    }
+
     // The cloud planner supplies structured tasks; the Windows executor never
     // receives an LLM planning job and never needs a local model credential.
     const jobRecords = await this.ctx.storage.list({ prefix: 'job:' });
@@ -1074,7 +1151,9 @@ export class AriaMissionStore {
       job.lease_token = null;
       job.lease_until = null;
       job.updated_at = nowIso();
-      job.last_error = 'superseded_by_authenticated_remote_plan';
+      job.last_error = options.source === 'package3_scoped_static_plan'
+        ? 'superseded_by_package3_scoped_static_plan'
+        : 'superseded_by_authenticated_remote_plan';
       await this.ctx.storage.put('job:' + job.job_id, job);
     }
 
@@ -1089,7 +1168,7 @@ export class AriaMissionStore {
     mission.current_task_id = null;
     mission.last_error = null;
     await this.saveMission(mission, 'mission_plan_submitted', {
-      source: 'authenticated_remote_planner',
+      source: String(options.source || 'authenticated_remote_planner'),
       task_count: tasks.length,
       total_task_count: mission.tasks.length,
       plan_kind: replan ? 'replan' : 'plan'
