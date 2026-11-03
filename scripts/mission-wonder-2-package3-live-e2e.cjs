@@ -122,21 +122,8 @@ function createAdapterSource({ probeId, relativePath, content, artifactPath, att
     "module.exports = Object.freeze({",
     "  supabaseIndependent: true,",
     "  localInference: false,",
-    "  capabilities: Object.freeze(['mission.plan', 'workspace', 'mission.verify']),",
+    "  capabilities: Object.freeze(['workspace', 'mission.verify']),",
     "  async health() { return { ok: true, local_inference: false, adapter: 'isolated-package3-file-adapter' }; },",
-    "  async plan(goal, context) {",
-    "    if (!String(goal).includes('Mission Wonder 2 Package 3 LIVE synthetic recovery probe')) throw new Error('unexpected_probe_goal');",
-    "    if (context.metadata.package3_live_probe !== true || context.metadata.probe_id !== expectedProbeId) throw new Error('probe_metadata_mismatch');",
-    "    return [{",
-    "      task_id: 'package3-live-write-proof',",
-    "      title: 'Create one isolated temporary Package 3 proof artifact',",
-    "      operation: 'workspace.write',",
-    "      payload: { relative_path: relativePath, content },",
-    "      idempotent: true,",
-    "      max_attempts: 2,",
-    "      depends_on: []",
-    "    }];",
-    "  },",
     "  async executeTask(task, mission, context) {",
     "    if (!task || task.operation !== 'workspace.write') throw new Error('unexpected_task_operation');",
     "    if (mission.metadata.probe_id !== expectedProbeId) throw new Error('mission_probe_id_mismatch');",
@@ -291,7 +278,9 @@ function spawnWorker({ workerId, root, adapterPath, leaseEvidenceDir, probeId, s
     });
     missionId = started.data.mission.mission_id;
     assert.equal(started.data.probe.status, 'active');
-    assert.equal(started.data.mission.status, 'planning');
+    assert.equal(started.data.mission.status, 'running');
+    assert.equal(started.data.mission.tasks.length, 1);
+    assert.equal(started.data.mission.tasks[0].operation, 'workspace.write');
     assert.equal(started.data.mission.metadata.probe_id, PROBE_ID);
     evidence.mission_id = missionId;
     evidence.checks.single_allowlisted_mission_created = 'PASS';
@@ -329,6 +318,14 @@ function spawnWorker({ workerId, root, adapterPath, leaseEvidenceDir, probeId, s
       attemptsPath,
       firstSignal
     }), 'utf8');
+
+    const adapter = require(adapterPath);
+    assert.equal(adapter.supabaseIndependent, true);
+    assert.equal(adapter.localInference, false);
+    assert.equal(typeof adapter.plan, 'undefined');
+    assert.equal(typeof adapter.replan, 'undefined');
+    assert.equal(typeof adapter.executeTask, 'function');
+    assert.equal(typeof adapter.verifyCompletion, 'function');
 
     const beforeWorkerId = 'mw2p3-' + PROBE_ID + '-before';
     const afterWorkerId = 'mw2p3-' + PROBE_ID + '-after';
@@ -457,10 +454,12 @@ function spawnWorker({ workerId, root, adapterPath, leaseEvidenceDir, probeId, s
     const jobs = completed.jobs;
     assert.equal(jobs.length, 3);
     assert.deepEqual(jobs.map(job => job.operation).sort(), ['mission.plan', 'mission.verify', 'task.execute']);
-    assert.ok(jobs.every(job => job.status === 'completed'));
+    assert.equal(jobs.find(job => job.operation === 'mission.plan').status, 'cancelled');
+    assert.equal(jobs.find(job => job.operation === 'mission.plan').last_error, 'superseded_by_package3_scoped_static_plan');
+    assert.ok(jobs.filter(job => job.operation !== 'mission.plan').every(job => job.status === 'completed'));
     assert.equal(jobs.find(job => job.operation === 'task.execute').attempts, 2);
     const eventTypes = completed.events.map(event => event.type);
-    for (const type of ['mission_created', 'mission_planned', 'task_started', 'task_succeeded', 'mission_verified_complete']) {
+    for (const type of ['mission_created', 'mission_plan_submitted', 'task_started', 'task_succeeded', 'mission_verified_complete']) {
       assert.equal(eventTypes.filter(value => value === type).length, 1, 'duplicate or missing lifecycle event: ' + type);
     }
     assert.equal(completed.events.length, 5);
@@ -480,6 +479,7 @@ function spawnWorker({ workerId, root, adapterPath, leaseEvidenceDir, probeId, s
     });
     scopeClosed = true;
     assert.equal(closed.data.scope.status, 'closed');
+    assert.equal(closed.data.scope.claim_count, 3);
     assert.ok(closed.data.scope.scope_token_revoked_at);
     assert.equal(closed.data.mission.status, 'succeeded');
     evidence.checks.scope_revoked_and_closed = 'PASS';
