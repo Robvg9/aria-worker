@@ -50,6 +50,7 @@ function fixture({ token = '123456:TelegramFakeBotToken_forContractTests', fetch
   };
   const delivery = createTelegramMessageDelivery({
     botToken: token,
+    authorizedOwnerId: 'owner-uuid',
     stores,
     fetchImpl: fetchImpl || (async (url, init) => {
       sent.push({ url, init, parsedBody: JSON.parse(init.body) });
@@ -210,19 +211,17 @@ function fixture({ token = '123456:TelegramFakeBotToken_forContractTests', fetch
     }
   });
   const discoveredChats = await discoveryFx.delivery.listStartChats({
-    ownerId: 'owner-uuid',
-    configuredOwnerId: 'owner-uuid'
+    ownerId: 'owner-uuid'
   });
   assert.equal(discoveredChats.ok, true);
   assert.equal(discoveredChats.chats.length, 2);
   assert.equal(discoveredChats.chats[0].chat_id, '123456789');
   assert.equal(JSON.stringify(discoveredChats).includes('texto privado'), false);
   const wrongOwner = await discoveryFx.delivery.listStartChats({
-    ownerId: 'another-owner',
-    configuredOwnerId: 'owner-uuid'
+    ownerId: 'another-owner'
   });
   assert.equal(wrongOwner.ok, false);
-  assert.equal(wrongOwner.reason, 'telegram_bot_owner_mismatch');
+  assert.equal(wrongOwner.reason, 'telegram_owner_mismatch');
 
   const verifyFx = fixture({
     fetchImpl: async (url, init) => ({
@@ -232,10 +231,10 @@ function fixture({ token = '123456:TelegramFakeBotToken_forContractTests', fetch
       }
     })
   });
-  const verified = await verifyFx.delivery.verifyChat('123456789');
+  const verified = await verifyFx.delivery.verifyChat('123456789', 'owner-uuid');
   assert.equal(verified.ok, true);
   assert.equal(verified.display_hint, 'Robert');
-  assert.equal((await verifyFx.delivery.verifyChat('not-numeric')).reason, 'telegram_chat_id_invalid');
+  assert.equal((await verifyFx.delivery.verifyChat('not-numeric', 'owner-uuid')).reason, 'telegram_chat_id_invalid');
 
   console.log('ARIA VOICE V4 TELEGRAM DELIVERY CONTRACT: PASS');
 })().catch(error => {
