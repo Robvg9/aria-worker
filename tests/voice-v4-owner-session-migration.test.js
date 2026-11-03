@@ -43,13 +43,13 @@ const androidPairFunction = migration.slice(
   migration.indexOf('CREATE OR REPLACE FUNCTION aria_internal.touch_voice_owner_device')
 );
 assert.match(androidPairFunction, /capabilities, metadata/);
-assert.match(androidPairFunction, /'\\[\\]'::jsonb|\\'\\[\\]'::jsonb/);
+assert.ok(androidPairFunction.includes("'[]'::jsonb"), 'pairing must create no device capabilities');
 assert.match(androidPairFunction, /wake_word_enabled/);
 const androidTouchFunction = migration.slice(
   migration.indexOf('CREATE OR REPLACE FUNCTION aria_internal.touch_voice_owner_device'),
   migration.indexOf('CREATE OR REPLACE FUNCTION aria_internal.revoke_voice_trusted_device_key')
 );
-assert.match(androidTouchFunction, /capabilities = '\\[\\]'::jsonb/);
+assert.ok(androidTouchFunction.includes("capabilities = '[]'::jsonb"), 'heartbeat must preserve empty capabilities');
 assert.match(androidTouchFunction, /voice_trusted_device_keys/);
 assert.match(migration, /resolve_voice_trusted_device_key/);
 assert.match(migration, /revoke_voice_trusted_device_key/);
