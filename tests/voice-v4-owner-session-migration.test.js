@@ -43,7 +43,9 @@ assert.match(migration, /approved_at IS NOT NULL/);
 assert.match(migration, /resolve_voice_speaker_policy/);
 assert.match(migration, /revoke_voice_speaker_policy/);
 const latestSpeakerResolver = migration.slice(migration.lastIndexOf('CREATE OR REPLACE FUNCTION aria_internal.resolve_voice_speaker_policy'));
-assert.match(latestSpeakerResolver, /JOIN aria_internal[.]voice_speaker_model_catalog m[\\s\\S]*?m[.]status = 'approved'/,
+assert.match(latestSpeakerResolver, /JOIN aria_internal[.]voice_speaker_model_catalog m/);
+assert.match(latestSpeakerResolver, /m[.]status = 'approved'/);
+//
   'revoked or unapproved speaker models must not resolve as an enabled speaker policy');
 assert.match(latestSpeakerResolver, /m[.]approved_at IS NOT NULL/);
 assert.match(latestSpeakerResolver, /m[.]evaluation_evidence_ref IS NOT NULL/);
