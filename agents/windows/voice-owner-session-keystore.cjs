@@ -304,6 +304,52 @@ function createWindowsVoiceOwnerKeystore(options = {}) {
         keyStorage: 'WindowsDPAPI_CurrentUser'
       });
     },
+    createReadOnlyOwnerSession(input, options = {}) {
+      if (!input || typeof input !== 'object' || Array.isArray(input)) {
+        throw new Error('voice_windows_owner_session_request_invalid');
+      }
+      const expectedFields = ['expires_at', 'lane', 'operation', 'owner_id', 'request_id', 'target_device_id'];
+      const keys = Object.keys(input).sort();
+      if (keys.length !== expectedFields.length || keys.some((key, index) => key !== expectedFields[index])) {
+        throw new Error('voice_windows_owner_session_fields_invalid');
+      }
+      if (input.owner_id !== ownerId || !validIdentifier(input.request_id, 8, 128)
+          || input.lane !== 'read'
+          || !['aria.status', 'device.status'].includes(input.operation)) {
+        throw new Error('voice_windows_owner_session_read_only_required');
+      }
+      if (input.operation === 'aria.status' && input.target_device_id !== null) {
+        throw new Error('voice_windows_owner_session_target_invalid');
+      }
+      if (input.operation === 'device.status' && !validIdentifier(input.target_device_id, 8, 160)) {
+        throw new Error('voice_windows_owner_session_target_invalid');
+      }
+      const now = Number.isSafeInteger(options.now) ? options.now : Date.now();
+      if (!Number.isSafeInteger(input.expires_at) || input.expires_at <= now
+          || input.expires_at - now > 20000) {
+        throw new Error('voice_windows_owner_session_expiry_invalid');
+      }
+      const payload = {
+        activation_id: 'activation-' + crypto.randomUUID(),
+        device_id: deviceId,
+        expires_at: input.expires_at,
+        issued_at: now,
+        nonce: base64Url(crypto.randomBytes(32)),
+        owner_id: ownerId,
+        request_id: input.request_id,
+        session_id: crypto.randomUUID(),
+        speaker_model_id: null,
+        speaker_score: null,
+        speaker_verified: false,
+        version: SESSION_VERSION
+      };
+      const canonical = canonicalizeOwnerSessionPayload(payload, { ownerId, deviceId, now });
+      const signed = this.signCanonicalPayload(canonical);
+      return Object.freeze({
+        source_device_id: deviceId,
+        owner_session: Object.freeze({ payload: Object.freeze(payload), signature: signed.signature })
+      });
+    },
     signCanonicalPayload(input) {
       const canonical = canonicalizeOwnerSessionPayload(input, { ownerId, deviceId });
       const record = readRecord();
