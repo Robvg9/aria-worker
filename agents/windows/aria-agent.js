@@ -6,6 +6,7 @@ const { parseShellJob, executePowerShell } = require('./windows-shell-executor')
 const { createWindowsMeditationController } = require('./aria-meditation-controller');
 const { runAutonomousRwht } = require('./autonomous-rwht-controller');
 const { getWindowsResourceProfile } = require('./resource-profile');
+const { executeVoiceDeviceCommand, parseAllowlist, UUID_RE } = require('../shared/voice-command-executor.cjs');
 const { executeWindowsDesktop } = (() => {
   try { return require('./windows-desktop-adapter'); }
   catch (error) { if (error?.code !== 'MODULE_NOT_FOUND') throw error; return require('../../computer-use/windows-desktop-adapter'); }
@@ -18,6 +19,84 @@ const RESOURCE_PROFILE=getWindowsResourceProfile();
 const OLLAMA_REQUESTED=process.env.ARIA_OLLAMA_ENABLED==='true';
 const OLLAMA_ENABLED=OLLAMA_REQUESTED&&RESOURCE_PROFILE.local_llm_eligible;
 const MAX_OUTPUT=256*1024, DISPLAY_OUTPUT=4096;
+
+const VOICE_ALLOWED_APPS = parseAllowlist(process.env.ARIA_VOICE_ALLOWED_APPS || 'chrome,edge,notepad,calculator');
+const VOICE_ALLOWED_URL_HOSTS = parseAllowlist(process.env.ARIA_VOICE_ALLOWED_URL_HOSTS || '');
+const VOICE_BRIGHTNESS_ENABLED = process.env.ARIA_VOICE_ENABLE_BRIGHTNESS === 'true';
+const WINDOWS_VOICE_APPS = Object.freeze({ chrome: 'chrome.exe', edge: 'msedge.exe', notepad: 'notepad.exe', calculator: 'calc.exe' });
+const { execFile, spawn } = require('node:child_process');
+
+function execFileChecked(file, args, timeoutMs = 8000) {
+  return new Promise((resolve, reject) => {
+    execFile(file, args, { windowsHide: true, timeout: timeoutMs, maxBuffer: 16 * 1024 }, (error, stdout, stderr) => {
+      if (error) {
+        const wrapped = new Error('native_api_failed');
+        wrapped.code = 'native_api_failed';
+        reject(wrapped);
+        return;
+      }
+      resolve({ stdout: String(stdout || ''), stderr: String(stderr || '') });
+    });
+  });
+}
+function spawnDetachedChecked(file, args) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(file, args, { detached: true, stdio: 'ignore', windowsHide: true });
+    child.once('error', () => { const error = new Error('native_api_failed'); error.code = 'native_api_failed'; reject(error); });
+    child.once('spawn', () => { child.unref(); resolve(); });
+  });
+}
+async function setWindowsVoiceBrightness(percent) {
+  if (!VOICE_BRIGHTNESS_ENABLED) { const error = new Error('operation_unsupported'); error.code = 'operation_unsupported'; throw error; }
+  const script = [
+    '$ErrorActionPreference = "Stop"',
+    '$methods = @(Get-CimInstance -Namespace root/WMI -ClassName WmiMonitorBrightnessMethods)',
+    'if ($methods.Count -eq 0) { exit 42 }',
+    '$brightness = ' + percent,
+    'foreach ($method in $methods) {',
+    '  $result = Invoke-CimMethod -InputObject $method -MethodName WmiSetBrightness -Arguments @{ Timeout = 1; Brightness = $brightness }',
+    '  if ($result.ReturnValue -ne 0) { exit 43 }',
+    '}'
+  ].join('; ');
+  await execFileChecked('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], 10000);
+}
+async function openWindowsVoiceApp(appId) {
+  const executable = WINDOWS_VOICE_APPS[appId];
+  if (!executable) { const error = new Error('app_not_allowlisted'); error.code = 'app_not_allowlisted'; throw error; }
+  await spawnDetachedChecked(executable, []);
+}
+async function openWindowsVoiceUrl(url) {
+  await spawnDetachedChecked('rundll32.exe', ['url.dll,FileProtocolHandler', url]);
+}
+async function runWindowsVoiceCommand(command) {
+  return executeVoiceDeviceCommand(command, {
+    deviceId: DEVICE_ID,
+    allowedApps: VOICE_ALLOWED_APPS,
+    allowedUrlHosts: VOICE_ALLOWED_URL_HOSTS,
+    adapters: { setBrightness: setWindowsVoiceBrightness, openApp: openWindowsVoiceApp, openUrl: openWindowsVoiceUrl }
+  });
+}
+// Direct voice-device commands use their own short-lived queue; they never use execution_jobs or re-enable mission execution.
+async function claimAndExecuteVoiceCommand() {
+  try {
+    const body = await api('/v1/voice/commands/claim', { method: 'POST', body: JSON.stringify({ device_id: DEVICE_ID }), timeoutMs: 8000 });
+    if (!body?.command) return 'idle';
+    const command = body.command;
+    if (!UUID_RE.test(String(command.command_id || ''))) throw new Error('voice_command_id_invalid');
+    const outcome = await runWindowsVoiceCommand(command);
+    await api('/v1/voice/commands/' + encodeURIComponent(command.command_id) + '/complete', {
+      method: 'POST',
+      body: JSON.stringify({ status: outcome.status, result: outcome.result, error_code: outcome.errorCode }),
+      timeoutMs: 8000
+    });
+    log('VOICE COMMAND ACK id=' + command.command_id + ' operation=' + String(command.operation) + ' status=' + outcome.status);
+    return 'worked';
+  } catch (error) {
+    console.error('[voice-command] ' + error.message);
+    return 'error';
+  }
+}
+
 const AGENT_HEARTBEAT_PATH=process.env.ARIA_AGENT_HEARTBEAT_PATH||'';
 function log(message){console.log(`[ARIA] ${new Date().toISOString()} ${message}`)}
 function redact(text){let value=typeof text==='string'?text.slice(-DISPLAY_OUTPUT):'';for(const pattern of[/Bearer\s+[A-Za-z0-9._\-]+/g,/\bsk-[A-Za-z0-9_\-]{8,}/g,/\bor-v1-[A-Za-z0-9_\-]{8,}/g,/gh[pousr]_[A-Za-z0-9_]{20,}/g,/(api[_-]?key|token|secret|password)\s*[=:]\s*\S+/gi])value=value.replace(pattern,'[redacted]');return value}
@@ -129,7 +208,7 @@ async function callOllama({prompt,model,timeout_ms,signal}){
   }
 }
 async function enroll(){return api('/v1/devices/enroll',{method:'POST',body:JSON.stringify({device_id:DEVICE_ID,token:DEVICE_TOKEN})})}
-async function heartbeat(){touchProcessHeartbeat('attempt');try{const capabilities=[SHELL_OPERATION,COMPUTER_OPERATION,AUTONOMOUS_COMPUTER_OPERATION];if(OLLAMA_ENABLED)capabilities.unshift(OLLAMA_OPERATION);await api('/v1/devices/heartbeat',{method:'POST',body:JSON.stringify({device_id:DEVICE_ID,agent_type:'windows-local',capabilities})});touchProcessHeartbeat('online');log(`ONLINE device=${DEVICE_ID} capabilities=${capabilities.join(',')}`)}catch(error){touchProcessHeartbeat('transport_error');console.error(`[heartbeat] ${error.message}`)}}
+async function heartbeat(){touchProcessHeartbeat('attempt');try{const capabilities=[SHELL_OPERATION,COMPUTER_OPERATION,AUTONOMOUS_COMPUTER_OPERATION];capabilities.push('app.open','browser.open_url');if(VOICE_BRIGHTNESS_ENABLED)capabilities.push('display.brightness.write');if(OLLAMA_ENABLED)capabilities.unshift(OLLAMA_OPERATION);await api('/v1/devices/heartbeat',{method:'POST',body:JSON.stringify({device_id:DEVICE_ID,agent_type:'windows-local',capabilities})});touchProcessHeartbeat('online');log(`ONLINE device=${DEVICE_ID} capabilities=${capabilities.join(',')}`)}catch(error){touchProcessHeartbeat('transport_error');console.error(`[heartbeat] ${error.message}`)}}
 function emitTelemetry(message){try{void Promise.resolve(meditationController.event(message)).catch(error=>console.error(`[meditation] ${error.message}`))}catch(error){console.error(`[meditation] ${error.message}`)}}
 async function rejectClaimedJob(job,reason,operation=job?.operation){const result={status:'failed',exit_code:null,stdout:'',stderr:reason,duration_ms:0,metadata:{agent_version:'aria-windows-agent-v2',operation,rejected:true}};try{await api(`/v1/jobs/${encodeURIComponent(job.job_id)}/result`,{method:'POST',body:JSON.stringify({device_id:DEVICE_ID,result})})}catch(error){console.error(`[reject] ${error.message}`)}}
 async function readJobAuthorization(job){
@@ -232,4 +311,4 @@ if(job.operation===AUTONOMOUS_COMPUTER_OPERATION){await executeAutonomousRwhtJob
 let stopping=false;
 const meditationController=createWindowsMeditationController();
 process.on('SIGTERM',()=>{stopping=true;void meditationController.shutdown();log('STOP requested')});process.on('SIGINT',()=>{stopping=true;void meditationController.shutdown();log('STOP requested')});
-(async()=>{log(`START device=${DEVICE_ID} platform=windows-local node=${process.version} resource_profile=${RESOURCE_PROFILE.profile} ram_gb=${RESOURCE_PROFILE.ram_gb} logical_cpus=${RESOURCE_PROFILE.logical_cpus} ollama_enabled=${OLLAMA_ENABLED} guard=${RESOURCE_PROFILE.guard_reason}`);try{await Promise.race([enroll(),sleep(5000).then(()=>{throw new Error('enroll_timeout')})]);log(`ENROLLED device=${DEVICE_ID}`)}catch(error){console.error(`[enroll] ${error.message}`)}await heartbeat();setInterval(heartbeat,HEARTBEAT_MS);let consecutivePollFailures=0;while(!stopping){const state=await claimAndExecute();if(state==='error'){consecutivePollFailures=Math.min(consecutivePollFailures+1,6)}else{consecutivePollFailures=0}const baseDelay=state==='worked'?5_000:POLL_MS;const backoff=state==='error'?Math.min(POLL_MS*Math.pow(2,consecutivePollFailures),60_000):baseDelay;const jitter=Math.floor(Math.random()*Math.max(1,Math.min(3_000,Math.round(backoff*0.25))));await sleep(backoff+jitter)}})().catch(error=>{console.error(error);process.exit(1)})
+(async()=>{log(`START device=${DEVICE_ID} platform=windows-local node=${process.version} resource_profile=${RESOURCE_PROFILE.profile} ram_gb=${RESOURCE_PROFILE.ram_gb} logical_cpus=${RESOURCE_PROFILE.logical_cpus} ollama_enabled=${OLLAMA_ENABLED} guard=${RESOURCE_PROFILE.guard_reason}`);try{await Promise.race([enroll(),sleep(5000).then(()=>{throw new Error('enroll_timeout')})]);log(`ENROLLED device=${DEVICE_ID}`)}catch(error){console.error(`[enroll] ${error.message}`)}await heartbeat();setInterval(heartbeat,HEARTBEAT_MS);let consecutivePollFailures=0;while(!stopping){const voiceState=await claimAndExecuteVoiceCommand();const state=voiceState==='worked'?'worked':await claimAndExecute();if(state==='error'||voiceState==='error'){consecutivePollFailures=Math.min(consecutivePollFailures+1,6)}else{consecutivePollFailures=0}const baseDelay=state==='worked'?5_000:POLL_MS;const backoff=state==='error'?Math.min(POLL_MS*Math.pow(2,consecutivePollFailures),60_000):baseDelay;const jitter=Math.floor(Math.random()*Math.max(1,Math.min(3_000,Math.round(backoff*0.25))));await sleep(backoff+jitter)}})().catch(error=>{console.error(error);process.exit(1)})

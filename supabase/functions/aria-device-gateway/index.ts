@@ -1698,7 +1698,43 @@ if(req.method==='GET'&&p==='/health')return json({ok:true,service:'aria-device-g
 if(req.method==='POST'&&p==='/v1/autonomy/cycle'){try{let serviceAuthorized=await autonomyServiceAuthorized(req);if(!serviceAuthorized){const deviceAuth=await auth(req,b.device_id);if(deviceAuth.error)return deviceAuth.error;b.device_id=deviceAuth.device.device_id;}return json(await autonomyCycle(b))}catch(e){return json({ok:false,status:'blocked',error:queueError(e),policy_version:'autonomy-post-plan-v1'},200)}}
 if(req.method==='POST'&&p==='/v1/audit/all-for-one/start'){try{if(!await autonomyServiceAuthorized(req))return json({error:'unauthorized'},401);return json(await allForOneStart())}catch(e){return json({ok:false,status:'failed',error:queueError(e)},200)}}
 if(req.method==='POST'&&p==='/v1/audit/all-for-one/tick'){try{if(!await autonomyServiceAuthorized(req))return json({error:'unauthorized'},401);return json(await allForOneTick())}catch(e){return json({ok:false,status:'failed',error:queueError(e)},200)}}
-const a=await auth(req,b.device_id);if(a.error)return a.error;const d=a.device;if(req.method==='POST'&&p==='/v1/meditation/tick'){try{return json(await meditationTick({...b,lightweight:true},d))}catch(e){return json({ok:false,status:'failed',error:queueError(e)},200)}}if(req.method==='POST'&&p==='/v1/devices/heartbeat'){const agentType=String(b.agent_type||d.agent_type);const caps=new Set(Array.isArray(b.capabilities)?b.capabilities.map(String):Array.isArray(d.capabilities)?d.capabilities.map(String):[]);if(agentType==='android-termux'){caps.delete('computer.use.android');const h=b.android_ui_health&&typeof b.android_ui_health==='object'?b.android_ui_health:null;if(h?.ok===true&&h.protocol==='aria-android-ui-agent-ipc-v2')caps.add('computer.use.android');}const {error}=await supabase.rpc('heartbeat_device_gateway',{p_device_id:d.device_id,p_capabilities:Array.from(caps),p_agent_type:agentType});if(error)return json({error:'heartbeat_failed'},500);return json({ok:true,device_id:d.device_id,capabilities:Array.from(caps)})}if(req.method==='POST'&&p==='/v1/android/autonomous/decide'){try{return await androidAutonomousDecision(b,d)}catch(e){return json({ok:false,error:queueError(e)},502)}}if(req.method==='POST'&&p==='/v1/router/decide'){try{return json(await intelligentRouterDecision({...b,device_id:d.device_id}))}catch(e){return json({status:'failed',error:queueError(e)},500)}}
+const a=await auth(req,b.device_id);if(a.error)return a.error;const d=a.device;
+const voiceDeviceTokenMatch=(req.headers.get('authorization')||'').match(/^Bearer\s+(.+)$/i);
+const voiceDeviceToken=voiceDeviceTokenMatch?.[1]||'';
+if(req.method==='POST'&&p==='/v1/voice/commands/claim'){
+  if(!voiceDeviceToken)return json({error:'unauthorized'},401);
+  try{
+    const {data,error}=await supabase.schema('aria_internal').rpc('claim_voice_device_command',{
+      p_device_id:d.device_id,
+      p_device_token:voiceDeviceToken
+    });
+    if(error)return json({error:'voice_command_claim_failed'},503);
+    return json({command:data||null,transport:'voice-command-queue-v1'});
+  }catch{return json({error:'voice_command_claim_failed'},503)}
+}
+const voiceCompleteMatch=p.match(/^\/v1\/voice\/commands\/([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\/complete$/i);
+if(req.method==='POST'&&voiceCompleteMatch){
+  if(!voiceDeviceToken)return json({error:'unauthorized'},401);
+  const commandId=voiceCompleteMatch[1];
+  const status=String(b.status||'');
+  const result=b.result&&typeof b.result==='object'&&!Array.isArray(b.result)?b.result:{};
+  const errorCode=typeof b.error_code==='string'?b.error_code:null;
+  if(!['succeeded','failed'].includes(status))return json({error:'voice_command_status_invalid'},400);
+  try{
+    const {data,error}=await supabase.schema('aria_internal').rpc('complete_voice_device_command',{
+      p_command_id:commandId,
+      p_device_id:d.device_id,
+      p_device_token:voiceDeviceToken,
+      p_status:status,
+      p_result:result,
+      p_error_code:errorCode
+    });
+    if(error)return json({error:'voice_command_completion_rejected'},409);
+    if(data!==true)return json({error:'voice_command_not_owned_or_expired'},409);
+    return json({ok:true,command_id:commandId,status,transport:'voice-command-queue-v1'});
+  }catch{return json({error:'voice_command_completion_failed'},503)}
+}
+if(req.method==='POST'&&p==='/v1/meditation/tick'){try{return json(await meditationTick({...b,lightweight:true},d))}catch(e){return json({ok:false,status:'failed',error:queueError(e)},200)}}if(req.method==='POST'&&p==='/v1/devices/heartbeat'){const agentType=String(b.agent_type||d.agent_type);const caps=new Set(Array.isArray(b.capabilities)?b.capabilities.map(String):Array.isArray(d.capabilities)?d.capabilities.map(String):[]);if(agentType==='android-termux'){caps.delete('computer.use.android');const h=b.android_ui_health&&typeof b.android_ui_health==='object'?b.android_ui_health:null;if(h?.ok===true&&h.protocol==='aria-android-ui-agent-ipc-v2')caps.add('computer.use.android');}const {error}=await supabase.rpc('heartbeat_device_gateway',{p_device_id:d.device_id,p_capabilities:Array.from(caps),p_agent_type:agentType});if(error)return json({error:'heartbeat_failed'},500);return json({ok:true,device_id:d.device_id,capabilities:Array.from(caps)})}if(req.method==='POST'&&p==='/v1/android/autonomous/decide'){try{return await androidAutonomousDecision(b,d)}catch(e){return json({ok:false,error:queueError(e)},502)}}if(req.method==='POST'&&p==='/v1/router/decide'){try{return json(await intelligentRouterDecision({...b,device_id:d.device_id}))}catch(e){return json({status:'failed',error:queueError(e)},500)}}
 if(req.method==='POST'&&p==='/v1/router/execute'){try{return json(await intelligentRouterExecute(b,d))}catch(e){return json({status:'failed',error:queueError(e)},200)}}
 if(req.method==='POST'&&p==='/v1/router/parallel-execute'){try{return json(await intelligentRouterParallelExecute(b,d))}catch(e){return json({status:'failed',error:queueError(e)},200)}}
 if(req.method==='POST'&&p==='/v1/meditation/tick'){try{return json(await meditationTick(b,d))}catch(e){return json({ok:false,status:'failed',error:e instanceof Error?e.message:String(e)},200)}}

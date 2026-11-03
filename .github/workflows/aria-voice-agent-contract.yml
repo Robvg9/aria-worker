@@ -1,0 +1,46 @@
+name: ARIA Voice V4 Device Agent Contract
+
+on:
+  push:
+    branches:
+      - feat/aria-voice-v4-diagnostics-20261102
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'agents/shared/voice-command-executor.cjs'
+      - 'agents/windows/aria-agent.js'
+      - 'agents/termux/aria-agent.js'
+      - 'tests/voice-v4-device-agent.test.js'
+      - '.github/workflows/aria-voice-agent-contract.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  device-agent-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Check agent syntax
+        run: |
+          node --check agents/windows/aria-agent.js
+          node --check agents/termux/aria-agent.js
+          node --check agents/shared/voice-command-executor.cjs
+
+      - name: Verify command validation and mocked execution
+        run: node tests/voice-v4-device-agent.test.js
+
+      - name: Verify command authorization and mission freeze contract
+        run: |
+          node tests/voice-v4-command-router.test.js
+          node tests/voice-v4-owner-session.test.js
+          node tests/voice-v4-owner-session-migration.test.js

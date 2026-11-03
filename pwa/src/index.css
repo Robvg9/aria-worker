@@ -786,3 +786,31 @@ button{touch-action:manipulation;}
   font-weight:800;
 }
 .handsFreeSilenceButton:hover{border-color:rgba(255,120,149,.48);background:rgba(255,120,149,.08)}
+
+
+.handsFreeVoiceDiagnostics{
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+  margin-top:6px;
+  color:var(--muted,#8a8f98);
+  font-size:11px;
+}
+.handsFreeVoiceDiagnostics summary{
+  cursor:pointer;
+  font-weight:600;
+}
+.handsFreeVoiceDiagnostics p{
+  margin:2px 0;
+  line-height:1.45;
+}
+.handsFreeVoiceDiagnostics button{
+  align-self:flex-start;
+  padding:5px 9px;
+  border:1px solid var(--border,rgba(255,255,255,.14));
+  border-radius:8px;
+  background:transparent;
+  color:inherit;
+  font:inherit;
+  cursor:pointer;
+}

@@ -1,0 +1,50 @@
+name: ARIA Voice V4 Spanish open-vocabulary KWS benchmark
+
+on:
+  push:
+    branches:
+      - feat/aria-voice-v4-diagnostics-20261102
+    paths:
+      - voice-v4/spanish-kws/**
+      - .github/workflows/aria-voice-v4-spanish-kws.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  spanish-aria-kws:
+    name: Spanish ARIA / Oye ARIA open-vocabulary smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout exact branch SHA
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install pinned Python runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends espeak-ng ffmpeg
+          python -m pip install --disable-pip-version-check \
+            "sherpa-onnx==2.0.1" "sentencepiece==0.2.1" \
+            "numpy==2.1.3"
+
+      - name: Run synthetic Spanish KWS evaluation
+        run: |
+          python voice-v4/spanish-kws/aria_spanish_kws_smoke.py \
+            --workdir "$RUNNER_TEMP/aria-spanish-kws" \
+            --report "$RUNNER_TEMP/aria-spanish-kws-report.json"
+
+      - name: Upload metadata-only result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aria-spanish-kws-metadata
+          path: ${{ runner.temp }}/aria-spanish-kws-report.json
+          if-no-files-found: ignore
+          retention-days: 7
