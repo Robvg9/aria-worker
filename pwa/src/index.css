@@ -816,6 +816,11 @@ button{touch-action:manipulation;}
 }
 
 
+/* Voice V4 PWA — Telegram requires a visible, exact-content confirmation. */
+.voiceMessageConfirmation{display:grid;gap:9px;margin:10px 0 2px;padding:12px;border:1px solid rgba(159,124,255,.34);border-radius:14px;background:rgba(159,124,255,.055)}
+.voiceMessageRecipient{font-size:12px;overflow-wrap:anywhere}
+.voiceMessageBody{white-space:pre-wrap;overflow-wrap:anywhere;max-height:180px;overflow:auto;padding:10px;border-radius:10px;border:1px solid var(--line);background:rgba(255,255,255,.035);font-size:13px;line-height:1.45}
+.voiceMessageConfirmation small{font-size:10px;line-height:1.45;color:var(--muted)}
 /* Voice V4 PWA — exact lifecycle status; queued never implies success. */
 .voiceCommandStatus{display:grid;gap:8px;margin:10px 0 2px;padding:11px 12px;border:1px solid rgba(97,217,255,.2);border-radius:13px;background:rgba(97,217,255,.045)}
 .voiceCommandStatusHeader{display:flex;justify-content:space-between;align-items:center;gap:10px;min-width:0}
