@@ -91,6 +91,7 @@ jobs:
             v_pair_result jsonb;
             v_resolved_key jsonb;
             v_device_capabilities jsonb;
+            v_pair_rejected boolean;
           BEGIN
             SELECT count(*) INTO protected_tables
             FROM pg_class c
@@ -201,6 +202,82 @@ jobs:
             IF v_resolved_key IS NULL
                OR v_resolved_key->>'device_id' <> v_device_id THEN
               RAISE EXCEPTION 'voice_v4_android_readonly_owner_key_not_resolvable';
+            END IF;
+
+            -- A different owner cannot claim this public-key-derived device ID.
+            v_pair_rejected := false;
+            BEGIN
+              PERFORM aria_internal.pair_voice_owner_device(
+                '123e4567-e89b-12d3-a456-426614174001'::uuid,
+                v_device_id,
+                repeat('B', 43),
+                'aria-android-keystore-ed25519-v1',
+                v_public_key
+              );
+            EXCEPTION WHEN OTHERS THEN
+              v_pair_rejected := true;
+            END;
+            IF NOT v_pair_rejected THEN
+              RAISE EXCEPTION 'voice_v4_android_pairing_owner_hijack_was_allowed';
+            END IF;
+
+            -- An active owner can rotate its bearer token; the old token stops working.
+            v_pair_result := aria_internal.pair_voice_owner_device(
+              '123e4567-e89b-12d3-a456-426614174000'::uuid,
+              v_device_id,
+              repeat('B', 43),
+              'aria-android-keystore-ed25519-v1',
+              v_public_key
+            );
+            IF aria_internal.touch_voice_owner_device(
+              '123e4567-e89b-12d3-a456-426614174000'::uuid,
+              v_device_id,
+              repeat('A', 43)
+            ) IS DISTINCT FROM false THEN
+              RAISE EXCEPTION 'voice_v4_android_old_pairing_token_still_valid';
+            END IF;
+            IF aria_internal.touch_voice_owner_device(
+              '123e4567-e89b-12d3-a456-426614174000'::uuid,
+              v_device_id,
+              repeat('B', 43)
+            ) IS DISTINCT FROM true THEN
+              RAISE EXCEPTION 'voice_v4_android_rotated_pairing_token_rejected';
+            END IF;
+
+            -- Revocation is terminal: heartbeat and pairing cannot silently revive it.
+            IF aria_internal.revoke_voice_trusted_device_key(
+              '123e4567-e89b-12d3-a456-426614174000'::uuid,
+              v_device_id
+            ) IS DISTINCT FROM true THEN
+              RAISE EXCEPTION 'voice_v4_android_owner_key_revocation_failed';
+            END IF;
+            IF aria_internal.touch_voice_owner_device(
+              '123e4567-e89b-12d3-a456-426614174000'::uuid,
+              v_device_id,
+              repeat('B', 43)
+            ) IS DISTINCT FROM false THEN
+              RAISE EXCEPTION 'voice_v4_android_revoked_key_heartbeat_allowed';
+            END IF;
+            v_pair_rejected := false;
+            BEGIN
+              PERFORM aria_internal.pair_voice_owner_device(
+                '123e4567-e89b-12d3-a456-426614174000'::uuid,
+                v_device_id,
+                repeat('C', 43),
+                'aria-android-keystore-ed25519-v1',
+                v_public_key
+              );
+            EXCEPTION WHEN OTHERS THEN
+              v_pair_rejected := true;
+            END;
+            IF NOT v_pair_rejected THEN
+              RAISE EXCEPTION 'voice_v4_android_revoked_key_reactivated';
+            END IF;
+            IF aria_internal.resolve_voice_trusted_device_key(
+              '123e4567-e89b-12d3-a456-426614174000'::uuid,
+              v_device_id
+            ) IS NOT NULL THEN
+              RAISE EXCEPTION 'voice_v4_android_revoked_key_still_resolves';
             END IF;
           END $v4$;
           SQL
