@@ -37,9 +37,11 @@ const legacyIgnore = legacyIgnoreStart >= 0 && legacyIgnoreEnd > legacyIgnoreSta
 for (const p of [
   '.github/scripts/mission-wonder-2-step3-a3-live-presence.ps1',
   '.github/scripts/mission-wonder-2-step3-a3-deploy-coordinator.sh',
-  '.github/scripts/mission-wonder-2-step3-a3-prepare-deploy-secrets.py'
+  '.github/scripts/mission-wonder-2-step3-a3-prepare-deploy-secrets.py',
+  '.github/workflows/mission-wonder-2-step3-a3-live.yml',
+  'tests/mission-wonder-2-step3-a3-live-workflow-contract.test.cjs'
 ]) {
-  assert.ok(legacyIgnore.includes(`      - '${p}'`), `Legacy ARIA production deploy must ignore A3-only helper: ${p}`);
+  assert.ok(legacyIgnore.includes(`      - '${p}'`), `Legacy ARIA production deploy must ignore A3-only path: ${p}`);
 }
 
 function triggerSection(trigger) {
