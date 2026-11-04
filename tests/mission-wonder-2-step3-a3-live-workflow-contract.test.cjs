@@ -6,6 +6,23 @@ const path = require('node:path');
 
 const workflowPath = path.join(__dirname, '..', '.github', 'workflows', 'mission-wonder-2-step3-a3-live.yml');
 const source = fs.readFileSync(workflowPath, 'utf8');
+const pwaFastDeployPath = path.join(__dirname, '..', '.github', 'workflows', 'aria-pwa-fast-deploy.yml');
+const pwaFastDeploy = fs.readFileSync(pwaFastDeployPath, 'utf8');
+const pwaIgnoreStart = pwaFastDeploy.indexOf("    paths-ignore:");
+const pwaIgnoreEnd = pwaFastDeploy.indexOf("  workflow_dispatch:", pwaIgnoreStart);
+const pwaFastDeployIgnore = pwaIgnoreStart >= 0 && pwaIgnoreEnd > pwaIgnoreStart
+  ? pwaFastDeploy.slice(pwaIgnoreStart, pwaIgnoreEnd)
+  : '';
+for (const a3OnlyPath of [
+  '.github/workflows/mission-wonder-2-step3-a3-contract.yml',
+  '.github/workflows/mission-wonder-2-step3-a3-live.yml',
+  'autonomy/worker-single-instance-lock-v1.js',
+  'tests/mission-wonder-2-step3-a3-presence.test.mjs',
+  'tests/mission-wonder-2-step3-a3-live-workflow-contract.test.cjs',
+  'tests/worker-single-instance-lock-v1.test.js'
+]) {
+  assert.ok(pwaFastDeployIgnore.includes(`      - '${a3OnlyPath}'`), `PWA Fast Lane must ignore A3-only path: ${a3OnlyPath}`);
+}
 
 assert.match(source, /^on:\s*\n  workflow_dispatch:/m, 'the live A3 pilot must be manual-only');
 assert.doesNotMatch(source, /^  (push|pull_request):/m, 'the live pilot must never run on a push or PR');

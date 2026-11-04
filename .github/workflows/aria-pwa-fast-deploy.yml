@@ -14,6 +14,13 @@ on:
       - '.github/workflows/aria-npm-test.yml'
       - 'tests/aria-no-mission-reactivation.contract.test.js'
       - '.github/workflows/persistent-autonomy-v1-tests.yml'
+      # A3 worker presence/recovery workflow and its local-only helper/tests do not change the PWA runtime.
+      - '.github/workflows/mission-wonder-2-step3-a3-contract.yml'
+      - '.github/workflows/mission-wonder-2-step3-a3-live.yml'
+      - 'autonomy/worker-single-instance-lock-v1.js'
+      - 'tests/mission-wonder-2-step3-a3-presence.test.mjs'
+      - 'tests/mission-wonder-2-step3-a3-live-workflow-contract.test.cjs'
+      - 'tests/worker-single-instance-lock-v1.test.js'
       - '.github/workflows/supabase-canonical-deploy.yml'
       - 'Dockerfile.aria-coordinator'
       - 'autonomy/PERSISTENT_AUTONOMY_V1.md'
