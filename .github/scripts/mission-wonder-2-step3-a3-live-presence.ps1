@@ -199,10 +199,24 @@ try {
     throw 'A3_FIRST_WORKER_DID_NOT_SEND_THREE_HEARTBEATS'
   }
 
-  $duplicateOutput = & $node $workerScript 2>&1
-  $duplicateExit = $LASTEXITCODE
-  if ($duplicateExit -ne 75 -or (($duplicateOutput | Out-String) -notmatch 'ARIA_WORKER_ALREADY_RUNNING')) {
-    throw "A3_DUPLICATE_INSTANCE_GUARD_FAILED: exit=$duplicateExit"
+  # Windows PowerShell 5.1 can promote native stderr into a terminating
+  # NativeCommandError when ErrorActionPreference is Stop. Capture both streams
+  # through Start-Process so the expected duplicate-lock message is data, not an exception.
+  $duplicateStdout = Join-Path $env:RUNNER_TEMP ($probeId + '-worker-duplicate.log')
+  $duplicateStderr = Join-Path $env:RUNNER_TEMP ($probeId + '-worker-duplicate.err')
+  $duplicateProcess = Start-Process -FilePath $node -ArgumentList ('"' + $workerScript + '"') -WorkingDirectory $env:GITHUB_WORKSPACE -PassThru -Wait -NoNewWindow -RedirectStandardOutput $duplicateStdout -RedirectStandardError $duplicateStderr
+  $duplicateExit = $duplicateProcess.ExitCode
+  $duplicateOutput = @()
+  if (Test-Path -LiteralPath $duplicateStdout -PathType Leaf) {
+    $duplicateOutput += [System.IO.File]::ReadAllText($duplicateStdout, [System.Text.Encoding]::UTF8)
+  }
+  if (Test-Path -LiteralPath $duplicateStderr -PathType Leaf) {
+    $duplicateOutput += [System.IO.File]::ReadAllText($duplicateStderr, [System.Text.Encoding]::UTF8)
+  }
+  $duplicateText = $duplicateOutput -join [Environment]::NewLine
+  Remove-Item -LiteralPath $duplicateStdout, $duplicateStderr -Force -ErrorAction SilentlyContinue
+  if ($duplicateExit -ne 75 -or $duplicateText -notmatch 'ARIA_WORKER_ALREADY_RUNNING') {
+    throw "A3_DUPLICATE_INSTANCE_GUARD_FAILED: exit=$duplicateExit output=$duplicateText"
   }
   Write-Host 'A3_SINGLE_INSTANCE_GUARD=PASS'
 
