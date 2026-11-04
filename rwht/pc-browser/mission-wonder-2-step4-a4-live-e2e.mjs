@@ -162,9 +162,11 @@ try {
   const goalHash = createHash('sha256').update(JSON.stringify({
     version: 1, user_id: String(session.userId), goal: goal.trim(), project_id: null,
   }), 'utf8').digest('hex');
-  scopeId = `mission_wonder_2_a4_${RUN_ID}_${RUN_ATTEMPT}`;
-  const missionId = `mission_a4_${RUN_ID}_${RUN_ATTEMPT}`;
-  const scopeKey = `mission-wonder-2-step4-a4:${RUN_ID}:${RUN_ATTEMPT}`;
+  // A globally unique scope key makes this authorization a true lifetime one-shot.
+  // Re-running or retrying this workflow cannot create a second A4 mission.
+  scopeId = 'mission_wonder_2_a4_authorized_once';
+  const missionId = 'mission_a4_authorized_once';
+  const scopeKey = 'mission-wonder-2-step4-a4:single-authorized-execution';
   const insert = `
     INSERT INTO aria_internal.mission_wonder_2_a4_scopes
       (scope_id,scope_key,owner_user_id,goal_hash,mission_id,allowed_device_id,status,expires_at)
