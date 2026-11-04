@@ -99,6 +99,8 @@ const error = (message, status = 400) => json({ error: message }, status);
 const PACKAGE3_PROBE_TTL_MS = 10 * 60 * 1000;
 const READONLY_PILOT_TTL_MS = 5 * 60 * 1000;
 const PACKAGE3_PROBE_LEASE_MS = 8000;
+const WORKER_PRESENCE_PILOT_TTL_MS = 8 * 60 * 1000;
+const WORKER_PRESENCE_PILOT_LEASE_MS = 30000;
 const PACKAGE3_PROBE_ALLOWED_JOB_OPERATIONS = new Set(['task.execute', 'mission.verify']);
 const PACKAGE3_PROBE_ID_PATTERN = /^[a-z0-9][a-z0-9-]{7,70}$/;
 const MISSION_CONTROL_URL = 'https://aria-autonomy-coordinator.robvg9.workers.dev/';
@@ -269,6 +271,16 @@ export class AriaMissionStore {
       if (!authorized(request, this.env.ARIA_WORKER_TOKEN)) return error('unauthorized_worker', 401);
       if (this.isMissionExecutionPaused()) {
         if (method !== 'POST') return this.pausedResponse();
+        // A3 presence-only lease is an explicit non-mission scope. It grants
+        // exactly one idle-heartbeat route; it never grants claims or job leases.
+        if (presenceRoute && request.headers.get('x-aria-worker-presence-probe-id')) {
+          const presenceScope = await this.resolveWorkerPresencePilotScope(request);
+          if (!presenceScope) return error('worker_presence_scope_rejected', 423);
+          return this.exclusive(
+            () => this.presence(request, presenceScope),
+            { allowFrozen: true }
+          );
+        }
         // Preserve the legacy fail-fast contract: normal claims are rejected
         // before parsing their bodies. Only the complete scoped-probe header set
         // proceeds to body parsing and the narrow worker allowlist.
@@ -299,6 +311,7 @@ export class AriaMissionStore {
         }, { probeScope: scope });
       }
       if (method === 'POST' && url.pathname === '/api/worker/claim') return this.exclusive(() => this.claim(request));
+      if (method === 'POST' && presenceRoute) return this.exclusive(() => this.presence(request));
       const match = url.pathname.match(/^\/api\/worker\/jobs\/([^/]+)\/(heartbeat|complete|fail)$/);
       if (method !== 'POST' || !match) return error('method_not_allowed', 405);
       const jobId = decodeURIComponent(match[1]);
@@ -314,6 +327,14 @@ export class AriaMissionStore {
       return this.exclusive(() => this.submitPlan(decodeURIComponent(producerPlanMatch[1]), request));
     }
     if (!authorized(request, this.env.ARIA_CONTROL_TOKEN)) return error('unauthorized', 401);
+    // A3 may register one bounded presence-only scope while the mission freeze remains active.
+    if (method === 'POST' && url.pathname === '/api/worker-presence/probe/start') {
+      if (!this.isMissionExecutionPaused()) return error('worker_presence_pilot_requires_global_freeze', 409);
+      return this.exclusive(() => this.startWorkerPresencePilot(request), { allowFrozen: true });
+    }
+    if (method === 'POST' && url.pathname === '/api/worker-presence/probe/close') {
+      return this.exclusive(() => this.closeWorkerPresencePilot(request), { allowFrozen: true });
+    }
     // A single exact-scope Package 3 probe may run while every general mutation stays frozen.
     if (method === 'POST' && url.pathname === '/api/package3/probe/start') {
       if (!this.isMissionExecutionPaused()) return error('package3_probe_requires_global_freeze', 409);
@@ -323,6 +344,10 @@ export class AriaMissionStore {
       return this.exclusive(() => this.closePackage3Probe(request), { allowFrozen: true });
     }
     if (method === 'POST' && url.pathname === '/api/plan-preview') return this.previewWorkspacePlan(request);
+    const workerPresenceReadbackMatch = url.pathname.match(/^\/api\/worker-presence\/probes\/([a-z0-9-]{8,71})$/);
+    if (method === 'GET' && workerPresenceReadbackMatch) {
+      return this.workerPresencePilotReadback(decodeURIComponent(workerPresenceReadbackMatch[1]));
+    }
     const package3ReadbackMatch = url.pathname.match(/^\/api\/package3\/probes\/([a-z0-9-]{8,71})$/);
     if (method === 'GET' && package3ReadbackMatch) {
       return this.package3ProbeReadback(decodeURIComponent(package3ReadbackMatch[1]));
@@ -359,6 +384,141 @@ export class AriaMissionStore {
     const approvalMatch = url.pathname.match(/^\/api\/approvals\/([^/]+)$/);
     if (method === 'POST' && approvalMatch) return this.exclusive(() => this.decideApproval(decodeURIComponent(approvalMatch[1]), request));
     return error('not_found', 404);
+  }
+
+  async resolveWorkerPresencePilotScope(request) {
+    const probeId = String(request.headers.get('x-aria-worker-presence-probe-id') || '');
+    const token = String(request.headers.get('x-aria-worker-presence-scope-token') || '');
+    const workerId = String(request.headers.get('x-aria-worker-presence-worker-id') || '');
+    const instanceId = String(request.headers.get('x-aria-worker-presence-instance-id') || '');
+    if (!PACKAGE3_PROBE_ID_PATTERN.test(probeId) || token.length < 32 || token.length > 200 ||
+        !workerId || workerId.length > 160 || !/^[A-Za-z0-9._:-]{16,128}$/.test(instanceId)) return null;
+    const scope = await this.ctx.storage.get('worker-presence:probe:' + probeId);
+    if (!scope || scope.probe_type !== 'presence_only' || scope.status !== 'active' ||
+        Date.parse(scope.expires_at) <= Date.now() || scope.worker_id !== workerId) return null;
+    const tokenHash = await sha256Hex(token);
+    if (!constantTimeTextEqual(tokenHash, scope.scope_token_sha256)) return null;
+    return scope;
+  }
+
+  async startWorkerPresencePilot(request) {
+    let body;
+    try { body = await request.json(); } catch (_) { return error('invalid_json', 400); }
+    if (!body || body.confirm !== 'RUN_ONE_WORKER_PRESENCE_ONLY_PILOT') {
+      return error('explicit_worker_presence_pilot_confirmation_required', 400);
+    }
+    const probeId = String(body.probe_id || '');
+    const workerId = String(body.worker_id || '');
+    const scopeToken = String(body.scope_token || '');
+    if (!PACKAGE3_PROBE_ID_PATTERN.test(probeId)) return error('worker_presence_probe_id_invalid', 400);
+    if (!/^[A-Za-z0-9._:-]{1,160}$/.test(workerId)) return error('worker_presence_worker_id_invalid', 400);
+    if (scopeToken.length < 32 || scopeToken.length > 200) return error('worker_presence_scope_token_invalid', 400);
+    const scopeKey = 'worker-presence:probe:' + probeId;
+    if (await this.ctx.storage.get(scopeKey)) return error('worker_presence_probe_id_already_used', 409);
+    const activeProbeId = await this.ctx.storage.get('worker-presence:active-probe');
+    if (typeof activeProbeId === 'string' && activeProbeId) {
+      const active = await this.ctx.storage.get('worker-presence:probe:' + activeProbeId);
+      if (active && active.status === 'active' && Date.parse(active.expires_at) > Date.now()) {
+        return error('worker_presence_pilot_already_active', 409);
+      }
+      if (active && active.status === 'active') {
+        active.status = 'expired';
+        active.closed_at = nowIso();
+        active.close_reason = 'ttl_expired_before_next_pilot';
+        active.scope_token_sha256 = null;
+        active.scope_token_revoked_at = nowIso();
+        active.active_instance_id = null;
+        active.instance_lease_until = null;
+        await this.ctx.storage.put('worker-presence:probe:' + activeProbeId, active);
+      }
+      await this.ctx.storage.put('worker-presence:active-probe', null);
+    }
+    const now = Date.now();
+    const scope = {
+      version: 'v1',
+      probe_type: 'presence_only',
+      probe_id: probeId,
+      status: 'active',
+      worker_id: workerId,
+      scope_token_sha256: await sha256Hex(scopeToken),
+      presence_count: 0,
+      first_presence_at: null,
+      last_presence_at: null,
+      last_presence_state: null,
+      last_presence_worker_id: null,
+      active_instance_id: null,
+      instance_lease_until: null,
+      instance_takeover_count: 0,
+      previous_instance_id: null,
+      previous_instance_released_at: null,
+      created_at: nowIso(),
+      expires_at: new Date(now + WORKER_PRESENCE_PILOT_TTL_MS).toISOString(),
+      lease_ms: WORKER_PRESENCE_PILOT_LEASE_MS,
+      closed_at: null,
+      close_reason: null,
+      scope_token_revoked_at: null
+    };
+    await this.ctx.storage.put(scopeKey, scope);
+    await this.ctx.storage.put('worker-presence:active-probe', probeId);
+    return json({ ok: true, scope: this.workerPresencePilotSummary(scope) }, 201);
+  }
+
+  workerPresencePilotSummary(scope) {
+    return {
+      version: scope.version,
+      probe_type: scope.probe_type,
+      probe_id: scope.probe_id,
+      status: scope.status,
+      worker_id: scope.worker_id,
+      presence_count: Number(scope.presence_count || 0),
+      first_presence_at: scope.first_presence_at || null,
+      last_presence_at: scope.last_presence_at || null,
+      last_presence_state: scope.last_presence_state || null,
+      last_presence_worker_id: scope.last_presence_worker_id || null,
+      active_instance_id: scope.active_instance_id || null,
+      instance_lease_until: scope.instance_lease_until || null,
+      instance_takeover_count: Number(scope.instance_takeover_count || 0),
+      previous_instance_released_at: scope.previous_instance_released_at || null,
+      created_at: scope.created_at,
+      expires_at: scope.expires_at,
+      lease_ms: scope.lease_ms,
+      closed_at: scope.closed_at,
+      close_reason: scope.close_reason,
+      scope_token_revoked_at: scope.scope_token_revoked_at || null,
+      mission_created: false,
+      jobs_created: 0
+    };
+  }
+
+  async workerPresencePilotReadback(probeId) {
+    if (!PACKAGE3_PROBE_ID_PATTERN.test(String(probeId || ''))) return error('worker_presence_probe_id_invalid', 400);
+    const scope = await this.ctx.storage.get('worker-presence:probe:' + probeId);
+    if (!scope) return error('worker_presence_probe_not_found', 404);
+    return json({ ok: true, scope: this.workerPresencePilotSummary(scope) });
+  }
+
+  async closeWorkerPresencePilot(request) {
+    let body;
+    try { body = await request.json(); } catch (_) { return error('invalid_json', 400); }
+    const probeId = String(body && body.probe_id || '');
+    if (!PACKAGE3_PROBE_ID_PATTERN.test(probeId)) return error('worker_presence_probe_id_invalid', 400);
+    const scopeKey = 'worker-presence:probe:' + probeId;
+    const scope = await this.ctx.storage.get(scopeKey);
+    if (!scope) return error('worker_presence_probe_not_found', 404);
+    if (scope.status !== 'closed') {
+      scope.status = 'closed';
+      scope.closed_at = nowIso();
+      scope.close_reason = String(body.reason || 'operator_cleanup').slice(0, 200);
+      scope.scope_token_sha256 = null;
+      scope.scope_token_revoked_at = nowIso();
+      scope.active_instance_id = null;
+      scope.instance_lease_until = null;
+      await this.ctx.storage.put(scopeKey, scope);
+    }
+    if (await this.ctx.storage.get('worker-presence:active-probe') === probeId) {
+      await this.ctx.storage.put('worker-presence:active-probe', null);
+    }
+    return this.workerPresencePilotReadback(probeId);
   }
 
   async resolvePackage3ProbeWorkerScope(request, body, jobId) {
@@ -1489,7 +1649,65 @@ export class AriaMissionStore {
     return json({ job: { ...job, context: { ...job.context, mission } } });
   }
 
-  async presence(request) {
+  async presence(request, explicitPresenceScope = null) {
+    if (explicitPresenceScope && explicitPresenceScope.probe_type === 'presence_only') {
+      let body;
+      try { body = await request.json(); } catch (_) { return error('invalid_json', 400); }
+      const workerId = String(body && body.worker_id || '');
+      const instanceId = String(body && body.instance_id || '');
+      const headerWorkerId = String(request.headers.get('x-aria-worker-presence-worker-id') || '');
+      const headerInstanceId = String(request.headers.get('x-aria-worker-presence-instance-id') || '');
+      if (!workerId || workerId !== explicitPresenceScope.worker_id || workerId !== headerWorkerId ||
+          !/^[A-Za-z0-9._:-]{16,128}$/.test(instanceId) || instanceId !== headerInstanceId ||
+          String(body && body.state || '') !== 'idle') {
+        return error('worker_presence_scope_mismatch', 403);
+      }
+      const scopeKey = 'worker-presence:probe:' + explicitPresenceScope.probe_id;
+      const current = await this.ctx.storage.get(scopeKey);
+      if (!current || current.status !== 'active') return error('worker_presence_scope_closed', 410);
+      if (Date.parse(current.expires_at) <= Date.now()) {
+        current.status = 'expired';
+        current.closed_at = nowIso();
+        current.close_reason = 'ttl_expired';
+        current.scope_token_sha256 = null;
+        current.scope_token_revoked_at = nowIso();
+        current.active_instance_id = null;
+        current.instance_lease_until = null;
+        await this.ctx.storage.put(scopeKey, current);
+        if (await this.ctx.storage.get('worker-presence:active-probe') === current.probe_id) {
+          await this.ctx.storage.put('worker-presence:active-probe', null);
+        }
+        return error('worker_presence_scope_expired', 410);
+      }
+      const now = Date.now();
+      const activeInstance = String(current.active_instance_id || '');
+      const activeLeaseUntil = current.instance_lease_until ? Date.parse(current.instance_lease_until) : NaN;
+      if (activeInstance && activeInstance !== instanceId &&
+          Number.isFinite(activeLeaseUntil) && activeLeaseUntil > now) {
+        return error('worker_presence_instance_already_active', 409);
+      }
+      if (activeInstance && activeInstance !== instanceId) {
+        current.instance_takeover_count = Number(current.instance_takeover_count || 0) + 1;
+        current.previous_instance_id = activeInstance;
+        current.previous_instance_released_at = nowIso();
+      }
+      current.active_instance_id = instanceId;
+      current.instance_lease_until = new Date(now + WORKER_PRESENCE_PILOT_LEASE_MS).toISOString();
+      current.presence_count = Number(current.presence_count || 0) + 1;
+      current.first_presence_at = current.first_presence_at || nowIso();
+      current.last_presence_at = nowIso();
+      current.last_presence_state = 'idle';
+      current.last_presence_worker_id = workerId;
+      await this.ctx.storage.put(scopeKey, current);
+      return json({
+        ok: true,
+        presence_count: current.presence_count,
+        last_presence_at: current.last_presence_at,
+        instance_lease_until: current.instance_lease_until,
+        instance_takeover_count: Number(current.instance_takeover_count || 0)
+      });
+    }
+
     this.assertMissionExecutionEnabled();
     const scope = this.package3ProbeContext;
     if (!scope || scope.probe_type !== 'readonly_git_status' || scope.status !== 'active') {
