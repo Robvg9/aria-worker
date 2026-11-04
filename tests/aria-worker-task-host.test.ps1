@@ -82,6 +82,35 @@ try {
     Write-Output 'TASK_HOST_PROCESS_CONSOLE=NONE_PASS'
     Write-Output 'TASK_HOST_DETACHED_CONSOLE_CHILD=PASS'
 
+    # A second host process for this Windows user must not start another worker.
+    $firstSingletonLog = Join-Path $root 'singleton-first.log'
+    $secondSingletonLog = Join-Path $root 'singleton-second.log'
+    $firstSingletonArgs = '--self-test-single-instance 3000 "' + $firstSingletonLog + '"'
+    $firstSingleton = Start-Process -FilePath $hostExe -ArgumentList $firstSingletonArgs -PassThru
+    $deadline = [DateTime]::UtcNow.AddSeconds(10)
+    while ([DateTime]::UtcNow -lt $deadline) {
+        if ((Test-Path -LiteralPath $firstSingletonLog) -and (Get-Content -LiteralPath $firstSingletonLog -Raw).Contains('HOST_SINGLE_INSTANCE=ACQUIRED')) { break }
+        Start-Sleep -Milliseconds 100
+    }
+    if (-not (Test-Path -LiteralPath $firstSingletonLog) -or
+        -not (Get-Content -LiteralPath $firstSingletonLog -Raw).Contains('HOST_SINGLE_INSTANCE=ACQUIRED')) {
+        throw 'First singleton self-test did not acquire the per-user mutex.'
+    }
+    $secondSingletonArgs = '--self-test-single-instance 0 "' + $secondSingletonLog + '"'
+    $secondSingleton = Start-Process -FilePath $hostExe -ArgumentList $secondSingletonArgs -PassThru -Wait
+    if ($secondSingleton.ExitCode -ne 0) { throw "Second singleton self-test returned $($secondSingleton.ExitCode)." }
+    if (-not (Test-Path -LiteralPath $secondSingletonLog) -or
+        -not (Get-Content -LiteralPath $secondSingletonLog -Raw).Contains('HOST_SINGLE_INSTANCE=ALREADY_RUNNING')) {
+        throw 'Second task-host instance was not rejected by the per-user mutex.'
+    }
+    if (-not $firstSingleton.WaitForExit(10000) -or $firstSingleton.ExitCode -ne 0) {
+        throw 'First singleton self-test did not exit cleanly.'
+    }
+    if (-not (Get-Content -LiteralPath $firstSingletonLog -Raw).Contains('HOST_SINGLE_INSTANCE=RELEASED')) {
+        throw 'First singleton did not release its mutex.'
+    }
+    Write-Output 'TASK_HOST_SINGLE_INSTANCE_MUTEX=PASS'
+
     # Verify compatibility with ConvertFrom-SecureString DPAPI output.
     $testToken = 'aria-task-host-dpapi-ci-' + [guid]::NewGuid().ToString('N') + '-token'
     $secure = ConvertTo-SecureString -String $testToken -AsPlainText -Force
@@ -260,6 +289,12 @@ try {
         if ($null -eq $userNode) {
             throw 'Disposable task logon trigger has no UserId.'
         }
+        $settingsNode = $taskXml.SelectSingleNode("//*[local-name()='Settings']")
+        $multipleInstancesNode = if ($null -ne $settingsNode) { $settingsNode.SelectSingleNode("./*[local-name()='MultipleInstancesPolicy']") } else { $null }
+        if ($null -eq $multipleInstancesNode -or $multipleInstancesNode.InnerText -ne 'IgnoreNew') {
+            throw 'Disposable task does not enforce MultipleInstancesPolicy=IgnoreNew.'
+        }
+        Write-Output 'TASK_SCHEDULER_SINGLE_INSTANCE_IGNORE_NEW=PASS'
 
         $triggerName = [string]$userNode.InnerText
         $triggerAccount = if ($triggerName -notmatch '\\' -and $triggerName -notmatch '^S-1-') {
