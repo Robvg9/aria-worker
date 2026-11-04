@@ -93,6 +93,7 @@ const path = require('node:path');
   assert.match(migration, /aria_m22_a4_revoke_scope_v1/);
   assert.match(workflow, /workflow_run:/);
   assert.match(workflow, /Deploy ARIA Supabase Runtime/);
+  assert.doesNotMatch(workflow, /LIVE_GATE_PREDECESSORS|ARIA Persistence \+ Recovery Browser RWHT Authenticated/);
   assert.match(e2e, /scopeId = 'mission_wonder_2_a4_authorized_once'/);
   assert.match(e2e, /missionId = 'mission_a4_authorized_once'/);
   assert.match(e2e, /single-authorized-execution/);
