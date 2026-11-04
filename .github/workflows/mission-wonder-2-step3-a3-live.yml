@@ -4,10 +4,18 @@ on:
   workflow_dispatch:
     inputs:
       confirm_live_presence_only_pilot:
-        description: "Deploy only the isolated coordinator and run the bounded presence-only recovery probe on ARIA-WINDOWS / ROBVG. No missions or jobs are admitted."
+        description: "Confirm this bounded A3 presence-only operation. No missions or jobs are admitted."
         type: boolean
         required: true
         default: false
+      phase:
+        description: "Run exactly one phase. Start physical recovery only with a separate dispatch after coordinator verification."
+        type: choice
+        required: true
+        default: deploy_coordinator
+        options:
+          - deploy_coordinator
+          - robvg_presence_recovery
 
 permissions:
   contents: read
@@ -18,7 +26,7 @@ concurrency:
 
 jobs:
   deploy-coordinator:
-    if: inputs.confirm_live_presence_only_pilot == true && github.ref == 'refs/heads/main'
+    if: inputs.confirm_live_presence_only_pilot == true && inputs.phase == 'deploy_coordinator' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment: production
     timeout-minutes: 10
@@ -90,13 +98,79 @@ jobs:
           echo "ARIA_MW2_A3_LIVE_HEALTH_AND_GLOBAL_FREEZE=PASS"
 
   robvg-presence-recovery:
-    needs: deploy-coordinator
-    if: needs.deploy-coordinator.result == 'success' && inputs.confirm_live_presence_only_pilot == true
+    if: inputs.confirm_live_presence_only_pilot == true && inputs.phase == 'robvg_presence_recovery' && github.ref == 'refs/heads/main'
     runs-on: [self-hosted, Windows, X64]
     environment: production
     timeout-minutes: 7
     steps:
       - uses: actions/checkout@v4
+      - name: Verify coordinator health and global freeze before touching ROBVG
+        env:
+          ARIA_CONTROL_TOKEN: ${{ secrets.ARIA_AUTONOMY_CONTROL_TOKEN }}
+          ARIA_WORKER_TOKEN: ${{ secrets.ARIA_AUTONOMY_WORKER_TOKEN }}
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ([string]::IsNullOrWhiteSpace($env:ARIA_CONTROL_TOKEN) -or
+              [string]::IsNullOrWhiteSpace($env:ARIA_WORKER_TOKEN) -or
+              $env:ARIA_CONTROL_TOKEN -eq $env:ARIA_WORKER_TOKEN) {
+            throw 'A3_PHASE2_REQUIRED_TOKENS_INVALID'
+          }
+          $base = 'https://aria-autonomy-coordinator.robvg9.workers.dev'
+          $health = Invoke-RestMethod -Method Get -Uri ($base + '/health') -TimeoutSec 20
+          if ($health.ok -ne $true -or $health.supabase_independent -ne $true) {
+            throw 'A3_PHASE2_COORDINATOR_HEALTH_FAILED'
+          }
+          function Assert-A3FrozenEndpoint {
+            param([string]$Uri, [string]$Token, [string]$Body, [string]$Label)
+            try {
+              Invoke-RestMethod -Method Post -Uri $Uri -Headers @{ Authorization = "Bearer $Token" } -ContentType 'application/json' -Body $Body -TimeoutSec 15 | Out-Null
+              throw "A3_PHASE2_GLOBAL_FREEZE_BYPASSED: $Label"
+            } catch {
+              $statusCode = 0
+              if ($_.Exception.Response -and $_.Exception.Response.StatusCode) {
+                $statusCode = [int]$_.Exception.Response.StatusCode
+              }
+              if ($statusCode -ne 423) { throw }
+            }
+          }
+          Assert-A3FrozenEndpoint -Uri ($base + '/api/worker/claim') -Token $env:ARIA_WORKER_TOKEN -Body '{"worker_id":"a3-phase2-freeze-check"}' -Label 'worker_claim'
+          Assert-A3FrozenEndpoint -Uri ($base + '/api/missions') -Token $env:ARIA_CONTROL_TOKEN -Body '{"goal":"must remain frozen"}' -Label 'mission_create'
+          Write-Host 'A3_PHASE2_COORDINATOR_HEALTH=PASS'
+          Write-Host 'A3_PHASE2_GLOBAL_FREEZE_423=PASS'
+
+      - name: Verify and restore extracted A3 presence script from this commit
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $relativePath = '.github/scripts/mission-wonder-2-step3-a3-live-presence.ps1'
+          $scriptPath = Join-Path $env:GITHUB_WORKSPACE ($relativePath.Replace('/', [System.IO.Path]::DirectorySeparatorChar))
+          $workspaceSha = (& git -C $env:GITHUB_WORKSPACE rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0 -or $workspaceSha -ne $env:GITHUB_SHA) {
+            throw "A3_WORKSPACE_COMMIT_MISMATCH: expected=$env:GITHUB_SHA actual=$workspaceSha"
+          }
+          $expectedBlob = (& git -C $env:GITHUB_WORKSPACE rev-parse "HEAD:$relativePath").Trim()
+          if ($LASTEXITCODE -ne 0 -or $expectedBlob -notmatch '^[a-f0-9]{40,64}$') {
+            throw "A3_PRESENCE_SCRIPT_NOT_IN_COMMIT_TREE: $relativePath"
+          }
+          if (-not (Test-Path -LiteralPath $scriptPath -PathType Leaf)) {
+            Write-Host "A3_PRESENCE_SCRIPT_RESTORE_FROM_OBJECT=$relativePath"
+            $node = 'D:\Databank\node\node.exe'
+            if (-not (Test-Path -LiteralPath $node -PathType Leaf)) {
+              $nodeCommand = Get-Command node -ErrorAction Stop
+              $node = $nodeCommand.Source
+            }
+            $restoreScript = "const cp=require('node:child_process');const fs=require('node:fs');const path=require('node:path');const [workspace,relativePath]=process.argv.slice(1);const blobSha=cp.execFileSync('git',['-C',workspace,'rev-parse','HEAD:'+relativePath],{encoding:'utf8'}).trim();if(!/^[a-f0-9]{40,64}$/.test(blobSha))throw new Error('invalid_git_blob_sha');const content=cp.execFileSync('git',['-C',workspace,'cat-file','blob',blobSha]);const target=path.join(workspace,...relativePath.split('/'));fs.mkdirSync(path.dirname(target),{recursive:true});fs.writeFileSync(target,content);const restored=cp.execFileSync('git',['-C',workspace,'hash-object',target],{encoding:'utf8'}).trim();if(restored!==blobSha)throw new Error('restored_blob_sha_mismatch');console.log('blob='+blobSha+' bytes='+content.length+' path='+target);"
+            $restoreOutput = & $node -e $restoreScript $env:GITHUB_WORKSPACE $relativePath 2>&1
+            $restoreExit = $LASTEXITCODE
+            $restoreOutput | ForEach-Object { Write-Host "A3_SCRIPT_RESTORE_DETAIL=$_"}
+            if ($restoreExit -ne 0) { throw "A3_PRESENCE_SCRIPT_RESTORE_FAILED: exit=$restoreExit" }
+          }
+          $actualBlob = (& git -C $env:GITHUB_WORKSPACE hash-object $scriptPath).Trim()
+          if ($LASTEXITCODE -ne 0 -or $actualBlob -ne $expectedBlob) {
+            throw "A3_PRESENCE_SCRIPT_BLOB_MISMATCH: expected=$expectedBlob actual=$actualBlob"
+          }
+          Write-Host 'A3_PRESENCE_SCRIPT_WORKTREE_VERIFIED=PASS'
       - name: Run one bounded presence-only worker recovery pilot on ROBVG
         env:
           ARIA_CONTROL_TOKEN: ${{ secrets.ARIA_AUTONOMY_CONTROL_TOKEN }}
