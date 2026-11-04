@@ -7,6 +7,7 @@ import { shouldDebate, debatePrompt } from "../_shared/model-debate.ts";
 import { buildIdeaMissionProposal, validateProposal } from "../_shared/idea-to-mission.mjs";
 import { deriveOperationalDiagnostic } from "../_shared/operational-diagnostics.mjs";
 import { missionRequestIdentityMatchesV1 } from "../_shared/mission-request-identity-v1.mjs";
+import { m22A4GoalIdentityHashV1 } from "../_shared/mission-wonder-2-a4-scope-v1.mjs";
 import { inspectGithubSource, buildCapabilityIndex, buildAbsorptionPlan, buildAbsorptionIdentity, advanceAbsorptionPlan, evaluateAbsorptionCompletion } from "../_shared/absorb-engine.mjs";
 import { deriveMissionDisplayTitle, MISSION_TITLE_VERSION } from "../_shared/mission-title.mjs";
 import { handlePrivateVaultRequest, isPrivateVaultRoute, privateVaultAuthFailure, privateVaultPreflight } from "./private-vault.ts";
@@ -2016,7 +2017,6 @@ Deno.serve(async (req) => {
     const pausedMissionMutation =
       req.method === "POST" &&
       (
-        path.endsWith("/missions") ||
         /\/missions\/[^/]+\/(?:verify-retry|invalidate-unverified-success|retry|human-gate\/approve|cancel)$/.test(path) ||
         path.endsWith("/meditation/control") ||
         path.endsWith("/meditation/idea-to-mission") ||
@@ -2791,6 +2791,31 @@ Deno.serve(async (req) => {
             request_id: requestId
           }, 409);
         }
+        if (MISSION_EXECUTION_PAUSED) {
+          const md = priorMission.metadata && typeof priorMission.metadata === "object" ? priorMission.metadata : {};
+          const scopeId = String(md.mission_wonder_2_a4_scope_id || "");
+          const goalHash = await m22A4GoalIdentityHashV1(user.id, goal, null);
+          if (!scopeId || md.mission_wonder_2_a4_goal_hash !== goalHash ||
+              md.mission_wonder_2_a4_readonly !== true || !md.mission_wonder_2_a4_allowed_device_id) {
+            return json({ error: "mission_execution_paused", execution_enabled: false, trace_id: trace }, 423);
+          }
+          const { data: scope, error: scopeError } = await service.schema("aria_internal")
+            .from("mission_wonder_2_a4_scopes").select("*").eq("scope_id", scopeId).maybeSingle();
+          const matches = !scopeError && scope && scope.mission_id === String(priorMission.mission_id) &&
+            scope.owner_user_id === user.id && scope.request_id === requestId && scope.goal_hash === goalHash &&
+            scope.allowed_device_id === md.mission_wonder_2_a4_allowed_device_id &&
+            ["claimed","bound","completed","revoked"].includes(String(scope.status));
+          if (!matches) return json({ error: "mission_execution_paused", execution_enabled: false, trace_id: trace }, 423);
+          if (["claimed","bound"].includes(String(scope.status))) {
+            const { data: bound, error: bindError } = await service.schema("aria_internal").rpc("aria_m22_a4_bind_scope_v1", {
+              p_scope_id: scopeId, p_mission_id: String(priorMission.mission_id),
+              p_user_id: user.id, p_request_id: requestId, p_goal_hash: goalHash,
+            });
+            if (bindError || bound !== true) return json({ error: "mission_a4_scope_replay_bind_failed", trace_id: trace }, 503);
+          } else if (!["succeeded","failed","blocked","cancelled"].includes(String(priorMission.status))) {
+            return json({ error: "mission_execution_paused", execution_enabled: false, trace_id: trace }, 423);
+          }
+        }
         const missionId = String(priorMission.mission_id);
         return json({
           ok: true,
@@ -2803,12 +2828,41 @@ Deno.serve(async (req) => {
           idempotent_replay: true
         }, 200);
       }
+      let a4Scope: any = null;
+      let a4GoalHash: string | null = null;
+      if (MISSION_EXECUTION_PAUSED) {
+        const pwaRequestId = String(req.headers.get("x-aria-request-id") || "").trim();
+        const rawProjectId = body?.project_id ?? body?.project?.id ?? null;
+        const audioCount = Array.isArray(body?.audio_attachments) ? body.audio_attachments.length : 0;
+        if (!pwaRequestId || pwaRequestId.length > 200 ||
+            (rawProjectId != null && String(rawProjectId).trim() !== "") || project?.id ||
+            audioCount > 0 || body?.visual_context) {
+          return json({ error: "mission_execution_paused", execution_enabled: false, trace_id: trace }, 423);
+        }
+        a4GoalHash = await m22A4GoalIdentityHashV1(user.id, goal, null);
+        const { data: claimedScope, error: claimError } = await service.schema("aria_internal")
+          .rpc("aria_m22_a4_claim_scope_v1", {
+            p_user_id: user.id, p_request_id: pwaRequestId,
+            p_goal_hash: a4GoalHash, p_project_id: null,
+          });
+        if (claimError || !claimedScope?.scope_id || !claimedScope?.mission_id || !claimedScope?.allowed_device_id) {
+          return json({ error: "mission_execution_paused", execution_enabled: false, scope: "a4_one_shot_unavailable", trace_id: trace }, 423);
+        }
+        a4Scope = claimedScope;
+        Object.assign(intakeMetadata, {
+          mission_wonder_2_a4_scope_id: String(a4Scope.scope_id),
+          mission_wonder_2_a4_goal_hash: a4GoalHash,
+          mission_wonder_2_a4_allowed_device_id: String(a4Scope.allowed_device_id),
+          mission_wonder_2_a4_readonly: true,
+        });
+      }
+
       let direct: any = null;
       let directTransportError: string | null = null;
       try {
         direct = await internal(DIRECT, {
           goal,
-          mission_id: typeof body?.missionId === "string" ? body.missionId : undefined,
+          mission_id: a4Scope?.mission_id || (typeof body?.missionId === "string" ? body.missionId : undefined),
           metadata: intakeMetadata,
           "x-aria-user-id": user.id
         });
@@ -2943,6 +2997,17 @@ Deno.serve(async (req) => {
           trace_id: trace,
           request_id: requestId
         }, 409);
+      }
+
+      if (a4Scope) {
+        const { data: bound, error: bindError } = await service.schema("aria_internal")
+          .rpc("aria_m22_a4_bind_scope_v1", {
+            p_scope_id: String(a4Scope.scope_id), p_mission_id: String(createdMissionId),
+            p_user_id: user.id, p_request_id: requestId, p_goal_hash: String(a4GoalHash),
+          });
+        if (bindError || bound !== true) {
+          return json({ error: "mission_a4_scope_bind_failed", stage: "canonical_mission_intake", trace_id: trace, request_id: requestId }, 503);
+        }
       }
 
       // Metadata backfill is not mission creation. Once DIRECT has returned a

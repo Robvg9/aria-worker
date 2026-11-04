@@ -70,6 +70,7 @@ jobs:
           node tests/aria-eas-mcp-contract.test.js
           node tests/eas-universal-executor.test.js
           node tests/eas-runner-patch.test.js
+          node tests/mission-wonder-2-step4-a4-scope.test.cjs
           node tests/mission-runner-v22-executor-inference.test.js
           node tests/aria-app-api-v3-contract.test.js
           node tests/phase3-canonical-runtime-contract.test.js
