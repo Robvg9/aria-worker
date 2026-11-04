@@ -13,6 +13,7 @@ assert.match(source, /confirm_live_presence_only_pilot:[\s\S]{0,300}default: fal
 assert.match(source, /environment: production/m, 'Cloudflare production deployment must pass through the production environment gate');
 assert.match(source, /robvg-presence-recovery:[\s\S]{0,220}environment: production/m, 'physical ROBVG execution requires its own production approval');
 assert.match(source, /RUNNER_NAME -ne 'ARIA-WINDOWS'[\s\S]{0,100}COMPUTERNAME -ne 'ROBVG'/m, 'physical pilot must fail closed on any runner other than ARIA-WINDOWS on ROBVG');
+assert.ok(source.includes('        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}'), 'physical A3 PowerShell step must bypass execution policy only for its generated process script');
 assert.match(source, /wrangler deploy --config wrangler\.aria-autonomy\.toml/m, 'only the isolated coordinator may be deployed');
 assert.doesNotMatch(source, /ARIA_RUNTIME_SHARED_SECRET|supabase db|supabase migration|supabase functions deploy/i, 'A3 must not touch the legacy runtime secret or Supabase');
 assert.doesNotMatch(source, /Enable-ScheduledTask|Start-ScheduledTask|Register-ScheduledTask|Set-ScheduledTask/m, 'A3 must never enable or start the persistent task');
