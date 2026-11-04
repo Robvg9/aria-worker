@@ -25,7 +25,7 @@ assert.match(pwa, /createMissionRequestRef=useRef<\{key:string;requestId:string\
 assert.match(pwa, /headers:\{'x-aria-request-id':request\.requestId\}/);
 assert.match(pwa, /api\('\/missions',session\.accessToken,\{method:'POST'/);
 assert.match(pwa, /api\('\/projects\/'.*\/missions\?limit=20/);
-assert.match(pwa, /api\('\/missions\/'+encodeURIComponent\(missionId\)/);
+assert.ok(pwa.includes("api('/missions/'+encodeURIComponent(missionId)"), 'PWA mission detail must use the canonical mission read route');
 const createMissionStart = position(pwa, 'async function createMission(payload:any={})');
 const createMissionEnd = position(pwa, '  return <main className=', 'PWA project workspace render boundary missing');
 const pwaCreate = pwa.slice(createMissionStart, createMissionEnd);
