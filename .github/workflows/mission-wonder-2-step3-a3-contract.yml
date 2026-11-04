@@ -1,0 +1,63 @@
+name: Mission Wonder 2 Step 3 A3 — Presence Contracts
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'cloudflare-autonomy/worker.mjs'
+      - 'scripts/aria-persistent-windows-worker-v1.js'
+      - 'scripts/aria-worker-supervisor-policy-v1.ps1'
+      - 'scripts/Start-ARIA-Persistent-Worker.ps1'
+      - 'autonomy/worker-single-instance-lock-v1.js'
+      - 'tests/mission-wonder-2-step3-a3-presence.test.mjs'
+      - 'tests/worker-single-instance-lock-v1.test.js'
+      - 'tests/persistent-worker-supervisor-policy-v1.test.ps1'
+      - 'tests/cloudflare-autonomy-worker.test.js'
+      - '.github/workflows/mission-wonder-2-step3-a3-contract.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'cloudflare-autonomy/worker.mjs'
+      - 'scripts/aria-persistent-windows-worker-v1.js'
+      - 'scripts/aria-worker-supervisor-policy-v1.ps1'
+      - 'scripts/Start-ARIA-Persistent-Worker.ps1'
+      - 'autonomy/worker-single-instance-lock-v1.js'
+      - 'tests/mission-wonder-2-step3-a3-presence.test.mjs'
+      - 'tests/worker-single-instance-lock-v1.test.js'
+      - 'tests/persistent-worker-supervisor-policy-v1.test.ps1'
+      - 'tests/cloudflare-autonomy-worker.test.js'
+      - '.github/workflows/mission-wonder-2-step3-a3-contract.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mission-wonder-2-step3-a3-contract-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  node-contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node --check cloudflare-autonomy/worker.mjs
+      - run: node --check scripts/aria-persistent-windows-worker-v1.js
+      - run: node --check autonomy/worker-single-instance-lock-v1.js
+      - run: node tests/worker-single-instance-lock-v1.test.js
+      - run: node tests/mission-wonder-2-step3-a3-presence.test.mjs
+      - run: node tests/cloudflare-autonomy-worker.test.js
+
+  windows-supervisor-contract:
+    runs-on: windows-latest
+    timeout-minutes: 5
+    defaults:
+      run:
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test bounded restart and backoff policy
+        run: .\tests\persistent-worker-supervisor-policy-v1.test.ps1
