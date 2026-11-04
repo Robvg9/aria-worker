@@ -31,7 +31,12 @@ $allowedKeys = @(
     'ARIA_WORKSPACE_ROOT',
     'ARIA_WORKER_ID',
     'ARIA_WORKER_POLL_MS',
-    'ARIA_WORKER_HEARTBEAT_MS'
+    'ARIA_WORKER_HEARTBEAT_MS',
+    'ARIA_MW2_A3_PRESENCE_PROBE_ID',
+    'ARIA_MW2_A3_PRESENCE_SCOPE_TOKEN',
+    'ARIA_MW2_A3_PRESENCE_INTERVAL_MS',
+    'ARIA_MW2_A3_PRESENCE_MAX_RUNTIME_MS',
+    'ARIA_WORKER_LOCK_PATH'
 )
 $script:WorkerConfigIsDpapi = $false
 
@@ -332,6 +337,8 @@ if ($InstallScheduledTask) {
 
 New-Item -ItemType Directory -Path $logDir -Force | Out-Null
 $delaySeconds = 5
+$restartCount = 0
+$maxRestarts = 5
 while ($true) {
     $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
     Add-Content -LiteralPath $logFile -Value "[$timestamp] Starting ARIA Windows worker."
@@ -343,12 +350,17 @@ while ($true) {
         Add-Content -LiteralPath $logFile -Value "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Worker launch error: $($_.Exception.Message)"
         $exitCode = 1
     }
-    $supervisorDecision = Get-ARIAWorkerSupervisorDecision -ExitCode $exitCode
+    $supervisorDecision = Get-ARIAWorkerSupervisorDecision -ExitCode $exitCode -RestartCount $restartCount -MaxRestarts $maxRestarts
     if ($supervisorDecision -eq 'stop') {
         Add-Content -LiteralPath $logFile -Value "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Worker exited cleanly with code 0; supervisor stopping without restart."
         exit 0
     }
-    Add-Content -LiteralPath $logFile -Value "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Worker exited with code $exitCode; restarting in $delaySeconds seconds."
+    if ($supervisorDecision -eq 'exhausted') {
+        Add-Content -LiteralPath $logFile -Value "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] ARIA_WORKER_SUPERVISOR_RETRIES_EXHAUSTED; restart_count=$restartCount; max_restarts=$maxRestarts; last_exit_code=$exitCode."
+        exit $(if ($exitCode -gt 0 -and $exitCode -le 255) { $exitCode } else { 1 })
+    }
+    $delaySeconds = Get-ARIAWorkerSupervisorDelaySeconds -RestartCount $restartCount
+    $restartCount += 1
+    Add-Content -LiteralPath $logFile -Value "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Worker exited with code $exitCode; bounded restart $restartCount/$maxRestarts in $delaySeconds seconds."
     Start-Sleep -Seconds $delaySeconds
-    $delaySeconds = [Math]::Min(60, $delaySeconds * 2)
 }
