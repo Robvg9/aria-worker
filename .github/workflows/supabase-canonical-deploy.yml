@@ -31,6 +31,9 @@ on:
       - '!autonomy/persistent-worker-bridge-v1.js'
       - '!autonomy/persistent-worker-error-policy-v1.js'
       - '!autonomy/persistent-worker-coordinator-adapter-v1.js'
+      # A3 local worker lock is not a Supabase runtime dependency; exclude this and the trigger contract from production deploys.
+      - '!autonomy/worker-single-instance-lock-v1.js'
+      - '!tests/supabase-canonical-deploy-contract.test.js'
       - '!.github/workflows/supabase-canonical-deploy.yml'
   workflow_dispatch:
     inputs:
