@@ -269,10 +269,10 @@ jobs:
           if ([string]::IsNullOrWhiteSpace($env:ARIA_WORKER_TOKEN) -or $env:ARIA_WORKER_TOKEN.Length -lt 32) { throw 'Worker credential preflight failed.' }
           if ($env:ARIA_CONTROL_TOKEN -ceq $env:ARIA_WORKER_TOKEN) { throw 'Control and worker credentials must be distinct.' }
           $pilotSourceRoot = $env:ARIA_WORKSPACE_ROOT
+          if (-not (Test-Path -LiteralPath $pilotSourceRoot -PathType Container)) { throw 'Isolated ROBVG pilot checkout is unavailable.' }
           $workerSourcePath = Join-Path $pilotSourceRoot 'cloudflare-autonomy\worker.mjs'
           $workerSource = Get-Content -LiteralPath $workerSourcePath -Raw
           if ($workerSource -notmatch 'MISSION_EXECUTION_PAUSED\s*=\s*true') { throw 'Global mission freeze source assertion failed.' }
-          if (-not (Test-Path -LiteralPath $pilotSourceRoot -PathType Container)) { throw 'Isolated ROBVG pilot checkout is unavailable.' }
           if (-not (Test-Path -LiteralPath $env:ARIA_AUTONOMY_ADAPTER -PathType Leaf)) { throw 'Execution-only adapter is unavailable.' }
           if (-not (Test-Path -LiteralPath $env:ARIA_NODE_PATH -PathType Leaf)) { throw 'Pinned Node runtime is unavailable.' }
           $pilotScript = Join-Path $pilotSourceRoot 'scripts\mission-wonder-2-readonly-pilot-live-e2e.cjs'
