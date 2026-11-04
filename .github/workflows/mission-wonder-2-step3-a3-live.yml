@@ -163,7 +163,7 @@ jobs:
           Write-Host "A3_WORKSPACE_SHA=$workspaceSha"
 
           foreach ($relativePath in $runtimeModules) {
-            $absolutePath = Join-Path $env:GITHUB_WORKSPACE ($relativePath -replace '/', '\\')
+            $absolutePath = Join-Path $env:GITHUB_WORKSPACE ($relativePath.Replace('/', [System.IO.Path]::DirectorySeparatorChar))
             if (-not (Test-Path -LiteralPath $absolutePath -PathType Leaf)) {
               Write-Host "A3_RUNTIME_MODULE_RESTORE_ATTEMPT=$relativePath"
               & git -C $env:GITHUB_WORKSPACE checkout HEAD -- $relativePath
