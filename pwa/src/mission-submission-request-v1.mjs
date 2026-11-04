@@ -1,4 +1,4 @@
-const STORAGE_PREFIX = "aria.pwa.mission-request.v1:";
+const STORAGE_KEY = "aria.pwa.mission-request.v1:pending";
 
 function normalize(value) {
   return typeof value === "string" ? value.trim() : "";
@@ -46,13 +46,13 @@ function readPending(storage, key) {
   return parsed;
 }
 
-function isValidEntry(entry, nowMs) {
+function isValidEntry(entry) {
   if (!entry || typeof entry !== "object") return false;
   if (typeof entry.request_id !== "string" || !entry.request_id.trim()) return false;
   const createdAt = Number(entry.created_at);
   // Pending identities do not expire automatically: a timeout can remain
   // ambiguous for longer than a day. Only canonical acknowledgement clears one.
-  return Number.isFinite(createdAt) && createdAt <= nowMs;
+  return Number.isFinite(createdAt);
 }
 
 function writePending(storage, key, entries) {
@@ -106,14 +106,14 @@ export async function getOrCreateMissionSubmissionRequestIdV1({
     projectId: normalizeProjectId(projectId),
   };
   const digest = await identityKey(normalized);
-  const key = STORAGE_PREFIX + normalized.userId;
+  const key = STORAGE_KEY;
   const nowMs = Number(now());
   if (!Number.isFinite(nowMs)) throw new Error("mission_request_clock_invalid");
 
   return withIdentityLock("aria-mission-request-v1:" + normalized.userId + ":" + digest, async () => {
     const current = readPending(storage, key);
     const pending = Object.fromEntries(
-      Object.entries(current).filter(([, entry]) => isValidEntry(entry, nowMs))
+      Object.entries(current).filter(([, entry]) => isValidEntry(entry))
     );
     const existing = pending[digest];
     if (existing?.request_id) {
