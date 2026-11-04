@@ -93,7 +93,7 @@ async function pwaApi(page, token, url, options = {}) {
 async function runtimeTick(missionId) {
   const response = await fetch(`https://${PROJECT}.supabase.co/functions/v1/aria-canonical-runtime-v1`, {
     method: 'POST',
-    headers: { Authorization: 'Bearer ' + RUNTIME_SECRET, 'Content-Type': 'application/json' },
+    headers: { Authorization: 'Bearer ' + RUNTIME_SECRET, 'Content-Type': 'application/json', 'x-aria-trigger': 'mission-tick' },
     body: JSON.stringify({ mission_id: missionId }),
     signal: AbortSignal.timeout(90000),
   });
