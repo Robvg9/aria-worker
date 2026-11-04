@@ -34,7 +34,12 @@ assert.ok(source.includes('        shell: powershell -NoProfile -ExecutionPolicy
 assert.match(source, /function Write-A3SafeProcessDiagnostics/, 'physical pilot must preserve worker process diagnostics');
 assert.match(source, /\$runtimeModules = @\([\s\S]{0,220}autonomy\/persistent-worker-error-policy-v1\.js[\s\S]{0,180}autonomy\/worker-single-instance-lock-v1\.js/m, 'physical pilot must preflight both worker runtime modules before opening a scope');
 assert.match(source, /A3_WORKSPACE_COMMIT_MISMATCH/, 'physical pilot must confirm the runner workspace is checked out at the dispatched commit');
-assert.match(source, /git -C \$env:GITHUB_WORKSPACE checkout HEAD -- \$relativePath/, 'physical pilot must restore a missing tracked runtime module from the exact checkout');
+assert.match(source, /rev-parse "HEAD:\$relativePath"/, 'physical pilot must resolve each dependency to its exact Git tree blob before restoration');
+assert.match(source, /ls-files --stage -- \$relativePath/, 'physical pilot must report the runner index entry when a dependency is absent');
+assert.match(source, /cat-file','blob',blobSha/, 'physical pilot must restore missing dependencies from the Git object database rather than a pathspec checkout');
+assert.match(source, /writeFileSync\(target,content\)/, 'physical pilot must write the exact tracked dependency bytes to the worktree');
+assert.match(source, /hash-object',target/, 'physical pilot must verify the restored file matches the original Git blob');
+assert.match(source, /A3_RUNTIME_MODULE_RESTORE_FROM_OBJECT=/, 'physical pilot must log when it restores a missing tracked dependency');
 assert.match(source, /require\.resolve\(name\)/, 'physical pilot must verify Node resolves its runtime modules from the worker directory');
 assert.match(source, /A3_RUNTIME_DEPENDENCY_PREFLIGHT=PASS/, 'physical pilot must report the module preflight before starting the presence scope');
 assert.match(source, /A3_NODE_VERSION=/, 'worker diagnostics must include the selected Node runtime version');
