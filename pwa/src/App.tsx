@@ -702,6 +702,7 @@ const HUMAN_API_ERRORS: Record<string, string> = {
   conversation_model_execution_failed: 'El modelo que tomó la solicitud no pudo completar la respuesta. ARIA agotó las rutas disponibles; inténtalo de nuevo.',
   conversation_planner_failed: 'El planificador de ARIA no respondió. La interfaz sigue disponible y puedes reintentar.',
   project_conversation_lookup_failed: 'No se pudo abrir el chat de este proyecto. ARIA está reparando la conexión del chat; vuelve a entrar en unos segundos.',
+  mission_execution_paused: 'La ejecución de misiones está pausada por seguridad. No se creó ni se encoló ninguna misión; tu objetivo se conserva en el formulario. No lo reenvíes hasta que ARIA esté habilitada.',
   invalid_or_expired_session: 'La sesión de ARIA expiró. Vuelve a entrar para continuar.'
 };
 
@@ -2758,6 +2759,7 @@ function Chat({
               <textarea aria-label='Objetivo de la misión' value={goal} onChange={e => setGoal(e.target.value)} placeholder='Describe el resultado que quieres. ARIA decide cómo conseguirlo.' />
               <VoiceInputButton captureAudio onAudio={setMissionAudioFile} onTranscript={transcript => setGoal(previous => previous.trim() ? previous.replace(/\s+$/, '') + ' ' + transcript : transcript)} />
             </div>
+            {error && <p className='muted' role='alert'>{error}</p>}
             {missionAudioFile && <div className='fileChip'>🎙️ {missionAudioFile.name}<button aria-label='Quitar audio de la misión' onClick={() => setMissionAudioFile(null)}>×</button></div>}
             <div className='modalActions'>
               <button className='ghost' onClick={() => setShowNewMission(false)}>Cancelar</button>
