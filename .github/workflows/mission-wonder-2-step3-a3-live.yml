@@ -170,6 +170,66 @@ jobs:
             return Invoke-RestMethod -Method Get -Uri ($base + '/api/mission-wonder-2/a3/presence-probes/' + $probeId) -Headers @{ Authorization = "Bearer $env:ARIA_CONTROL_TOKEN" } -TimeoutSec 15
           }
 
+          function Write-A3SafeProcessDiagnostics {
+            param(
+              [Parameter(Mandatory = $true)][string]$Label,
+              [Parameter(Mandatory = $true)][string]$StdoutPath,
+              [Parameter(Mandatory = $true)][string]$StderrPath,
+              [Parameter(Mandatory = $true)][System.Diagnostics.Process]$Process
+            )
+
+            try {
+              try { $Process.Refresh() } catch {}
+              $exitCode = 'UNAVAILABLE'
+              try {
+                if ($Process.HasExited) { $exitCode = [string]$Process.ExitCode }
+                else { $exitCode = 'STILL_RUNNING' }
+              } catch {}
+              Write-Host "A3_DIAGNOSTIC_LABEL=$Label"
+              Write-Host "A3_PROCESS_ID=$($Process.Id)"
+              Write-Host "A3_PROCESS_EXIT_CODE=$exitCode"
+
+              $nodeVersion = 'UNAVAILABLE'
+              try { $nodeVersion = (& $node --version 2>&1 | Out-String).Trim() } catch {}
+              Write-Host "A3_NODE_VERSION=$nodeVersion"
+
+              $secretsToRedact = @(
+                $env:ARIA_CONTROL_TOKEN,
+                $env:ARIA_WORKER_TOKEN,
+                $scopeToken,
+                $env:ARIA_MW2_A3_PRESENCE_SCOPE_TOKEN
+              ) | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) }
+
+              foreach ($entry in @(
+                @{ Name = 'STDOUT'; Path = $StdoutPath },
+                @{ Name = 'STDERR'; Path = $StderrPath }
+              )) {
+                Write-Host "A3_$($entry.Name)_BEGIN"
+                if (Test-Path -LiteralPath $entry.Path -PathType Leaf) {
+                  $raw = [System.IO.File]::ReadAllText($entry.Path, [System.Text.Encoding]::UTF8)
+                  foreach ($secret in $secretsToRedact) {
+                    $raw = $raw.Replace([string]$secret, '[REDACTED]')
+                  }
+                  $lines = @($raw -split "\r?\n")
+                  if ($lines.Count -gt 80) {
+                    $lines = $lines[($lines.Count - 80)..($lines.Count - 1)]
+                  }
+                  $diagnosticText = $lines -join [Environment]::NewLine
+                  if ($diagnosticText.Length -gt 12000) {
+                    $diagnosticText = $diagnosticText.Substring($diagnosticText.Length - 12000)
+                  }
+                  if (-not [string]::IsNullOrWhiteSpace($diagnosticText)) { Write-Host $diagnosticText }
+                  else { Write-Host 'A3_DIAGNOSTIC_LOG_EMPTY=true' }
+                } else {
+                  Write-Host 'A3_DIAGNOSTIC_LOG_MISSING=true'
+                }
+                Write-Host "A3_$($entry.Name)_END"
+              }
+            } catch {
+              Write-Host "A3_DIAGNOSTICS_CAPTURE_FAILED=$($_.Exception.GetType().Name)"
+            }
+          }
+
           try {
             $startBody = @{
               confirm = 'RUN_MISSION_WONDER_2_A3_PRESENCE_ONLY'
@@ -201,9 +261,15 @@ jobs:
               Start-Sleep -Seconds 2
               $readback = Get-A3Readback
               $workerOne.Refresh()
-              if ($workerOne.HasExited) { throw "A3_FIRST_WORKER_EXITED_EARLY: $($workerOne.ExitCode)" }
+              if ($workerOne.HasExited) {
+                Write-A3SafeProcessDiagnostics -Label 'first-worker-exited-early' -StdoutPath $logOne -StderrPath $errOne -Process $workerOne
+                throw 'A3_FIRST_WORKER_EXITED_EARLY'
+              }
             } while ($readback.scope.presence_count -lt 3 -and (Get-Date) -lt $deadline)
-            if ($readback.scope.presence_count -lt 3) { throw 'A3_FIRST_WORKER_DID_NOT_SEND_THREE_HEARTBEATS' }
+            if ($readback.scope.presence_count -lt 3) {
+              Write-A3SafeProcessDiagnostics -Label 'first-worker-heartbeat-timeout' -StdoutPath $logOne -StderrPath $errOne -Process $workerOne
+              throw 'A3_FIRST_WORKER_DID_NOT_SEND_THREE_HEARTBEATS'
+            }
 
             $duplicateOutput = & $node $workerScript 2>&1
             $duplicateExit = $LASTEXITCODE
@@ -233,8 +299,8 @@ jobs:
             }
             $workerTwo.Refresh()
             if ($workerTwo.ExitCode -ne 0) {
-              $details = if (Test-Path $errTwo) { Get-Content -Raw $errTwo } else { '' }
-              throw "A3_RECOVERY_WORKER_EXIT_NONZERO: $($workerTwo.ExitCode) $details"
+              Write-A3SafeProcessDiagnostics -Label 'recovery-worker-exit-nonzero' -StdoutPath $logTwo -StderrPath $errTwo -Process $workerTwo
+              throw "A3_RECOVERY_WORKER_EXIT_NONZERO: $($workerTwo.ExitCode)"
             }
             $secondLog = if (Test-Path $logTwo) { Get-Content -Raw $logTwo } else { '' }
             if ($secondLog -notmatch 'RECOVERED_STALE=true' -or $secondLog -notmatch 'ARIA_MW2_A3_IDLE_HEARTBEAT=') {
