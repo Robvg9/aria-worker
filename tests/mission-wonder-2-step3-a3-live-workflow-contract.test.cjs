@@ -50,7 +50,7 @@ assert.doesNotMatch(source, /^  (push|pull_request):/m);
 assert.match(source, /confirm_live_presence_only_pilot:[\s\S]{0,300}default: false/m);
 assert.match(source, /environment: production/m);
 assert.match(source, /robvg-presence-recovery:[\s\S]{0,220}environment: production/m);
-assert.match(source, /RUNNER_NAME -ne 'ARIA-WINDOWS'[\s\S]{0,100}COMPUTERNAME -ne 'ROBVG'/m);
+assert.match(presenceScript, /RUNNER_NAME -ne 'ARIA-WINDOWS'[\s\S]{0,100}COMPUTERNAME -ne 'ROBVG'/m);
 assert.ok(source.includes('        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}'));
 assert.match(source, /run: bash \.github\/scripts\/mission-wonder-2-step3-a3-deploy-coordinator\.sh/);
 assert.ok(source.includes("Join-Path $env:GITHUB_WORKSPACE '.github\\scripts\\mission-wonder-2-step3-a3-live-presence.ps1'"));
