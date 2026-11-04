@@ -43,7 +43,8 @@ assert.ok(appApi.includes('const readMissionByRequestId = async () => {'), 'miss
 assert.ok(appApi.includes('.eq("metadata->>request_id", requestId)'), 'mission retry readback must bind the exact request ID');
 assert.ok(appApi.includes('.eq("metadata->>user_id", user.id)'), 'mission retry readback must be owner scoped');
 const idempotencyReadback = position(appApi, 'priorMission = await readMissionByRequestId();');
-const directDispatch = position(appApi, 'direct = await internal(DIRECT, {');
+const directDispatch = appApi.indexOf('direct = await internal(DIRECT, {', idempotencyReadback);
+assert.notEqual(directDispatch, -1, 'mission handler must dispatch to DIRECT after the idempotency preflight');
 assert.ok(idempotencyReadback < directDispatch, 'canonical readback must precede any repeat intake dispatch');
 
 // Every legacy canonical mission boundary remains frozen before a write or forward.
