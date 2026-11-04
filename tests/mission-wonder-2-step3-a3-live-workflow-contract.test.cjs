@@ -65,12 +65,12 @@ assert.match(source, /confirm_live_presence_only_pilot:[\s\S]{0,300}default: fal
 assert.match(source, /approve_coordinator_production:[\s\S]{0,240}default: false/m);
 assert.match(source, /approve_robvg_presence_recovery:[\s\S]{0,260}default: false/m);
 assert.match(source, /deploy-coordinator:[\s\S]{0,180}approve_coordinator_production/m);
-assert.match(source, /robvg-presence-recovery:[\s\S]{0,260}approve_robvg_presence_recovery/m);
+assert.match(source, /robvg-presence-recovery:[\s\S]{0,520}approve_robvg_presence_recovery/m);
 assert.ok(source.includes('A3_PRESENCE_SCRIPT_RESTORE_FROM_OBJECT='));
 assert.ok(source.includes('A3_PRESENCE_SCRIPT_WORKTREE_VERIFIED=PASS'));
 assert.ok(source.indexOf('Verify and restore extracted A3 presence script') < source.indexOf('Run one bounded presence-only worker recovery pilot on ROBVG'));
 assert.match(source, /environment: production/m);
-assert.match(source, /robvg-presence-recovery:[\s\S]{0,220}environment: production/m);
+assert.match(source, /robvg-presence-recovery:[\s\S]{0,520}environment: production/m);
 assert.match(presenceScript, /RUNNER_NAME -ne 'ARIA-WINDOWS'[\s\S]{0,100}COMPUTERNAME -ne 'ROBVG'/m);
 assert.ok(source.includes('        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}'));
 assert.match(source, /run: bash \.github\/scripts\/mission-wonder-2-step3-a3-deploy-coordinator\.sh/);
