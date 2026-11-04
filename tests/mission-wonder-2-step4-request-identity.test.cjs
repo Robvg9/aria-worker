@@ -176,7 +176,7 @@ test('PWA releases the pending request ID only after canonical acknowledgement',
   assert.equal(nextIntent, 'request-2');
 });
 
-test('PWA expires stale pending IDs and fails closed when storage is corrupt', async () => {
+test('PWA retains pending IDs until acknowledgement and fails closed when storage is corrupt', async () => {
   const { getOrCreateMissionSubmissionRequestIdV1 } = await import('../pwa/src/mission-submission-request-v1.mjs');
   const storage = memoryStorage();
   let currentTime = 4000;
@@ -186,9 +186,10 @@ test('PWA expires stale pending IDs and fails closed when storage is corrupt', a
     storage, now: () => currentTime, createRequestId: () => 'request-' + (++generated),
   };
   const first = await getOrCreateMissionSubmissionRequestIdV1(input);
-  currentTime += 24 * 60 * 60 * 1000 + 1;
-  const refreshed = await getOrCreateMissionSubmissionRequestIdV1(input);
-  assert.notEqual(refreshed, first);
+  currentTime += 30 * 24 * 60 * 60 * 1000;
+  const stillPending = await getOrCreateMissionSubmissionRequestIdV1(input);
+  assert.equal(stillPending, first);
+  assert.equal(generated, 1);
 
   storage.setItem('aria.pwa.mission-request.v1:user-123', '{broken-json');
   await assert.rejects(
@@ -242,4 +243,44 @@ test('A4 deploy source keeps every canonical entry point frozen', () => {
   assert.match(runner, /const MISSION_EXECUTION_PAUSED = true;/);
   assert.match(api, /mission_request_idempotency_conflict/);
   assert.match(api, /canonical_request_idempotent_replay/);
+});
+
+
+test('PWA coordinates concurrent tabs with Web Locks when the browser provides them', async () => {
+  const { getOrCreateMissionSubmissionRequestIdV1 } = await import('../pwa/src/mission-submission-request-v1.mjs');
+  const storage = memoryStorage();
+  const previousNavigator = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+  const activeLocks = new Map();
+  let generated = 0;
+  Object.defineProperty(globalThis, 'navigator', {
+    configurable: true,
+    value: {
+      locks: {
+        async request(name, options, callback) {
+          const prior = activeLocks.get(name) || Promise.resolve();
+          let release;
+          const queued = new Promise(resolve => { release = resolve; });
+          activeLocks.set(name, prior.then(() => queued));
+          await prior;
+          try { return await callback(); }
+          finally { release(); }
+        }
+      }
+    }
+  });
+  try {
+    const input = {
+      userId: 'user-123', goal: 'Inspect ARIA mission intake', projectId: null,
+      storage, now: () => 9000, createRequestId: () => 'request-' + (++generated),
+    };
+    const [first, concurrentRetry] = await Promise.all([
+      getOrCreateMissionSubmissionRequestIdV1(input),
+      getOrCreateMissionSubmissionRequestIdV1(input),
+    ]);
+    assert.equal(first, concurrentRetry);
+    assert.equal(generated, 1);
+  } finally {
+    if (previousNavigator) Object.defineProperty(globalThis, 'navigator', previousNavigator);
+    else delete globalThis.navigator;
+  }
 });
