@@ -71,7 +71,11 @@ async function proxyAppApi(request,url){
     /\/meditation\/ideas\/[^/]+\/(?:decision|convert)$/.test(suffix) ||
     suffix.endsWith("/meditation/queue/reorder")
   );
-  if (MISSION_EXECUTION_PAUSED && pausedMissionMutation) {
+  // The Worker only forwards the ordinary PWA submission to APP API v3.
+  // APP API v3 remains the sole authority and admits it only with the exact
+  // authenticated, one-shot A4 scope; no Worker route can create/execute a mission.
+  const a4PwaMissionSubmission = request.method === "POST" && suffix.endsWith("/missions");
+  if (MISSION_EXECUTION_PAUSED && pausedMissionMutation && !a4PwaMissionSubmission) {
     return json({ ok: false, status: "paused", error: "mission_execution_paused", execution_enabled: false }, 423);
   }
   const upstreamUrl=SUPABASE_APP_API+suffix+url.search;
