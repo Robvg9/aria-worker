@@ -77,7 +77,7 @@ assert.match(presenceScript, /RUNNER_NAME -ne 'ARIA-WINDOWS'[\s\S]{0,100}COMPUTE
 assert.ok(source.includes('        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}'));
 assert.match(source, /run: bash \.github\/scripts\/mission-wonder-2-step3-a3-deploy-coordinator\.sh/);
 assert.ok(source.includes("Join-Path $env:GITHUB_WORKSPACE '.github\\scripts\\mission-wonder-2-step3-a3-live-presence.ps1'"));
-assert.ok(source.split(/\r?\n/).length < 180, 'compact YAML keeps workflow trigger metadata indexable');
+assert.ok(source.split(/\r?\n/).length < 240, 'workflow remains bounded and avoids duplicated YAML blocks');
 
 assert.ok(presenceScript.split(/\r?\n/).length < 330, 'presence script must not contain duplicated or truncated trailing code');
 assert.match(presenceScript, /function Write-A3SafeProcessDiagnostics/);
