@@ -14,8 +14,10 @@ assert.match(projectRunner, /const ALLOW_MUTATIONS = process\.env\.RWHT_ALLOW_MU
   'Projects RWHT must require an explicit true flag before mutating production');
 assert.match(projectRunner, /const MUTATION_SKIP_REASON = String\(process\.env\.RWHT_MUTATION_SKIP_REASON/,
   'The mutation skip must retain a human-readable reason');
-assert.match(projectRunner, /status: ALLOW_MUTATIONS \? 'ENABLED_FOR_EXPLICIT_TEST' : 'HUMAN_GATE'/,
-  'Read-only runs must identify the visual-mission portion as a Human Gate');
+assert.match(projectRunner, /status: STEPS_7_8_ONLY \? 'OUT_OF_SCOPE' : \(ALLOW_MUTATIONS \? 'ENABLED_FOR_EXPLICIT_TEST' : 'HUMAN_GATE'\)/,
+  'Read-only full runs must identify the visual-mission portion as a Human Gate and scoped 7-8 runs as out of scope');
+assert.match(projectRunner, /report\.visual_mission_gate\.status = 'OUT_OF_SCOPE'/,
+  'Steps 7-8 scope must not be confused with the ordinary visual-mission Human Gate');
 assert.match(projectRunner, /const recoveredOrphans = ALLOW_MUTATIONS\s*\? await cleanupInterruptedRwhtVisualMissions/,
   'Orphan cleanup (which can cancel mission rows) must be disabled on read-only runs');
 
