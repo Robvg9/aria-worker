@@ -379,3 +379,22 @@ test('PWA explains that a frozen mission was not created and preserves the submi
   const api = source.slice(source.indexOf('async function api('), source.indexOf('async function parseAuthResponse'));
   assert.match(api, /const attempts = isRead \? 2 : 1;/, 'PWA must never replay a mission POST automatically');
 });
+
+
+test('PWA-only source changes bypass the legacy Cloudflare secret deploy', () => {
+  const legacy = read('.github/workflows/aria-cloudflare-deploy.yml');
+  const fastLane = read('.github/workflows/aria-pwa-fast-deploy.yml');
+  const pathsIgnore = (source) => {
+    const start = source.indexOf('paths-ignore:');
+    assert.ok(start >= 0, 'push path filters must be explicit');
+    const end = source.indexOf('\nworkflow_dispatch:', start);
+    assert.ok(end > start, 'path filter must end before manual dispatch');
+    return source.slice(start, end);
+  };
+  const legacyIgnore = pathsIgnore(legacy);
+  const fastIgnore = pathsIgnore(fastLane);
+  assert.match(legacyIgnore, /- 'pwa\/\*\*'/, 'PWA-only changes must not invoke legacy Worker secret attachment');
+  assert.match(legacyIgnore, /- 'tests\/aria-no-mission-reactivation\.contract\.test\.js'/, 'the contract test itself must not invoke legacy deploy');
+  assert.match(fastIgnore, /- 'tests\/aria-no-mission-reactivation\.contract\.test\.js'/, 'the contract test itself must not invoke the PWA deploy');
+  assert.doesNotMatch(fastIgnore, /- 'pwa\/\*\*'/, 'PWA source changes must continue to use the fast PWA deployment');
+});
