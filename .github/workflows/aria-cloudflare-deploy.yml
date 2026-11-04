@@ -13,6 +13,7 @@ on:
       - '.github/workflows/aria-pwa-fast-deploy.yml'
       - '.github/workflows/supabase-canonical-deploy.yml'
       - '.github/workflows/aria-npm-test.yml'
+      - 'pwa/**'
       - 'pwa/src/testCatalog.ts'
       # Backend-only mission freeze/governance work must not redeploy the unrelated Cloudflare Worker.
       - 'supabase/functions/**'
