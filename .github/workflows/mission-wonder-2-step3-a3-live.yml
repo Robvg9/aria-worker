@@ -217,7 +217,7 @@ jobs:
             if (-not $workerOne.HasExited) { throw 'A3_FIRST_WORKER_COULD_NOT_BE_STOPPED' }
             Write-Host 'A3_SIMULATED_UNEXPECTED_PROCESS_EXIT=PASS'
 
-            Start-Sleep -Seconds 17
+            Start-Sleep -Seconds 22
             $staleReadback = Get-A3Readback
             if ($staleReadback.scope.stale -ne $true -or $staleReadback.scope.alarm_tick_count -lt 1 -or
                 [string]::IsNullOrWhiteSpace([string]$staleReadback.scope.stale_detected_at)) {
