@@ -27,3 +27,10 @@
 ## Lo que este slice NO certifica
 
 No cierra el Paso 4/10 completo. Siguen pendientes la vinculación probada planner → canonical mission/job/lease, evidencia, verificador independiente, reconciliación de eventos/progreso, notificación PWA y una única misión LIVE acotada con objetivo real aportado por el usuario, tras gates específicos.
+
+## Recuperación de despliegue — Supabase CLI v3 (2026-11-04)
+
+- El despliegue canónico reconcilia el historial remoto en cada ejecución release-bearing; no depende únicamente de que el commit actual incluya una migración nueva.
+- Los comandos de base de datos usan explícitamente `--remote` para evitar el destino local predeterminado introducido por Supabase CLI v3.
+- La migración `20261104170000_aria_mission_request_identity_atomic_v1` debe aparecer en el historial remoto antes de certificar este paso.
+- El despliegue de funciones y PWA se valida por SHA LIVE; este ajuste no altera `MISSION_EXECUTION_PAUSED=true`, no arranca worker persistente y no autoriza una misión real.
