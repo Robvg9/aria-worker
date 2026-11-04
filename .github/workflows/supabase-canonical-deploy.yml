@@ -90,7 +90,11 @@ jobs:
             exit 1
           fi
           echo "MIGRATION_DIFF_BASE_SHA=$BASE_SHA"
-          if git diff --name-only "$BASE_SHA" "$GITHUB_SHA" | grep -q '^supabase/migrations/'; then
+          # Manual production reconciliation also checks pending migrations already merged to main.
+          if [[ "${GITHUB_EVENT_NAME:-}" == "workflow_dispatch" ]]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "MIGRATION_RECONCILIATION_FORCED=workflow_dispatch"
+          elif git diff --name-only "$BASE_SHA" "$GITHUB_SHA" | grep -q '^supabase/migrations/'; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
           else
             echo "changed=false" >> "$GITHUB_OUTPUT"
@@ -112,7 +116,7 @@ jobs:
             mv "$file" ".ci/supabase-migrations-source/$(basename "$file")"
           done
 
-          supabase migration fetch --linked --yes
+          supabase migration fetch --yes --remote
 
           declare -A remote_hashes=()
           declare -A remote_versions=()
@@ -181,7 +185,7 @@ jobs:
           echo "MIGRATIONS_PENDING_COUNT=$pending"
           if (( pending > 0 )); then
             echo "APPLYING_PENDING_MIGRATIONS=true"
-            supabase db push --include-all --yes
+            supabase db push --include-all --yes --remote
           else
             echo "APPLYING_PENDING_MIGRATIONS=false"
             echo "SUPABASE_MIGRATION_NOOP=true"
