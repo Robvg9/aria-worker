@@ -96,6 +96,8 @@ const path = require('node:path');
   assert.match(e2e, /scopeId = 'mission_wonder_2_a4_authorized_once'/);
   assert.match(e2e, /missionId = 'mission_a4_authorized_once'/);
   assert.match(e2e, /single-authorized-execution/);
+  assert.match(e2e, /\[...\(write \? \['--yes'\] : \['--read-only'\]\), '--remote'\]/);
+  assert.match(e2e, /A4_SCOPE_ALREADY_CONSUMED/);
   assert.match(e2e, /x-aria-request-id/);
   assert.match(e2e, /textarea\[aria-label="Objetivo de la misión"\]/);
   assert.match(e2e, /mission_verified/);
