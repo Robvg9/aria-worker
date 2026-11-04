@@ -99,6 +99,10 @@ assert.match(presenceScript, /\$raw = \$raw\.Replace\(\[string\]\$secret, '\[RED
 assert.match(presenceScript, /Write-A3SafeProcessDiagnostics -Label 'first-worker-exited-early'/);
 assert.match(presenceScript, /Write-A3SafeProcessDiagnostics -Label 'first-worker-heartbeat-timeout'/);
 assert.match(presenceScript, /Write-A3SafeProcessDiagnostics -Label 'recovery-worker-exit-nonzero'/);
+assert.match(presenceScript, /\$workerTwo = Start-Process[\s\S]{0,500}-PassThru -Wait -NoNewWindow -RedirectStandardOutput \$logTwo/);
+assert.match(presenceScript, /\$recoveryExitCode = \$workerTwo\.ExitCode/);
+assert.match(presenceScript, /A3_RECOVERY_WORKER_EXIT_CODE_UNAVAILABLE/);
+assert.doesNotMatch(presenceScript, /\$workerTwo\.WaitForExit\(60000\)/);
 assert.match(presenceScript, /\$duplicateProcess = Start-Process[\s\S]{0,500}-RedirectStandardError \$duplicateStderr/);
 assert.match(presenceScript, /\$duplicateExit = \$duplicateProcess\.ExitCode/);
 assert.match(presenceScript, /\$duplicateText -notmatch 'ARIA_WORKER_ALREADY_RUNNING'/);
