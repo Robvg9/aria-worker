@@ -99,10 +99,10 @@ assert.match(presenceScript, /\$raw = \$raw\.Replace\(\[string\]\$secret, '\[RED
 assert.match(presenceScript, /Write-A3SafeProcessDiagnostics -Label 'first-worker-exited-early'/);
 assert.match(presenceScript, /Write-A3SafeProcessDiagnostics -Label 'first-worker-heartbeat-timeout'/);
 assert.match(presenceScript, /Write-A3SafeProcessDiagnostics -Label 'recovery-worker-exit-nonzero'/);
-assert.match(presenceScript, /\\$duplicateProcess = Start-Process[\\s\\S]{0,500}-RedirectStandardError \\$duplicateStderr/);
-assert.match(presenceScript, /\\$duplicateExit = \\$duplicateProcess\\.ExitCode/);
-assert.match(presenceScript, /\\$duplicateText -notmatch 'ARIA_WORKER_ALREADY_RUNNING'/);
-assert.doesNotMatch(presenceScript, /\\$duplicateOutput = & \\$node \\$workerScript 2>&1/);
+assert.match(presenceScript, /\$duplicateProcess = Start-Process[\s\S]{0,500}-RedirectStandardError \$duplicateStderr/);
+assert.match(presenceScript, /\$duplicateExit = \$duplicateProcess\.ExitCode/);
+assert.match(presenceScript, /\$duplicateText -notmatch 'ARIA_WORKER_ALREADY_RUNNING'/);
+assert.doesNotMatch(presenceScript, /\$duplicateOutput = & \$node \$workerScript 2>&1/);
 assert.match(deployScript, /wrangler deploy --config wrangler\.aria-autonomy\.toml/);
 assert.match(secretPrepScript, /ARIA_PLAN_PRODUCER_TOKEN/);
 
