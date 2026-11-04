@@ -226,13 +226,14 @@ try {
 
   let mission = null;
   const missionUrl = '/api/missions/' + encodeURIComponent(missionId);
+  // Dispatch exactly once. Polling below is read-only and must never re-enter the runner.
+  const tick = await runtimeTick(missionId);
+  report.runtime_ticks.push({ attempt: 1, http_status: tick.status, status: tick.body?.status || tick.body?.error || null });
+  if (tick.status !== 200 && tick.status !== 202) {
+    console.error('A4_RUNTIME_TICK_FAILURE', JSON.stringify(tick));
+    fail('canonical_runtime_a4_tick_http_' + tick.status);
+  }
   for (let attempt = 1; attempt <= 50; attempt += 1) {
-    const tick = await runtimeTick(missionId);
-    report.runtime_ticks.push({ attempt, http_status: tick.status, status: tick.body?.status || tick.body?.error || null });
-    if (tick.status !== 200 && tick.status !== 202) {
-      console.error('A4_RUNTIME_TICK_FAILURE', JSON.stringify(tick));
-      fail('canonical_runtime_a4_tick_http_' + tick.status);
-    }
     await page.waitForTimeout(1200);
     const readback = await pwaApi(page, session.accessToken, missionUrl);
     if (readback.status !== 200) fail('PWA mission readback HTTP ' + readback.status);
