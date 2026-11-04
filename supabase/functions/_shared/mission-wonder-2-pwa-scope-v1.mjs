@@ -146,6 +146,15 @@ export function missionWonder2PwaScopeStepAllowed(payload, step) {
   return false;
 }
 
+export function missionWonder2PwaScopeRouteAllowed(payload, route) {
+  if (!payload || !route || String(route.capability || "") !== "text_generation") return false;
+  return Array.isArray(payload.allowed_model_routes) && payload.allowed_model_routes.some((allowed) =>
+    allowed.provider_id === String(route.provider_id || "") &&
+    allowed.account_id === String(route.account_id || "") &&
+    allowed.model_id === String(route.model_id || "")
+  );
+}
+
 export function validateMissionWonder2PwaScopePlan(payload, steps) {
   const list = Array.isArray(steps) ? steps : [];
   const maxSteps = Number(payload?.max_steps || 0);
