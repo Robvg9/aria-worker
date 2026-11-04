@@ -250,7 +250,7 @@ if ($InstallScheduledTask) {
     $action = New-ScheduledTaskAction -Execute $taskHostExecutable -Argument $arguments -WorkingDirectory $installRoot
     $trigger = New-ScheduledTaskTrigger -AtLogOn -User $currentUser
     $principal = New-ScheduledTaskPrincipal -UserId $currentUser -LogonType Interactive -RunLevel Limited
-    $settings = New-ScheduledTaskSettingsSet -Disable -ExecutionTimeLimit ([TimeSpan]::Zero) -RestartCount 5 -RestartInterval (New-TimeSpan -Minutes 1) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
+    $settings = New-ScheduledTaskSettingsSet -Disable -MultipleInstances IgnoreNew -ExecutionTimeLimit ([TimeSpan]::Zero) -RestartCount 5 -RestartInterval (New-TimeSpan -Minutes 1) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
 
     try {
         Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Description 'Disabled ARIA worker task; WinExe plus DETACHED_PROCESS; enable only after separate human authorization.' | Out-Null
@@ -283,6 +283,11 @@ if ($InstallScheduledTask) {
 
         $registeredTask = Get-ScheduledTask -TaskName $TaskName -ErrorAction Stop
         [xml]$verifiedTaskXml = Export-ScheduledTask -TaskName $TaskName -ErrorAction Stop
+        $verifiedSettings = $verifiedTaskXml.SelectSingleNode("//*[local-name()='Settings']")
+        $verifiedMultipleInstances = if ($null -ne $verifiedSettings) { $verifiedSettings.SelectSingleNode("./*[local-name()='MultipleInstancesPolicy']") } else { $null }
+        if ($null -eq $verifiedMultipleInstances -or $verifiedMultipleInstances.InnerText -ne 'IgnoreNew') {
+            throw 'Scheduled task must enforce a single active instance (IgnoreNew).'
+        }
         $verifiedTrigger = $verifiedTaskXml.SelectSingleNode("//*[local-name()='LogonTrigger']")
         $verifiedDelayNode = if ($null -ne $verifiedTrigger) { $verifiedTrigger.SelectSingleNode("./*[local-name()='Delay']") } else { $null }
         $verifiedAction = $registeredTask.Actions | Select-Object -First 1
