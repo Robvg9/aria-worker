@@ -284,3 +284,31 @@ test('PWA coordinates concurrent tabs with Web Locks when the browser provides t
     else delete globalThis.navigator;
   }
 });
+
+
+test('A4 preserves the canonical planner, lease, jobs, verification and PWA notification chain', () => {
+  const runner = read('supabase/functions/aria-mission-runner-v22/index.ts');
+  const verifier = read('supabase/functions/aria-smart-verifier-v1/index.ts');
+  const canonical = read('supabase/functions/aria-canonical-runtime-v1/index.ts');
+  const appApi = read('supabase/functions/aria-app-api-v3/index.ts');
+  const pwa = read('pwa/src/App.tsx');
+  const notificationSql = read('supabase/migrations/20260918113426_meditation_notifications_v1.sql');
+
+  assert.match(canonical, /MISSION_EXECUTION_PAUSED\s*=\s*true/);
+  assert.match(runner, /aria_mission_claim_by_id_lease/);
+  assert.match(runner, /createPlan\(String\(mission\.goal\s*\|\|\s*""\)/);
+  assert.match(runner, /SMART_VERIFIER/);
+  assert.match(runner, /independentVerify\(mission, step, result\)/);
+  assert.match(runner, /aria_mission_finalize_verified_lease/);
+  assert.match(runner, /emitEvent\(missionId, "mission_verified"/);
+  assert.match(runner, /from\(["']execution_jobs["']\)/);
+  assert.match(verifier, /verification/);
+
+  assert.match(appApi, /from\(["']mission_events["']\)/);
+  assert.match(appApi, /meditationNotificationsForUser/);
+  assert.match(pwa, /api\('\/missions\/' \+ encodeURIComponent\(id\) \+ '\/events'/);
+  assert.match(pwa, /api\('\/meditation\/notifications\?limit=50'/);
+  assert.match(pwa, /trackMission\(missionId\)/);
+  assert.match(notificationSql, /after insert on aria_internal\.mission_events/i);
+  assert.match(notificationSql, /on conflict \(source_event_id\) do nothing/i);
+});
