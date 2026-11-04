@@ -420,6 +420,10 @@ export class AriaMissionStore {
     if (!Number.isSafeInteger(heartbeatIntervalMs) || heartbeatIntervalMs < 2000 || heartbeatIntervalMs > 15000) return error('mission_wonder_2_a3_presence_interval_out_of_bounds', 400);
     const scopeKey = 'mw2:a3:presence:' + probeId;
     if (await this.ctx.storage.get(scopeKey)) return error('mission_wonder_2_a3_presence_probe_id_already_used', 409);
+    const package3Scopes = await this.ctx.storage.list({ prefix: 'package3:probe:' });
+    if (Array.from(package3Scopes.values()).some(item => item && item.status === 'active' && Date.parse(item.expires_at) > Date.now())) {
+      return error('mission_wonder_2_a3_presence_probe_blocked_by_package3_scope', 409);
+    }
     const activeProbeId = await this.ctx.storage.get('mw2:a3:presence:active-probe');
     if (typeof activeProbeId === 'string' && MISSION_WONDER_2_A3_PRESENCE_ID_PATTERN.test(activeProbeId)) {
       const active = await this.ctx.storage.get('mw2:a3:presence:' + activeProbeId);
@@ -567,6 +571,13 @@ export class AriaMissionStore {
     if (scopeToken.length < 32 || scopeToken.length > 200) return error('package3_probe_scope_token_invalid', 400);
     const scopeKey = 'package3:probe:' + probeId;
     if (await this.ctx.storage.get(scopeKey)) return error('package3_probe_id_already_used', 409);
+    const activeA3ProbeId = await this.ctx.storage.get('mw2:a3:presence:active-probe');
+    if (typeof activeA3ProbeId === 'string' && MISSION_WONDER_2_A3_PRESENCE_ID_PATTERN.test(activeA3ProbeId)) {
+      const activeA3 = await this.ctx.storage.get('mw2:a3:presence:' + activeA3ProbeId);
+      if (activeA3 && activeA3.status === 'active' && Date.parse(activeA3.expires_at) > Date.now()) {
+        return error('package3_probe_blocked_by_mission_wonder_2_a3_presence_scope', 409);
+      }
+    }
     const existingScopes = await this.ctx.storage.list({ prefix: 'package3:probe:' });
     for (const existingScope of existingScopes.values()) {
       if (!['preparing', 'active'].includes(existingScope.status)) continue;
