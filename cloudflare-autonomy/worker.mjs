@@ -275,7 +275,8 @@ export class AriaMissionStore {
         // exactly one idle-heartbeat route; it never grants claims or job leases.
         if (presenceRoute && request.headers.get('x-aria-worker-presence-probe-id')) {
           const presenceScope = await this.resolveWorkerPresencePilotScope(request);
-          if (!presenceScope) return error('worker_presence_scope_rejected', 423);
+          if (!presenceScope) return error('worker_presence_scope_rejected', 403);
+          if (presenceScope._workerPresenceExpired === true) return error('worker_presence_scope_expired', 410);
           return this.exclusive(
             () => this.presence(request, presenceScope),
             { allowFrozen: true }
@@ -394,8 +395,10 @@ export class AriaMissionStore {
     if (!PACKAGE3_PROBE_ID_PATTERN.test(probeId) || token.length < 32 || token.length > 200 ||
         !workerId || workerId.length > 160 || !/^[A-Za-z0-9._:-]{16,128}$/.test(instanceId)) return null;
     const scope = await this.ctx.storage.get('worker-presence:probe:' + probeId);
-    if (!scope || scope.probe_type !== 'presence_only' || scope.status !== 'active' ||
-        Date.parse(scope.expires_at) <= Date.now() || scope.worker_id !== workerId) return null;
+    if (!scope || scope.probe_type !== 'presence_only' || scope.worker_id !== workerId) return null;
+    if (scope.status !== 'active' || Date.parse(scope.expires_at) <= Date.now()) {
+      return { ...scope, _workerPresenceExpired: true };
+    }
     const tokenHash = await sha256Hex(token);
     if (!constantTimeTextEqual(tokenHash, scope.scope_token_sha256)) return null;
     return scope;
