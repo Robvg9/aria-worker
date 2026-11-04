@@ -23,7 +23,7 @@ $expectedDelays = @(5, 10, 20, 40, 60)
 for ($index = 0; $index -lt $expectedDelays.Count; $index += 1) {
     $actualDelay = Get-ARIAWorkerSupervisorDelaySeconds -RestartCount $index
     if ($actualDelay -ne $expectedDelays[$index]) {
-        throw "Restart $index: expected delay $($expectedDelays[$index]), received $actualDelay."
+        throw "Restart ${index}: expected delay $($expectedDelays[$index]), received $actualDelay."
     }
 }
 
