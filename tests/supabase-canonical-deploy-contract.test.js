@@ -36,8 +36,8 @@ assert.match(source,/BASE_SHA="\$\(git rev-list --parents -n 1 "\$GITHUB_SHA" \|
 assert.match(source,/git diff --name-only "\$BASE_SHA" "\$GITHUB_SHA"/);
 assert.doesNotMatch(source,/git diff-tree --no-commit-id --name-only -r "\$GITHUB_SHA"/);
 assert.match(source,/supabase db push --include-all --yes --remote/,'production migration push must explicitly target the linked project with Supabase CLI v3');
-assert.ok(source.includes('GITHUB_EVENT_NAME'),'manual reconciliation event must be handled');
-assert.match(source,/MIGRATION_RECONCILIATION_FORCED=workflow_dispatch/,'manual reconciliation must force pending migration reconciliation');
+assert.ok(source.includes('MIGRATION_RECONCILIATION=every_canonical_deploy'),'every release-bearing run must reconcile the remote migration history');
+assert.ok(source.includes('echo "changed=true" >> "$GITHUB_OUTPUT"'),'canonical deployments must not leave previously merged migrations pending');
 assert.match(source,/remote_hashes/);
 assert.match(source,/remote_versions/,'migration gate must track remote migration versions');
 assert.match(source,/REMOTE_MAX_MIGRATION_VERSION=/,'migration gate must establish the remote migration watermark');
