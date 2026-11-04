@@ -106,8 +106,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Verify coordinator health and global freeze before touching ROBVG
         env:
-          ARIA_CONTROL_TOKEN: \${{ secrets.ARIA_AUTONOMY_CONTROL_TOKEN }}
-          ARIA_WORKER_TOKEN: \${{ secrets.ARIA_AUTONOMY_WORKER_TOKEN }}
+          ARIA_CONTROL_TOKEN: ${{ secrets.ARIA_AUTONOMY_CONTROL_TOKEN }}
+          ARIA_WORKER_TOKEN: ${{ secrets.ARIA_AUTONOMY_WORKER_TOKEN }}
         shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         run: |
           $ErrorActionPreference = 'Stop'
