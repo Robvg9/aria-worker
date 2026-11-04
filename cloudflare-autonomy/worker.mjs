@@ -101,6 +101,9 @@ const READONLY_PILOT_TTL_MS = 5 * 60 * 1000;
 const PACKAGE3_PROBE_LEASE_MS = 8000;
 const PACKAGE3_PROBE_ALLOWED_JOB_OPERATIONS = new Set(['task.execute', 'mission.verify']);
 const PACKAGE3_PROBE_ID_PATTERN = /^[a-z0-9][a-z0-9-]{7,70}$/;
+const MISSION_WONDER_2_A3_PRESENCE_TTL_MIN_MS = 60000;
+const MISSION_WONDER_2_A3_PRESENCE_TTL_MAX_MS = 180000;
+const MISSION_WONDER_2_A3_PRESENCE_ID_PATTERN = /^mw2-a3-[a-z0-9][a-z0-9-]{7,60}$/;
 const MISSION_CONTROL_URL = 'https://aria-autonomy-coordinator.robvg9.workers.dev/';
 
 async function sha256Hex(value) {
@@ -272,6 +275,20 @@ export class AriaMissionStore {
         // Preserve the legacy fail-fast contract: normal claims are rejected
         // before parsing their bodies. Only the complete scoped-probe header set
         // proceeds to body parsing and the narrow worker allowlist.
+        if (presenceRoute && request.headers.get('x-aria-mw2-a3-probe-id')) {
+          const workerIdHint = String(request.headers.get('x-aria-mw2-a3-worker-id') || '');
+          const a3Scope = await this.resolveMissionWonder2A3PresenceScope(request, workerIdHint);
+          if (!a3Scope) return this.pausedResponse();
+          const a3ScopeToken = String(request.headers.get('x-aria-mw2-a3-scope-token') || '');
+          return this.exclusive(async () => {
+            let body;
+            try { body = await request.clone().json(); } catch (_) { return error('invalid_json', 400); }
+            if (String(body && body.worker_id || '') !== workerIdHint || body.state !== 'idle') {
+              return error('mission_wonder_2_a3_presence_identity_or_state_invalid', 403);
+            }
+            return this.recordMissionWonder2A3Presence(a3Scope, body, a3ScopeToken);
+          }, { allowFrozen: true });
+        }
         const workerIdHint = String(request.headers.get('x-aria-package3-worker-id') || '');
         const probeIdHint = String(request.headers.get('x-aria-package3-probe-id') || '');
         const scopeTokenHint = String(request.headers.get('x-aria-package3-scope-token') || '');
@@ -314,6 +331,18 @@ export class AriaMissionStore {
       return this.exclusive(() => this.submitPlan(decodeURIComponent(producerPlanMatch[1]), request));
     }
     if (!authorized(request, this.env.ARIA_CONTROL_TOKEN)) return error('unauthorized', 401);
+    // Mission Wonder 2 A3 presence-only probe. No mission, queue, lease or task may be created.
+    if (method === 'POST' && url.pathname === '/api/mission-wonder-2/a3/presence-probes/start') {
+      if (!this.isMissionExecutionPaused()) return error('mission_wonder_2_a3_presence_probe_requires_global_freeze', 409);
+      return this.exclusive(() => this.startMissionWonder2A3PresenceProbe(request), { allowFrozen: true });
+    }
+    if (method === 'POST' && url.pathname === '/api/mission-wonder-2/a3/presence-probes/close') {
+      return this.exclusive(() => this.closeMissionWonder2A3PresenceProbe(request), { allowFrozen: true });
+    }
+    const a3PresenceReadbackMatch = url.pathname.match(/^\/api\/mission-wonder-2\/a3\/presence-probes\/([a-z0-9-]{8,71})$/);
+    if (method === 'GET' && a3PresenceReadbackMatch) {
+      return this.missionWonder2A3PresenceProbeReadback(decodeURIComponent(a3PresenceReadbackMatch[1]));
+    }
     // A single exact-scope Package 3 probe may run while every general mutation stays frozen.
     if (method === 'POST' && url.pathname === '/api/package3/probe/start') {
       if (!this.isMissionExecutionPaused()) return error('package3_probe_requires_global_freeze', 409);
@@ -361,6 +390,153 @@ export class AriaMissionStore {
     return error('not_found', 404);
   }
 
+  async resolveMissionWonder2A3PresenceScope(request, workerId) {
+    const probeId = String(request.headers.get('x-aria-mw2-a3-probe-id') || '');
+    const token = String(request.headers.get('x-aria-mw2-a3-scope-token') || '');
+    if (!MISSION_WONDER_2_A3_PRESENCE_ID_PATTERN.test(probeId) || token.length < 32 || token.length > 200 ||
+        !String(workerId || '').trim() || String(workerId).length > 200) return null;
+    const scope = await this.ctx.storage.get('mw2:a3:presence:' + probeId);
+    if (!scope || scope.status !== 'active' || Date.parse(scope.expires_at) <= Date.now()) return null;
+    const tokenHash = await sha256Hex(token);
+    if (!constantTimeTextEqual(tokenHash, scope.scope_token_sha256)) return null;
+    if (scope.worker_id && scope.worker_id !== workerId) {
+      const lastPresenceAt = Date.parse(scope.last_presence_at || scope.created_at);
+      if (!Number.isFinite(lastPresenceAt) || Date.now() - lastPresenceAt < Number(scope.stale_after_ms)) return null;
+    }
+    return scope;
+  }
+
+  async startMissionWonder2A3PresenceProbe(request) {
+    let body;
+    try { body = await request.json(); } catch (_) { return error('invalid_json', 400); }
+    const probeId = String(body && body.probe_id || '');
+    const scopeToken = String(body && body.scope_token || '');
+    const ttlMs = Number(body && body.ttl_ms || 120000);
+    const heartbeatIntervalMs = Number(body && body.heartbeat_interval_ms || 5000);
+    if (!body || body.confirm !== 'RUN_MISSION_WONDER_2_A3_PRESENCE_ONLY') return error('explicit_mission_wonder_2_a3_presence_confirmation_required', 400);
+    if (!MISSION_WONDER_2_A3_PRESENCE_ID_PATTERN.test(probeId)) return error('mission_wonder_2_a3_presence_probe_id_invalid', 400);
+    if (scopeToken.length < 32 || scopeToken.length > 200) return error('mission_wonder_2_a3_presence_token_invalid', 400);
+    if (!Number.isSafeInteger(ttlMs) || ttlMs < MISSION_WONDER_2_A3_PRESENCE_TTL_MIN_MS || ttlMs > MISSION_WONDER_2_A3_PRESENCE_TTL_MAX_MS) return error('mission_wonder_2_a3_presence_ttl_out_of_bounds', 400);
+    if (!Number.isSafeInteger(heartbeatIntervalMs) || heartbeatIntervalMs < 2000 || heartbeatIntervalMs > 15000) return error('mission_wonder_2_a3_presence_interval_out_of_bounds', 400);
+    const scopeKey = 'mw2:a3:presence:' + probeId;
+    if (await this.ctx.storage.get(scopeKey)) return error('mission_wonder_2_a3_presence_probe_id_already_used', 409);
+    const package3Scopes = await this.ctx.storage.list({ prefix: 'package3:probe:' });
+    if (Array.from(package3Scopes.values()).some(item => item && item.status === 'active' && Date.parse(item.expires_at) > Date.now())) {
+      return error('mission_wonder_2_a3_presence_probe_blocked_by_package3_scope', 409);
+    }
+    const activeProbeId = await this.ctx.storage.get('mw2:a3:presence:active-probe');
+    if (typeof activeProbeId === 'string' && MISSION_WONDER_2_A3_PRESENCE_ID_PATTERN.test(activeProbeId)) {
+      const active = await this.ctx.storage.get('mw2:a3:presence:' + activeProbeId);
+      if (active && active.status === 'active' && Date.parse(active.expires_at) > Date.now()) return error('mission_wonder_2_a3_presence_probe_already_active', 409);
+      if (active && active.status === 'active') {
+        active.status = 'closed'; active.closed_at = nowIso(); active.close_reason = 'expired_scope_reconciled_before_new_probe';
+        active.scope_token_sha256 = null; active.scope_token_revoked_at = nowIso();
+        await this.ctx.storage.put('mw2:a3:presence:' + activeProbeId, active);
+      }
+      await this.ctx.storage.put('mw2:a3:presence:active-probe', null);
+    }
+    const [missionsBefore, jobsBefore] = await Promise.all([
+      this.ctx.storage.list({ prefix: 'mission:' }), this.ctx.storage.list({ prefix: 'job:' })
+    ]);
+    const createdAt = Date.now();
+    const scope = {
+      version: 'v1', probe_id: probeId, status: 'active', scope_token_sha256: await sha256Hex(scopeToken),
+      created_at: new Date(createdAt).toISOString(), expires_at: new Date(createdAt + ttlMs).toISOString(),
+      heartbeat_interval_ms: heartbeatIntervalMs, stale_after_ms: heartbeatIntervalMs * 3,
+      worker_id: null, worker_ids: [], recovery_count: 0, presence_count: 0,
+      last_presence_at: null, last_presence_state: null, stale_detected_at: null,
+      alarm_tick_count: 0, last_alarm_at: null,
+      mission_count_before: missionsBefore.size, job_count_before: jobsBefore.size,
+      closed_at: null, close_reason: null, scope_token_revoked_at: null
+    };
+    await this.ctx.storage.put(scopeKey, scope);
+    await this.ctx.storage.put('mw2:a3:presence:active-probe', probeId);
+    await this.ctx.storage.setAlarm(Date.now() + this.alarmMs);
+    return json({ ok: true, probe: { probe_id: probeId, status: scope.status, expires_at: scope.expires_at,
+      heartbeat_interval_ms: heartbeatIntervalMs, stale_after_ms: scope.stale_after_ms,
+      presence_only: true, mission_execution_paused: true } }, 201);
+  }
+
+  async recordMissionWonder2A3Presence(scopeHint, body, scopeToken) {
+    const scopeKey = 'mw2:a3:presence:' + scopeHint.probe_id;
+    const scope = await this.ctx.storage.get(scopeKey);
+    if (!scope || scope.status !== 'active' || Date.parse(scope.expires_at) <= Date.now()) return this.pausedResponse();
+    if (!constantTimeTextEqual(await sha256Hex(scopeToken), scope.scope_token_sha256)) return this.pausedResponse();
+    const requestedWorkerId = String(body && body.worker_id || '');
+    if (!requestedWorkerId || requestedWorkerId.length > 200) return error('mission_wonder_2_a3_worker_id_invalid', 400);
+    if (scope.worker_id && scope.worker_id !== requestedWorkerId) {
+      const lastPresenceAt = Date.parse(scope.last_presence_at || scope.created_at);
+      if (!Number.isFinite(lastPresenceAt) || Date.now() - lastPresenceAt < Number(scope.stale_after_ms)) return error('mission_wonder_2_a3_presence_worker_already_active', 409);
+      scope.recovery_count = Number(scope.recovery_count || 0) + 1;
+      scope.stale_detected_at = scope.stale_detected_at || nowIso();
+      scope.worker_id = requestedWorkerId;
+    } else if (!scope.worker_id) {
+      scope.worker_id = requestedWorkerId;
+    }
+    scope.worker_ids = Array.from(new Set([...(scope.worker_ids || []), requestedWorkerId]));
+    if (scope.worker_ids.length > 2) return error('mission_wonder_2_a3_presence_worker_limit_exceeded', 409);
+    scope.presence_count = Number(scope.presence_count || 0) + 1;
+    scope.last_presence_at = nowIso(); scope.last_presence_state = 'idle';
+    await this.ctx.storage.put(scopeKey, scope);
+    return json({ ok: true, probe_id: scope.probe_id, worker_id: scope.worker_id,
+      presence_count: scope.presence_count, recovery_count: scope.recovery_count, last_presence_at: scope.last_presence_at });
+  }
+
+  async missionWonder2A3PresenceProbeReadback(probeId) {
+    if (!MISSION_WONDER_2_A3_PRESENCE_ID_PATTERN.test(String(probeId || ''))) return error('mission_wonder_2_a3_presence_probe_id_invalid', 400);
+    const scope = await this.ctx.storage.get('mw2:a3:presence:' + probeId);
+    if (!scope) return error('mission_wonder_2_a3_presence_probe_not_found', 404);
+    const [missionsNow, jobsNow] = await Promise.all([
+      this.ctx.storage.list({ prefix: 'mission:' }), this.ctx.storage.list({ prefix: 'job:' })
+    ]);
+    const lastPresenceMs = Date.parse(scope.last_presence_at || '');
+    const stale = scope.status === 'active' && (!Number.isFinite(lastPresenceMs) || Date.now() - lastPresenceMs > Number(scope.stale_after_ms));
+    return json({ ok: true, scope: {
+      version: scope.version, probe_id: scope.probe_id, status: scope.status,
+      created_at: scope.created_at, expires_at: scope.expires_at, expired: Date.parse(scope.expires_at) <= Date.now(),
+      heartbeat_interval_ms: scope.heartbeat_interval_ms, stale_after_ms: scope.stale_after_ms,
+      worker_id: scope.worker_id, worker_ids: scope.worker_ids || [], recovery_count: Number(scope.recovery_count || 0),
+      presence_count: Number(scope.presence_count || 0), last_presence_at: scope.last_presence_at,
+      last_presence_state: scope.last_presence_state, stale, stale_detected_at: scope.stale_detected_at,
+      alarm_tick_count: Number(scope.alarm_tick_count || 0), last_alarm_at: scope.last_alarm_at,
+      closed_at: scope.closed_at, close_reason: scope.close_reason,
+      scope_token_revoked: scope.scope_token_sha256 === null && Boolean(scope.scope_token_revoked_at),
+      scope_token_revoked_at: scope.scope_token_revoked_at,
+      mission_job_storage_unchanged: missionsNow.size === Number(scope.mission_count_before) && jobsNow.size === Number(scope.job_count_before),
+      mission_count_before: Number(scope.mission_count_before), mission_count_after: missionsNow.size,
+      job_count_before: Number(scope.job_count_before), job_count_after: jobsNow.size
+    } });
+  }
+
+  async closeMissionWonder2A3PresenceProbe(request) {
+    let body;
+    try { body = await request.json(); } catch (_) { return error('invalid_json', 400); }
+    const probeId = String(body && body.probe_id || '');
+    if (body.confirm !== 'CLOSE_MISSION_WONDER_2_A3_PRESENCE_ONLY') return error('explicit_mission_wonder_2_a3_presence_close_confirmation_required', 400);
+    if (!MISSION_WONDER_2_A3_PRESENCE_ID_PATTERN.test(probeId)) return error('mission_wonder_2_a3_presence_probe_id_invalid', 400);
+    const scopeKey = 'mw2:a3:presence:' + probeId;
+    const scope = await this.ctx.storage.get(scopeKey);
+    if (!scope) return error('mission_wonder_2_a3_presence_probe_not_found', 404);
+    if (scope.status !== 'closed') {
+      scope.status = 'closed'; scope.closed_at = nowIso();
+      scope.close_reason = String(body.reason || 'operator_cleanup').slice(0, 200);
+      scope.scope_token_sha256 = null; scope.scope_token_revoked_at = nowIso();
+      await this.ctx.storage.put(scopeKey, scope);
+      if (await this.ctx.storage.get('mw2:a3:presence:active-probe') === probeId) await this.ctx.storage.put('mw2:a3:presence:active-probe', null);
+    }
+    return this.missionWonder2A3PresenceProbeReadback(probeId);
+  }
+
+  async expireMissionWonder2A3PresenceProbe(probeId, reason) {
+    const scopeKey = 'mw2:a3:presence:' + probeId;
+    const scope = await this.ctx.storage.get(scopeKey);
+    if (!scope || scope.status !== 'active') return;
+    scope.status = 'closed'; scope.closed_at = nowIso(); scope.close_reason = String(reason || 'ttl_expired').slice(0, 200);
+    scope.scope_token_sha256 = null; scope.scope_token_revoked_at = nowIso();
+    await this.ctx.storage.put(scopeKey, scope);
+    if (await this.ctx.storage.get('mw2:a3:presence:active-probe') === probeId) await this.ctx.storage.put('mw2:a3:presence:active-probe', null);
+  }
+
   async resolvePackage3ProbeWorkerScope(request, body, jobId) {
     const probeId = String(request.headers.get('x-aria-package3-probe-id') || '');
     const token = String(request.headers.get('x-aria-package3-scope-token') || '');
@@ -395,6 +571,13 @@ export class AriaMissionStore {
     if (scopeToken.length < 32 || scopeToken.length > 200) return error('package3_probe_scope_token_invalid', 400);
     const scopeKey = 'package3:probe:' + probeId;
     if (await this.ctx.storage.get(scopeKey)) return error('package3_probe_id_already_used', 409);
+    const activeA3ProbeId = await this.ctx.storage.get('mw2:a3:presence:active-probe');
+    if (typeof activeA3ProbeId === 'string' && MISSION_WONDER_2_A3_PRESENCE_ID_PATTERN.test(activeA3ProbeId)) {
+      const activeA3 = await this.ctx.storage.get('mw2:a3:presence:' + activeA3ProbeId);
+      if (activeA3 && activeA3.status === 'active' && Date.parse(activeA3.expires_at) > Date.now()) {
+        return error('package3_probe_blocked_by_mission_wonder_2_a3_presence_scope', 409);
+      }
+    }
     const existingScopes = await this.ctx.storage.list({ prefix: 'package3:probe:' });
     for (const existingScope of existingScopes.values()) {
       if (!['preparing', 'active'].includes(existingScope.status)) continue;
@@ -2163,6 +2346,27 @@ export class AriaMissionStore {
 
   async alarm() {
     if (this.isMissionExecutionPaused()) {
+      const a3ProbeId = await this.ctx.storage.get('mw2:a3:presence:active-probe');
+      if (typeof a3ProbeId === 'string' && MISSION_WONDER_2_A3_PRESENCE_ID_PATTERN.test(a3ProbeId)) {
+        await this.exclusive(async () => {
+          const scopeKey = 'mw2:a3:presence:' + a3ProbeId;
+          const a3Scope = await this.ctx.storage.get(scopeKey);
+          if (!a3Scope || a3Scope.status !== 'active') return;
+          if (Date.parse(a3Scope.expires_at) <= Date.now()) {
+            await this.expireMissionWonder2A3PresenceProbe(a3ProbeId, 'presence_probe_ttl_expired');
+            return;
+          }
+          const lastPresenceAt = Date.parse(a3Scope.last_presence_at || '');
+          if ((!Number.isFinite(lastPresenceAt) || Date.now() - lastPresenceAt > Number(a3Scope.stale_after_ms)) && !a3Scope.stale_detected_at) {
+            a3Scope.stale_detected_at = nowIso();
+          }
+          a3Scope.alarm_tick_count = Number(a3Scope.alarm_tick_count || 0) + 1;
+          a3Scope.last_alarm_at = nowIso();
+          await this.ctx.storage.put(scopeKey, a3Scope);
+          await this.ctx.storage.setAlarm(Date.now() + this.alarmMs);
+        }, { allowFrozen: true });
+        return;
+      }
       const activeProbeId = await this.ctx.storage.get('package3:readonly-pilot:active-probe');
       if (typeof activeProbeId !== 'string' || !PACKAGE3_PROBE_ID_PATTERN.test(activeProbeId)) return;
       const activeScope = await this.ctx.storage.get('package3:probe:' + activeProbeId);

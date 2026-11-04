@@ -554,7 +554,7 @@ async function testGlobalFreezeStopsMutationsAndAlarmRecovery() {
 
   assert.deepEqual(Array.from(state.storage.values.entries()), before, 'missions, jobs, events and notifications must remain unchanged');
   assert.equal(state.storage.alarmAt, beforeAlarm, 'the existing alarm must not be changed or rescheduled');
-  assert.deepEqual(state.storage.operationCounts, { get: 1, list: 0, put: 0, setAlarm: 0 }, 'a frozen alarm may read only the readonly-pilot pointer and must not scan queues or mutate storage');
+  assert.deepEqual(state.storage.operationCounts, { get: 2, list: 0, put: 0, setAlarm: 0 }, 'a frozen alarm may read only the A3 and readonly-pilot scope pointers; it must not scan queues or mutate storage');
 }
 
 async function testNotificationPayloadAllowlistAndAutomaticRetry() {
