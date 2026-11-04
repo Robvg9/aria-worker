@@ -115,6 +115,8 @@ export async function verifyMissionWonder2PwaScopeProof(proof, secret, expected 
 
 export function missionWonder2PwaScopeStepAllowed(payload, step) {
   if (!payload || !step || String(step.risk || "READ").toUpperCase() !== "READ") return false;
+  const verification = step.verify && typeof step.verify === "object" ? step.verify : null;
+  if (!verification || Array.isArray(verification) || Object.keys(verification).length === 0) return false;
   const operation = String(step.operation || "");
   const executor = String(step.executor_type || step.target?.type || "");
   if (!Array.isArray(payload.allowed_operations) || !payload.allowed_operations.includes(operation)) return false;
