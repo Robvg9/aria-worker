@@ -4,20 +4,18 @@ on:
   workflow_dispatch:
     inputs:
       confirm_live_presence_only_pilot:
-        description: "Arm the bounded A3 presence-only pilot. Does not admit missions or jobs."
+        description: "Confirm this bounded A3 presence-only operation. No missions or jobs are admitted."
         type: boolean
         required: true
         default: false
-      approve_coordinator_production:
-        description: "First explicit production approval: deploy the isolated A3 coordinator."
-        type: boolean
+      phase:
+        description: "Run exactly one phase. Start physical recovery only with a separate dispatch after coordinator verification."
+        type: choice
         required: true
-        default: false
-      approve_robvg_presence_recovery:
-        description: "Second explicit production approval: run the bounded physical recovery probe on ROBVG."
-        type: boolean
-        required: true
-        default: false
+        default: deploy_coordinator
+        options:
+          - deploy_coordinator
+          - robvg_presence_recovery
 
 permissions:
   contents: read
@@ -28,7 +26,7 @@ concurrency:
 
 jobs:
   deploy-coordinator:
-    if: inputs.confirm_live_presence_only_pilot == true && inputs.approve_coordinator_production == true && github.ref == 'refs/heads/main'
+    if: inputs.confirm_live_presence_only_pilot == true && inputs.phase == 'deploy_coordinator' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment: production
     timeout-minutes: 10
@@ -100,13 +98,47 @@ jobs:
           echo "ARIA_MW2_A3_LIVE_HEALTH_AND_GLOBAL_FREEZE=PASS"
 
   robvg-presence-recovery:
-    needs: deploy-coordinator
-    if: needs.deploy-coordinator.result == 'success' && inputs.confirm_live_presence_only_pilot == true && inputs.approve_robvg_presence_recovery == true
+    if: inputs.confirm_live_presence_only_pilot == true && inputs.phase == 'robvg_presence_recovery' && github.ref == 'refs/heads/main'
     runs-on: [self-hosted, Windows, X64]
     environment: production
     timeout-minutes: 7
     steps:
       - uses: actions/checkout@v4
+      - name: Verify coordinator health and global freeze before touching ROBVG
+        env:
+          ARIA_CONTROL_TOKEN: \${{ secrets.ARIA_AUTONOMY_CONTROL_TOKEN }}
+          ARIA_WORKER_TOKEN: \${{ secrets.ARIA_AUTONOMY_WORKER_TOKEN }}
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ([string]::IsNullOrWhiteSpace($env:ARIA_CONTROL_TOKEN) -or
+              [string]::IsNullOrWhiteSpace($env:ARIA_WORKER_TOKEN) -or
+              $env:ARIA_CONTROL_TOKEN -eq $env:ARIA_WORKER_TOKEN) {
+            throw 'A3_PHASE2_REQUIRED_TOKENS_INVALID'
+          }
+          $base = 'https://aria-autonomy-coordinator.robvg9.workers.dev'
+          $health = Invoke-RestMethod -Method Get -Uri ($base + '/health') -TimeoutSec 20
+          if ($health.ok -ne $true -or $health.supabase_independent -ne $true) {
+            throw 'A3_PHASE2_COORDINATOR_HEALTH_FAILED'
+          }
+          function Assert-A3FrozenEndpoint {
+            param([string]$Uri, [string]$Token, [string]$Body, [string]$Label)
+            try {
+              Invoke-RestMethod -Method Post -Uri $Uri -Headers @{ Authorization = "Bearer $Token" } -ContentType 'application/json' -Body $Body -TimeoutSec 15 | Out-Null
+              throw "A3_PHASE2_GLOBAL_FREEZE_BYPASSED: $Label"
+            } catch {
+              $statusCode = 0
+              if ($_.Exception.Response -and $_.Exception.Response.StatusCode) {
+                $statusCode = [int]$_.Exception.Response.StatusCode
+              }
+              if ($statusCode -ne 423) { throw }
+            }
+          }
+          Assert-A3FrozenEndpoint -Uri ($base + '/api/worker/claim') -Token $env:ARIA_WORKER_TOKEN -Body '{"worker_id":"a3-phase2-freeze-check"}' -Label 'worker_claim'
+          Assert-A3FrozenEndpoint -Uri ($base + '/api/missions') -Token $env:ARIA_CONTROL_TOKEN -Body '{"goal":"must remain frozen"}' -Label 'mission_create'
+          Write-Host 'A3_PHASE2_COORDINATOR_HEALTH=PASS'
+          Write-Host 'A3_PHASE2_GLOBAL_FREEZE_423=PASS'
+
       - name: Verify and restore extracted A3 presence script from this commit
         shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         run: |
