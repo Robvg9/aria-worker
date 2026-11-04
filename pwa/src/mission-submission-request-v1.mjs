@@ -29,16 +29,23 @@ async function identityKey({ userId, goal, projectId }) {
 }
 
 function readPending(storage, key) {
-  let value = {};
+  let raw;
   try {
-    const raw = storage.getItem(key);
-    const parsed = raw ? JSON.parse(raw) : {};
-    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) value = parsed;
+    raw = storage.getItem(key);
   } catch {
-    // A corrupt cache must not cause an unsafe fallback to a fresh request ID.
-    value = {};
+    throw new Error("mission_request_storage_read_failed");
   }
-  return value;
+  if (!raw) return {};
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error("mission_request_storage_corrupt");
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("mission_request_storage_corrupt");
+  }
+  return parsed;
 }
 
 function isValidEntry(entry, nowMs) {
