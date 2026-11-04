@@ -79,8 +79,10 @@ jobs:
             [ref]$parseErrors
           ) | Out-Null
           if ($parseErrors.Count -gt 0) {
-            $parseErrors | ForEach-Object { Write-Error $_.Message }
-            throw 'A3_POWERSHELL_PARSE_FAILED'
+            foreach ($parseError in $parseErrors) {
+              Write-Host ("A3_PS_PARSE_ERROR={0} LINE={1} COLUMN={2}" -f $parseError.Message, $parseError.Extent.StartLineNumber, $parseError.Extent.StartColumnNumber)
+            }
+            throw "A3_POWERSHELL_PARSE_FAILED count=$($parseErrors.Count)"
           }
           Write-Host 'A3_POWERSHELL_PARSE=PASS'
       - name: Test bounded restart and backoff policy
