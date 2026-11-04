@@ -15,6 +15,9 @@ on:
       - 'tests/cloudflare-autonomy-worker.test.js'
       - '.github/workflows/mission-wonder-2-step3-a3-contract.yml'
       - '.github/workflows/mission-wonder-2-step3-a3-live.yml'
+      - '.github/scripts/mission-wonder-2-step3-a3-prepare-deploy-secrets.py'
+      - '.github/scripts/mission-wonder-2-step3-a3-deploy-coordinator.sh'
+      - '.github/scripts/mission-wonder-2-step3-a3-live-presence.ps1'
       - 'tests/mission-wonder-2-step3-a3-live-workflow-contract.test.cjs'
   push:
     branches: [main]
@@ -29,6 +32,10 @@ on:
       - 'tests/persistent-worker-supervisor-policy-v1.test.ps1'
       - 'tests/cloudflare-autonomy-worker.test.js'
       - '.github/workflows/mission-wonder-2-step3-a3-contract.yml'
+      - 'tests/mission-wonder-2-step3-a3-live-workflow-contract.test.cjs'
+      - '.github/scripts/mission-wonder-2-step3-a3-prepare-deploy-secrets.py'
+      - '.github/scripts/mission-wonder-2-step3-a3-deploy-coordinator.sh'
+      - '.github/scripts/mission-wonder-2-step3-a3-live-presence.ps1'
 
 permissions:
   contents: read
@@ -62,5 +69,19 @@ jobs:
         shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
     steps:
       - uses: actions/checkout@v4
+      - name: Parse extracted A3 PowerShell runner script
+        run: |
+          $tokens = $null
+          $parseErrors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            (Join-Path $env:GITHUB_WORKSPACE '.github\scripts\mission-wonder-2-step3-a3-live-presence.ps1'),
+            [ref]$tokens,
+            [ref]$parseErrors
+          ) | Out-Null
+          if ($parseErrors.Count -gt 0) {
+            $parseErrors | ForEach-Object { Write-Error $_.Message }
+            throw 'A3_POWERSHELL_PARSE_FAILED'
+          }
+          Write-Host 'A3_POWERSHELL_PARSE=PASS'
       - name: Test bounded restart and backoff policy
         run: .\tests\persistent-worker-supervisor-policy-v1.test.ps1
