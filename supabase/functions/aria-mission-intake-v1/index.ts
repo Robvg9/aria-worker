@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { sha256Hex, verifyMissionWonder2PwaScopeProof } from "../_shared/mission-wonder-2-pwa-scope-v1.mjs";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -51,10 +52,6 @@ Deno.serve(async (req: Request) => {
     return json({ error: "unauthorized" }, 401);
   }
 
-  if (MISSION_EXECUTION_PAUSED) {
-    return json({ error: "mission_execution_paused", execution_enabled: false }, 423);
-  }
-
   let body: Record<string, unknown>;
   try {
     body = await req.json();
@@ -72,6 +69,27 @@ Deno.serve(async (req: Request) => {
   const metadata = body.metadata && typeof body.metadata === "object" && !Array.isArray(body.metadata)
     ? body.metadata
     : {};
+  const scopeProof = (metadata as any).mission_wonder_2_pwa_scope_proof;
+  const scopeStatus = (metadata as any).mission_wonder_2_pwa_scope_status;
+  const suppliedMissionId = typeof body.mission_id === "string" ? body.mission_id.trim() : "";
+  const scopeCheck = await verifyMissionWonder2PwaScopeProof(scopeProof, SHARED_SECRET, {
+    user_id: String((metadata as any).user_id || (metadata as any).owner_user_id || ""),
+    project_id: String((metadata as any).project_id || ""),
+    request_id: String((metadata as any).request_id || ""),
+    mission_id: suppliedMissionId,
+    goal_sha256: await sha256Hex(goal)
+  });
+  const scopedPwaMissionAllowed =
+    scopeCheck.ok === true &&
+    scopeStatus?.status === "active" &&
+    String((metadata as any).goal_source || "") === "user" &&
+    String((metadata as any).source_application || "") === "aria-app-v1";
+  if (MISSION_EXECUTION_PAUSED && !scopedPwaMissionAllowed) {
+    return json({ error: "mission_execution_paused", execution_enabled: false }, 423);
+  }
+  if (scopedPwaMissionAllowed && (!suppliedMissionId || String(scopeCheck.payload.mission_id) !== suppliedMissionId)) {
+    return json({ error: "mission_scope_mission_id_mismatch" }, 423);
+  }
 
   const checkpoint = body.checkpoint && typeof body.checkpoint === "object" && !Array.isArray(body.checkpoint)
     ? body.checkpoint
