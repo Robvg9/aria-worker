@@ -6,7 +6,7 @@ const path = require('node:path');
 
 const root = path.resolve(__dirname, '..');
 const legacyWorkflow = fs.readFileSync(path.join(root, '.github/workflows/aria-cloudflare-deploy.yml'), 'utf8');
-const secretSyncWorkflow = fs.readFileSync(path.join(root, '.github/workflows/aria-runtime-secret-sync.yml'), 'utf8');
+const secretSyncWorkflow = fs.readFileSync(path.join(root, '.github/workflows/aria-runtime-secret-sync.yml'), 'utf8').replace(/\r\n/g, '\n');
 const isolatedDeploy = fs.readFileSync(path.join(root, '.github/workflows/aria-autonomy-coordinator-deploy.yml'), 'utf8');
 const pwaDeploy = fs.readFileSync(path.join(root, '.github/workflows/aria-pwa-fast-deploy.yml'), 'utf8');
 const supabaseDeploy = fs.readFileSync(path.join(root, '.github/workflows/supabase-canonical-deploy.yml'), 'utf8');

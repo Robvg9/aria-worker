@@ -1,6 +1,13 @@
 name: Mission Wonder 2 — Package 2 execution-only validation
 
 on:
+  workflow_dispatch:
+    inputs:
+      confirm_readonly_pilot:
+        description: 'Run one scoped LIVE git.status pilot on ROBVG after deployment.'
+        required: true
+        type: boolean
+        default: false
   pull_request:
     branches: [main]
     paths:
@@ -29,7 +36,9 @@ on:
       - 'tests/aria-persistent-config-atomic-replace-v1.test.ps1'
       - 'tests/cloudflare-autonomy-worker-execution-plan.test.cjs'
       - 'tests/cloudflare-autonomy-package3-scope.test.cjs'
+      - 'tests/cloudflare-autonomy-readonly-pilot-v1.test.cjs'
       - 'tests/cloudflare-autonomy-worker-process-e2e-v1.test.cjs'
+      - 'scripts/mission-wonder-2-readonly-pilot-live-e2e.cjs'
       - 'tests/fixtures/aria-frozen-worker-probe-adapter.js'
       - 'scripts/mission-wonder-2-package3-live-e2e.cjs'
       - 'wrangler.aria-autonomy.toml'
@@ -72,6 +81,7 @@ jobs:
           node tests/cloudflare-plan-preview-auth.test.cjs
           node tests/cloudflare-autonomy-remote-plan-producer.test.cjs
           node tests/cloudflare-autonomy-package3-scope.test.cjs
+          node tests/cloudflare-autonomy-readonly-pilot-v1.test.cjs
           node tests/cloudflare-autonomy-worker.test.js
           node tests/cloudflare-autonomy-restart-recovery-v1.test.cjs
           node tests/cloudflare-autonomy-worker-process-e2e-v1.test.cjs
@@ -173,7 +183,7 @@ jobs:
 
   robvg-frozen-worker:
     name: ROBVG actual worker fail-stop probe (read-only)
-    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'feat/aria-worker-remote-plan-execution-only-20261102'
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'fix/verified-mission-completion-invariants-20261103'
     needs: [node-contracts, windows-config-validation]
     runs-on: [self-hosted, Windows, X64]
     timeout-minutes: 5
@@ -229,3 +239,44 @@ jobs:
             }
             Remove-Item -LiteralPath $workspace -Recurse -Force -ErrorAction SilentlyContinue
           }
+
+  robvg-readonly-git-status-pilot:
+    name: ROBVG LIVE one-job read-only scheduler + worker pilot
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.confirm_readonly_pilot == true
+    needs: [node-contracts, windows-config-validation]
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Execute one scoped LIVE git.status mission on ROBVG
+        shell: powershell
+        env:
+          ARIA_CONTROL_TOKEN: ${{ secrets.ARIA_AUTONOMY_CONTROL_TOKEN }}
+          ARIA_WORKER_TOKEN: ${{ secrets.ARIA_AUTONOMY_WORKER_TOKEN }}
+          ARIA_CONTROL_URL: https://aria-autonomy-coordinator.robvg9.workers.dev
+          ARIA_WORKSPACE_ROOT: ${{ github.workspace }}
+          ARIA_AUTONOMY_ADAPTER: ${{ github.workspace }}\autonomy\aria-windows-execution-adapter-v1.js
+          ARIA_NODE_PATH: D:\Databank\node\node.exe
+          ARIA_READONLY_PILOT_EVIDENCE_PATH: ${{ runner.temp }}\aria-readonly-pilot-evidence.json
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:COMPUTERNAME -ne 'ROBVG') { throw "Wrong runner host '$env:COMPUTERNAME'; no LIVE pilot started." }
+          if ([string]::IsNullOrWhiteSpace($env:ARIA_CONTROL_TOKEN) -or $env:ARIA_CONTROL_TOKEN.Length -lt 32) { throw 'Control credential preflight failed.' }
+          if ([string]::IsNullOrWhiteSpace($env:ARIA_WORKER_TOKEN) -or $env:ARIA_WORKER_TOKEN.Length -lt 32) { throw 'Worker credential preflight failed.' }
+          if ($env:ARIA_CONTROL_TOKEN -ceq $env:ARIA_WORKER_TOKEN) { throw 'Control and worker credentials must be distinct.' }
+          $workerSource = Get-Content -LiteralPath 'cloudflare-autonomy/worker.mjs' -Raw
+          if ($workerSource -notmatch 'MISSION_EXECUTION_PAUSED\s*=\s*true') { throw 'Global mission freeze source assertion failed.' }
+          if (-not (Test-Path -LiteralPath $env:ARIA_WORKSPACE_ROOT -PathType Container)) { throw 'Approved ROBVG workspace is unavailable.' }
+          if (-not (Test-Path -LiteralPath $env:ARIA_AUTONOMY_ADAPTER -PathType Leaf)) { throw 'Execution-only adapter is unavailable.' }
+          if (-not (Test-Path -LiteralPath $env:ARIA_NODE_PATH -PathType Leaf)) { throw 'Pinned Node runtime is unavailable.' }
+          & $env:ARIA_NODE_PATH 'scripts\mission-wonder-2-readonly-pilot-live-e2e.cjs'
+          if ($LASTEXITCODE -ne 0) { throw "ROBVG_READONLY_PILOT_FAILED=$LASTEXITCODE" }
+          Write-Output 'ROBVG_READONLY_GIT_STATUS_PILOT=PASS'
+      - name: Upload sanitized read-only pilot evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aria-readonly-git-status-pilot-evidence
+          path: ${{ runner.temp }}\aria-readonly-pilot-evidence.json
+          if-no-files-found: ignore
+          retention-days: 7

@@ -15,6 +15,10 @@ const package3ScopeToken = String(process.env.ARIA_PACKAGE3_SCOPE_TOKEN || '');
 const package3LeaseEvidenceDir = String(process.env.ARIA_PACKAGE3_LEASE_EVIDENCE_DIR || '');
 const pollMs = Math.max(500, Number(process.env.ARIA_WORKER_POLL_MS || 2000));
 const heartbeatMs = Math.max(5000, Number(process.env.ARIA_WORKER_HEARTBEAT_MS || 15000));
+const presenceMs = package3ProbeId && package3ScopeToken
+  ? Math.max(5000, Number(process.env.ARIA_WORKER_PRESENCE_MS || 0))
+  : 0;
+let lastPresenceAt = Date.now();
 let stopping = false;
 
 function validateConfig() {
@@ -114,6 +118,22 @@ async function main() {
       continue;
     }
     if (!job) {
+      if (presenceMs > 0 && Date.now() - lastPresenceAt >= presenceMs) {
+        try {
+          const presence = await request('/api/worker/presence', { worker_id: workerId, state: 'idle' });
+          lastPresenceAt = Date.now();
+          process.stdout.write('ARIA_WINDOWS_WORKER_IDLE_HEARTBEAT=sent; COUNT=' + String(presence.presence_count || 'unknown') + '\n');
+        } catch (error) {
+          const presencePolicy = classifyClaimError(error);
+          if (presencePolicy.action === 'stop') {
+            process.stdout.write('ARIA_WINDOWS_WORKER_STOPPED=' + presencePolicy.reason + '\n');
+            if (presencePolicy.exitCode) process.exitCode = presencePolicy.exitCode;
+            stopping = true;
+            break;
+          }
+          process.stderr.write('Idle presence failed: ' + String(error.message || error) + '\n');
+        }
+      }
       await new Promise(resolve => setTimeout(resolve, pollMs));
       continue;
     }
