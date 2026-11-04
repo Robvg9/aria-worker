@@ -12,6 +12,7 @@ on:
       - '.github/workflows/aria-absorb.yml'
       - '.github/workflows/aria-autonomy-coordinator-deploy.yml'
       - '.github/workflows/aria-npm-test.yml'
+      - 'tests/aria-no-mission-reactivation.contract.test.js'
       - '.github/workflows/persistent-autonomy-v1-tests.yml'
       - '.github/workflows/supabase-canonical-deploy.yml'
       - 'Dockerfile.aria-coordinator'
