@@ -32,6 +32,11 @@ assert.match(source, /robvg-presence-recovery:[\s\S]{0,220}environment: producti
 assert.match(source, /RUNNER_NAME -ne 'ARIA-WINDOWS'[\s\S]{0,100}COMPUTERNAME -ne 'ROBVG'/m, 'physical pilot must fail closed on any runner other than ARIA-WINDOWS on ROBVG');
 assert.ok(source.includes('        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}'), 'physical A3 PowerShell step must bypass execution policy only for its generated process script');
 assert.match(source, /function Write-A3SafeProcessDiagnostics/, 'physical pilot must preserve worker process diagnostics');
+assert.match(source, /\$runtimeModules = @\([\s\S]{0,220}autonomy\/persistent-worker-error-policy-v1\.js[\s\S]{0,180}autonomy\/worker-single-instance-lock-v1\.js/m, 'physical pilot must preflight both worker runtime modules before opening a scope');
+assert.match(source, /A3_WORKSPACE_COMMIT_MISMATCH/, 'physical pilot must confirm the runner workspace is checked out at the dispatched commit');
+assert.match(source, /git -C \$env:GITHUB_WORKSPACE checkout HEAD -- \$relativePath/, 'physical pilot must restore a missing tracked runtime module from the exact checkout');
+assert.match(source, /require\.resolve\(name\)/, 'physical pilot must verify Node resolves its runtime modules from the worker directory');
+assert.match(source, /A3_RUNTIME_DEPENDENCY_PREFLIGHT=PASS/, 'physical pilot must report the module preflight before starting the presence scope');
 assert.match(source, /A3_NODE_VERSION=/, 'worker diagnostics must include the selected Node runtime version');
 assert.match(source, /ReadAllText\(\$entry\.Path, \[System\.Text\.Encoding\]::UTF8\)/, 'worker diagnostics must read UTF-8 process logs consistently');
 assert.match(source, /\$raw = \$raw\.Replace\(\[string\]\$secret, '\[REDACTED\]'\)/, 'worker diagnostics must redact all configured credentials and scope tokens');

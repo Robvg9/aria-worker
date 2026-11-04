@@ -149,6 +149,45 @@ jobs:
             if (-not (Test-Path -LiteralPath $required -PathType Leaf)) { throw "A3_REQUIRED_FILE_MISSING: $required" }
           }
 
+          # The worker loads these tracked dependencies relative to its scripts/ directory.
+          # Verify them before opening a live presence scope; restore a missing worktree file
+          # from the exact checked-out commit, then verify Node resolves the same paths.
+          $runtimeModules = @(
+            'autonomy/persistent-worker-error-policy-v1.js',
+            'autonomy/worker-single-instance-lock-v1.js'
+          )
+          $workspaceSha = (& git -C $env:GITHUB_WORKSPACE rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0 -or $workspaceSha -ne $env:GITHUB_SHA) {
+            throw "A3_WORKSPACE_COMMIT_MISMATCH: expected=$env:GITHUB_SHA actual=$workspaceSha"
+          }
+          Write-Host "A3_WORKSPACE_SHA=$workspaceSha"
+
+          foreach ($relativePath in $runtimeModules) {
+            $absolutePath = Join-Path $env:GITHUB_WORKSPACE ($relativePath.Replace('/', [System.IO.Path]::DirectorySeparatorChar))
+            if (-not (Test-Path -LiteralPath $absolutePath -PathType Leaf)) {
+              Write-Host "A3_RUNTIME_MODULE_RESTORE_ATTEMPT=$relativePath"
+              & git -C $env:GITHUB_WORKSPACE checkout HEAD -- $relativePath
+              if ($LASTEXITCODE -ne 0) { throw "A3_RUNTIME_MODULE_RESTORE_FAILED: $relativePath" }
+            }
+            if (-not (Test-Path -LiteralPath $absolutePath -PathType Leaf)) {
+              throw "A3_RUNTIME_MODULE_MISSING_AFTER_RESTORE: $relativePath"
+            }
+            $moduleHash = (Get-FileHash -LiteralPath $absolutePath -Algorithm SHA256).Hash
+            Write-Host "A3_RUNTIME_MODULE_PRESENT=$relativePath SHA256=$moduleHash"
+          }
+
+          Push-Location (Split-Path -Parent $workerScript)
+          try {
+            $resolutionOutput = & $node -e "for (const name of ['../autonomy/persistent-worker-error-policy-v1', '../autonomy/worker-single-instance-lock-v1']) console.log(name + '=' + require.resolve(name))" 2>&1
+            $resolutionExit = $LASTEXITCODE
+            $resolutionOutput | ForEach-Object { Write-Host "A3_NODE_MODULE_RESOLVE=$_"}
+            if ($resolutionExit -ne 0) { throw "A3_NODE_MODULE_RESOLUTION_FAILED: exit=$resolutionExit" }
+          }
+          finally {
+            Pop-Location
+          }
+          Write-Host 'A3_RUNTIME_DEPENDENCY_PREFLIGHT=PASS'
+
           $existingWorkers = @(Get-CimInstance Win32_Process -ErrorAction Stop | Where-Object {
             $_.Name -match '^node(\.exe)?$' -and $_.CommandLine -like '*aria-persistent-windows-worker-v1.js*'
           })
