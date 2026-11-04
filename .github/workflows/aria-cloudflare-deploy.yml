@@ -55,6 +55,7 @@ on:
       - 'tests/worker-single-instance-lock-v1.test.js'
       - 'tests/mission-wonder-2-step3-a3-presence.test.mjs'
       - 'tests/mission-wonder-2-step3-a3-live-workflow-contract.test.cjs'
+      - 'tests/supabase-canonical-deploy-contract.test.js'
       - '.github/workflows/mission-wonder-2-step3-a3-contract.yml'
       - '.github/workflows/mission-wonder-2-step3-a3-live.yml'
       - 'tests/cloudflare-autonomy-remote-plan-producer.test.cjs'
