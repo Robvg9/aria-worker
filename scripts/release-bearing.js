@@ -10,7 +10,7 @@ const NON_RELEASE_PATTERNS = [
   /^\.github\/workflows\//,
   // A3 PowerShell/shell/Python runner helpers are operator tooling for the isolated
   // presence pilot, not code shipped in the public aria Worker release artifact.
-  /^\\.github\\/scripts\\/mission-wonder-2-step3-a3-/ ,
+  /^\.github\/scripts\/mission-wonder-2-step3-a3-/,
   /^scripts\/release-bearing\.js$/,
   /^docs\//,
   /^reports\//,
