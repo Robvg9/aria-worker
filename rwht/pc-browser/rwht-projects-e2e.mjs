@@ -625,8 +625,8 @@ async function run() {
     visual_mission: null,
     mutations_allowed: ALLOW_MUTATIONS,
     visual_mission_gate: {
-      status: ALLOW_MUTATIONS ? 'ENABLED_FOR_EXPLICIT_TEST' : 'HUMAN_GATE',
-      reason: ALLOW_MUTATIONS ? null : MUTATION_SKIP_REASON,
+      status: STEPS_7_8_ONLY ? 'OUT_OF_SCOPE' : (ALLOW_MUTATIONS ? 'ENABLED_FOR_EXPLICIT_TEST' : 'HUMAN_GATE'),
+      reason: STEPS_7_8_ONLY ? 'certification_scope_steps_7_8' : (ALLOW_MUTATIONS ? null : MUTATION_SKIP_REASON),
       mutation_attempted: false,
       expected_projects: PROJECTS.length,
       projects: []
@@ -1177,6 +1177,9 @@ async function run() {
       report.preview_results = [];
       report.visual_missions = [];
       report.visual_mission = null;
+      report.visual_mission_gate.status = 'OUT_OF_SCOPE';
+      report.visual_mission_gate.reason = 'certification_scope_steps_7_8';
+      report.visual_mission_gate.mutation_attempted = false;
       report.scope_note = 'Steps 7-8 only: drawing missions and the full ARTIA preview gate are left to later certification steps.';
     }
 
