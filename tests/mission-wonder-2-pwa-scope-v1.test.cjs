@@ -102,7 +102,8 @@ function claims(now = Date.now()) {
     operation: 'repo_read',
     risk: 'READ',
     target: { connector_id: 'github', repo: 'aria-worker' },
-    input: { owner: 'Robvg9', repo: 'aria-worker' }
+    input: { owner: 'Robvg9', repo: 'aria-worker' },
+    verify: { response_content_nonempty: true }
   };
   assert.equal(helper.missionWonder2PwaScopeStepAllowed(claims(now), goodModelStep), true);
   assert.equal(helper.missionWonder2PwaScopeStepAllowed(claims(now), goodGithubStep), true);
