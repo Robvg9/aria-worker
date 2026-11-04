@@ -90,15 +90,10 @@ jobs:
             exit 1
           fi
           echo "MIGRATION_DIFF_BASE_SHA=$BASE_SHA"
-          # Manual production reconciliation also checks pending migrations already merged to main.
-          if [[ "${GITHUB_EVENT_NAME:-}" == "workflow_dispatch" ]]; then
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-            echo "MIGRATION_RECONCILIATION_FORCED=workflow_dispatch"
-          elif git diff --name-only "$BASE_SHA" "$GITHUB_SHA" | grep -q '^supabase/migrations/'; then
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-          fi
+          # This workflow is release-bearing: always reconcile remotely so a prior failed deploy
+          # cannot leave an already-merged migration pending until another migration commit arrives.
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+          echo "MIGRATION_RECONCILIATION=every_canonical_deploy"
       - name: Apply Supabase migrations
         if: steps.migration_changes.outputs.changed == 'true'
         env:
