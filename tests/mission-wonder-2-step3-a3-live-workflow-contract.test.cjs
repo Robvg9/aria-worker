@@ -17,7 +17,7 @@ assert.doesNotMatch(source, /ARIA_RUNTIME_SHARED_SECRET|supabase db|supabase mig
 assert.doesNotMatch(source, /Enable-ScheduledTask|Start-ScheduledTask|Register-ScheduledTask|Set-ScheduledTask/m, 'A3 must never enable or start the persistent task');
 assert.match(source, /ttl_ms = 180000/m, 'the pilot TTL must stay within the three-minute cap');
 assert.match(source, /CLOSE_MISSION_WONDER_2_A3_PRESENCE_ONLY/m, 'the workflow must close/revoke its scope in finally');
-assert.match(source, /MISSION_WONDER_2_A3_PRESENCE_SCOPE_TOKEN/m, 'the worker must use the one-shot A3 scope token');
+assert.match(source, /ARIA_MW2_A3_PRESENCE_SCOPE_TOKEN/m, 'the worker must use the one-shot A3 scope token');
 assert.match(source, /Stop-Process -Id \$workerOne\.Id -Force/m, 'the recovery pilot must deliberately simulate a bounded worker-process crash');
 assert.match(source, /A3_STALE_HEARTBEAT_DETECTION=PASS/m, 'the workflow must verify stale-heartbeat detection');
 assert.match(source, /A3_ZERO_ORPHAN_WORKER_PROCESSES=PASS/m, 'the workflow must verify no worker process is left behind');
