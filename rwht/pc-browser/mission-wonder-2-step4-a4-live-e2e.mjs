@@ -184,13 +184,16 @@ try {
     VALUES (${sqlQuote(scopeId)},${sqlQuote(scopeKey)},${sqlQuote(session.userId)},${sqlQuote(goalHash)},
       ${sqlQuote(missionId)},${sqlQuote(deviceId)},'armed',clock_timestamp()+interval '25 minutes')
     ON CONFLICT (scope_id) DO NOTHING;
+  `;
+  runSql(insert, true);
+  const armedCheck = `
     SELECT CASE WHEN count(*)=1 THEN 'A4_SCOPE_ARMED_PASS' ELSE 'A4_SCOPE_ARMED_FAIL' END
       FROM aria_internal.mission_wonder_2_a4_scopes
      WHERE scope_id=${sqlQuote(scopeId)} AND owner_user_id=${sqlQuote(session.userId)}
        AND goal_hash=${sqlQuote(goalHash)} AND mission_id=${sqlQuote(missionId)}
        AND allowed_device_id=${sqlQuote(deviceId)} AND status='armed';
   `;
-  requireMarker(runSql(insert, true), 'A4_SCOPE_ARMED_PASS');
+  requireMarker(runSql(armedCheck), 'A4_SCOPE_ARMED_PASS');
   scopeInserted = true;
   report.scope_armed = true;
 
