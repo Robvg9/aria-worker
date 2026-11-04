@@ -2899,18 +2899,50 @@ Deno.serve(async (req) => {
             .eq("mission_id", createdMissionId)
             .maybeSingle();
           if (error) {
-            console.error("[aria-app-api-v3] mission canonical readback warning", JSON.stringify({
+            console.error("[aria-app-api-v3] mission canonical readback failed closed", JSON.stringify({
               trace_id: trace, request_id: requestId, mission_id: createdMissionId, detail: error.message
             }));
-          } else {
-            canonicalMission = data ?? null;
+            return json({
+              error: "mission_request_idempotency_readback_failed",
+              stage: "canonical_mission_intake",
+              detail: "DIRECT devolvió un ID, pero ARIA no pudo leer la misión canónica para comprobar su identidad. No se confirmará la solicitud.",
+              trace_id: trace,
+              request_id: requestId
+            }, 503);
           }
+          canonicalMission = data ?? null;
         } catch (error) {
-          console.error("[aria-app-api-v3] mission canonical readback warning", JSON.stringify({
+          console.error("[aria-app-api-v3] mission canonical readback failed closed", JSON.stringify({
             trace_id: trace, request_id: requestId, mission_id: createdMissionId,
             detail: error instanceof Error ? error.message : String(error)
           }));
+          return json({
+            error: "mission_request_idempotency_readback_failed",
+            stage: "canonical_mission_intake",
+            detail: "DIRECT devolvió un ID, pero la lectura canónica falló. No se confirmará la solicitud.",
+            trace_id: trace,
+            request_id: requestId
+          }, 503);
         }
+      }
+
+      if (!canonicalMission?.mission_id) {
+        return json({
+          error: "mission_request_idempotency_readback_missing",
+          stage: "canonical_mission_intake",
+          detail: "DIRECT devolvió un ID, pero todavía no existe una fila canónica legible. No se confirmará la solicitud.",
+          trace_id: trace,
+          request_id: requestId
+        }, 503);
+      }
+      if (!matchesCanonicalMissionRequest(canonicalMission)) {
+        return json({
+          error: "mission_request_idempotency_conflict",
+          stage: "canonical_mission_intake",
+          detail: "DIRECT devolvió una misión canónica con otro propietario, objetivo o proyecto. No se presentará como aceptación de esta solicitud.",
+          trace_id: trace,
+          request_id: requestId
+        }, 409);
       }
 
       // Metadata backfill is not mission creation. Once DIRECT has returned a
