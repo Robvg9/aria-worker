@@ -17,6 +17,9 @@ on:
       # A3 worker presence/recovery workflow and its local-only helper/tests do not change the PWA runtime.
       - '.github/workflows/mission-wonder-2-step3-a3-contract.yml'
       - '.github/workflows/mission-wonder-2-step3-a3-live.yml'
+      - '.github/scripts/mission-wonder-2-step3-a3-prepare-deploy-secrets.py'
+      - '.github/scripts/mission-wonder-2-step3-a3-deploy-coordinator.sh'
+      - '.github/scripts/mission-wonder-2-step3-a3-live-presence.ps1'
       - 'autonomy/worker-single-instance-lock-v1.js'
       - 'tests/mission-wonder-2-step3-a3-presence.test.mjs'
       - 'tests/mission-wonder-2-step3-a3-live-workflow-contract.test.cjs'
