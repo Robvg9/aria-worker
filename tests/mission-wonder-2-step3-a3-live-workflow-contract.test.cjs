@@ -56,6 +56,7 @@ assert.match(source, /run: bash \.github\/scripts\/mission-wonder-2-step3-a3-dep
 assert.ok(source.includes("Join-Path $env:GITHUB_WORKSPACE '.github\\scripts\\mission-wonder-2-step3-a3-live-presence.ps1'"));
 assert.ok(source.split(/\r?\n/).length < 180, 'compact YAML keeps workflow trigger metadata indexable');
 
+assert.ok(presenceScript.split(/\r?\n/).length < 330, 'presence script must not contain duplicated or truncated trailing code');
 assert.match(presenceScript, /function Write-A3SafeProcessDiagnostics/);
 assert.match(presenceScript, /\$runtimeModules = @\([\s\S]{0,220}autonomy\/persistent-worker-error-policy-v1\.js[\s\S]{0,180}autonomy\/worker-single-instance-lock-v1\.js/m);
 assert.match(presenceScript, /A3_WORKSPACE_COMMIT_MISMATCH/);
