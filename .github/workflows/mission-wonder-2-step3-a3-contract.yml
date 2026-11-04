@@ -87,5 +87,29 @@ jobs:
             throw "A3_POWERSHELL_PARSE_FAILED count=$($parseErrors.Count)"
           }
           Write-Host 'A3_POWERSHELL_PARSE=PASS'
+      - name: Parse inline A3 worktree bootstrap PowerShell
+        run: |
+          $workflowPath = Join-Path $env:GITHUB_WORKSPACE '.github\workflows\mission-wonder-2-step3-a3-live.yml'
+          $workflowText = Get-Content -LiteralPath $workflowPath -Raw
+          $stepMatch = [regex]::Match($workflowText, '(?ms)^      - name: Verify and restore extracted A3 presence script from this commit\r?\n(?<step>.*?)(?=^      - name: |\z)')
+          if (-not $stepMatch.Success) { throw 'A3_BOOTSTRAP_STEP_NOT_FOUND_FOR_PARSE' }
+          $runMatch = [regex]::Match($stepMatch.Groups['step'].Value, '(?m)^        run: \|\r?\n(?<body>(?:^          .*?(?:\r?\n|$))+)')
+          if (-not $runMatch.Success) { throw 'A3_BOOTSTRAP_RUN_BLOCK_NOT_FOUND_FOR_PARSE' }
+          $scriptLines = $runMatch.Groups['body'].Value -split '\r?\n'
+          $script = ($scriptLines | ForEach-Object {
+            if ($_ -match '^ {10}(.*)
+        run: .\tests\persistent-worker-supervisor-policy-v1.test.ps1
+) { $Matches[1] } else { $_ }
+          }) -join [Environment]::NewLine
+          $tokens = $null
+          $parseErrors = $null
+          [System.Management.Automation.Language.Parser]::ParseInput($script, [ref]$tokens, [ref]$parseErrors) | Out-Null
+          if ($parseErrors.Count -gt 0) {
+            foreach ($parseError in $parseErrors) {
+              Write-Host ("A3_BOOTSTRAP_PS_PARSE_ERROR={0} LINE={1} COLUMN={2}" -f $parseError.Message, $parseError.Extent.StartLineNumber, $parseError.Extent.StartColumnNumber)
+            }
+            throw "A3_BOOTSTRAP_POWERSHELL_PARSE_FAILED count=$($parseErrors.Count)"
+          }
+          Write-Host 'A3_BOOTSTRAP_POWERSHELL_PARSE=PASS'
       - name: Test bounded restart and backoff policy
         run: .\tests\persistent-worker-supervisor-policy-v1.test.ps1
