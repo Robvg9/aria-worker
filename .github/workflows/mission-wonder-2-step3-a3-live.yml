@@ -111,6 +111,7 @@ jobs:
     needs: deploy-coordinator
     if: needs.deploy-coordinator.result == 'success' && inputs.confirm_live_presence_only_pilot == true
     runs-on: [self-hosted, Windows, X64]
+    environment: production
     timeout-minutes: 7
     steps:
       - uses: actions/checkout@v4
