@@ -53,6 +53,12 @@ export function missionWonder2PwaScopeTokenProof(token) {
   return { payload_b64: parts[0], signature_b64: parts[1] };
 }
 
+export async function verifyMissionWonder2PwaScopeToken(token, secret, expected = {}, options = {}) {
+  const proof = missionWonder2PwaScopeTokenProof(token);
+  if (!proof) return { ok: false, reason: "scope_token_malformed" };
+  return verifyMissionWonder2PwaScopeProof(proof, secret, expected, options);
+}
+
 export async function verifyMissionWonder2PwaScopeProof(proof, secret, expected = {}, options = {}) {
   try {
     if (!proof || typeof proof !== "object" || typeof proof.payload_b64 !== "string" || typeof proof.signature_b64 !== "string") {
