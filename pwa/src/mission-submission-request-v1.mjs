@@ -1,6 +1,4 @@
 const STORAGE_PREFIX = "aria.pwa.mission-request.v1:";
-const REQUEST_TTL_MS = 24 * 60 * 60 * 1000;
-const MAX_PENDING_REQUESTS = 16;
 
 function normalize(value) {
   return typeof value === "string" ? value.trim() : "";
@@ -52,18 +50,29 @@ function isValidEntry(entry, nowMs) {
   if (!entry || typeof entry !== "object") return false;
   if (typeof entry.request_id !== "string" || !entry.request_id.trim()) return false;
   const createdAt = Number(entry.created_at);
-  return Number.isFinite(createdAt) && createdAt <= nowMs && nowMs - createdAt <= REQUEST_TTL_MS;
+  // Pending identities do not expire automatically: a timeout can remain
+  // ambiguous for longer than a day. Only canonical acknowledgement clears one.
+  return Number.isFinite(createdAt) && createdAt <= nowMs;
 }
 
 function writePending(storage, key, entries) {
   const ordered = Object.entries(entries)
-    .sort((a, b) => Number(a[1]?.created_at ?? 0) - Number(b[1]?.created_at ?? 0))
-    .slice(-MAX_PENDING_REQUESTS);
+    .sort((a, b) => Number(a[1]?.created_at ?? 0) - Number(b[1]?.created_at ?? 0));
   if (ordered.length) {
     storage.setItem(key, JSON.stringify(Object.fromEntries(ordered)));
   } else {
     storage.removeItem(key);
   }
+}
+
+async function withIdentityLock(lockName, work) {
+  const lockManager = globalThis.navigator && globalThis.navigator.locks;
+  if (lockManager && typeof lockManager.request === "function") {
+    return lockManager.request(lockName, { mode: "exclusive" }, work);
+  }
+  // The map read/write below is synchronous after the digest promise resolves.
+  // Older browsers without Web Locks still serialize callbacks within one tab.
+  return work();
 }
 
 function assertIntent({ userId, goal }) {
@@ -101,22 +110,23 @@ export async function getOrCreateMissionSubmissionRequestIdV1({
   const nowMs = Number(now());
   if (!Number.isFinite(nowMs)) throw new Error("mission_request_clock_invalid");
 
-  // Read after hashing so two tabs racing the same intent observe the first write.
-  const current = readPending(storage, key);
-  const fresh = Object.fromEntries(
-    Object.entries(current).filter(([, entry]) => isValidEntry(entry, nowMs))
-  );
-  const existing = fresh[digest];
-  if (existing?.request_id) {
-    writePending(storage, key, fresh);
-    return existing.request_id;
-  }
+  return withIdentityLock("aria-mission-request-v1:" + normalized.userId + ":" + digest, async () => {
+    const current = readPending(storage, key);
+    const pending = Object.fromEntries(
+      Object.entries(current).filter(([, entry]) => isValidEntry(entry, nowMs))
+    );
+    const existing = pending[digest];
+    if (existing?.request_id) {
+      writePending(storage, key, pending);
+      return existing.request_id;
+    }
 
-  const requestId = String(createRequestId() ?? "").trim();
-  if (!requestId) throw new Error("mission_request_id_generation_failed");
-  fresh[digest] = { request_id: requestId, created_at: nowMs };
-  writePending(storage, key, fresh);
-  return requestId;
+    const requestId = String(createRequestId() ?? "").trim();
+    if (!requestId) throw new Error("mission_request_id_generation_failed");
+    pending[digest] = { request_id: requestId, created_at: nowMs };
+    writePending(storage, key, pending);
+    return requestId;
+  });
 }
 
 export async function clearMissionSubmissionRequestIdV1({
