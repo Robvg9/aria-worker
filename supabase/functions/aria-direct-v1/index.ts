@@ -2,6 +2,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { deriveMissionDisplayTitle, MISSION_TITLE_VERSION } from "../_shared/mission-title.mjs";
+import { sha256Hex, verifyMissionWonder2PwaScopeProof } from "../_shared/mission-wonder-2-pwa-scope-v1.mjs";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SHARED_SECRET = Deno.env.get("ARIA_RUNTIME_SHARED_SECRET") ?? "";
@@ -155,8 +156,6 @@ Deno.serve(async (request) => {
   if (!SHARED_SECRET) return out({ error: "runtime_secret_not_configured" }, 500);
   const token = bearer(request);
   if (!token || !equal(token, SHARED_SECRET)) return out({ error: "unauthorized" }, 401);
-  if (MISSION_EXECUTION_PAUSED) return out({ error: "mission_execution_paused", execution_enabled: false }, 423);
-
   const body = await request.json().catch(() => null);
   if (!body || typeof body !== "object" || Array.isArray(body)) {
     return out({ error: "invalid_json" }, 400);
@@ -178,7 +177,26 @@ Deno.serve(async (request) => {
     ? body.mission_id.trim()
     : undefined;
   const authenticatedUserId = request.headers.get("x-aria-user-id")?.trim() || "";
-
+  const scopeProof = userMetadata.mission_wonder_2_pwa_scope_proof;
+  const scopeStatus = userMetadata.mission_wonder_2_pwa_scope_status;
+  const scopeCheck = await verifyMissionWonder2PwaScopeProof(scopeProof, SHARED_SECRET, {
+    user_id: authenticatedUserId,
+    project_id: String(userMetadata.project_id || ""),
+    request_id: requestId,
+    mission_id: String(missionId || ""),
+    goal_sha256: await sha256Hex(goal)
+  });
+  const pwaScopedMissionAllowed =
+    scopeCheck.ok === true &&
+    scopeStatus?.status === "active" &&
+    String(userMetadata.user_id || userMetadata.owner_user_id || "") === authenticatedUserId &&
+    String(scopeCheck.payload?.purpose || "") === "mission_wonder_2_step3_pwa_scoped_mission_v1";
+  if (MISSION_EXECUTION_PAUSED && !pwaScopedMissionAllowed) {
+    return out({ error: "mission_execution_paused", execution_enabled: false }, 423);
+  }
+  if (pwaScopedMissionAllowed && String(scopeCheck.payload.mission_id) !== String(missionId || "")) {
+    return out({ error: "mission_scope_mission_id_mismatch" }, 423);
+  }
 
   const visualContext = userMetadata.visual_context && typeof userMetadata.visual_context === "object" ? userMetadata.visual_context : null;
   const hasExplicitVisualContext = Boolean(visualContext?.image_path || visualContext?.annotations?.length || visualContext?.annotation_summary);
