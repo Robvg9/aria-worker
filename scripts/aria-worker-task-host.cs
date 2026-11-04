@@ -141,6 +141,13 @@ internal static class AriaWorkerTaskHost
                 return RunConfigSelfTest(args[1]);
             }
 
+            if (args != null && args.Length == 3 &&
+                String.Equals(args[0], "--self-test-single-instance", StringComparison.Ordinal))
+            {
+                LogPath = args[2];
+                return RunSingletonSelfTest(args[1]);
+            }
+
             LogPath = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                 "ARIA", "logs", "persistent-worker-supervisor.log");
@@ -260,7 +267,74 @@ internal static class AriaWorkerTaskHost
         }
     }
 
+    private static string GetWorkerSingletonMutexName()
+    {
+        SecurityIdentifier sid = WindowsIdentity.GetCurrent().User;
+        if (sid == null)
+            throw new InvalidOperationException("Windows worker identity SID is unavailable.");
+        return "Local\\ARIA-Persistent-Worker-v1-" + sid.Value.Replace("-", "_");
+    }
+
+    private static int RunSingletonSelfTest(string rawHoldMilliseconds)
+    {
+        int holdMilliseconds;
+        if (!Int32.TryParse(rawHoldMilliseconds, out holdMilliseconds) || holdMilliseconds < 0 || holdMilliseconds > 10000)
+            throw new ArgumentOutOfRangeException("rawHoldMilliseconds");
+        string mutexName = GetWorkerSingletonMutexName();
+        using (Mutex mutex = new Mutex(false, mutexName))
+        {
+            bool acquired = false;
+            try
+            {
+                try { acquired = mutex.WaitOne(0, false); }
+                catch (AbandonedMutexException) { acquired = true; }
+                if (!acquired)
+                {
+                    WriteLog("HOST_SINGLE_INSTANCE=ALREADY_RUNNING");
+                    return 0;
+                }
+                WriteLog("HOST_SINGLE_INSTANCE=ACQUIRED");
+                Thread.Sleep(holdMilliseconds);
+                WriteLog("HOST_SINGLE_INSTANCE=RELEASED");
+                return 0;
+            }
+            finally
+            {
+                if (acquired) mutex.ReleaseMutex();
+            }
+        }
+    }
+
     private static int RunWorker(string configPath, string installDir, string nodePath, string taskName)
+    {
+        EnsureLogDirectory();
+        using (Mutex mutex = new Mutex(false, GetWorkerSingletonMutexName()))
+        {
+            bool acquired = false;
+            try
+            {
+                try { acquired = mutex.WaitOne(0, false); }
+                catch (AbandonedMutexException)
+                {
+                    acquired = true;
+                    WriteLog("HOST_SINGLE_INSTANCE_ABANDONED_RECOVERED");
+                }
+                if (!acquired)
+                {
+                    WriteLog("HOST_SINGLE_INSTANCE=ALREADY_RUNNING");
+                    return 0;
+                }
+                WriteLog("HOST_SINGLE_INSTANCE=ACQUIRED");
+                return RunWorkerExclusive(configPath, installDir, nodePath, taskName);
+            }
+            finally
+            {
+                if (acquired) mutex.ReleaseMutex();
+            }
+        }
+    }
+
+    private static int RunWorkerExclusive(string configPath, string installDir, string nodePath, string taskName)
     {
         RequireFile(configPath, "DPAPI worker config");
         RequireFile(nodePath, "Node executable");
