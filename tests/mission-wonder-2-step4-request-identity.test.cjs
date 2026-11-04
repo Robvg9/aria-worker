@@ -312,3 +312,21 @@ test('A4 preserves the canonical planner, lease, jobs, verification and PWA noti
   assert.match(notificationSql, /after insert on aria_internal\.mission_events/i);
   assert.match(notificationSql, /on conflict \(source_event_id\) do nothing/i);
 });
+
+
+test('App API validates canonical identity after a successful DIRECT response', () => {
+  const source = read('supabase/functions/aria-app-api-v3/index.ts');
+  const direct = source.indexOf('const directPayload =');
+  const readback = source.indexOf('if (!canonicalMission) {', direct);
+  const rowLookup = source.indexOf('.eq("mission_id", createdMissionId)', readback);
+  const missingGuard = source.indexOf('if (!canonicalMission?.mission_id)', rowLookup);
+  const identityGuard = source.indexOf('if (!matchesCanonicalMissionRequest(canonicalMission))', missingGuard);
+  const metadataBackfill = source.indexOf('let metadataBackfillWarning', identityGuard);
+
+  assert.ok(direct >= 0 && readback > direct && rowLookup > readback);
+  assert.ok(missingGuard > rowLookup && identityGuard > missingGuard && metadataBackfill > identityGuard,
+    'a successful DIRECT ID must be read from mission_state and identity-checked before metadata backfill or 200 acknowledgement');
+  assert.match(source, /mission_request_idempotency_readback_failed/);
+  assert.match(source, /mission_request_idempotency_readback_missing/);
+  assert.match(source, /No se presentará como aceptación de esta solicitud/);
+});
