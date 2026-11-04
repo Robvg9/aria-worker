@@ -14,6 +14,13 @@ assert.match(source, /environment: production/m, 'Cloudflare production deployme
 assert.match(source, /robvg-presence-recovery:[\s\S]{0,220}environment: production/m, 'physical ROBVG execution requires its own production approval');
 assert.match(source, /RUNNER_NAME -ne 'ARIA-WINDOWS'[\s\S]{0,100}COMPUTERNAME -ne 'ROBVG'/m, 'physical pilot must fail closed on any runner other than ARIA-WINDOWS on ROBVG');
 assert.ok(source.includes('        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}'), 'physical A3 PowerShell step must bypass execution policy only for its generated process script');
+assert.match(source, /function Write-A3SafeProcessDiagnostics/, 'physical pilot must preserve worker process diagnostics');
+assert.match(source, /A3_NODE_VERSION=/, 'worker diagnostics must include the selected Node runtime version');
+assert.match(source, /ReadAllText\(\$entry\.Path, \[System\.Text\.Encoding\]::UTF8\)/, 'worker diagnostics must read UTF-8 process logs consistently');
+assert.match(source, /\$raw = \$raw\.Replace\(\[string\]\$secret, '\[REDACTED\]'\)/, 'worker diagnostics must redact all configured credentials and scope tokens');
+assert.match(source, /Write-A3SafeProcessDiagnostics -Label 'first-worker-exited-early'/, 'early first-worker termination must emit stdout and stderr diagnostics');
+assert.match(source, /Write-A3SafeProcessDiagnostics -Label 'first-worker-heartbeat-timeout'/, 'missing first-worker heartbeats must emit stdout and stderr diagnostics');
+assert.match(source, /Write-A3SafeProcessDiagnostics -Label 'recovery-worker-exit-nonzero'/, 'recovery-worker failures must emit stdout and stderr diagnostics');
 assert.match(source, /wrangler deploy --config wrangler\.aria-autonomy\.toml/m, 'only the isolated coordinator may be deployed');
 assert.doesNotMatch(source, /ARIA_RUNTIME_SHARED_SECRET|supabase db|supabase migration|supabase functions deploy/i, 'A3 must not touch the legacy runtime secret or Supabase');
 assert.doesNotMatch(source, /Enable-ScheduledTask|Start-ScheduledTask|Register-ScheduledTask|Set-ScheduledTask/m, 'A3 must never enable or start the persistent task');
