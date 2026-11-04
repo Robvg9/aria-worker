@@ -33,6 +33,7 @@ jobs:
       RWHT_HEADLESS: 'true'
       RWHT_NO_SCREENSHOTS: 'false'
       RWHT_ALLOW_MUTATIONS: 'false'
+      RWHT_MUTATION_SKIP_REASON: 'MISSION_EXECUTION_PAUSED=true; ordinary visual mission E2E requires explicit A4 authorization'
       RWHT_REQUIRE_AUTH: 'true'
       RWHT_ROUTES: '#projects'
       RWHT_RELOAD_AUTH: 'true'
@@ -418,7 +419,11 @@ jobs:
           const reportPath = 'rwht/pc-browser/projects-e2e-artifacts/projects-rwht-report.json';
           let report = null;
           try { report = JSON.parse(fs.readFileSync(reportPath, 'utf8')); } catch {}
-          const status = report?.verified === true ? 'PASS' : 'FAIL';
+          const readOnlyPass = report?.verified === true;
+          const visualMissionGate = String(report?.visual_mission_gate?.status || 'UNKNOWN');
+          const status = readOnlyPass
+            ? (visualMissionGate === 'HUMAN_GATE' ? 'PASS (READ-ONLY)' : 'PASS')
+            : 'FAIL';
           const body = [
             '## Projects + ARTIA RWHT — ' + status,
             '',
@@ -428,7 +433,12 @@ jobs:
             '- **Proyectos:** `' + (report?.project_count ?? '—') + '`',
             '- **Previews overview:** `' + JSON.stringify(report?.overview_preview_results ?? []) + '`',
             '- **Previews ARTIA:** `' + JSON.stringify(report?.preview_results ?? []) + '`',
-            '- **Misiones visuales:** `' + JSON.stringify(report?.visual_missions ?? []) + '`',
+            '- **Misiones visuales creadas:** `' + JSON.stringify(report?.visual_missions ?? []) + '`',
+            '- **Dibujo/ARTIA sin mutaciones:** `' + JSON.stringify(report?.visual_canvas_checks ?? []) + '`',
+            '- **Gate de misión visual LIVE:** `' + visualMissionGate + '`',
+            '- **Motivo del gate:** `' + String(report?.visual_mission_gate?.reason || 'none') + '`',
+            '- **POST de misión intentado:** `' + String(Boolean(report?.visual_mission_gate?.mutation_attempted)) + '`',
+            '- **Cierre A4 ordinario:** `' + (visualMissionGate === 'HUMAN_GATE' ? 'OPEN — requiere objetivo real y autorización explícita' : 'see mission evidence') + '`',
             '- **Reality Board:** `' + JSON.stringify(report?.reality_board ?? null) + '`',
             '- **Errores de página:** `' + (report?.page_errors?.length ?? '—') + '`',
             '- **Errores de consola:** `' + (report?.console_errors?.length ?? '—') + '`',
