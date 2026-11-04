@@ -8,7 +8,11 @@ const workflowPath = path.join(__dirname, '..', '.github', 'workflows', 'mission
 const source = fs.readFileSync(workflowPath, 'utf8');
 const pwaFastDeployPath = path.join(__dirname, '..', '.github', 'workflows', 'aria-pwa-fast-deploy.yml');
 const pwaFastDeploy = fs.readFileSync(pwaFastDeployPath, 'utf8');
-const pwaFastDeployIgnore = pwaFastDeploy.match(/paths-ignore:\\s*\\n([\\s\\S]*?)(?=\\n  workflow_dispatch:)/)?.[1] || '';
+const pwaIgnoreStart = pwaFastDeploy.indexOf("    paths-ignore:");
+const pwaIgnoreEnd = pwaFastDeploy.indexOf("  workflow_dispatch:", pwaIgnoreStart);
+const pwaFastDeployIgnore = pwaIgnoreStart >= 0 && pwaIgnoreEnd > pwaIgnoreStart
+  ? pwaFastDeploy.slice(pwaIgnoreStart, pwaIgnoreEnd)
+  : '';
 for (const a3OnlyPath of [
   '.github/workflows/mission-wonder-2-step3-a3-contract.yml',
   '.github/workflows/mission-wonder-2-step3-a3-live.yml',
