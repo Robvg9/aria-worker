@@ -2348,20 +2348,23 @@ export class AriaMissionStore {
     if (this.isMissionExecutionPaused()) {
       const a3ProbeId = await this.ctx.storage.get('mw2:a3:presence:active-probe');
       if (typeof a3ProbeId === 'string' && MISSION_WONDER_2_A3_PRESENCE_ID_PATTERN.test(a3ProbeId)) {
-        const a3Scope = await this.ctx.storage.get('mw2:a3:presence:' + a3ProbeId);
-        if (!a3Scope || a3Scope.status !== 'active') return;
-        if (Date.parse(a3Scope.expires_at) <= Date.now()) {
-          await this.expireMissionWonder2A3PresenceProbe(a3ProbeId, 'presence_probe_ttl_expired');
-          return;
-        }
-        const lastPresenceAt = Date.parse(a3Scope.last_presence_at || '');
-        if ((!Number.isFinite(lastPresenceAt) || Date.now() - lastPresenceAt > Number(a3Scope.stale_after_ms)) && !a3Scope.stale_detected_at) {
-          a3Scope.stale_detected_at = nowIso();
-        }
-        a3Scope.alarm_tick_count = Number(a3Scope.alarm_tick_count || 0) + 1;
-        a3Scope.last_alarm_at = nowIso();
-        await this.ctx.storage.put('mw2:a3:presence:' + a3ProbeId, a3Scope);
-        await this.ctx.storage.setAlarm(Date.now() + this.alarmMs);
+        await this.exclusive(async () => {
+          const scopeKey = 'mw2:a3:presence:' + a3ProbeId;
+          const a3Scope = await this.ctx.storage.get(scopeKey);
+          if (!a3Scope || a3Scope.status !== 'active') return;
+          if (Date.parse(a3Scope.expires_at) <= Date.now()) {
+            await this.expireMissionWonder2A3PresenceProbe(a3ProbeId, 'presence_probe_ttl_expired');
+            return;
+          }
+          const lastPresenceAt = Date.parse(a3Scope.last_presence_at || '');
+          if ((!Number.isFinite(lastPresenceAt) || Date.now() - lastPresenceAt > Number(a3Scope.stale_after_ms)) && !a3Scope.stale_detected_at) {
+            a3Scope.stale_detected_at = nowIso();
+          }
+          a3Scope.alarm_tick_count = Number(a3Scope.alarm_tick_count || 0) + 1;
+          a3Scope.last_alarm_at = nowIso();
+          await this.ctx.storage.put(scopeKey, a3Scope);
+          await this.ctx.storage.setAlarm(Date.now() + this.alarmMs);
+        }, { allowFrozen: true });
         return;
       }
       const activeProbeId = await this.ctx.storage.get('package3:readonly-pilot:active-probe');
