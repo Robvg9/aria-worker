@@ -1,0 +1,58 @@
+name: Mission Wonder 2 — Issue one-shot PWA mission scope
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_pwa_mission_scope:
+        description: "Confirm issuing one 15-minute, read-only PWA mission scope"
+        required: true
+        type: boolean
+        default: false
+      user_id:
+        description: "Authenticated Supabase user UUID (copy from the PWA session)"
+        required: true
+        type: string
+      project_id:
+        description: "Exact PWA project ID: aria, battlecruiser, or cuevacoin"
+        required: true
+        type: choice
+        options:
+          - aria
+          - battlecruiser
+          - cuevacoin
+      goal:
+        description: "Exact user-authored mission goal; it must match the PWA text exactly"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  issue-scope:
+    if: ${{ inputs.confirm_pwa_mission_scope == true }}
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 5
+    steps:
+      - name: Checkout exact workflow source
+        uses: actions/checkout@v4
+
+      - name: Issue 15-minute HMAC scope
+        id: issue
+        env:
+          ARIA_RUNTIME_SHARED_SECRET: ${{ secrets.ARIA_RUNTIME_SHARED_SECRET }}
+          MW2_SCOPE_CONFIRM: ${{ inputs.confirm_pwa_mission_scope }}
+          MW2_SCOPE_USER_ID: ${{ inputs.user_id }}
+          MW2_SCOPE_PROJECT_ID: ${{ inputs.project_id }}
+          MW2_SCOPE_GOAL: ${{ inputs.goal }}
+          MW2_SCOPE_OUTPUT_DIR: mission-scope-artifact
+        run: node scripts/issue-mission-wonder-2-pwa-scope.mjs
+
+      - name: Upload one-shot scope artifact (1 day)
+        uses: actions/upload-artifact@v4
+        with:
+          name: mission-wonder-2-pwa-scope
+          path: mission-scope-artifact/mission-scope.json
+          if-no-files-found: error
+          retention-days: 1
