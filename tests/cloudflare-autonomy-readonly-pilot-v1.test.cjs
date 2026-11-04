@@ -1,6 +1,8 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 let AriaMissionStore;
 let MISSION_EXECUTION_PAUSED;
 
@@ -21,6 +23,21 @@ function createState() {
 }
 const CONTROL_TOKEN = 'readonly-pilot-control-token'.padEnd(48, 'c');
 const WORKER_TOKEN = 'readonly-pilot-worker-token'.padEnd(48, 'w');
+
+const package2Workflow = fs.readFileSync(
+  path.resolve(__dirname, '../.github/workflows/package2-execution-only.yml'),
+  'utf8'
+);
+const readonlyPilotWorkflow = package2Workflow.split('  robvg-readonly-git-status-pilot:')[1] || '';
+assert.ok(readonlyPilotWorkflow, 'manual readonly pilot workflow job must exist');
+const isolatedCheckout = readonlyPilotWorkflow.match(/- uses: actions\\/checkout@v4([\\s\\S]*?)- name: Execute one scoped LIVE git\\.status mission/);
+assert.ok(isolatedCheckout, 'readonly pilot must have an explicit isolated checkout step');
+assert.match(isolatedCheckout[1], /path: _readonly-pilot-source/);
+assert.match(isolatedCheckout[1], /persist-credentials: false/);
+assert.ok(readonlyPilotWorkflow.includes('ARIA_WORKSPACE_ROOT: ${{ github.workspace }}\\_readonly-pilot-source'));
+assert.ok(readonlyPilotWorkflow.includes('ARIA_AUTONOMY_ADAPTER: ${{ github.workspace }}\\_readonly-pilot-source\\autonomy\\aria-windows-execution-adapter-v1.js'));
+assert.match(readonlyPilotWorkflow, /Push-Location -LiteralPath \\$pilotSourceRoot/);
+assert.match(readonlyPilotWorkflow, /Pop-Location/);
 function request(path, {
   method = 'GET',
   token = CONTROL_TOKEN,
