@@ -1,0 +1,118 @@
+name: Mission Wonder 2 — Step 4 A4 PWA Live E2E
+
+on:
+  workflow_run:
+    workflows: ["Deploy ARIA Supabase Runtime"]
+    types: [completed]
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: mission-wonder-2-step4-a4-live-${{ github.event.workflow_run.head_sha }}
+  cancel-in-progress: false
+
+jobs:
+  a4-live-e2e:
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    environment: production
+    env:
+      A4_SHA: ${{ github.event.workflow_run.head_sha }}
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+      ARIA_RUNTIME_SHARED_SECRET: ${{ secrets.ARIA_RUNTIME_SHARED_SECRET }}
+      RWHT_URL: https://aria.robvg9.workers.dev/pwa/
+      RWHT_EMAIL: ${{ secrets.RWHT_EMAIL }}
+      RWHT_PASSWORD: ${{ secrets.RWHT_PASSWORD }}
+      RWHT_STORAGE_STATE_B64: ${{ secrets.RWHT_STORAGE_STATE_B64 }}
+      RWHT_STORAGE_STATE_GZIP_B64: ${{ secrets.RWHT_STORAGE_STATE_GZIP_B64 }}
+      RWHT_ARTIFACT_DIR: a4-live-artifacts
+    steps:
+      - name: Checkout deployed commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Install Supabase CLI
+        run: npm install -g supabase
+
+      - name: Link production project
+        run: |
+          set -euo pipefail
+          test "$SUPABASE_PROJECT_REF" = "icuqsstxfdbvjytkhlog"
+          test -n "$SUPABASE_ACCESS_TOKEN"
+          test -n "$ARIA_RUNTIME_SHARED_SECRET"
+          supabase link --project-ref "$SUPABASE_PROJECT_REF"
+
+      - name: Install authenticated browser dependencies
+        working-directory: rwht/pc-browser
+        run: npm install --no-audit --no-fund
+
+      - name: Install Chromium
+        working-directory: rwht/pc-browser
+        run: npx playwright install --with-deps chromium
+
+      - name: Prepare optional authenticated storage state
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ( -z "$RWHT_EMAIL" || -z "$RWHT_PASSWORD" ) && -n "$RWHT_STORAGE_STATE_B64" ]]; then
+            printf '%s' "$RWHT_STORAGE_STATE_B64" | base64 --decode > "$RUNNER_TEMP/aria-rwht-auth-state.json"
+          elif [[ ( -z "$RWHT_EMAIL" || -z "$RWHT_PASSWORD" ) && -n "$RWHT_STORAGE_STATE_GZIP_B64" ]]; then
+            printf '%s' "$RWHT_STORAGE_STATE_GZIP_B64" | base64 --decode | gzip -dc > "$RUNNER_TEMP/aria-rwht-auth-state.json"
+          fi
+          if [[ -f "$RUNNER_TEMP/aria-rwht-auth-state.json" ]]; then
+            chmod 600 "$RUNNER_TEMP/aria-rwht-auth-state.json"
+            echo "RWHT_STORAGE_STATE=$RUNNER_TEMP/aria-rwht-auth-state.json" >> "$GITHUB_ENV"
+          fi
+
+      - name: Wait for exact-SHA production runtime and PWA
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LIVE_GATE_PREDECESSORS: "ARIA Persistence + Recovery Browser RWHT Authenticated"
+        run: |
+          set -euo pipefail
+          bash scripts/ci/wait-for-aria-exact-sha-deploys.sh "$A4_SHA"
+          base="${RWHT_URL%/}/"
+          version=""
+          for attempt in $(seq 1 90); do
+            version="$(curl --fail --silent --show-error --retry 1 --retry-delay 1 "${base}version.json?probe=$A4_SHA-a4-$attempt" 2>/dev/null || true)"
+            if VERSION="$version" A4_SHA="$A4_SHA" python - <<'PY'
+          import json, os
+          try:
+              raise SystemExit(0 if json.loads(os.environ["VERSION"]).get("build") == os.environ["A4_SHA"] else 1)
+          except Exception:
+              raise SystemExit(1)
+          PY
+            then
+              echo "A4_PWA_EXACT_SHA_OK=$A4_SHA"
+              break
+            fi
+            test "$attempt" -lt 90 && sleep 2
+          done
+          VERSION="$version" A4_SHA="$A4_SHA" python - <<'PY'
+          import json, os
+          assert json.loads(os.environ["VERSION"]).get("build") == os.environ["A4_SHA"]
+          PY
+
+      - name: Run single ordinary PWA-originated A4 mission
+        working-directory: rwht/pc-browser
+        run: node mission-wonder-2-step4-a4-live-e2e.mjs
+
+      - name: Upload A4 evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mission-wonder-2-step4-a4-live-${{ github.run_id }}-${{ github.run_attempt }}
+          path: rwht/pc-browser/a4-live-artifacts/
+          if-no-files-found: warn
