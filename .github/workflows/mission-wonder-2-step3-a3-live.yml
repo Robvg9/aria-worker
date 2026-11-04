@@ -1,4 +1,4 @@
-name: Mission Wonder 2 Step 3 A3 — LIVE Presence-Only Pilot
+name: A3 LIVE Presence-Only Pilot
 
 on:
   workflow_dispatch:
