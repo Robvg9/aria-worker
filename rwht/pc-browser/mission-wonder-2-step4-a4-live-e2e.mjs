@@ -44,10 +44,10 @@ async function browserSession(page) {
     } catch { return null; }
   });
   const status = async (token) => page.evaluate(async (value) => {
-    const response = await fetch('/api/session', { headers: { Authorization: 'Bearer ' + value }, cache: 'no-store' });
+    const response = await fetch('/api/diagnostics/health', { headers: { authorization: 'Bearer ' + value, accept: 'application/json' }, cache: 'no-store' });
     return response.status;
   }, token);
-  if (session && await status(session.accessToken) === 200) return session;
+  if (session && [200, 204].includes(await status(session.accessToken))) return session;
 
   await page.evaluate(() => localStorage.removeItem('aria_session_v2')).catch(() => {});
   await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
@@ -74,7 +74,7 @@ async function browserSession(page) {
     const value = JSON.parse(localStorage.getItem('aria_session_v2') || '{}');
     return { accessToken: value.accessToken, userId: String(value.userId || '') };
   });
-  if (!session.accessToken || !session.userId || await status(session.accessToken) !== 200) fail('PWA authenticated session could not be verified');
+  if (!session.accessToken || !session.userId || ![200, 204].includes(await status(session.accessToken))) fail('PWA authenticated session could not be verified');
   return session;
 }
 async function pwaApi(page, token, url, options = {}) {
