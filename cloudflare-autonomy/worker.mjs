@@ -472,7 +472,7 @@ export class AriaMissionStore {
     scope.worker_ids = Array.from(new Set([...(scope.worker_ids || []), requestedWorkerId]));
     if (scope.worker_ids.length > 2) return error('mission_wonder_2_a3_presence_worker_limit_exceeded', 409);
     scope.presence_count = Number(scope.presence_count || 0) + 1;
-    scope.last_presence_at = nowIso(); scope.last_presence_state = 'idle'; scope.stale_detected_at = null;
+    scope.last_presence_at = nowIso(); scope.last_presence_state = 'idle';
     await this.ctx.storage.put(scopeKey, scope);
     return json({ ok: true, probe_id: scope.probe_id, worker_id: scope.worker_id,
       presence_count: scope.presence_count, recovery_count: scope.recovery_count, last_presence_at: scope.last_presence_at });
