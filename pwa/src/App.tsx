@@ -9,6 +9,7 @@ import { missionActivityLabel, missionGoalPreview, missionHumanTitle, missionLis
 import { artifactKindLabel, missionArtifacts, type MissionArtifact } from './missionArtifacts';
 import { TEST_CATALOG, TEST_CATALOG_STATS, TEST_CATALOG_VERSION, filterTestCatalog } from './testCatalog';
 import { ensurePwaWebPushSubscription, getNotificationIdFromHash, humanizeMeditationDetail, humanizeMeditationNotification, requestPwaNotificationPermission, showPwaNotification, type PwaNotificationItem } from './notifications';
+import { clearMissionSubmissionRequestIdV1, getOrCreateMissionSubmissionRequestIdV1 } from './mission-submission-request-v1.mjs';
 
 const API = '/api';
 const CACHE_PREFIX = 'aria-runtime-cache-v3';
@@ -2561,6 +2562,12 @@ function Chat({
     setShowNewMission(false);
     if (window.location.hash === '#mission') window.location.hash = '#home';
     try {
+      // Reuse this identity when the same PWA intent is retried after an ambiguous response.
+      const missionRequestId = await getOrCreateMissionSubmissionRequestIdV1({
+        userId: session.userId,
+        goal: missionGoal,
+        projectId: null,
+      });
       const audioAttachments: Array<{ path: string; filename: string; mime_type: string }> = [];
       if (outgoingAudio) {
         const contentType = outgoingAudio.type || 'audio/webm';
@@ -2577,6 +2584,7 @@ function Chat({
       }
       const d = await api('/missions', session.accessToken, {
         method: 'POST',
+        headers: { 'x-aria-request-id': missionRequestId },
         body: JSON.stringify({
           goal: missionGoal,
           audio_attachments: audioAttachments,
@@ -2585,6 +2593,11 @@ function Chat({
       });
       const missionId = d?.mission?.mission_id ?? d?.mission_id;
       if (!missionId) throw new Error('ARIA no confirmó la creación de la misión.');
+      await clearMissionSubmissionRequestIdV1({
+        userId: session.userId,
+        goal: missionGoal,
+        projectId: null,
+      });
       setGoal('');
       setMissionAudioFile(null);
       const createdTitle = missionHumanTitle(d.mission || { goal: missionGoal });
