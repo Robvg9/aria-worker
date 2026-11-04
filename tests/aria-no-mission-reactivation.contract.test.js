@@ -20,33 +20,38 @@ test('Cloudflare Worker cannot invoke the canonical runtime from cron or manual 
   assert.ok(scheduled.indexOf('MISSION_EXECUTION_PAUSED') < scheduled.indexOf('fetch(CANONICAL_RUNTIME,'));
 });
 
-test('canonical runtime is fail-closed before reading or forwarding a mission request', () => {
+test('canonical runtime keeps the global freeze and validates the isolated A4 scope before runner forwarding', () => {
   const source = read('supabase/functions/aria-canonical-runtime-v1/index.ts');
   const handler = source.indexOf('Deno.serve(async r=>{');
-  const gate = source.indexOf('if(MISSION_EXECUTION_PAUSED)', handler);
   const bodyRead = source.indexOf('const body=await r.text()', handler);
+  const gate = source.indexOf('if(MISSION_EXECUTION_PAUSED)', handler);
   assert.match(source, /function internalFunctionFetch\(input:RequestInfo\|URL,init:RequestInit=\{\}\)/);
-  assert.ok(handler >= 0 && gate > handler && bodyRead > gate, 'pause gate must run before request forwarding');
+  assert.match(source, /const MISSION_EXECUTION_PAUSED=true/);
+  assert.match(source, /m22A4ScopeRowMatchesV1/);
+  assert.ok(handler >= 0 && bodyRead > handler && gate > bodyRead, 'canonical runtime must parse only to identify the exact mission, then validate its scope before forwarding');
+  assert.ok(source.indexOf('internalFunctionFetch(RUNNER', gate) > gate, 'A4 validation must precede runner forwarding');
 });
 
-test('mission runner preserves the global freeze and allows only the pre-approved one-mission Gate 3 scope', () => {
+test('mission runner preserves the global freeze and isolates Gate 3 and A4 from global recovery', () => {
   const source = read('supabase/functions/aria-mission-runner-v22/index.ts');
   const handler = source.indexOf('Deno.serve(async (request) => {');
   const bodyRead = source.indexOf('const body = await request.json()', handler);
   const gate = source.indexOf('if (MISSION_EXECUTION_PAUSED)', handler);
-  const scopedValidator = source.indexOf('m22MissionWonder2ScopedProbeAllowed', handler);
-  const denied = source.indexOf('if (!gate3ScopedProbeAllowed) return out(', handler);
+  const gate3Validator = source.indexOf('m22MissionWonder2ScopedProbeAllowed', handler);
+  const a4Validator = source.indexOf('m22A4ScopeRowMatchesV1', handler);
+  const denied = source.indexOf('if (!gate3ScopedProbeAllowed && !a4ScopeRow) return out(', handler);
+  const recoveryGuard = source.indexOf('if (!gate3ScopedProbeAllowed && !a4ScopeRow) {', denied);
   const recover = source.indexOf('aria_autonomy_recover_stale_missions', handler);
   const reopen = source.indexOf('aria_reopen_recoverable_hard_blocks', handler);
   const claimById = source.indexOf('aria_mission_claim_by_id_lease', handler);
   const claimNext = source.indexOf('aria_mission_claim_next_lease', handler);
-  assert.ok(handler >= 0 && bodyRead > handler && gate > bodyRead, 'runner must parse only after authentication, then check the pause');
-  assert.ok(scopedValidator > gate && denied > scopedValidator && recover > denied && reopen > denied && claimById > denied && claimNext > denied,
-    'scope validator and fail-closed response must precede every recovery and claim path');
+  assert.ok(handler >= 0 && bodyRead > handler && gate > bodyRead, 'runner must authenticate before parsing, then check the pause');
+  assert.ok(gate3Validator > gate && a4Validator > gate3Validator && denied > a4Validator && recover > denied && reopen > denied && claimById > denied && claimNext > denied,
+    'both exact scopes and fail-closed response must precede recovery and lease claims');
   assert.ok(source.includes('const MISSION_EXECUTION_PAUSED = true;'), 'runner global pause must remain true');
-  const recoveryGuard = source.indexOf('if (!gate3ScopedProbeAllowed) {', denied);
-  assert.ok(recoveryGuard > denied && recoveryGuard < recover, 'scoped probe must skip global stale recovery');
-  assert.ok(source.indexOf('if (!gate3ScopedProbeAllowed) {', recover) < reopen, 'scoped probe must skip hard-block reopening');
+  assert.ok(recoveryGuard > denied && recoveryGuard < recover, 'A4 and Gate 3 must skip global stale recovery and hard-block reopening');
+  assert.ok(source.indexOf('m22A4BuildReadonlyProbeStepV1(String(a4ScopeRow.allowed_device_id))') > a4Validator,
+    'A4 must force the exact one-step read-only probe');
 });
 
 test('supervisor does not fan out while paused or call the undeployed repair endpoint', () => {
@@ -155,16 +160,24 @@ test('Cloudflare Worker keeps chat forwarding available while blocking mission a
   }
 });
 
-test('mission intake and direct interface reject mission creation while preserving read-only direct health', () => {
+test('mission intake and direct interface permit only the exact claimed A4 scope while frozen', () => {
   const intake = read('supabase/functions/aria-mission-intake-v1/index.ts');
   const direct = read('supabase/functions/aria-direct-v1/index.ts');
+  const intakeAuth = intake.indexOf('if (!token || !constantTimeEqual(token, SHARED_SECRET))');
+  const intakeBody = intake.indexOf('body = await req.json()');
   const intakeGate = intake.indexOf('if (MISSION_EXECUTION_PAUSED)');
-  assert.ok(intakeGate > intake.indexOf('if (!token || !constantTimeEqual(token, SHARED_SECRET))'));
-  assert.ok(intakeGate < intake.indexOf('body = await req.json()'));
+  assert.ok(intakeAuth >= 0 && intakeBody > intakeAuth && intakeGate > intakeBody);
+  assert.match(intake, /m22A4ScopeRowMatchesV1/);
+  assert.match(intake, /if \(!valid\) return json\(\{ error: "mission_execution_paused"/);
   assert.match(direct, /if \(request\.method === "GET"\)/);
+  const directAuth = direct.indexOf('if (!token || !equal(token, SHARED_SECRET))');
+  const directBody = direct.indexOf('await request.json()');
   const directGate = direct.indexOf('if (MISSION_EXECUTION_PAUSED)');
-  assert.ok(directGate > direct.indexOf('if (request.method !== "POST")'));
-  assert.ok(directGate < direct.indexOf('request.json()'));
+  assert.ok(directGate > directBody && directBody > directAuth);
+  assert.match(direct, /m22A4ScopeRowMatchesV1/);
+  assert.match(direct, /if \(!valid\) return out\(\{ error: "mission_execution_paused"/);
+  assert.match(intake, /const MISSION_EXECUTION_PAUSED = true/);
+  assert.match(direct, /const MISSION_EXECUTION_PAUSED = true/);
 });
 
 test('runtime gateway pauses every mutating goal or job action but retains get_job reads', () => {
@@ -184,10 +197,11 @@ test('app API separates conversation from mission mutations while the global mis
   const guard = source.indexOf('if (MISSION_EXECUTION_PAUSED && pausedMissionMutation)', gate);
   const mutationList = source.slice(gate, guard);
   const conversation = mutationList.indexOf('path.endsWith("/conversation")');
-  const missionCreate = mutationList.indexOf('path.endsWith("/missions")');
   const retry = mutationList.indexOf('verify-retry|invalidate-unverified-success|retry|human-gate');
+  const missionCreateHandler = source.indexOf('if (req.method === "POST" && path.endsWith("/missions"))', guard);
+  const a4Claim = source.indexOf('aria_m22_a4_claim_scope_v1', missionCreateHandler);
   const handler = source.indexOf('if (req.method === "POST" && path.endsWith("/conversation"))', gate);
-  assert.ok(gate > 0 && guard > gate && missionCreate >= 0 && retry >= 0);
+  assert.ok(gate > 0 && guard > gate && missionCreateHandler > guard && a4Claim > missionCreateHandler && retry >= 0);
   assert.equal(conversation, -1, 'ordinary chat must bypass the mission-mutation pause guard');
   assert.ok(handler > guard, 'conversation handler must remain behind authentication and route dispatch');
   assert.match(source, /const MISSION_EXECUTION_PAUSED = true;/, 'the global mission freeze must remain enabled');
