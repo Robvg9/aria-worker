@@ -1,6 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { m22Gate3HumanGateActionHash, m22Gate3RouteAllowed, m22MissionWonder2ScopedProbeAllowed } from "../_shared/mission-wonder-2-gate3-scope-v1.mjs";
+import { verifyMissionWonder2PwaMission, missionWonder2PwaScopeStepAllowed, missionWonder2PwaScopeRouteAllowed } from "../_shared/mission-wonder-2-pwa-scope-v1.mjs";
 import { parseOpenRouterFreeDailyQuota, extractProviderUsage, parseQuotaReservation } from "./quota-accounting-v1.mjs";
 import { isCloudflarePlanPreviewRequest } from "../_shared/cloudflare-plan-preview-auth-v1.mjs";
 const MISSION_EXECUTION_PAUSED = true;
@@ -180,10 +181,42 @@ const conversationOnlyAllowed=
    Array.isArray(input?.payload?.contents)&&input.payload.contents.length<=3&&
    input.payload.contents.every((item:any)=>item?.role==="user"&&Array.isArray(item?.parts)&&item.parts.length<=3));
 let gate3ScopedProbeAllowed=false;
+let pwaScopedMissionAllowed=false;
 let cloudflarePlanPreviewAllowed=false;
 if(MISSION_EXECUTION_PAUSED){
   const missionId=String(body?.metadata?.mission_id||"");
   const stepId=String(body?.metadata?.step_id||"");
+  if(missionId&&stepId){
+    try{
+      const {data:scopeMission,error:scopeError}=await sb.schema("aria_internal").from("mission_state")
+        .select("mission_id,goal,status,checkpoint,metadata")
+        .eq("mission_id",missionId).maybeSingle();
+      const scopeStep=Array.isArray(scopeMission?.checkpoint?.plan)
+        ? scopeMission.checkpoint.plan.find((candidate:any)=>String(candidate?.id||"")===stepId)
+        : null;
+      const pwaScope=scopeError?{ok:false,reason:"mission_scope_readback_failed"}:await verifyMissionWonder2PwaMission(scopeMission,SECRET);
+      const plannedInput=scopeStep?.input?.payload&&typeof scopeStep.input.payload==="object"
+        ? scopeStep.input.payload
+        : scopeStep?.input&&typeof scopeStep.input==="object"?scopeStep.input:{};
+      const requestedInput=input?.payload&&typeof input.payload==="object"?input.payload:{};
+      pwaScopedMissionAllowed=
+        pwaScope.ok===true &&
+        pwaScope.payload?.mission_id===missionId &&
+        ["queued","running"].includes(String(scopeMission?.status||"")) &&
+        missionWonder2PwaScopeStepAllowed(pwaScope.payload,scopeStep) &&
+        missionWonder2PwaScopeRouteAllowed(pwaScope.payload,route) &&
+        body?.task_id===stepId &&
+        body?.capability===String(scopeStep?.operation||"") &&
+        String(requestedInput.prompt||"")===String(plannedInput.prompt||"") &&
+        Number(requestedInput.max_tokens??requestedInput.max_completion_tokens??0)<=Number(plannedInput.max_tokens??plannedInput.max_completion_tokens??0) &&
+        !Array.isArray(requestedInput.tools) &&
+        az?.status==="approved" &&
+        az?.risk_class==="READ" &&
+        policy?.tool_use!==true;
+    }catch{
+      pwaScopedMissionAllowed=false;
+    }
+  }
   if(missionId&&stepId&&policy?.mission_wonder_2_gate3_probe===true&&policy?.human_gate_required===true&&az?.human_gate_verified===true&&m22Gate3RouteAllowed(route)){
     try{
       const {data:probeMission,error:probeError}=await sb.schema("aria_internal").from("mission_state").select("mission_id,status,checkpoint,metadata").eq("mission_id",missionId).maybeSingle();
@@ -228,7 +261,7 @@ if(MISSION_EXECUTION_PAUSED){
   }catch{
     cloudflarePlanPreviewAllowed=false;
   }
-  if(!gate3ScopedProbeAllowed&&!cloudflarePlanPreviewAllowed&&!conversationOnlyAllowed){
+  if(!gate3ScopedProbeAllowed&&!pwaScopedMissionAllowed&&!cloudflarePlanPreviewAllowed&&!conversationOnlyAllowed){
     return out({status:"paused",error:{code:"mission_execution_paused"},execution_enabled:false},423);
   }
 }if(!route||typeof route!=="object")return out({status:"blocked",reason:"route_missing"});if(!az||az.status!=="approved")return out({status:"blocked",reason:"authorization_not_approved"});if(policy?.human_gate_required===true){if(az.human_gate_verified!==true)return out({status:"blocked",reason:"human_gate_required"});if(typeof az.human_gate_mission_id!=="string"||typeof az.human_gate_step_id!=="string"||typeof az.human_gate_action_hash!=="string"||typeof az.human_gate_approval_token!=="string")return out({status:"blocked",reason:"human_gate_evidence_missing"});const {data:gateOk,error:gateError}=await sb.rpc("human_gate_authorize_execution",{p_mission_id:az.human_gate_mission_id,p_step_id:az.human_gate_step_id,p_action_hash:az.human_gate_action_hash,p_approval_token:az.human_gate_approval_token});if(gateError||gateOk!==true)return out({status:"blocked",reason:"human_gate_authorization_invalid"});}
