@@ -131,6 +131,19 @@ try {
   assert.ok(PROJECT && RUNTIME_SECRET && RUN_ID, 'A4 workflow secrets/context missing');
   assert.equal(PROJECT, 'icuqsstxfdbvjytkhlog', 'unexpected ARIA Supabase project');
   assert.ok(/^https:\/\//.test(BASE), 'PWA URL must be HTTPS');
+  // This workflow is attached to runtime deploys. After the one authorized mission
+  // has consumed its scope, later deploys must be a clean no-op, never a second mission.
+  scopeId = 'mission_wonder_2_a4_authorized_once';
+  const missionId = 'mission_a4_authorized_once';
+  const priorScope = runSql(`SELECT CASE WHEN EXISTS(
+    SELECT 1 FROM aria_internal.mission_wonder_2_a4_scopes WHERE scope_id=${sqlQuote(scopeId)}
+  ) THEN 'A4_SCOPE_ALREADY_CONSUMED' ELSE 'A4_SCOPE_UNUSED' END;`);
+  if (priorScope.includes('A4_SCOPE_ALREADY_CONSUMED')) {
+    report.status = 'SKIPPED_ALREADY_CONSUMED';
+    console.log('MISSION_WONDER_2_STEP4_A4_LIVE_E2E=SKIPPED_ALREADY_CONSUMED');
+    fs.writeFileSync(path.join(ARTIFACT_DIR, 'a4-report.json'), JSON.stringify(report, null, 2));
+    process.exit(0);
+  }
   browser = await chromium.launch({ headless: true });
   const storageState = process.env.RWHT_STORAGE_STATE || '';
   const context = await browser.newContext({
@@ -164,8 +177,6 @@ try {
   }), 'utf8').digest('hex');
   // A globally unique scope key makes this authorization a true lifetime one-shot.
   // Re-running or retrying this workflow cannot create a second A4 mission.
-  scopeId = 'mission_wonder_2_a4_authorized_once';
-  const missionId = 'mission_a4_authorized_once';
   const scopeKey = 'mission-wonder-2-step4-a4:single-authorized-execution';
   const insert = `
     INSERT INTO aria_internal.mission_wonder_2_a4_scopes
