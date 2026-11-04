@@ -366,3 +366,16 @@ test('authenticated production write E2Es and physical certification are manual-
   assert.ok(pc.includes("live-pwa:\n    if: github.event_name == 'workflow_dispatch'"),
     'PC RWHT full LIVE PWA audit must be explicit/manual while contract job remains automatic');
 });
+
+
+test('PWA explains that a frozen mission was not created and preserves the submitted draft', () => {
+  const source = read('pwa/src/App.tsx');
+  assert.match(source, /mission_execution_paused:\s*'La ejecución de misiones está pausada por seguridad\. No se creó ni se encoló ninguna misión;/);
+  const run = source.slice(source.indexOf('async function runMission()'), source.indexOf('\n  return (', source.indexOf('async function runMission()')));
+  assert.ok(run.indexOf("const d = await api('/missions'") >= 0, 'PWA must use the canonical authenticated mission API');
+  assert.ok(run.indexOf("setGoal('')") > run.indexOf("if (!missionId) throw"), 'draft may clear only after the API confirms a mission id');
+  assert.match(run, /catch \(x\)[\s\S]*setShowNewMission\(true\)/, 'failed admission must reopen the form');
+  assert.match(source, /error && <p className='muted' role='alert'>\{error\}<\/p>/, 'mission admission errors must be visible inside the form');
+  const api = source.slice(source.indexOf('async function api('), source.indexOf('async function parseAuthResponse'));
+  assert.match(api, /const attempts = isRead \? 2 : 1;/, 'PWA must never replay a mission POST automatically');
+});
