@@ -8,6 +8,7 @@ import { buildIdeaMissionProposal, validateProposal } from "../_shared/idea-to-m
 import { deriveOperationalDiagnostic } from "../_shared/operational-diagnostics.mjs";
 import { inspectGithubSource, buildCapabilityIndex, buildAbsorptionPlan, buildAbsorptionIdentity, advanceAbsorptionPlan, evaluateAbsorptionCompletion } from "../_shared/absorb-engine.mjs";
 import { deriveMissionDisplayTitle, MISSION_TITLE_VERSION } from "../_shared/mission-title.mjs";
+import { missionWonder2PwaScopeTokenProof, sha256Hex, verifyMissionWonder2PwaScopeToken } from "../_shared/mission-wonder-2-pwa-scope-v1.mjs";
 import { handlePrivateVaultRequest, isPrivateVaultRoute, privateVaultAuthFailure, privateVaultPreflight } from "./private-vault.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
@@ -21,7 +22,7 @@ const EXEC = `${SUPABASE_URL}/functions/v1/aria-execution-runtime-v1`;
 const DEVICE_GATEWAY = `${SUPABASE_URL}/functions/v1/aria-device-gateway`;
 const EDGE_API_KEY = (() => { try { const keys = JSON.parse(Deno.env.get("SUPABASE_PUBLISHABLE_KEYS") ?? "{}"); return typeof keys?.default === "string" ? keys.default : ""; } catch { return ""; } })();
 const MEDIA_BUCKET = "aria-app-media";
-const CORS = { "access-control-allow-origin": "*", "access-control-allow-headers": "authorization,apikey,x-client-info,x-aria-trace-id,x-aria-request-id,x-aria-pwa-build,content-type", "access-control-allow-methods": "GET,POST,OPTIONS" };
+const CORS = { "access-control-allow-origin": "*", "access-control-allow-headers": "authorization,apikey,x-client-info,x-aria-trace-id,x-aria-request-id,x-aria-pwa-build,x-aria-mw2-mission-scope,content-type", "access-control-allow-methods": "GET,POST,OPTIONS" };
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", ...CORS } });
 const PROJECTS = Object.freeze([
   {
@@ -2022,7 +2023,11 @@ Deno.serve(async (req) => {
         /\/meditation\/ideas\/[^/]+\/(?:decision|convert)$/.test(path) ||
         path.endsWith("/meditation/queue/reorder")
       );
-    if (MISSION_EXECUTION_PAUSED && pausedMissionMutation) {
+    const pwaMissionScopeCandidate =
+      req.method === "POST" &&
+      path.endsWith("/missions") &&
+      Boolean(String(req.headers.get("x-aria-mw2-mission-scope") || "").trim());
+    if (MISSION_EXECUTION_PAUSED && pausedMissionMutation && !pwaMissionScopeCandidate) {
       return json({ error: "mission_execution_paused", execution_enabled: false, trace_id: trace }, 423);
     }
     if (req.method === "GET" && path.endsWith("/session")) return json({ ok: true, service: "aria-app-api-v3", user: { id: user.id, email: user.email ?? null }, trace_id: trace });
@@ -2717,6 +2722,34 @@ Deno.serve(async (req) => {
       const requestId = req.headers.get("x-aria-request-id") ?? trace;
       const pwaBuild = req.headers.get("x-aria-pwa-build") ?? null;
       const project = normalizeProjectContext(body);
+      const suppliedScopeToken = String(req.headers.get("x-aria-mw2-mission-scope") || "").trim();
+      if (!suppliedScopeToken) {
+        return json({ error: "mission_execution_paused", execution_enabled: false, trace_id: trace, request_id: requestId }, 423);
+      }
+      const scopeTokenProof = missionWonder2PwaScopeTokenProof(suppliedScopeToken);
+      if (!scopeTokenProof) return json({ error: "mission_scope_token_invalid", execution_enabled: false, trace_id: trace }, 423);
+      const scopeVerified = await verifyMissionWonder2PwaScopeToken(suppliedScopeToken, SECRET, {}, { allowExpired: true });
+      if (!scopeVerified.ok) return json({ error: "mission_scope_token_invalid", reason: scopeVerified.reason, execution_enabled: false, trace_id: trace }, 423);
+      const scopePayload = scopeVerified.payload;
+      const scopeGoalHash = await sha256Hex(goal);
+      const scopeBindings = {
+        user_id: String(user.id),
+        project_id: String(project?.id || ""),
+        request_id: String(requestId),
+        goal_sha256: scopeGoalHash,
+      };
+      const scopeBindingCheck = await verifyMissionWonder2PwaScopeToken(suppliedScopeToken, SECRET, scopeBindings, { allowExpired: true });
+      if (!scopeBindingCheck.ok) {
+        return json({ error: "mission_scope_binding_mismatch", reason: scopeBindingCheck.reason, execution_enabled: false, trace_id: trace }, 423);
+      }
+      const scopeMissionId = String(scopePayload.mission_id || "");
+      if (!scopeMissionId || scopePayload.project_id !== project?.id || scopePayload.user_id !== user.id) {
+        return json({ error: "mission_scope_binding_mismatch", execution_enabled: false, trace_id: trace }, 423);
+      }
+      const missionScopeMetadata = {
+        mission_wonder_2_pwa_scope_proof: scopeTokenProof,
+        mission_wonder_2_pwa_scope_status: { status: "active", issued_at: scopePayload.issued_at, expires_at: scopePayload.expires_at }
+      };
       const battleCruiserLiveContext = project?.id === "battlecruiser"
         ? await battleCruiserLiveUserContext(req.headers.get("x-battlecruiser-access-token"))
         : null;
@@ -2740,6 +2773,8 @@ Deno.serve(async (req) => {
         trace_id: trace,
         request_id: requestId,
         pwa_build: pwaBuild,
+        mission_id: scopeMissionId,
+        ...missionScopeMetadata,
         runtime_version: "aria-mission-runner-v22-universal",
         diagnostic_contract_version: "aria-operational-diagnostics-v1.0.0",
       };
@@ -2775,10 +2810,25 @@ Deno.serve(async (req) => {
       }
       if (priorMission?.mission_id) {
         const missionId = String(priorMission.mission_id);
+        const priorMetadata = priorMission.metadata && typeof priorMission.metadata === "object" ? priorMission.metadata : {};
+        const priorProof = priorMetadata.mission_wonder_2_pwa_scope_proof;
+        const priorScope = await verifyMissionWonder2PwaScopeToken(suppliedScopeToken, SECRET, {
+          user_id: String(user.id),
+          project_id: String(project?.id || ""),
+          request_id: String(requestId),
+          mission_id: missionId,
+          goal_sha256: scopeGoalHash
+        }, { allowExpired: true });
+        const sameIssuedScope = priorProof?.payload_b64 === scopeTokenProof.payload_b64 &&
+          priorProof?.signature_b64 === scopeTokenProof.signature_b64;
+        if (!priorScope.ok || !sameIssuedScope || missionId !== scopeMissionId || String(priorMission.goal || "").trim() !== goal) {
+          return json({ error: "mission_request_id_conflict", detail: "El request_id ya pertenece a otra misión u otro objetivo; no se creará un duplicado.", trace_id: trace, request_id: requestId }, 409);
+        }
         return json({
           ok: true,
           mission: { ...priorMission, mission_id: missionId },
           mission_id: missionId,
+          scope_status: priorMetadata.mission_wonder_2_pwa_scope_status?.status || (priorScope.expired ? "expired" : "active"),
           trace_id: trace,
           request_id: requestId,
           accepted: true,
@@ -2791,7 +2841,7 @@ Deno.serve(async (req) => {
       try {
         direct = await internal(DIRECT, {
           goal,
-          mission_id: typeof body?.missionId === "string" ? body.missionId : undefined,
+          mission_id: scopeMissionId,
           metadata: intakeMetadata,
           "x-aria-user-id": user.id
         });
@@ -2810,6 +2860,9 @@ Deno.serve(async (req) => {
       const directPayload = direct?.b && typeof direct.b === "object" && !Array.isArray(direct.b)
         ? direct.b
         : {};
+      if (!scopeVerified.expired && Date.parse(String(scopePayload.expires_at)) <= Date.now()) {
+        return json({ error: "mission_scope_expired_before_intake", trace_id: trace, request_id: requestId }, 423);
+      }
       let createdMissionId = typeof directPayload?.mission?.mission_id === "string"
         ? directPayload.mission.mission_id
         : typeof directPayload?.result?.mission_id === "string"
