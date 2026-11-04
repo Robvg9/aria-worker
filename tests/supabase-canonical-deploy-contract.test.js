@@ -31,11 +31,13 @@ assert.ok(source.includes("'!tests/supabase-canonical-deploy-contract.test.js'")
 assert.ok(source.includes("printf 'ARIA_PLAN_PRODUCER_SHARED_SECRET=%s\\n' \"$ARIA_PLAN_PRODUCER_SHARED_SECRET\" > \"$tmp_env\""),'plan bridge secret env file must end with a real newline, not literal backslash-n');
 assert.ok(!source.includes("printf 'ARIA_PLAN_PRODUCER_SHARED_SECRET=%s\\\\n'"),'plan bridge env file must not append a literal backslash-n to the secret');
 assert.ok(source.includes('grep -Fx -- "ARIA_PLAN_PRODUCER_SHARED_SECRET=$ARIA_PLAN_PRODUCER_SHARED_SECRET" "$tmp_env" >/dev/null'),'plan bridge env-file value must equal the secret exactly before syncing');
-assert.match(source,/supabase migration fetch --linked --yes/);
+assert.match(source,/supabase migration fetch --yes --remote/,'migration inventory must explicitly target the hosted project with Supabase CLI v3');
 assert.match(source,/BASE_SHA="\$\(git rev-list --parents -n 1 "\$GITHUB_SHA" \| cut -d' ' -f2\)"/);
-assert.match(source,/git diff --name-only "\$BASE_SHA" "\$GITHUB_SHA"/);
+// Migration reconciliation is unconditional on each canonical release run.
 assert.doesNotMatch(source,/git diff-tree --no-commit-id --name-only -r "\$GITHUB_SHA"/);
-assert.match(source,/supabase db push --include-all/);
+assert.match(source,/supabase db push --include-all --yes --remote/,'production migration push must explicitly target the linked project with Supabase CLI v3');
+assert.ok(source.includes('MIGRATION_RECONCILIATION=every_canonical_deploy'),'every release-bearing run must reconcile the remote migration history');
+assert.ok(source.includes('echo "changed=true" >> "$GITHUB_OUTPUT"'),'canonical deployments must not leave previously merged migrations pending');
 assert.match(source,/remote_hashes/);
 assert.match(source,/remote_versions/,'migration gate must track remote migration versions');
 assert.match(source,/REMOTE_MAX_MIGRATION_VERSION=/,'migration gate must establish the remote migration watermark');
