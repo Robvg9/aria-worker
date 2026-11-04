@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const root = path.join(__dirname, '..');
+const extra = 'node tests/projects-rwht-mutation-gate.test.cjs';
 const projectRunner = fs.readFileSync(path.join(root, 'rwht/pc-browser/rwht-projects-e2e.mjs'), 'utf8');
 const workflow = fs.readFileSync(path.join(root, '.github/workflows/projects-rwht-authenticated.yml'), 'utf8');
 const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
@@ -29,7 +30,7 @@ assert.match(projectRunner, /report\.visual_canvas_checks\.push/,
   'ARTIA drawing interactions should still be certified without a server mission');
 assert.match(projectRunner, /mutation_attempted: false/,
   'The default run must persist evidence that no mutation was attempted');
-assert.match(projectRunner, /status: 'HUMAN_GATE'/,
+assert.match(projectRunner, /report\.visual_mission_gate\.status = 'HUMAN_GATE'/,
   'The ordinary visual mission E2E must remain explicitly open');
 assert.match(projectRunner, /status: report\.verified \? \(report\.visual_mission_gate\?\.status === 'HUMAN_GATE' \? 'verified_read_only' : 'verified'\) : 'failed'/,
   'A read-only project suite must not be reported as a full mission E2E pass');
