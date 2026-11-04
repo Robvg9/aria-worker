@@ -191,7 +191,7 @@ test('PWA retains pending IDs until acknowledgement and fails closed when storag
   assert.equal(stillPending, first);
   assert.equal(generated, 1);
 
-  storage.setItem('aria.pwa.mission-request.v1:user-123', '{broken-json');
+  storage.setItem('aria.pwa.mission-request.v1:pending', '{broken-json');
   await assert.rejects(
     () => getOrCreateMissionSubmissionRequestIdV1(input),
     /mission_request_storage_corrupt/,
