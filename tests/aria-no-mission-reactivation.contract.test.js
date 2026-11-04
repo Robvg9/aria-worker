@@ -143,15 +143,18 @@ test('consistency checker flags terminal missions with open steps and missing ca
   assert.equal(withEvent.version, 'aria-mission-consistency-v1.2.0');
 });
 
-test('Cloudflare Worker keeps chat forwarding available while blocking mission and runtime proxy routes during the global freeze', () => {
+test('Cloudflare Worker forwards only the PWA mission submission to the authoritative A4 scope gate', () => {
   const worker = read('worker.js');
   const appApi = worker.slice(worker.indexOf('async function proxyAppApi'), worker.indexOf('async function proxyPasswordSignIn'));
-  const apiGate = appApi.indexOf('MISSION_EXECUTION_PAUSED && pausedMissionMutation');
+  const apiGate = appApi.indexOf('MISSION_EXECUTION_PAUSED && pausedMissionMutation && !a4PwaMissionSubmission');
   const mutationListStart = appApi.indexOf('const pausedMissionMutation');
   const mutationList = appApi.slice(mutationListStart, apiGate);
-  assert.ok(apiGate > 0 && apiGate < appApi.indexOf('const upstreamUrl=SUPABASE_APP_API'), 'Worker API proxy must block mission routes before forwarding');
-  assert.doesNotMatch(mutationList, /suffix\.endsWith\("\/conversation"\)/, 'normal chat must reach the independent conversational API while missions are frozen');
-  assert.match(mutationList, /suffix\.endsWith\("\/missions"\)/, 'mission creation remains blocked at the Worker boundary');
+  assert.ok(apiGate > 0 && apiGate < appApi.indexOf('const upstreamUrl=SUPABASE_APP_API'), 'Worker must evaluate its narrow pass-through before forwarding');
+  assert.doesNotMatch(mutationList, /suffix\.endsWith\("\/conversation"\)/, 'normal chat must reach the independent conversational API');
+  assert.match(mutationList, /suffix\.endsWith\("\/missions"\)/, 'PWA mission submission remains explicitly classified as a mutation');
+  assert.match(appApi, /const a4PwaMissionSubmission = request\.method === "POST" && suffix\.endsWith\("\/missions"\)/);
+  assert.match(appApi, /APP API v3 remains the sole authority/);
+  assert.match(appApi, /if \(MISSION_EXECUTION_PAUSED && pausedMissionMutation && !a4PwaMissionSubmission\)/);
   for (const name of ['proxyRuntime', 'startMission', 'directAria']) {
     const start = worker.indexOf('async function ' + name);
     const gate = worker.indexOf('if(MISSION_EXECUTION_PAUSED)', start);
@@ -159,7 +162,6 @@ test('Cloudflare Worker keeps chat forwarding available while blocking mission a
     assert.ok(start >= 0 && gate > start && body > gate, name + ' must fail closed before reading or forwarding a POST body');
   }
 });
-
 test('mission intake and direct interface permit only the exact claimed A4 scope while frozen', () => {
   const intake = read('supabase/functions/aria-mission-intake-v1/index.ts');
   const direct = read('supabase/functions/aria-direct-v1/index.ts');
