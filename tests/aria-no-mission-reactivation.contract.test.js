@@ -44,9 +44,9 @@ test('mission runner preserves the global freeze and isolates Gate 3 and A4 from
   const recover = source.indexOf('aria_autonomy_recover_stale_missions', handler);
   const reopen = source.indexOf('aria_reopen_recoverable_hard_blocks', handler);
   const claimById = source.indexOf('aria_mission_claim_by_id_lease', handler);
-  const claimNext = source.indexOf('aria_mission_claim_next_lease', handler);
+  const chainNext = source.indexOf('meditationChain ? await chainNextMeditationMission', handler);
   assert.ok(handler >= 0 && bodyRead > handler && gate > bodyRead, 'runner must authenticate before parsing, then check the pause');
-  assert.ok(gate3Validator > gate && a4Validator > gate3Validator && denied > a4Validator && recover > denied && reopen > denied && claimById > denied && claimNext > denied,
+  assert.ok(gate3Validator > gate && a4Validator > gate3Validator && denied > a4Validator && recover > denied && reopen > denied && claimById > denied && chainNext > denied,
     'both exact scopes and fail-closed response must precede recovery and lease claims');
   assert.ok(source.includes('const MISSION_EXECUTION_PAUSED = true;'), 'runner global pause must remain true');
   assert.ok(recoveryGuard > denied && recoveryGuard < recover, 'A4 and Gate 3 must skip global stale recovery and hard-block reopening');
