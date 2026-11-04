@@ -30,14 +30,14 @@ const package2Workflow = fs.readFileSync(
 );
 const readonlyPilotWorkflow = package2Workflow.split('  robvg-readonly-git-status-pilot:')[1] || '';
 assert.ok(readonlyPilotWorkflow, 'manual readonly pilot workflow job must exist');
-const isolatedCheckout = readonlyPilotWorkflow.match(/- uses: actions\\/checkout@v4([\\s\\S]*?)- name: Execute one scoped LIVE git\\.status mission/);
-assert.ok(isolatedCheckout, 'readonly pilot must have an explicit isolated checkout step');
-assert.match(isolatedCheckout[1], /path: _readonly-pilot-source/);
-assert.match(isolatedCheckout[1], /persist-credentials: false/);
+const isolatedCheckout = readonlyPilotWorkflow.split('      - name: Execute one scoped LIVE git.status mission on ROBVG')[0];
+assert.ok(isolatedCheckout.includes('      - uses: actions/checkout@v4'));
+assert.ok(isolatedCheckout.includes('path: _readonly-pilot-source'));
+assert.ok(isolatedCheckout.includes('persist-credentials: false'));
 assert.ok(readonlyPilotWorkflow.includes('ARIA_WORKSPACE_ROOT: ${{ github.workspace }}\\_readonly-pilot-source'));
 assert.ok(readonlyPilotWorkflow.includes('ARIA_AUTONOMY_ADAPTER: ${{ github.workspace }}\\_readonly-pilot-source\\autonomy\\aria-windows-execution-adapter-v1.js'));
-assert.match(readonlyPilotWorkflow, /Push-Location -LiteralPath \\$pilotSourceRoot/);
-assert.match(readonlyPilotWorkflow, /Pop-Location/);
+assert.ok(readonlyPilotWorkflow.includes('Push-Location -LiteralPath $pilotSourceRoot'));
+assert.ok(readonlyPilotWorkflow.includes('Pop-Location'));
 function request(path, {
   method = 'GET',
   token = CONTROL_TOKEN,
