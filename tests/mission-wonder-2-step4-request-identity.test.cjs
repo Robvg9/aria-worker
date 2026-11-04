@@ -208,3 +208,38 @@ test('PWA mission submission sends and clears the persisted identity after ackno
   assert.ok(acknowledgedIndex > postIndex && clearIndex > acknowledgedIndex,
     'pending request ID must be retained until a canonical mission ID is confirmed');
 });
+
+
+test('canonical mission create is atomic for concurrent owner/request retries', () => {
+  const migration = read('supabase/migrations/20261104170000_aria_mission_request_identity_atomic_v1.sql');
+  assert.match(migration, /create unique index if not exists mission_state_user_request_identity_uidx/i);
+  assert.match(migration, /metadata\s*->>\s*'user_id'[\s\S]{0,180}metadata\s*->>\s*'request_id'/i);
+  assert.match(migration, /pg_advisory_xact_lock\(hashtextextended\(v_user_id\s*\|\|\s*':'\s*\|\|\s*v_request_id,\s*0\)\)/i);
+
+  const lock = migration.indexOf('pg_advisory_xact_lock');
+  const lookup = migration.indexOf("where metadata ->> 'user_id' = v_user_id", lock);
+  const insert = migration.indexOf('insert into aria_internal.mission_state', lookup);
+  assert.ok(lock >= 0 && lookup > lock && insert > lookup,
+    'same request retries must serialize, reconcile the canonical row, then insert only when absent');
+
+  assert.match(migration, /mission_request_idempotency_conflict/);
+  assert.match(migration, /btrim\(coalesce\(existing\.goal, ''\)\) is distinct from btrim\(coalesce\(p_mission ->> 'goal', ''\)\)/i);
+  assert.match(migration, /existing\.metadata ->> 'project_id'[\s\S]{0,120}v_project_id/i);
+  assert.match(migration, /exception when unique_violation then[\s\S]*?return to_jsonb\(existing\)/i);
+  assert.match(migration, /security definer[\s\S]*?set search_path to 'pg_catalog', 'aria_internal'/i);
+  assert.doesNotMatch(migration, /MISSION_EXECUTION_PAUSED\s*=\s*false/i);
+  assert.doesNotMatch(migration, /delete\s+from\s+aria_internal\.mission_state/i);
+});
+
+test('A4 deploy source keeps every canonical entry point frozen', () => {
+  const direct = read('supabase/functions/aria-direct-v1/index.ts');
+  const intake = read('supabase/functions/aria-mission-intake-v1/index.ts');
+  const api = read('supabase/functions/aria-app-api-v3/index.ts');
+  const runner = read('supabase/functions/aria-mission-runner-v22/index.ts');
+  assert.match(api, /const MISSION_EXECUTION_PAUSED = true;/);
+  assert.match(direct, /const MISSION_EXECUTION_PAUSED = true;/);
+  assert.match(intake, /const MISSION_EXECUTION_PAUSED = true;/);
+  assert.match(runner, /const MISSION_EXECUTION_PAUSED = true;/);
+  assert.match(api, /mission_request_idempotency_conflict/);
+  assert.match(api, /canonical_request_idempotent_replay/);
+});
