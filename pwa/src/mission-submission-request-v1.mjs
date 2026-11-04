@@ -110,7 +110,7 @@ export async function getOrCreateMissionSubmissionRequestIdV1({
   const nowMs = Number(now());
   if (!Number.isFinite(nowMs)) throw new Error("mission_request_clock_invalid");
 
-  return withIdentityLock("aria-mission-request-v1:" + normalized.userId + ":" + digest, async () => {
+  return withIdentityLock("aria-mission-request-v1:" + digest, async () => {
     const current = readPending(storage, key);
     const pending = Object.fromEntries(
       Object.entries(current).filter(([, entry]) => isValidEntry(entry))
@@ -148,14 +148,16 @@ export async function clearMissionSubmissionRequestIdV1({
     projectId: normalizeProjectId(projectId),
   };
   const digest = await identityKey(normalized);
-  const key = STORAGE_PREFIX + normalized.userId;
+  const key = STORAGE_KEY;
   const nowMs = Number(now());
   if (!Number.isFinite(nowMs)) throw new Error("mission_request_clock_invalid");
 
-  const current = readPending(storage, key);
-  const fresh = Object.fromEntries(
-    Object.entries(current).filter(([, entry]) => isValidEntry(entry, nowMs))
-  );
-  delete fresh[digest];
-  writePending(storage, key, fresh);
+  return withIdentityLock("aria-mission-request-v1:" + digest, async () => {
+    const current = readPending(storage, key);
+    const pending = Object.fromEntries(
+      Object.entries(current).filter(([, entry]) => isValidEntry(entry))
+    );
+    delete pending[digest];
+    writePending(storage, key, pending);
+  });
 }
