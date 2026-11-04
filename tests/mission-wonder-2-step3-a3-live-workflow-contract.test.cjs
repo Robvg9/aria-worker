@@ -11,6 +11,7 @@ const deployScript = read('.github/scripts/mission-wonder-2-step3-a3-deploy-coor
 const secretPrepScript = read('.github/scripts/mission-wonder-2-step3-a3-prepare-deploy-secrets.py');
 const contract = read('.github/workflows/mission-wonder-2-step3-a3-contract.yml');
 const pwa = read('.github/workflows/aria-pwa-fast-deploy.yml');
+const legacyDeploy = read('.github/workflows/aria-cloudflare-deploy.yml');
 const ignoreStart = pwa.indexOf('    paths-ignore:');
 const ignoreEnd = pwa.indexOf('  workflow_dispatch:', ignoreStart);
 const pwaIgnore = ignoreStart >= 0 && ignoreEnd > ignoreStart ? pwa.slice(ignoreStart, ignoreEnd) : '';
@@ -27,6 +28,19 @@ const a3OnlyPaths = [
   'tests/worker-single-instance-lock-v1.test.js'
 ];
 for (const p of a3OnlyPaths) assert.ok(pwaIgnore.includes(`      - '${p}'`), `PWA Fast Lane must ignore A3-only path: ${p}`);
+
+const legacyIgnoreStart = legacyDeploy.indexOf('    paths-ignore:');
+const legacyIgnoreEnd = legacyDeploy.indexOf('  workflow_dispatch:', legacyIgnoreStart);
+const legacyIgnore = legacyIgnoreStart >= 0 && legacyIgnoreEnd > legacyIgnoreStart
+  ? legacyDeploy.slice(legacyIgnoreStart, legacyIgnoreEnd)
+  : '';
+for (const p of [
+  '.github/scripts/mission-wonder-2-step3-a3-live-presence.ps1',
+  '.github/scripts/mission-wonder-2-step3-a3-deploy-coordinator.sh',
+  '.github/scripts/mission-wonder-2-step3-a3-prepare-deploy-secrets.py'
+]) {
+  assert.ok(legacyIgnore.includes(`      - '${p}'`), `Legacy ARIA production deploy must ignore A3-only helper: ${p}`);
+}
 
 function triggerSection(trigger) {
   const start = contract.indexOf(`  ${trigger}:\n`);

@@ -58,6 +58,10 @@ on:
       - 'tests/supabase-canonical-deploy-contract.test.js'
       - '.github/workflows/mission-wonder-2-step3-a3-contract.yml'
       - '.github/workflows/mission-wonder-2-step3-a3-live.yml'
+      # A3 helper scripts support the isolated presence-only pilot; they do not modify the canonical ARIA Worker.
+      - '.github/scripts/mission-wonder-2-step3-a3-live-presence.ps1'
+      - '.github/scripts/mission-wonder-2-step3-a3-deploy-coordinator.sh'
+      - '.github/scripts/mission-wonder-2-step3-a3-prepare-deploy-secrets.py'
       - 'tests/cloudflare-autonomy-remote-plan-producer.test.cjs'
       - '.github/workflows/mission-wonder-2-package3-live-e2e.yml'
       - 'scripts/mission-wonder-2-package3-live-e2e.cjs'
