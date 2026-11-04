@@ -234,15 +234,19 @@ try {
   }
   Write-Host 'A3_STALE_HEARTBEAT_DETECTION=PASS'
 
-  $workerTwo = Start-Process -FilePath $node -ArgumentList ('"' + $workerScript + '"') -WorkingDirectory $env:GITHUB_WORKSPACE -PassThru -NoNewWindow -RedirectStandardOutput $logTwo -RedirectStandardError $errTwo
-  if (-not $workerTwo.WaitForExit(60000)) {
-    Stop-Process -Id $workerTwo.Id -Force -ErrorAction SilentlyContinue
-    throw 'A3_RECOVERY_WORKER_DID_NOT_STOP_WITHIN_BUDGET'
-  }
+  # The presence-only worker has a strict 45-second self-termination bound.
+  # Use Start-Process -Wait here (as in the duplicate-lock check) so Windows
+  # PowerShell 5.1 captures the completed native process exit code reliably.
+  $workerTwo = Start-Process -FilePath $node -ArgumentList ('"' + $workerScript + '"') -WorkingDirectory $env:GITHUB_WORKSPACE -PassThru -Wait -NoNewWindow -RedirectStandardOutput $logTwo -RedirectStandardError $errTwo
   $workerTwo.Refresh()
-  if ($workerTwo.ExitCode -ne 0) {
+  $recoveryExitCode = $workerTwo.ExitCode
+  if ($null -eq $recoveryExitCode) {
+    Write-A3SafeProcessDiagnostics -Label 'recovery-worker-exit-code-unavailable' -StdoutPath $logTwo -StderrPath $errTwo -Process $workerTwo
+    throw 'A3_RECOVERY_WORKER_EXIT_CODE_UNAVAILABLE'
+  }
+  if ([int]$recoveryExitCode -ne 0) {
     Write-A3SafeProcessDiagnostics -Label 'recovery-worker-exit-nonzero' -StdoutPath $logTwo -StderrPath $errTwo -Process $workerTwo
-    throw "A3_RECOVERY_WORKER_EXIT_NONZERO: $($workerTwo.ExitCode)"
+    throw "A3_RECOVERY_WORKER_EXIT_NONZERO: $recoveryExitCode"
   }
   $secondLog = if (Test-Path $logTwo) { Get-Content -Raw $logTwo } else { '' }
   if ($secondLog -notmatch 'RECOVERED_STALE=true' -or $secondLog -notmatch 'ARIA_MW2_A3_IDLE_HEARTBEAT=') {
