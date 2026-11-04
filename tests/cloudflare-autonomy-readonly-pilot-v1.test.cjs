@@ -38,6 +38,7 @@ assert.ok(readonlyPilotWorkflow.includes('ARIA_WORKSPACE_ROOT: ${{ github.worksp
 assert.ok(readonlyPilotWorkflow.includes('ARIA_AUTONOMY_ADAPTER: ${{ github.workspace }}\\_readonly-pilot-source\\autonomy\\aria-windows-execution-adapter-v1.js'));
 assert.ok(readonlyPilotWorkflow.includes('Push-Location -LiteralPath $pilotSourceRoot'));
 assert.ok(readonlyPilotWorkflow.includes('Pop-Location'));
+assert.ok(readonlyPilotWorkflow.includes('shell: powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File {0}'));
 function request(path, {
   method = 'GET',
   token = CONTROL_TOKEN,
