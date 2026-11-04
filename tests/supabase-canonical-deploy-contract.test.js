@@ -4,6 +4,7 @@ const fs=require('node:fs');
 const path=require('node:path');
 const source=fs.readFileSync('.github/workflows/supabase-canonical-deploy.yml','utf8');
 const pwaDeploy=fs.readFileSync('.github/workflows/aria-cloudflare-deploy.yml','utf8');
+assert.ok(pwaDeploy.includes("'tests/supabase-canonical-deploy-contract.test.js'"), 'changing the Supabase deploy contract must not trigger a legacy Worker deployment');
 const deliveryGate=fs.readFileSync('.github/workflows/aria-delivery-deterministic-gate.yml','utf8');
 const workerPwa=fs.readFileSync('worker.js','utf8');
 
