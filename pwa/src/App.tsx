@@ -2560,14 +2560,14 @@ function Chat({
     setError('');
     setMissionCreatedNotice('Creando misión…');
     setShowNewMission(false);
-    // Reuse this identity when the same PWA intent is retried after an ambiguous response.
-    const missionRequestId = await getOrCreateMissionSubmissionRequestIdV1({
-      userId: session.userId,
-      goal: missionGoal,
-      projectId: null,
-    });
     if (window.location.hash === '#mission') window.location.hash = '#home';
     try {
+      // Reuse this identity when the same PWA intent is retried after an ambiguous response.
+      const missionRequestId = await getOrCreateMissionSubmissionRequestIdV1({
+        userId: session.userId,
+        goal: missionGoal,
+        projectId: null,
+      });
       const audioAttachments: Array<{ path: string; filename: string; mime_type: string }> = [];
       if (outgoingAudio) {
         const contentType = outgoingAudio.type || 'audio/webm';
