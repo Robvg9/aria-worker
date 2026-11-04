@@ -387,7 +387,7 @@ test('PWA-only source changes bypass the legacy Cloudflare secret deploy', () =>
   const pathsIgnore = (source) => {
     const start = source.indexOf('paths-ignore:');
     assert.ok(start >= 0, 'push path filters must be explicit');
-    const end = source.indexOf('\nworkflow_dispatch:', start);
+    const end = source.indexOf('\n  workflow_dispatch:', start);
     assert.ok(end > start, 'path filter must end before manual dispatch');
     return source.slice(start, end);
   };
