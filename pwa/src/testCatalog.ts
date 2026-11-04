@@ -3039,6 +3039,15 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "how": "Verifica que el worker Windows ejecute operaciones acotadas de workspace sin planificador ni inferencia local.",
     "capabilities": "Bloquea rutas fuera del workspace, archivos sensibles y comandos arbitrarios; comprueba escritura idempotente, respaldos, hash SHA-256 y verificación de evidencia."
   },
+  {
+    "id": "worker-single-instance-lock-v1",
+    "file": "tests/worker-single-instance-lock-v1.test.js",
+    "title": "Windows Worker Single-Instance Lock",
+    "category": "Autonomía / ejecución Windows",
+    "includedInNpmTest": false,
+    "how": "Comprueba que solo exista una instancia del worker, rechaza procesos duplicados y recupera bloqueos de procesos terminados.",
+    "capabilities": "Evita workers concurrentes y permite recuperación segura después de una caída sin borrar el bloqueo de una instancia activa."
+  },
 ];
 
 export type TestCatalogStats = Readonly<{
