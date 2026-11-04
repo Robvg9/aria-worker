@@ -2836,6 +2836,9 @@ Deno.serve(async (req) => {
           idempotent_replay: true
         }, 200);
       }
+      if (scopeVerified.expired || Date.parse(String(scopePayload.expires_at)) <= Date.now()) {
+        return json({ error: "mission_scope_expired_before_intake", trace_id: trace, request_id: requestId }, 423);
+      }
       let direct: any = null;
       let directTransportError: string | null = null;
       try {
@@ -2860,9 +2863,6 @@ Deno.serve(async (req) => {
       const directPayload = direct?.b && typeof direct.b === "object" && !Array.isArray(direct.b)
         ? direct.b
         : {};
-      if (!scopeVerified.expired && Date.parse(String(scopePayload.expires_at)) <= Date.now()) {
-        return json({ error: "mission_scope_expired_before_intake", trace_id: trace, request_id: requestId }, 423);
-      }
       let createdMissionId = typeof directPayload?.mission?.mission_id === "string"
         ? directPayload.mission.mission_id
         : typeof directPayload?.result?.mission_id === "string"
