@@ -6,6 +6,7 @@ import { classifyConversation } from "../_shared/fast-lane.ts";
 import { shouldDebate, debatePrompt } from "../_shared/model-debate.ts";
 import { buildIdeaMissionProposal, validateProposal } from "../_shared/idea-to-mission.mjs";
 import { deriveOperationalDiagnostic } from "../_shared/operational-diagnostics.mjs";
+import { missionRequestIdentityMatchesV1 } from "../_shared/mission-request-identity-v1.mjs";
 import { inspectGithubSource, buildCapabilityIndex, buildAbsorptionPlan, buildAbsorptionIdentity, advanceAbsorptionPlan, evaluateAbsorptionCompletion } from "../_shared/absorb-engine.mjs";
 import { deriveMissionDisplayTitle, MISSION_TITLE_VERSION } from "../_shared/mission-title.mjs";
 import { handlePrivateVaultRequest, isPrivateVaultRoute, privateVaultAuthFailure, privateVaultPreflight } from "./private-vault.ts";
@@ -2757,6 +2758,13 @@ Deno.serve(async (req) => {
         if (error) throw new Error("mission_request_readback_failed:" + error.message);
         return data ?? null;
       };
+      const matchesCanonicalMissionRequest = (mission: any) => missionRequestIdentityMatchesV1({
+        mission,
+        request_id: requestId,
+        user_id: user.id,
+        goal,
+        project_id: project?.id ?? null
+      });
       let priorMission: any = null;
       try {
         priorMission = await readMissionByRequestId();
@@ -2774,6 +2782,15 @@ Deno.serve(async (req) => {
         }, 503);
       }
       if (priorMission?.mission_id) {
+        if (!matchesCanonicalMissionRequest(priorMission)) {
+          return json({
+            error: "mission_request_idempotency_conflict",
+            stage: "canonical_mission_intake",
+            detail: "Este request_id ya pertenece a otra solicitud. No se creará una segunda misión.",
+            trace_id: trace,
+            request_id: requestId
+          }, 409);
+        }
         const missionId = String(priorMission.mission_id);
         return json({
           ok: true,
@@ -2825,6 +2842,15 @@ Deno.serve(async (req) => {
         try {
           const found = await readMissionByRequestId();
           if (found?.mission_id) {
+            if (!matchesCanonicalMissionRequest(found)) {
+              return json({
+                error: "mission_request_idempotency_conflict",
+                stage: "canonical_mission_intake",
+                detail: "La respuesta ambigua se resolvió con una misión canónica de otra solicitud; no se repetirá la creación.",
+                trace_id: trace,
+                request_id: requestId
+              }, 409);
+            }
             canonicalMission = found;
             createdMissionId = String(found.mission_id);
             recoveredByRequestId = true;
