@@ -14,6 +14,8 @@ on:
       - 'tests/persistent-worker-supervisor-policy-v1.test.ps1'
       - 'tests/cloudflare-autonomy-worker.test.js'
       - '.github/workflows/mission-wonder-2-step3-a3-contract.yml'
+      - '.github/workflows/mission-wonder-2-step3-a3-live.yml'
+      - 'tests/mission-wonder-2-step3-a3-live-workflow-contract.test.cjs'
   push:
     branches: [main]
     paths:
@@ -49,6 +51,7 @@ jobs:
       - run: node --check autonomy/worker-single-instance-lock-v1.js
       - run: node tests/worker-single-instance-lock-v1.test.js
       - run: node tests/mission-wonder-2-step3-a3-presence.test.mjs
+      - run: node tests/mission-wonder-2-step3-a3-live-workflow-contract.test.cjs
       - run: node tests/cloudflare-autonomy-worker.test.js
 
   windows-supervisor-contract:
