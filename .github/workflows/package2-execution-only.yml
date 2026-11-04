@@ -248,14 +248,18 @@ jobs:
     timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Do not reuse the runner's stale blob:none checkout; isolate this pilot's source tree.
+          path: _readonly-pilot-source
+          persist-credentials: false
       - name: Execute one scoped LIVE git.status mission on ROBVG
         shell: powershell
         env:
           ARIA_CONTROL_TOKEN: ${{ secrets.ARIA_AUTONOMY_CONTROL_TOKEN }}
           ARIA_WORKER_TOKEN: ${{ secrets.ARIA_AUTONOMY_WORKER_TOKEN }}
           ARIA_CONTROL_URL: https://aria-autonomy-coordinator.robvg9.workers.dev
-          ARIA_WORKSPACE_ROOT: ${{ github.workspace }}
-          ARIA_AUTONOMY_ADAPTER: ${{ github.workspace }}\autonomy\aria-windows-execution-adapter-v1.js
+          ARIA_WORKSPACE_ROOT: ${{ github.workspace }}\_readonly-pilot-source
+          ARIA_AUTONOMY_ADAPTER: ${{ github.workspace }}\_readonly-pilot-source\autonomy\aria-windows-execution-adapter-v1.js
           ARIA_NODE_PATH: D:\Databank\node\node.exe
           ARIA_READONLY_PILOT_EVIDENCE_PATH: ${{ runner.temp }}\aria-readonly-pilot-evidence.json
         run: |
@@ -264,13 +268,22 @@ jobs:
           if ([string]::IsNullOrWhiteSpace($env:ARIA_CONTROL_TOKEN) -or $env:ARIA_CONTROL_TOKEN.Length -lt 32) { throw 'Control credential preflight failed.' }
           if ([string]::IsNullOrWhiteSpace($env:ARIA_WORKER_TOKEN) -or $env:ARIA_WORKER_TOKEN.Length -lt 32) { throw 'Worker credential preflight failed.' }
           if ($env:ARIA_CONTROL_TOKEN -ceq $env:ARIA_WORKER_TOKEN) { throw 'Control and worker credentials must be distinct.' }
-          $workerSource = Get-Content -LiteralPath 'cloudflare-autonomy/worker.mjs' -Raw
+          $pilotSourceRoot = $env:ARIA_WORKSPACE_ROOT
+          $workerSourcePath = Join-Path $pilotSourceRoot 'cloudflare-autonomy\worker.mjs'
+          $workerSource = Get-Content -LiteralPath $workerSourcePath -Raw
           if ($workerSource -notmatch 'MISSION_EXECUTION_PAUSED\s*=\s*true') { throw 'Global mission freeze source assertion failed.' }
-          if (-not (Test-Path -LiteralPath $env:ARIA_WORKSPACE_ROOT -PathType Container)) { throw 'Approved ROBVG workspace is unavailable.' }
+          if (-not (Test-Path -LiteralPath $pilotSourceRoot -PathType Container)) { throw 'Isolated ROBVG pilot checkout is unavailable.' }
           if (-not (Test-Path -LiteralPath $env:ARIA_AUTONOMY_ADAPTER -PathType Leaf)) { throw 'Execution-only adapter is unavailable.' }
           if (-not (Test-Path -LiteralPath $env:ARIA_NODE_PATH -PathType Leaf)) { throw 'Pinned Node runtime is unavailable.' }
-          & $env:ARIA_NODE_PATH 'scripts\mission-wonder-2-readonly-pilot-live-e2e.cjs'
-          if ($LASTEXITCODE -ne 0) { throw "ROBVG_READONLY_PILOT_FAILED=$LASTEXITCODE" }
+          $pilotScript = Join-Path $pilotSourceRoot 'scripts\mission-wonder-2-readonly-pilot-live-e2e.cjs'
+          Push-Location -LiteralPath $pilotSourceRoot
+          try {
+            & $env:ARIA_NODE_PATH $pilotScript
+            if ($LASTEXITCODE -ne 0) { throw "ROBVG_READONLY_PILOT_FAILED=$LASTEXITCODE" }
+          }
+          finally {
+            Pop-Location
+          }
           Write-Output 'ROBVG_READONLY_GIT_STATUS_PILOT=PASS'
       - name: Upload sanitized read-only pilot evidence
         if: always()
