@@ -253,7 +253,7 @@ jobs:
           path: _readonly-pilot-source
           persist-credentials: false
       - name: Execute one scoped LIVE git.status mission on ROBVG
-        shell: powershell
+        shell: powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File {0}
         env:
           ARIA_CONTROL_TOKEN: ${{ secrets.ARIA_AUTONOMY_CONTROL_TOKEN }}
           ARIA_WORKER_TOKEN: ${{ secrets.ARIA_AUTONOMY_WORKER_TOKEN }}
