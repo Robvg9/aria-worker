@@ -24,6 +24,7 @@ for (const a3OnlyPath of [
   assert.ok(pwaFastDeployIgnore.includes(`      - '${a3OnlyPath}'`), `PWA Fast Lane must ignore A3-only path: ${a3OnlyPath}`);
 }
 
+assert.match(source, /^name: A3 LIVE Presence-Only Pilot$/m, 'GitHub Actions must receive an explicit simple workflow display name');
 assert.match(source, /^on:\s*\n  workflow_dispatch:/m, 'the live A3 pilot must be manual-only');
 assert.doesNotMatch(source, /^  (push|pull_request):/m, 'the live pilot must never run on a push or PR');
 assert.match(source, /confirm_live_presence_only_pilot:[\s\S]{0,300}default: false/m, 'live pilot needs an explicit false-by-default confirmation');
