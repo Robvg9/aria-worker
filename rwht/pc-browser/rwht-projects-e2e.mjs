@@ -2,7 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-const VERSION = 'aria-projects-rwht-e2e-v1.1.10';
+const VERSION = 'aria-projects-rwht-e2e-v1.1.11';
 const BASE_URL = String(process.env.RWHT_URL || 'https://aria.robvg9.workers.dev/project-preview/aria/').replace(/#.*$/, '');
 const EMAIL = String(process.env.RWHT_EMAIL || '');
 const PASSWORD = String(process.env.RWHT_PASSWORD || '');
@@ -15,6 +15,8 @@ const RELOAD_CHAT_TIMEOUT_MS = Number(process.env.RWHT_RELOAD_CHAT_TIMEOUT_MS ||
 const ARTIFACT_DIR = process.env.RWHT_ARTIFACT_DIR || path.resolve(process.cwd(), 'projects-rwht-artifacts');
 const CERT_SCOPE = String(process.env.RWHT_CERT_SCOPE || 'full').trim().toLowerCase();
 const STEPS_7_8_ONLY = CERT_SCOPE === 'steps-7-8';
+const ALLOW_MUTATIONS = process.env.RWHT_ALLOW_MUTATIONS === 'true';
+const MUTATION_SKIP_REASON = String(process.env.RWHT_MUTATION_SKIP_REASON || 'RWHT_ALLOW_MUTATIONS=false').trim();
 const PROJECTS = [
   { id: 'battlecruiser', name: 'BattleCruiser' },
   { id: 'cuevacoin', name: 'CuevaCoin' },
@@ -618,8 +620,17 @@ async function run() {
     overview_preview_results: [],
     preview_results: [],
     recovered_orphan_visual_missions: [],
+    visual_canvas_checks: [],
     visual_missions: [],
     visual_mission: null,
+    mutations_allowed: ALLOW_MUTATIONS,
+    visual_mission_gate: {
+      status: ALLOW_MUTATIONS ? 'ENABLED_FOR_EXPLICIT_TEST' : 'HUMAN_GATE',
+      reason: ALLOW_MUTATIONS ? null : MUTATION_SKIP_REASON,
+      mutation_attempted: false,
+      expected_projects: PROJECTS.length,
+      projects: []
+    },
     ux: null,
     console_errors: [],
     external_preview_console_errors: [],
@@ -813,7 +824,11 @@ async function run() {
       aria: { src: 'https://aria.robvg9.workers.dev/project-preview/aria/', mode: 'live' }
     };
     for (const visualProject of PROJECTS) {
-      const recoveredOrphans = await cleanupInterruptedRwhtVisualMissions(page, visualProject.id, session.userId);
+      // Orphan cleanup can cancel mission rows; keep it behind the same explicit
+      // mutation gate as mission creation. The default Projects RWHT never writes.
+      const recoveredOrphans = ALLOW_MUTATIONS
+        ? await cleanupInterruptedRwhtVisualMissions(page, visualProject.id, session.userId)
+        : [];
       report.recovered_orphan_visual_missions.push(...recoveredOrphans);
       await page.locator('.projectGrid .projectCard').filter({ hasText: visualProject.name }).first().click();
       await page.locator('.projectTabs .tabButton').filter({ hasText: 'ARTIA' }).click();
@@ -994,6 +1009,25 @@ async function run() {
       });
       const afterDraw = await visualCanvas.evaluate((node) => (node instanceof HTMLCanvasElement ? node.toDataURL('image/png') : ''));
       if (!beforeDraw || !afterDraw || beforeDraw === afterDraw) throw new Error('artia_canvas_drawing_not_observed_' + visualProject.id);
+      report.visual_canvas_checks.push({
+        project_id: visualProject.id,
+        annotation_verified: true,
+        canvas_changed: true
+      });
+
+      // Drawing and annotation remain testable without creating a mission. The
+      // ordinary visual-mission POST is a separate LIVE Human Gate while the
+      // global mission freeze is active; never send it when mutations are disabled.
+      if (!ALLOW_MUTATIONS) {
+        report.visual_mission_gate.projects.push({
+          project_id: visualProject.id,
+          status: 'HUMAN_GATE',
+          submission_attempted: false,
+          reason: MUTATION_SKIP_REASON
+        });
+        continue;
+      }
+      report.visual_mission_gate.mutation_attempted = true;
       const visualMissionButton = page.getByRole('button', { name: 'Crear misión con este diseño' }).first();
       if (!(await visualMissionButton.isEnabled())) throw new Error('artia_visual_mission_button_not_enabled_' + visualProject.id);
       await visualMissionButton.click();
@@ -1124,7 +1158,21 @@ async function run() {
     if (overviewPreviewResults.length !== PROJECTS.length) throw new Error('overview_preview_coverage_failed');
     report.visual_missions = visualMissions;
     report.visual_mission = visualMissions[0] || null;
-    if (visualMissions.length !== PROJECTS.length) throw new Error('visual_mission_coverage_failed');
+    if (ALLOW_MUTATIONS) {
+      if (visualMissions.length !== PROJECTS.length) throw new Error('visual_mission_coverage_failed');
+      report.visual_mission_gate.status = 'PASS';
+      report.visual_mission_gate.projects = visualMissions.map((mission) => ({
+        project_id: mission.project_id,
+        status: 'PASS',
+        submission_attempted: true,
+        mission_id: mission.mission_id
+      }));
+    } else {
+      report.visual_mission_gate.status = 'HUMAN_GATE';
+      report.visual_mission_gate.reason = MUTATION_SKIP_REASON;
+      report.visual_mission_gate.mutation_attempted = false;
+      report.visual_mission_gate.canvas_checks = report.visual_canvas_checks.length;
+    }
     } else {
       report.preview_results = [];
       report.visual_missions = [];
@@ -1269,7 +1317,10 @@ async function run() {
   }
 
   console.log(JSON.stringify({
-    status: report.verified ? 'verified' : 'failed',
+    status: report.verified ? (report.visual_mission_gate?.status === 'HUMAN_GATE' ? 'verified_read_only' : 'verified') : 'failed',
+    mutations_allowed: report.mutations_allowed,
+    visual_mission_gate: report.visual_mission_gate?.status || 'UNKNOWN',
+    visual_canvas_checks: report.visual_canvas_checks.length,
     auth_verified: report.auth_verified,
     reload_auth_verified: report.reload_auth_verified,
     projects_verified: report.projects.length + '/' + PROJECTS.length,
