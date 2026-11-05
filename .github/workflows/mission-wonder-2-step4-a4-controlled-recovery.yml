@@ -97,7 +97,7 @@ jobs:
       #      no tick dispatched;
       #   3) single recovery tick script (its own read-only preflight verifies the
       #      consumed reservation + agent eligibility before the ONLY fetch).
-      - name: Gate 1 — recovery RPC (write: re-arm scope + grant reservation)
+      - name: Gate 1 — recovery RPC (re-arm scope + grant reservation)
         if: github.event.inputs.execute_recovery_tick == 'true'
         env:
           A4_RECOVERY_SCOPE_ID: ${{ env.A4_RECOVERY_SCOPE_ID }}
@@ -120,7 +120,7 @@ jobs:
           echo "A4_DISPATCH_GRANT_REF=$GRANT_REF" >> "$GITHUB_ENV"
           echo "A4_RECOVERY_RPC_RESULT_REF=$RESULT_REF" >> "$GITHUB_ENV"
 
-      - name: Gate 2 — dispatch-token claim RPC (write: single-token consumption)
+      - name: Gate 2 — dispatch-token claim RPC (single-token consumption)
         if: github.event.inputs.execute_recovery_tick == 'true'
         env:
           A4_RECOVERY_SCOPE_ID: ${{ env.A4_RECOVERY_SCOPE_ID }}
@@ -136,7 +136,7 @@ jobs:
           esac
           echo "A4_DISPATCH_TOKEN_CLAIMED=true" >> "$GITHUB_ENV"
 
-      - name: Gate 3 — single recovery tick (verified reservation + agent eligibility + ONE fetch)
+      - name: Gate 3 — single recovery tick (reservation + agent eligibility + ONE fetch)
         if: github.event.inputs.execute_recovery_tick == 'true'
         env:
           A4_RECOVERY_SCOPE_ID: ${{ env.A4_RECOVERY_SCOPE_ID }}
