@@ -111,5 +111,6 @@ test('Windows preflight preserves shell.execute and keeps local Qwen tests opt-i
   assert.ok(workflow.includes('LIVE_AGENT_STATE=RECOVERY_REQUIRED'));
   assert.ok(workflow.includes("capabilities = @('shell.execute','computer.use','computer.use.autonomous')"));
   assert.ok(workflow.includes('Gateway heartbeat response dropped shell.execute'));
-  assert.ok(!workflow.includes("capabilities = @('ollama.qwen3')"));
+  assert.ok(!workflow.includes("capabilities = @('ollama.qwen3') } | ConvertTo-Json"));
+  assert.ok(workflow.includes("[Math]::Ceiling($heartbeatIntervalMs / 1000) + 10"));
 });
