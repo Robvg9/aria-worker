@@ -28,14 +28,48 @@ jobs:
       - name: Sync official runtime scripts to D drive
         run: |
           $ErrorActionPreference = 'Stop'
-          $source = Join-Path $env:GITHUB_WORKSPACE 'agents\windows'
+          $workingDirectory = (Get-Location).Path
+          $workspace = [string]$env:GITHUB_WORKSPACE
+          $repoRoot = (& git -C $workingDirectory rev-parse --show-toplevel 2>$null)
+          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace([string]$repoRoot)) {
+            if (-not [string]::IsNullOrWhiteSpace($workspace) -and (Test-Path -LiteralPath $workspace -PathType Container)) {
+              $repoRoot = (Resolve-Path -LiteralPath $workspace).Path
+            } else {
+              throw "Unable to resolve checked-out repository root (pwd=$workingDirectory; GITHUB_WORKSPACE=$workspace)"
+            }
+          } else {
+            $repoRoot = ([string]$repoRoot).Trim()
+          }
+
+          $source = Join-Path $repoRoot 'agents\windows'
+          $sourceScript = Join-Path $source 'run-agent.ps1'
           $target = 'D:\ARIA-Windows-Agent\Runtime\windows'
           $logDir = 'D:\ARIA-Windows-Agent\Logs'
-          if (-not (Test-Path (Join-Path $source 'run-agent.ps1'))) { throw 'source run-agent.ps1 missing' }
+
+          Write-Host "GITHUB_WORKSPACE=$workspace"
+          Write-Host "WORKING_DIRECTORY=$workingDirectory"
+          Write-Host "REPOSITORY_ROOT=$repoRoot"
+          Write-Host "RUNTIME_SOURCE=$source"
+          Write-Host "RUNTIME_SOURCE_SCRIPT_PRESENT=$(Test-Path -LiteralPath $sourceScript -PathType Leaf)"
+
+          if (-not (Test-Path -LiteralPath $sourceScript -PathType Leaf)) {
+            $trackedFiles = & git -C $repoRoot ls-tree -r --name-only HEAD -- 'agents/windows' 2>$null
+            if ($LASTEXITCODE -eq 0 -and $trackedFiles) {
+              Write-Host 'TRACKED_AGENTS_WINDOWS_FILES_BEGIN'
+              $trackedFiles | ForEach-Object { Write-Host $_ }
+              Write-Host 'TRACKED_AGENTS_WINDOWS_FILES_END'
+            }
+            throw "source run-agent.ps1 missing at $sourceScript"
+          }
+
           New-Item -ItemType Directory -Force -Path $target | Out-Null
           New-Item -ItemType Directory -Force -Path $logDir | Out-Null
           Copy-Item -Path (Join-Path $source '*') -Destination $target -Force
-          $synced = Get-Content -Raw (Join-Path $target 'run-agent.ps1')
+          $targetScript = Join-Path $target 'run-agent.ps1'
+          if (-not (Test-Path -LiteralPath $targetScript -PathType Leaf)) {
+            throw "Synced run-agent.ps1 missing at $targetScript"
+          }
+          $synced = Get-Content -Raw -LiteralPath $targetScript
           if ($synced -match 'Start-Process[\s\S]{0,200}-NoNewWindow') {
             throw 'Synced run-agent.ps1 still uses -NoNewWindow on Start-Process'
           }
