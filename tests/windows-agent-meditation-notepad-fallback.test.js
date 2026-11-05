@@ -105,9 +105,9 @@ test('Notepad spawn success resolves after the spawn event and detaches the UI p
 
 test('Windows preflight preserves shell.execute and keeps local Qwen tests opt-in', () => {
   const workflow = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'aria-windows-agent-preflight.yml'), 'utf8');
-  const qwenGate = "if: vars.ARIA_WINDOWS_AGENT_QWEN_PREFLIGHT == 'true'";
+  const qwenGate = "if: github.event_name == 'workflow_dispatch' && vars.ARIA_WINDOWS_AGENT_QWEN_PREFLIGHT == 'true'";
   const qwenGateCount = workflow.split(qwenGate).length - 1;
-  assert.equal(qwenGateCount, 3, 'Ollama restart/service/generation checks must all be opt-in');
+  assert.equal(qwenGateCount, 3, 'Ollama restart/service/generation checks must be manual opt-in only');
   assert.ok(workflow.includes('LIVE_AGENT_STATE=RECOVERY_REQUIRED'));
   assert.ok(workflow.includes("capabilities = @('shell.execute','computer.use','computer.use.autonomous')"));
   assert.ok(workflow.includes('Gateway heartbeat response dropped shell.execute'));
