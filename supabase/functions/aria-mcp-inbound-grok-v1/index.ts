@@ -134,8 +134,8 @@ async function retrieveChatBendingContext(query: string) {
     const privacyClass = document.metadata && typeof document.metadata === "object"
       ? document.metadata.privacy_class
       : null;
-    const explicitlyNotPrivate = !privacyClass || privacyClass === "general";
-    return Boolean(pageId && allowlist.has(pageId) && trustedNotionHost && notionSource && explicitlyNotPrivate);
+    const explicitlyGeneral = privacyClass === "general";
+    return Boolean(pageId && allowlist.has(pageId) && trustedNotionHost && notionSource && explicitlyGeneral);
   });
   const approvedDocumentIds = [...new Set(approvedDocuments.map((document: any) => document.id))];
 
