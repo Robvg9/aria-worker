@@ -145,7 +145,7 @@ jobs:
           exit 0
 
       - name: Restart Ollama to clear model OOM state
-        if: vars.ARIA_WINDOWS_AGENT_QWEN_PREFLIGHT == 'true'
+        if: github.event_name == 'workflow_dispatch' && vars.ARIA_WINDOWS_AGENT_QWEN_PREFLIGHT == 'true'
         run: |
           $ErrorActionPreference = 'SilentlyContinue'
           try { & ollama stop qwen3:4b 2>$null | Out-Null } catch {}
@@ -166,7 +166,7 @@ jobs:
           exit 0
 
       - name: Verify Ollama service
-        if: vars.ARIA_WINDOWS_AGENT_QWEN_PREFLIGHT == 'true'
+        if: github.event_name == 'workflow_dispatch' && vars.ARIA_WINDOWS_AGENT_QWEN_PREFLIGHT == 'true'
         run: |
           $ErrorActionPreference = 'Stop'
           $response = Invoke-RestMethod -Uri 'http://127.0.0.1:11434/api/tags' -Method Get -TimeoutSec 15
@@ -176,7 +176,7 @@ jobs:
           Write-Host 'OLLAMA_MODEL=qwen3:4b'
 
       - name: Verify qwen3 execution locally
-        if: vars.ARIA_WINDOWS_AGENT_QWEN_PREFLIGHT == 'true'
+        if: github.event_name == 'workflow_dispatch' && vars.ARIA_WINDOWS_AGENT_QWEN_PREFLIGHT == 'true'
         run: |
           $ErrorActionPreference = 'Stop'
           $payload = @{
