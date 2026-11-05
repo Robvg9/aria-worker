@@ -101,3 +101,14 @@ test('Notepad spawn success resolves after the spawn event and detaches the UI p
   assert.deepEqual(result, { status: 'started', pid: 9876 });
   assert.equal(unrefCalled, true);
 });
+
+
+test('Windows preflight preserves shell.execute and keeps local Qwen tests opt-in', () => {
+  const workflow = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'aria-windows-agent-preflight.yml'), 'utf8');
+  const qwenGateCount = (workflow.match(/if: vars\\.ARIA_WINDOWS_AGENT_QWEN_PREFLIGHT == 'true'/g) || []).length;
+  assert.equal(qwenGateCount, 3, 'Ollama restart/service/generation checks must all be opt-in');
+  assert.match(workflow, /LIVE_AGENT_STATE=RECOVERY_REQUIRED/);
+  assert.match(workflow, /capabilities = @\\('shell\\.execute','computer\\.use','computer\\.use\\.autonomous'\\)/);
+  assert.match(workflow, /Gateway heartbeat response dropped shell\\.execute/);
+  assert.doesNotMatch(workflow, /capabilities = @\\('ollama\\.qwen3'\\) \\}/);
+});
