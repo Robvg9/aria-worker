@@ -321,7 +321,7 @@ begin
   end if;
   return new;
 end; $fn$`);
-await q(`create trigger sabotage_dispatch on aria_internal.mission_state before update for each row execute function aria_internal.sabotage_dispatch_persistence()`);
+await q(`create trigger sabotage_dispatch before update on aria_internal.mission_state for each row execute function aria_internal.sabotage_dispatch_persistence()`);
 {
   let threw = null;
   try {
