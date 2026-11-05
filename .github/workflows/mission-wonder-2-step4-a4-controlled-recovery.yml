@@ -116,7 +116,7 @@ jobs:
           SQL=$(printf "SELECT 'A4_RECOVER_ACTION=' || coalesce(v->>'action','') || '|RES_GRANTED=' || coalesce(v->>'dispatch_reservation_granted','') || '|RES_PERSISTED=' || coalesce(v->>'dispatch_reservation_persisted','') || '|RES_PREEXISTING=' || coalesce(v->>'dispatch_reservation_preexisting','') || '|DISPATCH_GRANT_REF=' || coalesce(v->>'dispatch_grant_ref','') FROM (select aria_internal.aria_m22_a4_recover_mission_v1('mission_a4_authorized_once','%s','%s','%s','%s','%s') as v) t;\n" "$A4_RECOVERY_SCOPE_ID" "$A4_RECOVERY_USER_ID" "$A4_RECOVERY_REQUEST_ID" "$A4_RECOVERY_GOAL_HASH" "$GRANT_REF")
           OUT=$(supabase db query "$SQL" --yes --remote)
           printf '%s\n' "$(printf "%s" "$OUT" | grep -o 'A4_RECOVER_ACTION=.*' | head -1)" > recovery-action.txt
-          LINE=$(sed -n 's/^A4_RECOVER_ACTION=//p' recovery-action.txt | head -1)
+          LINE=$(sed -n 's/^A4_RECOVER_ACTION=//p' recovery-action.txt | head -1 | sed -E 's/[[:space:]]*│[[:space:]]*$//' | tr -d '\r')
           ACTION=$(printf "%s" "$LINE" | cut -d'|' -f1)
           RES_GRANTED=$(printf "%s" "$LINE" | sed -n 's/.*|RES_GRANTED=\([^|]*\).*/\1/p')
           RES_PERSISTED=$(printf "%s" "$LINE" | sed -n 's/.*|RES_PERSISTED=\([^|]*\).*/\1/p')
