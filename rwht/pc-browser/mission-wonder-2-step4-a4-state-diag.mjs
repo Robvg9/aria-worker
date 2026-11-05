@@ -130,9 +130,22 @@ report.rdbms.scope = readMarker(runSql(`
 `), 'A4_STATE_DIAG_SCOPE');
 
 // 5) Claim eligibility verdict from the exact guard SQL the runner consults.
-report.rdbms.claim_eligible = readMarker(runSql(`
+//    The read-only session may lack EXECUTE on this SECURITY DEFINER function
+//    (42501 permission denied). A diagnostic records evidence; an inaccessible
+//    observation is itself evidence and must not kill the run.
+function runSqlSoft(query) {
+  try {
+    return runSql(query);
+  } catch (error) {
+    return null;
+  }
+}
+const claimOutput = runSqlSoft(`
   SELECT 'A4_STATE_DIAG_CLAIM_ELIGIBLE=' || aria_internal.aria_mission_claim_eligible(${sqlQuote(MISSION_ID)})::text;
-`), 'A4_STATE_DIAG_CLAIM_ELIGIBLE');
+`);
+report.rdbms.claim_eligible = claimOutput === null
+  ? 'A4_STATE_DIAG_CLAIM_ELIGIBLE=unobservable_function_execute_denied_for_readonly_role (42501)'
+  : readMarker(claimOutput, 'A4_STATE_DIAG_CLAIM_ELIGIBLE');
 
 // 6) Duplicate guarantee: exactly one mission row must exist for the request_id.
 report.rdbms.request_duplicates = readMarker(runSql(`
