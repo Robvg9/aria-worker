@@ -37,6 +37,8 @@ on:
       - '!autonomy/worker-single-instance-lock-v1.js'
       - '!tests/supabase-canonical-deploy-contract.test.js'
       - '!.github/workflows/supabase-canonical-deploy.yml'
+      # OpenCode MCP inbound is released independently; do not redeploy the 12-function canonical runtime for this single-function change.
+      - '!supabase/functions/aria-mcp-inbound-grok-v1/**'
   workflow_dispatch:
     inputs:
       confirm_plan_bridge_secret_sync:
