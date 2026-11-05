@@ -54,6 +54,8 @@ for (const pageId of [
   '3c6feb355ec1818baa76c19260902af6',
   '3c6feb355ec18105b83bd51bd24133fd',
   '3ebfeb355ec1813a86b3d861ee5b4ce3',
+  '3c7feb355ec181f4aa74d45d45705e63',
+  '3c8feb355ec18190bbc1cc07b6e4480e',
 ]) {
   assert.ok(source.includes(pageId), 'Expected canonical allowlisted page missing: ' + pageId);
 }
