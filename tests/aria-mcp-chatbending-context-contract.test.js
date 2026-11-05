@@ -45,7 +45,7 @@ for (const pageId of [
   '3c6feb355ec1810d87a0d1d9358bef53',
   '3c6feb355ec18154bba0d7da31cfe854',
 ]) {
-  assert.ok(retrieval.includes(pageId), 'Expected canonical allowlisted page missing: ' + pageId);
+  assert.ok(source.includes(pageId), 'Expected canonical allowlisted page missing: ' + pageId);
 }
 
 console.log('aria-mcp-chatbending-context-contract: PASS');
