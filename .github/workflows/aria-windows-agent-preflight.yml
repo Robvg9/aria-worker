@@ -322,16 +322,29 @@ jobs:
           }
 
           $beforeHeartbeat = (Get-Content -Raw $HeartbeatPath | ConvertFrom-Json).timestamp
-          Start-Sleep -Seconds 12
+          $heartbeatIntervalMs = 60000
+          $configPath = 'D:\ARIA-Windows-Agent\Data\config.json'
+          if (Test-Path $configPath) {
+            try {
+              $config = Get-Content -Raw $configPath | ConvertFrom-Json
+              if ([int]$config.heartbeat_ms -ge 30000) { $heartbeatIntervalMs = [int]$config.heartbeat_ms }
+            } catch { throw "Unable to read heartbeat interval from agent config: $($_.Exception.Message)" }
+          }
+          $deadline = (Get-Date).AddSeconds([Math]::Ceiling($heartbeatIntervalMs / 1000) + 10)
+          $afterHeartbeat = $beforeHeartbeat
+          do {
+            Start-Sleep -Seconds 2
+            if (-not (Test-Path $HeartbeatPath)) { throw 'agent-heartbeat.json disappeared during continuity test' }
+            $afterHeartbeat = (Get-Content -Raw $HeartbeatPath | ConvertFrom-Json).timestamp
+          } while ($afterHeartbeat -eq $beforeHeartbeat -and (Get-Date) -lt $deadline)
 
           $after = Get-Process -Id $agentPid -ErrorAction SilentlyContinue
           if (-not $after -or $after.ProcessName -notmatch 'node') {
             throw "ARIA agent PID $agentPid did not remain alive during continuity window"
           }
 
-          $afterHeartbeat = (Get-Content -Raw $HeartbeatPath | ConvertFrom-Json).timestamp
           if ($afterHeartbeat -eq $beforeHeartbeat) {
-            throw 'ARIA agent heartbeat timestamp did not advance during continuity window'
+            throw "ARIA agent heartbeat timestamp did not advance within $heartbeatIntervalMs ms"
           }
 
           Write-Host 'WATCHDOG_CONTINUITY=PASS'
