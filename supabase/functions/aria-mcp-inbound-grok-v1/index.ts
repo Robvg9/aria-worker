@@ -145,11 +145,12 @@ async function retrieveChatBendingContext(query: string) {
   if (approvedDocumentIds.length) {
     const { data, error } = await client
       .from("cb_chunks")
-      .select("id,document_id,chunk_index,heading,content")
+      .select("id,document_id,chunk_index,heading,content,metadata")
       .in("document_id", approvedDocumentIds)
+      .filter("metadata->>privacy_class", "eq", "general")
       .limit(100);
     if (error || !data) return { ok: false, error: "context_chunks_unavailable" };
-    chunkRows = data;
+    chunkRows = data.filter((chunk: any) => chunk.metadata?.privacy_class === "general");
   }
 
   const documentsById = new Map<string, any>(
