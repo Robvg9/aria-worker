@@ -7,6 +7,7 @@ import { createPlanWithTimeout, buildDeviceEnqueuePayload, cloudflareConnectorEx
 import { resolveDeviceTargetPolicy } from "./device-target-policy-v1.mjs";
 import { m22ClassifyModelFallbackFailure, m22QuotaAllowsModelRoute, m22RateLimitFallbackAllowed } from "./model-fallback-governance-v1.mjs";
 import { m22Gate3HumanGateActionHash, m22Gate3RouteAllowed, m22MissionWonder2ScopedProbeAllowed } from "../_shared/mission-wonder-2-gate3-scope-v1.mjs";
+import { m22A4ScopeRowMatchesV1, m22A4BuildReadonlyProbeStepV1, m22A4ReadonlyProbeStepMatchesV1 } from "../_shared/mission-wonder-2-a4-scope-v1.mjs";
 import { validatePhysicalExecutionPlan, validatePhysicalExecutionEvidence } from "../_shared/physical-execution-contract.mjs";
 
 const V_LOGICAL = "aria-mission-runner-v22-universal";
@@ -2540,6 +2541,28 @@ async function easExecute(step: any) {
 }
 
 async function independentVerify(mission:any, step:any, result:any){
+  const a4ScopeId = String(mission?.metadata?.mission_wonder_2_a4_scope_id || "");
+  if (a4ScopeId) {
+    const expectedDeviceId = String(mission?.metadata?.mission_wonder_2_a4_allowed_device_id || "");
+    const jobId = String(result?.job_id || ""), stdout = String(result?.stdout || "").trim();
+    if (!jobId || result?.status !== "succeeded" || result?.operation !== "shell.execute" ||
+        !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/.test(stdout)) {
+      return { passed: false, skipped: false, reason: "a4_job_result_missing_or_invalid" };
+    }
+    const { data: job, error } = await sb.schema("aria_internal").from("execution_jobs")
+      .select("job_id,mission_id,device_id,operation,command,status,exit_code,stdout,claimed_at,started_at,completed_at,lease_owner,lease_until")
+      .eq("job_id", jobId).eq("mission_id", String(mission.mission_id)).maybeSingle();
+    const passed = !error && Boolean(job) && job.job_id === jobId && job.mission_id === String(mission.mission_id) &&
+      job.device_id === expectedDeviceId && job.operation === "shell.execute" &&
+      job.command === "[DateTime]::UtcNow.ToString('o')" && job.status === "succeeded" &&
+      Number(job.exit_code) === 0 && String(job.stdout || "").trim() === stdout &&
+      Boolean(job.claimed_at && job.started_at && job.completed_at) && job.lease_owner == null && job.lease_until == null;
+    return { passed, skipped: false, reason: passed ? "a4_independent_execution_job_readback" : "a4_independent_execution_job_mismatch",
+      verification: passed ? { source: "aria_internal.execution_jobs", job_id: job.job_id, mission_id: job.mission_id,
+        device_id: job.device_id, operation: job.operation, status: job.status, exit_code: job.exit_code,
+        claimed_at: job.claimed_at, started_at: job.started_at, completed_at: job.completed_at,
+        lease_released: true, stdout_utc: stdout } : null };
+  }
   const project=String(mission?.metadata?.project_id||step?.target?.project_id||'').toLowerCase();
   const risk=String(step?.risk||'READ').toUpperCase();
   if(project==='battlecruiser'
@@ -3154,9 +3177,9 @@ Deno.serve(async (request) => {
   const body = await request.json().catch(() => ({}));
   const requestedMissionId = typeof body?.mission_id === "string" ? body.mission_id : null;
   let gate3ScopedProbeAllowed = false;
+  let a4ScopeRow: any = null;
   if (MISSION_EXECUTION_PAUSED) {
-    // Global pause remains enabled. Only the exact approved, expiring one-step
-    // Gate 3 mission may enter; every other request still receives HTTP 423.
+    // Global freeze remains true. Gate 3 and A4 are separate exact-ID scopes.
     if (requestedMissionId && body?.action !== "human_gate_decide") {
       try {
         const { data: probeMission, error: probeError } = await sb.schema("aria_internal")
@@ -3169,7 +3192,24 @@ Deno.serve(async (request) => {
         gate3ScopedProbeAllowed = false;
       }
     }
-    if (!gate3ScopedProbeAllowed) return out({ ok: false, status: "paused", error: "mission_execution_paused", runtime: V_LOGICAL, execution_enabled: false }, 423);
+    if (requestedMissionId && body?.action !== "human_gate_decide") {
+      try {
+        const { data: a4Mission, error: a4MissionError } = await sb.schema("aria_internal")
+          .from("mission_state").select("mission_id,goal,status,checkpoint,metadata").eq("mission_id", requestedMissionId).maybeSingle();
+        const scopeId = String(a4Mission?.metadata?.mission_wonder_2_a4_scope_id || "");
+        if (!a4MissionError && scopeId) {
+          const { data: scope, error: scopeError } = await sb.schema("aria_internal").from("mission_wonder_2_a4_scopes")
+            .select("*").eq("scope_id", scopeId).maybeSingle();
+          const valid = !scopeError && await m22A4ScopeRowMatchesV1({
+            scope, metadata: a4Mission.metadata, missionId: requestedMissionId,
+            userId: String(a4Mission.metadata?.user_id || ""), requestId: String(a4Mission.metadata?.request_id || ""),
+            goal: String(a4Mission.goal || ""), projectId: a4Mission.metadata?.project_id ?? null, requiredStatuses: ["bound"],
+          });
+          if (valid) a4ScopeRow = scope;
+        }
+      } catch { a4ScopeRow = null; }
+    }
+    if (!gate3ScopedProbeAllowed && !a4ScopeRow) return out({ ok: false, status: "paused", error: "mission_execution_paused", runtime: V_LOGICAL, execution_enabled: false }, 423);
   }
   const chainDepth = Math.max(0, Math.min(8, Number(body?.chain_depth || 0)));
   const meditationChain = request.headers.get("x-aria-trigger") === "meditation-ia";
@@ -3214,7 +3254,7 @@ Deno.serve(async (request) => {
   try {
     let staleRecovery: { status: "ok" | "deferred"; reason?: string } = { status: "ok" };
     let hardBlockRecovery = 0;
-    if (!gate3ScopedProbeAllowed) {
+    if (!gate3ScopedProbeAllowed && !a4ScopeRow) {
       try {
         await rpc("aria_autonomy_recover_stale_missions", { p_stale_after: "00:02:00" });
       } catch (recoveryError) {
@@ -3308,7 +3348,22 @@ Deno.serve(async (request) => {
       : null;
     const recoveryNeedsFreshPlan = recoveryState?.replan_required === true
       && !["retry_scheduled", "replanned"].includes(String(recoveryState?.status || ""));
-    if (isCuevacoinAuthorizedDeployMission(mission?.goal)) {
+    if (a4ScopeRow) {
+      const stillValid = await m22A4ScopeRowMatchesV1({
+        scope: a4ScopeRow, metadata: mission.metadata, missionId,
+        userId: String(mission.metadata?.user_id || ""), requestId: String(mission.metadata?.request_id || ""),
+        goal: String(mission.goal || ""), projectId: mission.metadata?.project_id ?? null, requiredStatuses: ["bound"],
+      });
+      if (!stillValid) {
+        await updateMission(missionId, { status: "paused", next_action: "a4_scope_expired_or_revoked",
+          last_stderr: "a4_scope_expired_or_revoked", lease_owner: null, lease_until: null });
+        return out({ ok: false, status: "paused", mission_id: missionId, error: "a4_scope_expired_or_revoked" }, 423);
+      }
+      steps = [m22A4BuildReadonlyProbeStepV1(String(a4ScopeRow.allowed_device_id))];
+      await emitEvent(missionId, "mission_replanned", { reason: "mission_wonder_2_step4_a4_one_shot_readonly_probe",
+        planner_bypassed: true, scope_id: String(a4ScopeRow.scope_id),
+        allowed_device_id: String(a4ScopeRow.allowed_device_id), max_steps: 1, max_jobs: 1, external_mutations: false });
+    } else if (isCuevacoinAuthorizedDeployMission(mission?.goal)) {
       const priorPlan = Array.isArray(mission.checkpoint?.plan) ? mission.checkpoint.plan : [];
       steps = buildCuevacoinAuthorizedDeployPlan();
       await emitEvent(missionId, "mission_replanned", {
@@ -3428,6 +3483,13 @@ Deno.serve(async (request) => {
     steps = applyRecoveryAgentFallbacks(steps, mission?.checkpoint?.recovery);
 
     const normalizedSteps = steps.map((step: any) => normalizeExecutionStep(step, mission));
+    if (a4ScopeRow && (normalizedSteps.length !== 1 || !m22A4ReadonlyProbeStepMatchesV1(normalizedSteps[0], String(a4ScopeRow.allowed_device_id)))) {
+      await updateMission(missionId, { status: "blocked", next_action: "terminal:a4_readonly_plan_contract_rejected",
+        last_stderr: "a4_readonly_plan_contract_rejected", lease_owner: null, lease_until: null,
+        checkpoint: { ...(mission.checkpoint || {}), plan: normalizedSteps, active_step: null } });
+      await emitEvent(missionId, "mission_blocked", { code: "a4_readonly_plan_contract_rejected", scope_id: a4ScopeRow.scope_id });
+      return out({ ok: false, status: "blocked", mission_id: missionId, error: "a4_readonly_plan_contract_rejected" }, 409);
+    }
 const physicalPlanValidation = validatePhysicalExecutionPlan(mission, normalizedSteps);
 if (!physicalPlanValidation.ok) {
   const gateDetails = {
@@ -3474,7 +3536,9 @@ if (!physicalPlanValidation.ok) {
     }
     steps = normalizedSteps;
 
-    const failureMemoryGate = await enforceFailureMemory(
+    const failureMemoryGate = a4ScopeRow
+      ? { allowed: true, changed_by_memory: false, steps: null, previous_plan_fingerprint: null, plan_fingerprint: null }
+      : await enforceFailureMemory(
       missionId,
       String(mission.goal || ""),
       steps,
@@ -5228,6 +5292,13 @@ if (!physicalPlanValidation.ok) {
       p_worker_id: V,
     });
     if (!finalized) throw new Error("verified_terminalization_lease_lost");
+
+    if (a4ScopeRow) {
+      const { data: completedScope, error: completeError } = await sb.schema("aria_internal")
+        .rpc("aria_m22_a4_complete_scope_v1", { p_scope_id: String(a4ScopeRow.scope_id), p_mission_id: missionId,
+          p_user_id: String(mission.metadata?.user_id || ""), p_request_id: String(mission.metadata?.request_id || "") });
+      if (completeError || completedScope !== true) throw new Error("a4_scope_terminalization_failed");
+    }
 
     const chained = meditationChain ? await chainNextMeditationMission(chainDepth) : null;
     if (chained?.status === "chained" && chained?.child_status === "succeeded" && chained?.mission_id) {

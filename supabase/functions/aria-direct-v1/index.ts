@@ -2,6 +2,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { deriveMissionDisplayTitle, MISSION_TITLE_VERSION } from "../_shared/mission-title.mjs";
+import { m22A4ScopeRowMatchesV1 } from "../_shared/mission-wonder-2-a4-scope-v1.mjs";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SHARED_SECRET = Deno.env.get("ARIA_RUNTIME_SHARED_SECRET") ?? "";
@@ -155,7 +156,6 @@ Deno.serve(async (request) => {
   if (!SHARED_SECRET) return out({ error: "runtime_secret_not_configured" }, 500);
   const token = bearer(request);
   if (!token || !equal(token, SHARED_SECRET)) return out({ error: "unauthorized" }, 401);
-  if (MISSION_EXECUTION_PAUSED) return out({ error: "mission_execution_paused", execution_enabled: false }, 423);
 
   const body = await request.json().catch(() => null);
   if (!body || typeof body !== "object" || Array.isArray(body)) {
@@ -178,6 +178,21 @@ Deno.serve(async (request) => {
     ? body.mission_id.trim()
     : undefined;
   const authenticatedUserId = request.headers.get("x-aria-user-id")?.trim() || "";
+
+  let a4ScopeRow: any = null;
+  if (MISSION_EXECUTION_PAUSED) {
+    const scopeId = String(userMetadata.mission_wonder_2_a4_scope_id || "").trim();
+    if (!scopeId || !authenticatedUserId || !missionId || userMetadata.user_id !== authenticatedUserId ||
+        userMetadata.mission_wonder_2_a4_readonly !== true) return out({ error: "mission_execution_paused", execution_enabled: false }, 423);
+    const { data: scope, error: scopeError } = await sb.schema("aria_internal").from("mission_wonder_2_a4_scopes")
+      .select("*").eq("scope_id", scopeId).maybeSingle();
+    const valid = !scopeError && await m22A4ScopeRowMatchesV1({
+      scope, metadata: userMetadata, missionId, userId: authenticatedUserId,
+      requestId, goal, projectId: userMetadata.project_id ?? null, requiredStatuses: ["claimed"],
+    });
+    if (!valid) return out({ error: "mission_execution_paused", execution_enabled: false }, 423);
+    a4ScopeRow = scope;
+  }
 
 
   const visualContext = userMetadata.visual_context && typeof userMetadata.visual_context === "object" ? userMetadata.visual_context : null;
@@ -217,7 +232,7 @@ Deno.serve(async (request) => {
   const mission = payload?.mission ?? payload?.result ?? null;
   const missionIdOut = typeof mission?.mission_id === "string" ? mission.mission_id : null;
   const sourceKind = String(metadata.goal_source ?? metadata.source_application ?? "").toLowerCase();
-  const shouldQueue = sourceKind.includes("chat") || sourceKind.includes("user");
+  const shouldQueue = !a4ScopeRow && (sourceKind.includes("chat") || sourceKind.includes("user"));
 
   let queue: Record<string, unknown> = {
     status: "not_requested",
