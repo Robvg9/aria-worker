@@ -3,7 +3,15 @@ const META = Object.freeze({
   goalHash: "mission_wonder_2_a4_goal_hash",
   deviceId: "mission_wonder_2_a4_allowed_device_id",
   readonlyMarker: "mission_wonder_2_a4_readonly",
+  // Explicit admission-lane provenance keyed A4 missions stamp into their metadata so
+  // the standalone-mission claim guard never depends on the goal_source fallback.
+  executionLane: "execution_lane",
 });
+// The A4 queue lane value. "user" is provably behavior-preserving: the guard and every
+// queue CASE coalesce execution_lane with goal_source, and PWA intake already stamps
+// goal_source="user", so the effective lane of an A4 mission was "user" before this
+// constant existed and stays "user" with the stamp applied.
+export const A4_EXECUTION_LANE_V1 = "user";
 const norm = (v) => typeof v === "string" ? v.trim() : "";
 const normProject = (v) => v == null || String(v).trim() === "" ? null : String(v).trim();
 export async function m22A4GoalIdentityHashV1(userId, goal, projectId = null) {

@@ -1,0 +1,106 @@
+name: Mission Wonder 2 — Step 4 A4 Controlled Recovery (HUMAN-GATED)
+
+# DESIGN-ONLY EXECUTION CHANNEL. This workflow NEVER runs automatically and NEVER
+# dispatches anything on its own. It exists so that, once the owner grants the
+# specific recovery authorization, recovery happens in ONE auditable, identity-bound
+# action: guarded deterministic re-arm RPC + single runtime tick + verification.
+on:
+  workflow_dispatch:
+    inputs:
+      execute_recovery_tick:
+        description: 'Set to true to execute the controlled recovery. Anything else is a dry-run that only reads state.'
+        required: true
+        default: 'false'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mission-wonder-2-step4-a4-controlled-recovery
+  cancel-in-progress: false
+
+jobs:
+  a4-controlled-recovery:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    environment: production
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+      ARIA_RUNTIME_SHARED_SECRET: ${{ secrets.ARIA_RUNTIME_SHARED_SECRET }}
+      RWHT_STORAGE_STATE_B64: ${{ secrets.RWHT_STORAGE_STATE_B64 }}
+      RWHT_STORAGE_STATE_GZIP_B64: ${{ secrets.RWHT_STORAGE_STATE_GZIP_B64 }}
+      RWHT_ARTIFACT_DIR: a4-recovery-artifacts
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Install Supabase CLI
+        run: npm install -g supabase
+
+      - name: Link production project
+        run: |
+          set -euo pipefail
+          test "$SUPABASE_PROJECT_REF" = "icuqsstxfdbvjytkhlog"
+          test -n "$SUPABASE_ACCESS_TOKEN"
+          test -n "$ARIA_RUNTIME_SHARED_SECRET"
+          supabase link --project-ref "$SUPABASE_PROJECT_REF"
+
+      # Read-only identity capture: the full A4 identity chain comes from the
+      # production rows themselves, never from human-typed values.
+      - name: Capture A4 identity (READ-ONLY)
+        run: |
+          set -euo pipefail
+          SQL=$(printf "%s" "SELECT 'A4_RECOVERY_IDENTITY=' || jsonb_build_object('scope_id',s.scope_id,'goal_hash',s.goal_hash,'request_id',s.request_id,'user_id',s.owner_user_id,'scope_status',s.status,'mission_status',m.status,'lane',m.metadata->>'execution_lane','readonly',m.metadata->>'mission_wonder_2_a4_readonly','device_matches',(m.metadata->>'mission_wonder_2_a4_allowed_device_id')=(s.allowed_device_id))::text FROM aria_internal.mission_wonder_2_a4_scopes s JOIN aria_internal.mission_state m ON m.mission_id=s.mission_id WHERE s.mission_id='mission_a4_authorized_once';")
+          OUT=$(supabase db query "$SQL" --read-only --remote)
+          LINE=$(printf "%s" "$OUT" | grep -o 'A4_RECOVERY_IDENTITY=.*' | head -1)
+          echo "A4_RECOVERY_IDENTITY_RAW=$LINE" >> "$GITHUB_ENV"
+          SCOPE_ID=$(printf "%s" "$LINE" | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{const j=JSON.parse(d.slice('A4_RECOVERY_IDENTITY='.length));console.log(j.scope_id)})")
+          GOAL_HASH=$(printf "%s" "$LINE" | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{const j=JSON.parse(d.slice('A4_RECOVERY_IDENTITY='.length));console.log(j.goal_hash)})")
+          REQ_ID=$(printf "%s" "$LINE" | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{const j=JSON.parse(d.slice('A4_RECOVERY_IDENTITY='.length));if(!/^[0-9a-f-]{6,64}$/.test(String(j.request_id)))process.exit(1);console.log(j.request_id)})")
+          USR_ID=$(printf "%s" "$LINE" | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{const j=JSON.parse(d.slice('A4_RECOVERY_IDENTITY='.length));if(!/^[0-9a-f-]{6,64}$/.test(String(j.user_id)))process.exit(1);console.log(j.user_id)})")
+          echo "A4_RECOVERY_SCOPE_ID=$SCOPE_ID" >> "$GITHUB_ENV"
+          echo "A4_RECOVERY_GOAL_HASH=$GOAL_HASH" >> "$GITHUB_ENV"
+          echo "A4_RECOVERY_REQUEST_ID=$REQ_ID" >> "$GITHUB_ENV"
+          echo "A4_RECOVERY_USER_ID=$USR_ID" >> "$GITHUB_ENV"
+          printf 'A4_RECOVERY_IDENTITY_CAPTURED scope_status_and_mission_state=%s\n' "$(printf "%s" "$LINE" | sed -E 's/[0-9a-f-]{10,64}/MASKED/g')"
+
+      # Dry-run by default: without execute_recovery_tick=true nothing is written.
+      - name: Dry-run gate
+        if: github.event.inputs.execute_recovery_tick != 'true'
+        run: |
+          echo "A4_RECOVERY_DRY_RUN=true identity captured; no write, no tick. Rerun with execute_recovery_tick=true only after explicit owner authorization."
+
+      # Authorized path: identity-verified re-arm RPC, then ONE recovery tick + verify.
+      - name: Controlled recovery (write + single tick)
+        if: github.event.inputs.execute_recovery_tick == 'true'
+        env:
+          A4_RECOVERY_SCOPE_ID: ${{ env.A4_RECOVERY_SCOPE_ID }}
+          A4_RECOVERY_GOAL_HASH: ${{ env.A4_RECOVERY_GOAL_HASH }}
+          A4_RECOVERY_REQUEST_ID: ${{ env.A4_RECOVERY_REQUEST_ID }}
+          A4_RECOVERY_USER_ID: ${{ env.A4_RECOVERY_USER_ID }}
+        working-directory: rwht/pc-browser
+        run: |
+          set -euo pipefail
+          SQL=$(printf "SELECT 'A4_RECOVER_ACTION=' || (aria_internal.aria_m22_a4_recover_mission_v1('mission_a4_authorized_once','%s','%s','%s','%s')::jsonb->>'action');\n" "$A4_RECOVERY_SCOPE_ID" "$A4_RECOVERY_USER_ID" "$A4_RECOVERY_REQUEST_ID" "$A4_RECOVERY_GOAL_HASH")
+          OUT=$(supabase db query "$SQL" --yes --remote)
+          printf '%s\n' "$(printf "%s" "$OUT" | grep -o 'A4_RECOVER_ACTION=.*' | head -1)" > recovery-action.txt
+          ACTION=$(sed -n 's/^A4_RECOVER_ACTION=//p' recovery-action.txt | head -1)
+          case "$ACTION" in
+            recovered|already_recovered) echo "A4_RECOVERY_RPC_OK action=$ACTION";;
+            *) echo "A4_RECOVERY_RPC_REFUSED action=$ACTION (identity or state mismatch; nothing recovered; aborting before any tick)"; exit 1;;
+          esac
+          node mission-wonder-2-step4-a4-recovery-tick.mjs
+
+      - name: Upload recovery evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: a4-controlled-recovery-${{ github.run_id }}-${{ github.run_attempt }}
+          path: a4-recovery-artifacts/
+          if-no-files-found: never

@@ -1,0 +1,52 @@
+name: Mission Wonder 2 — Step 4 A4 State Diagnostic (READ-ONLY)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ['fix/mission-wonder-2-a4-execution-lane-recovery-v1']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mission-wonder-2-step4-a4-state-diag
+  cancel-in-progress: false
+
+jobs:
+  a4-state-diag:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+      RWHT_ARTIFACT_DIR: a4-state-diag-artifacts
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Install Supabase CLI
+        run: npm install -g supabase
+
+      - name: Link production project
+        run: |
+          set -euo pipefail
+          test "$SUPABASE_PROJECT_REF" = "icuqsstxfdbvjytkhlog"
+          test -n "$SUPABASE_ACCESS_TOKEN"
+          supabase link --project-ref "$SUPABASE_PROJECT_REF"
+
+      - name: Run READ-ONLY A4 state diagnostic
+        working-directory: rwht/pc-browser
+        run: node mission-wonder-2-step4-a4-state-diag.mjs
+
+      - name: Upload diagnostic evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: a4-state-diag-${{ github.run_id }}-${{ github.run_attempt }}
+          path: a4-state-diag-artifacts/
+          if-no-files-found: error
