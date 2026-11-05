@@ -120,7 +120,9 @@ async function retrieveChatBendingContext(query: string) {
     return { ok: false, error: "context_index_unavailable" };
   }
 
-  const allowlist = new Map(CHATBENDING_CONTEXT_ALLOWED_DOCUMENTS.map((item) => [item.pageId, item]));
+  const allowlist = new Map<string, (typeof CHATBENDING_CONTEXT_ALLOWED_DOCUMENTS)[number]>(
+    CHATBENDING_CONTEXT_ALLOWED_DOCUMENTS.map((item) => [item.pageId, item] as const),
+  );
   const approvedDocuments = documentRows.filter((document: any) => {
     const pageId = notionPageIdFromUrl(document.canonical_url);
     return Boolean(pageId && allowlist.has(pageId));
@@ -138,7 +140,9 @@ async function retrieveChatBendingContext(query: string) {
     chunkRows = data;
   }
 
-  const documentsById = new Map(approvedDocuments.map((document: any) => [document.id, document]));
+  const documentsById = new Map<string, any>(
+    approvedDocuments.map((document: any) => [String(document.id), document] as const),
+  );
   const normalizedQuery = normalizeContextText(cleanQuery);
   const words = [...new Set(normalizedQuery.split(/[^\p{L}\p{N}_-]+/u).filter((word) => word.length >= 3))].slice(0, 24);
 
@@ -173,8 +177,21 @@ async function retrieveChatBendingContext(query: string) {
   });
   if (audit.error) return { ok: false, error: "context_audit_unavailable" };
 
-  const indexedPageIds = new Set(approvedDocuments.map((document: any) => notionPageIdFromUrl(document.canonical_url)).filter(Boolean));
-  const indexedSources = approvedDocuments.map((document: any) => ({
+  const indexedSourcesByPage = new Map<string, any>();
+  for (const document of approvedDocuments) {
+    const pageId = notionPageIdFromUrl(document.canonical_url);
+    const chunkCount = chunkRows.filter((chunk: any) => chunk.document_id === document.id).length;
+    if (!pageId || !chunkCount) continue;
+    const existing = indexedSourcesByPage.get(pageId);
+    const freshness = Date.parse(String(document.synced_at ?? document.updated_at ?? "")) || 0;
+    const existingFreshness = existing
+      ? (Date.parse(String(existing.synced_at ?? existing.updated_at ?? "")) || 0)
+      : -1;
+    if (!existing || freshness > existingFreshness) {
+      indexedSourcesByPage.set(pageId, { document, chunkCount });
+    }
+  }
+  const indexedSources = [...indexedSourcesByPage.values()].map(({ document, chunkCount }: any) => ({
     title: document.title,
     canonical_url: document.canonical_url,
     page_id: notionPageIdFromUrl(document.canonical_url),
@@ -183,11 +200,12 @@ async function retrieveChatBendingContext(query: string) {
     synced_at: document.synced_at ?? null,
     source_version: document.source_version ?? null,
     updated_at: document.updated_at ?? null,
-    chunk_count: chunkRows.filter((chunk: any) => chunk.document_id === document.id).length,
+    chunk_count: chunkCount,
   }));
+  const indexedPageIds = new Set(indexedSources.map((item: any) => item.page_id));
   const missingExpectedSources = CHATBENDING_CONTEXT_EXPECTED_SOURCES
     .filter((item) => !indexedPageIds.has(item.pageId))
-    .map((item) => ({ ...item, status: "not_indexed" }));
+    .map((item) => ({ ...item, status: "not_indexed_or_without_chunks" }));
 
   return {
     ok: true,
@@ -199,7 +217,7 @@ async function retrieveChatBendingContext(query: string) {
       status: ranked.length ? "results_found" : "no_matching_approved_chunks",
       result_count: ranked.length,
       retrieval_event_id: audit.data ?? null,
-      index_document_count: approvedDocuments.length,
+      index_document_count: indexedSources.length,
       index_chunk_count: chunkRows.length,
     },
     source_policy: {
