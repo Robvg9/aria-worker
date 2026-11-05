@@ -186,6 +186,9 @@ try {
     ON CONFLICT (scope_id) DO NOTHING;
   `;
   runSql(insert, true);
+  // From this point on, every failure path must revoke the scope in finally,
+  // including a failed readback of the just-inserted row.
+  scopeInserted = true;
   const armedCheck = `
     SELECT CASE WHEN count(*)=1 THEN 'A4_SCOPE_ARMED_PASS' ELSE 'A4_SCOPE_ARMED_FAIL' END
       FROM aria_internal.mission_wonder_2_a4_scopes
@@ -194,7 +197,6 @@ try {
        AND allowed_device_id=${sqlQuote(deviceId)} AND status='armed';
   `;
   requireMarker(runSql(armedCheck), 'A4_SCOPE_ARMED_PASS');
-  scopeInserted = true;
   report.scope_armed = true;
 
   await page.goto(BASE + '#home', { waitUntil: 'domcontentloaded', timeout: 30000 });
