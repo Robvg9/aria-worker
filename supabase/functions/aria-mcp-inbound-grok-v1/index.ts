@@ -167,7 +167,7 @@ async function retrieveChatBendingContext(query: string) {
   // and avoid truncating multi-topic questions before their final subject terms.
   const queryWordSet = new Set(
     normalizedQuery.split(/[^\p{L}\p{N}_-]+/u)
-      .filter((word) => (word.length >= 3 || /\d/u.test(word)) && !contextStopWords.has(word)),
+      .filter((word) => word.length >= 2 && !contextStopWords.has(word)),
   );
   const words = Array.from(queryWordSet).slice(0, 40);
 
