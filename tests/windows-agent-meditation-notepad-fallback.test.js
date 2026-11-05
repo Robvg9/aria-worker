@@ -114,3 +114,14 @@ test('Windows preflight preserves shell.execute and keeps local Qwen tests opt-i
   assert.ok(!workflow.includes("capabilities = @('ollama.qwen3') } | ConvertTo-Json"));
   assert.ok(workflow.includes("[Math]::Ceiling($heartbeatIntervalMs / 1000) + 10"));
 });
+
+
+test('Windows preflight resolves runtime source from the checked-out repository root and reports missing paths', () => {
+  const workflow = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'aria-windows-agent-preflight.yml'), 'utf8');
+  assert.ok(workflow.includes('$workingDirectory = (Get-Location).Path'));
+  assert.ok(workflow.includes('git -C $workingDirectory rev-parse --show-toplevel'));
+  assert.ok(workflow.includes('REPOSITORY_ROOT=$repoRoot'));
+  assert.ok(workflow.includes('RUNTIME_SOURCE_SCRIPT_PRESENT='));
+  assert.ok(workflow.includes("git -C $repoRoot ls-tree -r --name-only HEAD -- 'agents/windows'"));
+  assert.ok(workflow.includes('Synced run-agent.ps1 missing at'));
+});
