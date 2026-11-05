@@ -8,7 +8,7 @@ export type TestCatalogItem = {
   capabilities: string;
 };
 
-export const TEST_CATALOG_VERSION = '2026-11-04-mission-wonder-2-a3-v1';
+export const TEST_CATALOG_VERSION = '2026-11-05-windows-agent-notepad-fallback-v1';
 export const TEST_CATALOG: TestCatalogItem[] = [
   {
     "id": "mission-job-authorization-fence",
@@ -2439,6 +2439,15 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "includedInNpmTest": false,
     "how": "Verifica que el ciclo de vida del job Windows persista start/result antes de la telemetría no crítica.",
     "capabilities": "Detecta bloqueos del agente, telemetría no crítica y pérdida de estados started/completed."
+  },
+  {
+    "id": "windows-agent-meditation-notepad-fallback",
+    "file": "tests/windows-agent-meditation-notepad-fallback.test.js",
+    "title": "Windows Agent Optional Notepad Fallback",
+    "category": "Windows / recursos / recuperación",
+    "includedInNpmTest": true,
+    "how": "Comprueba que la ausencia de Notepad se trate como un fallo opcional de interfaz y no cierre el agente Windows.",
+    "capabilities": "Detecta regresiones de ChildProcess ENOENT, continuidad de Meditation IA, heartbeat adaptativo y conservación de shell.execute en el preflight."
   },
   {
     "id": "windows-agent-resource-guard",

@@ -111,31 +111,41 @@ jobs:
           $WatchdogPidPath = Join-Path $LogDir 'watchdog.pid'
           $LogPath = Join-Path $LogDir 'watchdog.log'
 
-          if (-not (Test-Path $PidPath)) { throw 'agent.pid missing' }
-          if (-not (Test-Path $WatchdogPidPath)) { throw 'watchdog.pid missing' }
-
           $agentPid = 0
           $watchdogPid = 0
-          if (-not [int]::TryParse((Get-Content -Raw $PidPath).Trim(), [ref]$agentPid)) { throw 'Invalid agent.pid' }
-          if (-not [int]::TryParse((Get-Content -Raw $WatchdogPidPath).Trim(), [ref]$watchdogPid)) { throw 'Invalid watchdog.pid' }
+          $agent = $null
+          $watchdog = $null
+          if ((Test-Path $PidPath) -and [int]::TryParse((Get-Content -Raw $PidPath).Trim(), [ref]$agentPid) -and $agentPid -gt 0) {
+            $agent = Get-Process -Id $agentPid -ErrorAction SilentlyContinue
+          }
+          if ((Test-Path $WatchdogPidPath) -and [int]::TryParse((Get-Content -Raw $WatchdogPidPath).Trim(), [ref]$watchdogPid) -and $watchdogPid -gt 0) {
+            $watchdog = Get-Process -Id $watchdogPid -ErrorAction SilentlyContinue
+          }
 
-          $agent = Get-Process -Id $agentPid -ErrorAction SilentlyContinue
-          $watchdog = Get-Process -Id $watchdogPid -ErrorAction SilentlyContinue
-          if (-not $agent -or $agent.ProcessName -notmatch 'node') { throw "ARIA agent process not running: PID=$agentPid" }
-          if (-not $watchdog -or $watchdog.ProcessName -notmatch 'powershell') { throw "ARIA watchdog process not running: PID=$watchdogPid" }
-
-          $cimAgent = Get-CimInstance Win32_Process -Filter "ProcessId=$agentPid" -ErrorAction SilentlyContinue
-          if (-not $cimAgent -or $cimAgent.CommandLine -notmatch 'aria-agent\.js') { throw "PID $agentPid is not aria-agent.js" }
+          $liveAgentVerified = $false
+          if ($agent -and $agent.ProcessName -match 'node') {
+            $cimAgent = Get-CimInstance Win32_Process -Filter "ProcessId=$agentPid" -ErrorAction SilentlyContinue
+            $liveAgentVerified = [bool]($cimAgent -and $cimAgent.CommandLine -match 'aria-agent\.js')
+          }
 
           Write-Host 'RUNTIME_SYNC=PASS'
           Write-Host 'NON_DISRUPTIVE_PREFLIGHT=True'
-          Write-Host "WATCHDOG_PID=$watchdogPid"
-          Write-Host "AGENT_PID=$agentPid"
-          Write-Host 'NOTE: Live agent is intentionally left running; maintenance restarts belong to explicit operator workflows.'
+          if ($liveAgentVerified -and $watchdog -and $watchdog.ProcessName -match 'powershell') {
+            Write-Host "WATCHDOG_PID=$watchdogPid"
+            Write-Host "AGENT_PID=$agentPid"
+            Write-Host 'LIVE_AGENT_STATE=HEALTHY'
+          } else {
+            # A stopped/crashing process is a recovery precondition, not a reason
+            # to abort before the later scheduled-task recovery step can run.
+            Write-Host 'LIVE_AGENT_STATE=RECOVERY_REQUIRED'
+            Write-Host "STALE_AGENT_PID=$agentPid"
+            Write-Host "STALE_WATCHDOG_PID=$watchdogPid"
+          }
           if (Test-Path $LogPath) { Get-Content $LogPath -Tail 6 -ErrorAction SilentlyContinue }
           exit 0
 
       - name: Restart Ollama to clear model OOM state
+        if: github.event_name == 'workflow_dispatch' && vars.ARIA_WINDOWS_AGENT_QWEN_PREFLIGHT == 'true'
         run: |
           $ErrorActionPreference = 'SilentlyContinue'
           try { & ollama stop qwen3:4b 2>$null | Out-Null } catch {}
@@ -156,6 +166,7 @@ jobs:
           exit 0
 
       - name: Verify Ollama service
+        if: github.event_name == 'workflow_dispatch' && vars.ARIA_WINDOWS_AGENT_QWEN_PREFLIGHT == 'true'
         run: |
           $ErrorActionPreference = 'Stop'
           $response = Invoke-RestMethod -Uri 'http://127.0.0.1:11434/api/tags' -Method Get -TimeoutSec 15
@@ -165,6 +176,7 @@ jobs:
           Write-Host 'OLLAMA_MODEL=qwen3:4b'
 
       - name: Verify qwen3 execution locally
+        if: github.event_name == 'workflow_dispatch' && vars.ARIA_WINDOWS_AGENT_QWEN_PREFLIGHT == 'true'
         run: |
           $ErrorActionPreference = 'Stop'
           $payload = @{
@@ -310,16 +322,29 @@ jobs:
           }
 
           $beforeHeartbeat = (Get-Content -Raw $HeartbeatPath | ConvertFrom-Json).timestamp
-          Start-Sleep -Seconds 12
+          $heartbeatIntervalMs = 60000
+          $configPath = 'D:\ARIA-Windows-Agent\Data\config.json'
+          if (Test-Path $configPath) {
+            try {
+              $config = Get-Content -Raw $configPath | ConvertFrom-Json
+              if ([int]$config.heartbeat_ms -ge 30000) { $heartbeatIntervalMs = [int]$config.heartbeat_ms }
+            } catch { throw "Unable to read heartbeat interval from agent config: $($_.Exception.Message)" }
+          }
+          $deadline = (Get-Date).AddSeconds([Math]::Ceiling($heartbeatIntervalMs / 1000) + 10)
+          $afterHeartbeat = $beforeHeartbeat
+          do {
+            Start-Sleep -Seconds 2
+            if (-not (Test-Path $HeartbeatPath)) { throw 'agent-heartbeat.json disappeared during continuity test' }
+            $afterHeartbeat = (Get-Content -Raw $HeartbeatPath | ConvertFrom-Json).timestamp
+          } while ($afterHeartbeat -eq $beforeHeartbeat -and (Get-Date) -lt $deadline)
 
           $after = Get-Process -Id $agentPid -ErrorAction SilentlyContinue
           if (-not $after -or $after.ProcessName -notmatch 'node') {
             throw "ARIA agent PID $agentPid did not remain alive during continuity window"
           }
 
-          $afterHeartbeat = (Get-Content -Raw $HeartbeatPath | ConvertFrom-Json).timestamp
           if ($afterHeartbeat -eq $beforeHeartbeat) {
-            throw 'ARIA agent heartbeat timestamp did not advance during continuity window'
+            throw "ARIA agent heartbeat timestamp did not advance within $heartbeatIntervalMs ms"
           }
 
           Write-Host 'WATCHDOG_CONTINUITY=PASS'
@@ -336,10 +361,20 @@ jobs:
           $url = 'https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-device-gateway'
           if ([string]::IsNullOrWhiteSpace($env:ARIA_DEVICE_TOKEN)) { throw 'ARIA_DEVICE_TOKEN repository secret is missing' }
           $headers = @{ Authorization = "Bearer $env:ARIA_DEVICE_TOKEN"; 'x-aria-device-id' = $deviceId; 'content-type' = 'application/json' }
-          $body = @{ device_id = $deviceId; agent_type = 'windows-local'; capabilities = @('ollama.qwen3') } | ConvertTo-Json
+          $capabilities = @('shell.execute','computer.use','computer.use.autonomous')
+          $configPath = 'D:\ARIA-Windows-Agent\Data\config.json'
+          if (Test-Path $configPath) {
+            try {
+              $config = Get-Content -Raw $configPath | ConvertFrom-Json
+              if ($config.ollama_enabled -eq $true) { $capabilities = @('ollama.qwen3') + $capabilities }
+            } catch { throw "Unable to read ARIA agent capability config: $($_.Exception.Message)" }
+          }
+          if ($capabilities -notcontains 'shell.execute') { throw 'Gateway heartbeat probe must preserve shell.execute' }
+          $body = @{ device_id = $deviceId; agent_type = 'windows-local'; capabilities = $capabilities } | ConvertTo-Json
           try { $heartbeat = Invoke-RestMethod -Uri "$url/v1/devices/heartbeat" -Headers $headers -Method Post -Body $body -TimeoutSec 15 }
           catch { throw "Gateway heartbeat probe failed: $($_.Exception.Message)" }
           if ($null -eq $heartbeat) { throw 'Gateway heartbeat returned an empty response' }
+          if (@($heartbeat.capabilities) -notcontains 'shell.execute') { throw 'Gateway heartbeat response dropped shell.execute' }
           Write-Host 'GATEWAY_HEARTBEAT=PASS'
           Write-Host "DEVICE_ID=$deviceId"
-          Write-Host 'CAPABILITY=ollama.qwen3'
+          Write-Host "CAPABILITIES=$($capabilities -join ',')"

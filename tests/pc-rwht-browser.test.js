@@ -205,7 +205,7 @@ assert.match(pwaIndex, /content='__ARIA_TEST_CATALOG_TOTAL__'/);
 assert.match(pwaViteConfig, /TEST_CATALOG_VERSION/);
 assert.match(pwaViteConfig, /testCatalogTotal/);
 assert.match(pwaViteConfig, /aria-test-catalog-metadata/);
-assert.match(pwaTestCatalog, /export const TEST_CATALOG_VERSION = '2026-11-04-mission-wonder-2-a3-v1'/);
+assert.match(pwaTestCatalog, /export const TEST_CATALOG_VERSION = '2026-11-05-windows-agent-notepad-fallback-v1'/);
 const repositoryTestFiles = fs.readdirSync(__dirname).filter(file => file.endsWith('.test.js'));
 assert.equal([...pwaTestCatalog.matchAll(/"file": "tests\//g)].length, repositoryTestFiles.length);
 assert.match(projectsRwhtWorkflow, /export const TEST_CATALOG_VERSION/);
