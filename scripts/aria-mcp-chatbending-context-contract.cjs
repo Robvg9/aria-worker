@@ -30,6 +30,13 @@ for (const token of [
   'query_text: "[REDACTED]"',
   'canonical_memory_write: false',
   'explicit_chatbending_canonical_page_allowlist',
+  'trustedNotionHost',
+  'document.source_type === "notion"',
+  'document.source_type === "notion_page"',
+  'privacyClass === "general"',
+  'termVariants',
+  'word.endsWith("es")',
+  'word.endsWith("s")',
 ]) {
   assert.ok(retrieval.includes(token), 'Missing safe retrieval contract: ' + token);
 }
