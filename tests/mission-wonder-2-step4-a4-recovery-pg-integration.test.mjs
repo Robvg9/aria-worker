@@ -166,7 +166,7 @@ assert.equal(rec.dispatch_reservation_persisted, true, 'S1 grant must report per
   const v = await reservation();
   assert.ok(v && typeof v === 'object', 'S1 reservation object must exist in stored metadata');
   assert.equal(v.granted, true, 'S1 granted=true must be persisted');
-  assert.equal(typeof v.granted_at, 'string' && v.granted_at?.length > 0, true, 'S1 granted_at must be persisted (one atomic update)');
+  assert.ok(typeof v.granted_at === 'string' && v.granted_at.length > 0, 'S1 granted_at must be persisted (one atomic update)');
   assert.equal(v.grant_ref, 'a4-recovery-test.s1', 'S1 grant_ref must be persisted (one atomic update)');
 }
 assert.equal((await scopeRow()).status, 'bound', 'S1 scope must really be re-armed');
