@@ -137,8 +137,8 @@ jobs:
             echo "A4_RECOVERY_RPC_REFUSED action=$ACTION; aborting before token claim and tick"
             exit 1
           fi
-          if [[ "$RES_GRANTED" != "true" || "$RES_PERSISTED" != "true" ]]; then
-            echo "A4_RECOVERY_RESERVATION_REFUSED granted=$RES_GRANTED persisted=$RES_PERSISTED; no token claim or tick"
+          if [[ "$RES_PERSISTED" != "true" ]]; then
+            echo "A4_RECOVERY_RESERVATION_REFUSED persisted=$RES_PERSISTED; no token claim or tick"
             exit 1
           fi
           # A preexisting reservation (from a previous run) is acceptable ONLY if already consumed
