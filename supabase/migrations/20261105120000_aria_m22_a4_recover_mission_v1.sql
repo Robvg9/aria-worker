@@ -44,6 +44,10 @@ declare
   v_rearmed integer := 0;
   v_stamped integer := 0;
   v_eligible_count integer := 0;
+  v_dispatch jsonb;
+  v_grant_rows integer := 0;
+  v_reservation_pregenerated boolean := false;
+  v_persist_verified boolean := false;
 begin
   -- Hard lock: this recovery mechanism exists for exactly one mission id. Any other
   -- value is rejected before any database work happens.
@@ -158,17 +162,43 @@ begin
      and coalesce(metadata->>'execution_lane','')<>'user';
   get diagnostics v_stamped=row_count;
 
-  -- Step 3: grant the ONE dispatch reservation transactionally with the mutations
-  -- above. The reservation lives in the mission row (persisted, idempotent).
-  if coalesce(v_mission.metadata->'a4_recovery_dispatch_v1'->>'granted','false')<>'true' then
+  -- Step 3: grant the ONE dispatch reservation with ONE atomic update. The parent
+  -- object is built EXPLICITLY (preserving any pre-existing content) and written as
+  -- a single top-level jsonb_set; this never relies on jsonb_set creating nested
+  -- intermediates, whose silent no-op on a missing parent would falsely report a
+  -- grant. Persistence is then DEMONSTRATED by re-reading the metadata inside this
+  -- same transaction; any inconsistency raises and the whole call rolls back,
+  -- including the scope re-arm performed above.
+  v_dispatch := coalesce(v_mission.metadata->'a4_recovery_dispatch_v1', '{}'::jsonb);
+  if coalesce(v_dispatch->>'granted','false') = 'true' then
+    -- A reservation already exists (granted, possibly consumed). Never overwrite it:
+    -- a second recovery must not generate another grant_ref nor resurrect a token.
+    v_reservation_pregenerated := true;
+  else
     update aria_internal.mission_state
-       set metadata=jsonb_set(
-             jsonb_set(
-               jsonb_set(metadata,'{a4_recovery_dispatch_v1,granted}',to_jsonb(true),true),
-               '{a4_recovery_dispatch_v1,granted_at}', to_jsonb(clock_timestamp()::text), true),
-             '{a4_recovery_dispatch_v1,grant_ref}', to_jsonb(btrim(p_grant_ref)), true),
+       set metadata=jsonb_set(metadata,'{a4_recovery_dispatch_v1}',
+             coalesce(metadata->'a4_recovery_dispatch_v1','{}'::jsonb) || jsonb_build_object(
+               'granted', true,
+               'granted_at', clock_timestamp()::text,
+               'grant_ref', btrim(p_grant_ref)
+             ), true),
            updated_at=clock_timestamp()
      where mission_id=v_mission.mission_id;
+    get diagnostics v_grant_rows=row_count;
+    if v_grant_rows<>1 then
+      raise exception 'aria_m22_a4_dispatch_grant_not_applied';
+    end if;
+    -- Re-read the persisted metadata inside this transaction before trusting it.
+    select metadata->'a4_recovery_dispatch_v1' into v_dispatch
+      from aria_internal.mission_state
+     where mission_id=v_mission.mission_id;
+    if coalesce(v_dispatch->>'granted','false')<>'true'
+       or coalesce(v_dispatch->>'grant_ref','')<>btrim(p_grant_ref)
+       or coalesce(v_dispatch->>'granted_at','')='' then
+      raise exception
+        'aria_m22_a4_dispatch_persist_failed (whole call rolled back, including the scope re-arm)';
+    end if;
+    v_persist_verified := true;
   end if;
 
   -- Single audit event whenever this recovery mutated a row.
@@ -196,12 +226,15 @@ begin
     'action','recovered',
     'mission_id',v_mission.mission_id,
     'scope_id_prefix',left(v_scope.scope_id,12),
-    'scope_status','bound',
+    'scope_status', case when v_rearmed=1 then 'bound' else v_scope.status end,
     'execution_lane','user',
     'scope_rearmed',(v_rearmed=1),
     'lane_stamped',(v_stamped=1),
-    'dispatch_reservation_granted',true,
-    'agent_eligible_count',v_eligible_count
+    'dispatch_reservation_granted', v_persist_verified,
+    'dispatch_reservation_preexisting', v_reservation_pregenerated,
+    'dispatch_reservation_persisted', coalesce(v_dispatch->>'granted','false')='true',
+    'dispatch_grant_ref', coalesce(v_dispatch->>'grant_ref',''),
+    'agent_eligible_count', v_eligible_count
   );
 end;
 $function$;
@@ -228,6 +261,8 @@ declare
   v_scope aria_internal.mission_wonder_2_a4_scopes;
   v_claimed integer := 0;
   v_eligible_count integer := 0;
+  v_dispatch jsonb;
+  v_check_status text;
 begin
   if coalesce(btrim(p_mission_id),'') <> 'mission_a4_authorized_once' then
     return jsonb_build_object('action','rejected','reason','mission_id_not_locked');
@@ -295,14 +330,20 @@ begin
   end if;
 
   -- Atomic single-token flip: mark the reservation consumed FIRST, then the caller
-  -- may dispatch exactly one tick. A concurrent second caller loses the row-count
-  -- race and is rejected without a tick. If the caller crashes after this commit
-  -- before dispatching, the tick is simply lost (fail-safe: no double tick) and the
-  -- recovery stalls for a human decision, which is the safe direction.
+  -- may dispatch exactly one tick. The parent object is also rebuilt explicitly
+  -- (preserving granted fields) and the persistence is re-read inside this
+  -- transaction; inconsistency raises and the call rolls back leaving the token
+  -- UNCONSUMED (a retry remains possible; a double tick remains impossible since
+  -- no script dispatches without the claimed server state). A concurrent second
+  -- caller loses the row-count race and is rejected. If the caller crashes after
+  -- this commit before dispatching, the tick is simply lost (fail-safe: no double
+  -- tick) and the recovery stalls for a human decision, which is the safe direction.
   update aria_internal.mission_state
-     set metadata=jsonb_set(
-           jsonb_set(metadata,'{a4_recovery_dispatch_v1,consumed}',to_jsonb(true),true),
-           '{a4_recovery_dispatch_v1,consumed_at}', to_jsonb(clock_timestamp()::text), true),
+     set metadata=jsonb_set(metadata,'{a4_recovery_dispatch_v1}',
+           coalesce(metadata->'a4_recovery_dispatch_v1','{}'::jsonb) || jsonb_build_object(
+             'consumed', true,
+             'consumed_at', clock_timestamp()::text
+           ), true),
          updated_at=clock_timestamp()
    where mission_id=v_mission.mission_id
      and coalesce(metadata->'a4_recovery_dispatch_v1'->>'consumed','false') <> 'true';
@@ -310,11 +351,23 @@ begin
   if v_claimed<>1 then
     return jsonb_build_object('action','rejected','reason','dispatch_already_consumed');
   end if;
+  -- Re-read the persisted reservation before handing over the token.
+  select metadata->'a4_recovery_dispatch_v1', status into v_dispatch, v_check_status
+    from aria_internal.mission_state where mission_id=v_mission.mission_id;
+  if coalesce(v_dispatch->>'consumed','false')<>'true'
+     or coalesce(v_dispatch->>'consumed_at','')=''
+     or coalesce(v_dispatch->>'granted','false')<>'true'
+     or coalesce(v_dispatch->>'grant_ref','')<>btrim(p_grant_ref)
+     or v_check_status<>'queued' then
+    raise exception
+      'aria_m22_a4_claim_persist_failed (whole call rolled back; token remains unclaimed)';
+  end if;
 
   return jsonb_build_object(
     'action','token_claimed',
     'mission_id',v_mission.mission_id,
     'grant_ref',btrim(p_grant_ref),
+    'dispatch_persisted', coalesce(v_dispatch->>'consumed','false')='true',
     'agent_eligible_count',v_eligible_count
   );
 end;

@@ -100,9 +100,23 @@ assert.match(migration, /and request_id=btrim\(p_request_id\)/);
 assert.match(migration, /and goal_hash=btrim\(p_goal_hash\)/);
 
 // --- 3. Dispatch reservation: grant once, claim exactly once, rerun-safe.
-assert.match(migration, /a4_recovery_dispatch_v1,granted/, 'the reservation grant must be persisted');
-assert.match(migration, /a4_recovery_dispatch_v1,grant_ref/, 'the reservation grant_ref must be persisted');
-assert.match(migration, /a4_recovery_dispatch_v1,consumed/, 'the claim must persist consumption');
+// Explicit parent construction: the grant writes ONE top-level key built from a
+// single jsonb_build_object (granted, granted_at, grant_ref in one atomic UPDATE),
+// never relying on jsonb_set creating nested intermediates.
+assert.match(migration, /coalesce\(v_mission\.metadata->'a4_recovery_dispatch_v1', '\{\}'::jsonb\)/,
+  'the grant must read the parent object explicitly (absent-parent safe)');
+assert.match(migration,
+  /jsonb_build_object\(\s*\n\s*'granted', true,\s*\n\s*'granted_at', clock_timestamp\(\)::text,\s*\n\s*'grant_ref', btrim\(p_grant_ref\)\s*\n\s*\)/,
+  'granted/granted_at/grant_ref must be persisted in ONE atomic update');
+assert.match(migration, /jsonb_set\(metadata,'\{a4_recovery_dispatch_v1\}'/,
+  'the write must replace ONE explicit top-level key');
+// Persistence must be demonstrated by a re-read inside the transaction; any
+// inconsistency raises and rolls the whole call back (including the re-arm).
+assert.equal((migration.match(/select metadata->'a4_recovery_dispatch_v1'(, status)? into v_dispatch/g) || []).length, 2,
+  'both grant and claim must verify persistence by re-reading the metadata');
+assert.match(migration, /aria_m22_a4_dispatch_persist_failed/, 'grant verification must raise on inconsistency');
+assert.match(migration, /aria_m22_a4_dispatch_grant_not_applied/, 'grant row-count must be checked');
+assert.match(migration, /aria_m22_a4_claim_persist_failed/, 'claim verification must raise on inconsistency');
 assert.match(migration, /'token_claimed'/, 'the claim must return token_claimed exactly once');
 assert.match(migration, /'dispatch_already_consumed'/, 'a consumed reservation must reject further claims');
 assert.match(migration, /'dispatch_not_granted'/, 'a claim without a grant must be rejected');
