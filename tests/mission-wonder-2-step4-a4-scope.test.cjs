@@ -119,5 +119,16 @@ const path = require('node:path');
   assert.match(e2e, /A4_SCOPE_NOT_CREATED_CLEAN/);
   assert.match(e2e, /A4_SCOPE_REVOKED_PASS/);
 
+  // The device gate diagnostic is read-only and must run before the fatal
+  // assert, with nothing armed on failure.
+  const deviceIdLine = e2e.indexOf('const deviceId = deviceOutput.match');
+  const diagLine = e2e.indexOf('if (!deviceId) {');
+  const gateAssert = e2e.indexOf('no fresh online Windows shell.execute agent; scope not armed');
+  assert.ok(diagLine > deviceIdLine && diagLine < gateAssert,
+    'A4 device diagnostics must sit between device readback and the fatal device-gate assert');
+  assert.match(e2e, /A4_DEVICE_DIAG=/);
+  assert.ok(e2e.indexOf('INSERT INTO aria_internal.mission_wonder_2_a4_scopes') > gateAssert,
+    'device gate must remain strictly before any scope arming');
+
   console.log('MISSION WONDER 2 STEP 4 A4 ONE-SHOT CONTRACT: PASS');
 })().catch((error) => { console.error(error); process.exitCode = 1; });
