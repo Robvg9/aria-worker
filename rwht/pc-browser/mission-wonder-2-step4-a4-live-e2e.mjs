@@ -19,7 +19,7 @@ function fail(message) { throw new Error(message); }
 function sqlQuote(value) { return "'" + String(value).replace(/'/g, "''") + "'"; }
 function runSql(query, write = false) {
   const args = ['db', 'query', query, ...(write ? ['--yes'] : ['--read-only']), '--remote'];
-  const result = spawnSync('supabase', args, { encoding: 'utf8', env: process.env, maxBuffer: 8 * 1024 * 1024 });
+  const result = spawnSync('supabase', args, { cwd: process.env.GITHUB_WORKSPACE, encoding: 'utf8', env: process.env, maxBuffer: 8 * 1024 * 1024 });
   const output = String(result.stdout || '') + '\n' + String(result.stderr || '');
   if (result.status !== 0) {
     console.error('SUPABASE_SQL_FAILED exit=' + result.status + ' output=' + output.slice(-3000));
