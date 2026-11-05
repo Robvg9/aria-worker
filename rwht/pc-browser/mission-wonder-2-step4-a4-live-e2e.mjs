@@ -168,6 +168,22 @@ try {
      LIMIT 1;
   `);
   const deviceId = deviceOutput.match(/A4_DEVICE_ID=([A-Za-z0-9._-]+)/)?.[1] || '';
+  // Fail-closed stays intact: nothing is armed when the device gate rejects
+  // every candidate. This read-only diagnostic only explains WHY (staleness
+  // vs missing capability) so a retry does not repeat a blind wait.
+  if (!deviceId) {
+    const diagOutput = runSql(`
+      SELECT 'A4_DEVICE_DIAG=' || left(device_id, 4) || repeat('x', GREATEST(length(device_id) - 4, 3))
+             || ' status=' || status
+             || ' age_s=' || COALESCE(EXTRACT(EPOCH FROM clock_timestamp() - last_seen_at)::numeric(8,0)::text, 'null')
+             || ' shell_execute=' || (capabilities @> '["shell.execute"]'::jsonb)::text
+        FROM aria_internal.device_registry
+       WHERE agent_type='windows-local'
+       ORDER BY last_seen_at DESC LIMIT 20;
+    `);
+    const diagRows = diagOutput.split(/\r?\n/).filter((line) => line.includes('A4_DEVICE_DIAG='));
+    console.log(...(diagRows.length ? diagRows : ['A4_DEVICE_DIAG=none']));
+  }
   assert.ok(deviceId, 'no fresh online Windows shell.execute agent; scope not armed');
   report.device_id = deviceId;
 
