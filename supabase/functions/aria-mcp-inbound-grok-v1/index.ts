@@ -81,8 +81,6 @@ const CHATBENDING_CONTEXT_ALLOWED_DOCUMENTS = Object.freeze([
   { pageId: "3c6feb355ec1818baa76c19260902af6", label: "02 — ADN ChatBending: Reglas generales" },
   { pageId: "3c6feb355ec18105b83bd51bd24133fd", label: "02 — Protocolos de Trabajo IA" },
   { pageId: "3ebfeb355ec1813a86b3d861ee5b4ce3", label: "Runtime State v1 — Estado operativo compacto" },
-  { pageId: "3c7feb355ec181f4aa74d45d45705e63", label: "ChatBending Agent Protocol v1 — Memoria Automática" },
-  { pageId: "3c8feb355ec18190bbc1cc07b6e4480e", label: "01 — Evidence Registry" },
 ]);
 
 const CHATBENDING_CONTEXT_EXPECTED_SOURCES = Object.freeze([
@@ -93,6 +91,8 @@ const CHATBENDING_CONTEXT_EXPECTED_SOURCES = Object.freeze([
   { pageId: "3c6feb355ec18154bba0d7da31cfe854", label: "ChatBending — Reglas permanentes" },
   { pageId: "3c6feb355ec18105b83bd51bd24133fd", label: "02 — Protocolos de Trabajo IA" },
   { pageId: "3ebfeb355ec1813a86b3d861ee5b4ce3", label: "Runtime State v1 — Estado operativo compacto" },
+  { pageId: "3c7feb355ec181f4aa74d45d45705e63", label: "ChatBending Agent Protocol v1 — Memoria Automática" },
+  { pageId: "3c8feb355ec18190bbc1cc07b6e4480e", label: "01 — Evidence Registry · Registro de Evidencia" },
 ]);
 
 function notionPageIdFromUrl(value: unknown): string | null {
@@ -157,9 +157,20 @@ async function retrieveChatBendingContext(query: string) {
     approvedDocuments.map((document: any) => [String(document.id), document] as const),
   );
   const normalizedQuery = normalizeContextText(cleanQuery);
-  const words = [...new Set(normalizedQuery.split(/[^\p{L}\p{N}_-]+/u).filter((word) => word.length >= 3))].slice(0, 24);
+  const contextStopWords = new Set([
+    "a", "al", "and", "are", "as", "con", "como", "de", "del", "do", "el", "en",
+    "es", "for", "from", "la", "le", "lo", "los", "of", "or", "para", "por",
+    "que", "se", "sin", "su", "sus", "the", "this", "to", "un", "una", "unas",
+    "uno", "unos", "was", "were", "with", "y", "e", "o", "u",
+  ]);
+  // Keep short identifiers such as IA, PR, A3 and DAP; discard connective words
+  // and avoid truncating multi-topic questions before their final subject terms.
+  const words = [...new Set(
+    normalizedQuery.split(/[^\p{L}\p{N}_-]+/u)
+      .filter((word) => (word.length >= 3 || /\d/u.test(word)) && !contextStopWords.has(word)),
+  )].slice(0, 40);
 
-  const ranked = chunkRows.map((chunk: any) => {
+  const rankedCandidates = chunkRows.map((chunk: any) => {
     const document: any = documentsById.get(chunk.document_id) ?? {};
     const content = normalizeContextText(chunk.content);
     const heading = normalizeContextText(chunk.heading);
@@ -173,16 +184,40 @@ async function retrieveChatBendingContext(query: string) {
     };
     const termOccurrences = (haystack: string, word: string) =>
       Math.max(...termVariants(word).map((variant) => occurrences(haystack, variant)));
+    const matchedQueryTerms = words.filter((word) =>
+      termOccurrences(content, word) > 0 ||
+      termOccurrences(heading, word) > 0 ||
+      termOccurrences(title, word) > 0,
+    );
     const score = words.reduce((total, word) =>
       total +
       Math.min(termOccurrences(content, word), 5) +
       4 * Math.min(termOccurrences(title, word), 3) +
       2 * Math.min(termOccurrences(heading, word), 3), 0);
     const phraseBonus = normalizedQuery.length >= 12 && content.includes(normalizedQuery) ? 8 : 0;
-    return { chunk, document, score: score + phraseBonus };
+    return { chunk, document, score: score + phraseBonus, matchedQueryTerms };
   }).filter((item: any) => item.score > 0)
-    .sort((a: any, b: any) => b.score - a.score)
-    .slice(0, 8);
+    .sort((a: any, b: any) =>
+      b.score - a.score ||
+      String(a.document.title ?? "").localeCompare(String(b.document.title ?? "")) ||
+      Number(a.chunk.chunk_index ?? 0) - Number(b.chunk.chunk_index ?? 0),
+    );
+
+  // Multi-topic requests must not be monopolized by several similar excerpts
+  // from one Notion page. Keep up to two chunks per canonical source and return
+  // a wider but bounded evidence set.
+  const MAX_CONTEXT_RESULTS = 12;
+  const MAX_CHUNKS_PER_CANONICAL_SOURCE = 2;
+  const chunksPerSource = new Map<string, number>();
+  const ranked: any[] = [];
+  for (const candidate of rankedCandidates) {
+    const pageId = notionPageIdFromUrl(candidate.document.canonical_url) ?? String(candidate.document.id);
+    const count = chunksPerSource.get(pageId) ?? 0;
+    if (count >= MAX_CHUNKS_PER_CANONICAL_SOURCE) continue;
+    ranked.push(candidate);
+    chunksPerSource.set(pageId, count + 1);
+    if (ranked.length >= MAX_CONTEXT_RESULTS) break;
+  }
 
   const selectedChunkIds = ranked.map((item: any) => item.chunk.id);
   // This RPC stores a redacted, append-only retrieval event. It does not write
@@ -237,6 +272,10 @@ async function retrieveChatBendingContext(query: string) {
     retrieval: {
       status: ranked.length ? "results_found" : "no_matching_approved_chunks",
       result_count: ranked.length,
+      candidate_count: rankedCandidates.length,
+      result_limit: MAX_CONTEXT_RESULTS,
+      max_chunks_per_canonical_source: MAX_CHUNKS_PER_CANONICAL_SOURCE,
+      covered_source_count: new Set(ranked.map((item: any) => notionPageIdFromUrl(item.document.canonical_url)).filter(Boolean)).size,
       retrieval_event_id: audit.data ?? null,
       index_document_count: indexedSources.length,
       index_chunk_count: chunkRows.length,
@@ -257,6 +296,7 @@ async function retrieveChatBendingContext(query: string) {
       heading: item.chunk.heading ?? null,
       content: item.chunk.content,
       relevance_score: item.score,
+      matched_query_terms: item.matchedQueryTerms,
       source: {
         title: item.document.title ?? null,
         canonical_url: item.document.canonical_url ?? null,
