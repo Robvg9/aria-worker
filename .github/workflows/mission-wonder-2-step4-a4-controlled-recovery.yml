@@ -88,6 +88,16 @@ jobs:
           echo "A4_RECOVERY_DRY_RUN=true identity captured; no write, no tick. Rerun with execute_recovery_tick=true only after explicit owner authorization."
           echo "Agent eligibility verdict evidence: ${A4_AGENT_ELIGIBLE_VERDICT:-missing}"
 
+      # Cleanup orphaned reservation from a previous failed run (not consumed yet).
+      # Safe: only removes a granted-but-unconsumed reservation; a consumed one stays.
+      - name: Cleanup orphaned reservation (if any)
+        if: github.event.inputs.execute_recovery_tick == 'true'
+        run: |
+          set -euo pipefail
+          SQL=$(printf "UPDATE aria_internal.mission_state SET metadata = metadata - 'a4_recovery_dispatch_v1' WHERE mission_id='mission_a4_authorized_once' AND coalesce(metadata->'a4_recovery_dispatch_v1'->>'consumed','false') <> 'true' AND coalesce(metadata->'a4_recovery_dispatch_v1'->>'granted','false') = 'true';")
+          OUT=$(supabase db query "$SQL" --yes --remote)
+          echo "$OUT" | grep -o 'UPDATE [0-9]*' | head -1 || echo "No orphaned reservation to clean"
+
       # Authorized path, three auditable gates, each aborting BEFORE the next:
       #   1) identity-verified recovery RPC (re-arm + grant the ONE dispatch
       #      reservation transactionally, persisted in the mission row);
