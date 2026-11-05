@@ -55,7 +55,7 @@ for (const token of [
   'word.endsWith("es")',
   'word.endsWith("s")',
   'contextStopWords',
-  'word.length >= 3 || /\\d/u.test(word)',
+  'word.length >= 2 && !contextStopWords.has(word)',
   ').slice(0, 40)',
   'const MAX_CONTEXT_RESULTS = 12',
   'const MAX_CHUNKS_PER_CANONICAL_SOURCE = 2',
