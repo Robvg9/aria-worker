@@ -56,6 +56,8 @@ on:
       - 'tests/mission-wonder-2-step3-a3-presence.test.mjs'
       - 'tests/mission-wonder-2-step3-a3-live-workflow-contract.test.cjs'
       - 'tests/supabase-canonical-deploy-contract.test.js'
+      # This static MCP contract helper must not redeploy the unrelated Cloudflare Worker or reattach its runtime secret.
+      - 'scripts/aria-mcp-chatbending-context-contract.cjs'
       - '.github/workflows/mission-wonder-2-step3-a3-contract.yml'
       - '.github/workflows/mission-wonder-2-step3-a3-live.yml'
       # A3 helper scripts support the isolated presence-only pilot; they do not modify the canonical ARIA Worker.
