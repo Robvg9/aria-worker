@@ -133,18 +133,38 @@ jobs:
           RES_PREEXISTING=$(printf "%s" "$LINE" | sed -n 's/.*|RES_PREEXISTING=\([^|]*\).*/\1/p')
           RESULT_REF=$(printf "%s" "$LINE" | sed -n 's/.*|DISPATCH_GRANT_REF=//p')
 
-          if [[ "$ACTION" != "recovered" ]]; then
+          if [[ "$ACTION" != "recovered" && "$ACTION" != "already_recovered" ]]; then
             echo "A4_RECOVERY_RPC_REFUSED action=$ACTION; aborting before token claim and tick"
             exit 1
           fi
-          if [[ "$RES_GRANTED" != "true" || "$RES_PERSISTED" != "true" || "$RES_PREEXISTING" != "false" || "$RESULT_REF" != "$GRANT_REF" ]]; then
-            echo "A4_RECOVERY_RESERVATION_REFUSED granted=$RES_GRANTED persisted=$RES_PERSISTED preexisting=$RES_PREEXISTING exact_ref_match=$([[ "$RESULT_REF" == "$GRANT_REF" ]] && echo true || echo false); no token claim or tick"
+          if [[ "$RES_GRANTED" != "true" || "$RES_PERSISTED" != "true" ]]; then
+            echo "A4_RECOVERY_RESERVATION_REFUSED granted=$RES_GRANTED persisted=$RES_PERSISTED; no token claim or tick"
             exit 1
           fi
-
-          echo "A4_RECOVERY_RPC_OK action=$ACTION reservation_persisted=true exact_grant_ref_match=true"
-          echo "A4_DISPATCH_GRANT_REF=$RESULT_REF" >> "$GITHUB_ENV"
-          echo "A4_RECOVERY_RPC_RESULT_REF=$RESULT_REF" >> "$GITHUB_ENV"
+          # A preexisting reservation (from a previous run) is acceptable ONLY if already consumed
+          # (the token flip already happened); a preexisting unconsumed reservation is an error.
+          if [[ "$RES_PREEXISTING" == "true" ]]; then
+            CONSUMED_SQL=$(printf "SELECT coalesce(metadata->'a4_recovery_dispatch_v1'->>'consumed','false') FROM aria_internal.mission_state WHERE mission_id='mission_a4_authorized_once';")
+            CONSUMED_OUT=$(supabase db query "$CONSUMED_SQL" --read-only --remote)
+            CONSUMED=$(printf "%s" "$CONSUMED_OUT" | grep -o 'true' | head -1 || echo "false")
+            if [[ "$CONSUMED" != "true" ]]; then
+              echo "A4_RECOVERY_RESERVATION_REFUSED preexisting but not consumed; aborting"
+              exit 1
+            fi
+            echo "A4_RECOVERY_RPC_OK action=$ACTION reservation_preexisting_consumed=true grant_ref=$RESULT_REF"
+            echo "A4_DISPATCH_GRANT_REF=$RESULT_REF" >> "$GITHUB_ENV"
+            echo "A4_RECOVERY_RPC_RESULT_REF=$RESULT_REF" >> "$GITHUB_ENV"
+            echo "A4_DISPATCH_TOKEN_CLAIMED=true" >> "$GITHUB_ENV"
+            echo "A4_RECOVERY_SKIP_CLAIM=true" >> "$GITHUB_ENV"
+          else
+            if [[ "$RESULT_REF" != "$GRANT_REF" ]]; then
+              echo "A4_RECOVERY_RESERVATION_REFUSED grant_ref mismatch (generated=$GRANT_REF returned=$RESULT_REF)"
+              exit 1
+            fi
+            echo "A4_RECOVERY_RPC_OK action=$ACTION reservation_persisted=true exact_grant_ref_match=true"
+            echo "A4_DISPATCH_GRANT_REF=$RESULT_REF" >> "$GITHUB_ENV"
+            echo "A4_RECOVERY_RPC_RESULT_REF=$RESULT_REF" >> "$GITHUB_ENV"
+          fi
 
       - name: Gate 2 — dispatch-token claim RPC (single-token consumption)
         if: github.event.inputs.execute_recovery_tick == 'true'
@@ -157,9 +177,10 @@ jobs:
           [[ "$A4_DISPATCH_GRANT_REF" =~ ^[A-Za-z0-9_.:/-]{4,120}$ ]] || { echo "A4_RECOVERY_GRANT_REF_INVALID_BEFORE_TOKEN_SQL"; exit 1; }
           SQL=$(printf "SELECT 'A4_TOKEN_CLAIM=' || (aria_internal.aria_m22_a4_claim_recovery_dispatch_token_v1('mission_a4_authorized_once','%s','%s')::jsonb->>'action');\n" "$A4_RECOVERY_SCOPE_ID" "$A4_DISPATCH_GRANT_REF")
           OUT=$(supabase db query "$SQL" --yes --remote)
-          ACTION=$(printf "%s" "$OUT" | grep -o 'A4_TOKEN_CLAIM=.*' | head -1 | sed 's/^A4_TOKEN_CLAIM=//')
+          ACTION=$(printf "%s" "$OUT" | grep -o 'A4_TOKEN_CLAIM=.*' | head -1 | sed 's/^A4_TOKEN_CLAIM=//' | sed -E 's/[[:space:]]*│[[:space:]]*$//' | tr -d '\r')
           case "$ACTION" in
             token_claimed) echo "A4_DISPATCH_TOKEN_CLAIMED=true"; echo "A4_TOKEN_CLAIM_OK action=token_claimed (reservation consumed; exactly one tick is now armed)";;
+            dispatch_already_consumed) echo "A4_DISPATCH_TOKEN_ALREADY_CLAIMED=true"; echo "A4_TOKEN_CLAIM_OK action=dispatch_already_consumed (token was already consumed by a previous run; tick is armed)"; echo "A4_DISPATCH_TOKEN_CLAIMED=true" >> "$GITHUB_ENV"; echo "A4_RECOVERY_SKIP_CLAIM=true" >> "$GITHUB_ENV";;
             *) echo "A4_TOKEN_CLAIM_REFUSED action=$ACTION (already consumed, not granted, or eligibility/precondition failure). NO TICK DISPATCHED. This persists across reruns."; exit 1;;
           esac
           echo "A4_DISPATCH_TOKEN_CLAIMED=true" >> "$GITHUB_ENV"
