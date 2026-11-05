@@ -110,6 +110,11 @@ const path = require('node:path');
   assert.match(e2e, /x-aria-request-id/);
   assert.match(e2e, /textarea\[aria-label="Objetivo de la misión"\]/);
   assert.match(e2e, /mission_verified/);
+  const insertCall = e2e.indexOf("runSql(insert, true);");
+  const revokeArmedScope = e2e.indexOf("scopeInserted = true;", insertCall);
+  const armedReadback = e2e.indexOf("const armedCheck", insertCall);
+  assert.ok(insertCall >= 0 && revokeArmedScope > insertCall && revokeArmedScope < armedReadback,
+    "A4 must enable finally-revocation immediately after scope insert, before armed readback");
   assert.match(e2e, /A4_SCOPE_REVOKED_PASS/);
 
   console.log('MISSION WONDER 2 STEP 4 A4 ONE-SHOT CONTRACT: PASS');
