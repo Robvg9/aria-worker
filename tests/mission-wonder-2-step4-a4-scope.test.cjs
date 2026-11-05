@@ -78,6 +78,9 @@ const path = require('node:path');
 
   assert.match(appApi, /aria_m22_a4_claim_scope_v1/);
   assert.match(appApi, /mission_wonder_2_a4_readonly/);
+  assert.match(appApi, /headers\\["x-aria-user-id"\\] = options\\.userId\\.trim\\(\\)/);
+  assert.ok(appApi.includes("}, undefined, { userId: user.id });"), "A4 owner identity must be sent as an HTTP header to DIRECT");
+  assert.match(direct, /request\\.headers\\.get\\("x-aria-user-id"\\)/);
   assert.match(appApi, /path\.endsWith\("\/missions"\)/);
   assert.match(direct, /m22A4ScopeRowMatchesV1/);
   assert.match(direct, /!a4ScopeRow && \(sourceKind/);
