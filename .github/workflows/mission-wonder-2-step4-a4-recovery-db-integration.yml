@@ -1,0 +1,54 @@
+name: Mission Wonder 2 — Step 4 A4 Recovery Real-DB Behavioral Test
+
+# Runs the recovery RPCs against a REAL PostgreSQL server (service container),
+# applying the production migration verbatim and observing actual stored state:
+# explicit parent-object persistence, no-overwrite of consumed reservations,
+# atomic single-token races, physical agent gates, and full transactional
+# rollback on persistence failure. Contains NO production credentials and
+# performs no production writes: everything is inside the ephemeral container.
+on:
+  workflow_dispatch:
+  push:
+    branches: ['fix/mission-wonder-2-a4-execution-lane-recovery-v1']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mission-wonder-2-step4-a4-recovery-db-integration
+  cancel-in-progress: false
+
+jobs:
+  a4-recovery-pg-integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      A4_PG_INTEGRATION_URL: postgresql://postgres:postgres@localhost:5432/postgres
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Install pg driver (ephemeral, no lockfile changes)
+        run: npm install pg --no-save --no-fund --no-audit
+
+      - name: Run real-PostgreSQL behavioral recovery test
+        run: node tests/mission-wonder-2-step4-a4-recovery-pg-integration.test.mjs

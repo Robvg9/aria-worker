@@ -7,7 +7,7 @@ import { shouldDebate, debatePrompt } from "../_shared/model-debate.ts";
 import { buildIdeaMissionProposal, validateProposal } from "../_shared/idea-to-mission.mjs";
 import { deriveOperationalDiagnostic } from "../_shared/operational-diagnostics.mjs";
 import { missionRequestIdentityMatchesV1 } from "../_shared/mission-request-identity-v1.mjs";
-import { m22A4GoalIdentityHashV1 } from "../_shared/mission-wonder-2-a4-scope-v1.mjs";
+import { A4_EXECUTION_LANE_V1, m22A4GoalIdentityHashV1 } from "../_shared/mission-wonder-2-a4-scope-v1.mjs";
 import { inspectGithubSource, buildCapabilityIndex, buildAbsorptionPlan, buildAbsorptionIdentity, advanceAbsorptionPlan, evaluateAbsorptionCompletion } from "../_shared/absorb-engine.mjs";
 import { deriveMissionDisplayTitle, MISSION_TITLE_VERSION } from "../_shared/mission-title.mjs";
 import { handlePrivateVaultRequest, isPrivateVaultRoute, privateVaultAuthFailure, privateVaultPreflight } from "./private-vault.ts";
@@ -2863,11 +2863,16 @@ Deno.serve(async (req) => {
           return json({ error: "mission_execution_paused", execution_enabled: false, scope: "a4_one_shot_unavailable", trace_id: trace }, 423);
         }
         a4Scope = claimedScope;
+        // Explicit admission-lane provenance: the standalone-mission claim guard
+        // requires a non-empty execution lane (execution_lane or goal_source) on
+        // no-goal missions. Stamping A4_EXECUTION_LANE_V1 ("user") makes the lane
+        // explicit and behavior-identical to the goal_source fallback it replaces.
         Object.assign(intakeMetadata, {
           mission_wonder_2_a4_scope_id: String(a4Scope.scope_id),
           mission_wonder_2_a4_goal_hash: a4GoalHash,
           mission_wonder_2_a4_allowed_device_id: String(a4Scope.allowed_device_id),
           mission_wonder_2_a4_readonly: true,
+          execution_lane: A4_EXECUTION_LANE_V1,
         });
       }
 
