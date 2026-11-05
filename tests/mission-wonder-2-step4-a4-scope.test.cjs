@@ -104,6 +104,7 @@ const path = require('node:path');
   assert.match(e2e, /missionId = 'mission_a4_authorized_once'/);
   assert.match(e2e, /single-authorized-execution/);
   assert.ok(e2e.includes("const args = ['db', 'query', query, ...(write ? ['--yes'] : ['--read-only']), '--remote'];"));
+  assert.match(e2e, /cwd: process\\.env\\.GITHUB_WORKSPACE/);
   assert.match(e2e, /A4_SCOPE_ALREADY_CONSUMED/);
   assert.match(e2e, /const tick = await runtimeTick\(missionId\)/);
   assert.match(e2e, /Dispatch exactly once/);
