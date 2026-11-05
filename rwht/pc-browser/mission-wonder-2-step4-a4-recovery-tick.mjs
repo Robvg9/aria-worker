@@ -7,10 +7,13 @@
 // aria_m22_a4_recover_mission_v1.
 //
 // Guarantees (by construction, enforced by the contract test):
-//   * Creates/arms NOTHING: no scope rows inserted, no mission rows created, no
-//     claim/lease RPC called directly by this script. The runner itself performs the
-//     claim, the A4 readonly-probe plan, the physical execution and the scope
-//     completion when the single tick is forwarded.
+//   * Creates/arms NOTHING: no scope, mission, execution-job or lease rows are inserted.
+//   * Performs one narrowly-scoped, atomic SQL RPC to reserve the sole tick claim;
+//     the RPC re-checks the consumed grant, exact mission/scope identity, agent
+//     eligibility and absence of preexisting jobs. Replays are rejected server-side.
+//   * Does NOT claim a job lease, create work or run the shell command itself. The
+//     canonical runner performs the A4 readonly-probe plan, physical execution and
+//     scope completion after the single runtime tick is forwarded.
 //   * Dispatches the runtime tick EXACTLY ONCE.
 //   * Verifies: mission succeeded with exactly one completed step, at least one
 //     mission_verified event, a visible notification for the user, exactly ONE mission
@@ -56,6 +59,16 @@ function runSql(query) {
   if (result.status !== 0) fail('supabase_sql_failed ' + output.slice(-1500));
   return output;
 }
+
+// The ONLY write in this script: an atomic, persisted, single-use claim for the
+// one runtime POST below. It is intentionally separate from all read-only probes.
+function runSqlWriteOnce(query) {
+  const args = ['db', 'query', query, '--yes', '--remote'];
+  const result = spawnSync('supabase', args, { cwd: process.env.GITHUB_WORKSPACE, encoding: 'utf8', env: process.env, maxBuffer: 8 * 1024 * 1024 });
+  const output = String(result.stdout || '') + '\n' + String(result.stderr || '');
+  if (result.status !== 0) fail('supabase_tick_claim_failed ' + output.slice(-1500));
+  return output;
+}
 function requireMarker(output, mark) {
   if (!output.includes(mark)) fail('sql marker missing: ' + mark);
   return output;
@@ -64,7 +77,7 @@ function requireMarker(output, mark) {
 const report = {
   status: 'running', run_id: RUN_ID, run_attempt: RUN_ATTEMPT, mission_id: MISSION_ID,
   pwa_authenticated: false, preflight_pass: false, agent_eligible_pass: false,
-  recovery_dispatched: false,
+  recovery_dispatched: false, tick_claimed: false,
   runtime_ticks: [], mission_terminal_status: null, mission_verified_events: 0,
   notifications_seen: 0, request_missions_pre: null, request_missions_post: null,
   scope_terminal_status: null, failure: null,
@@ -141,6 +154,23 @@ report.request_missions_pre = Number(String(requireMarker(runSql(`
    WHERE metadata->>'request_id' = (SELECT request_id FROM aria_internal.mission_wonder_2_a4_scopes WHERE scope_id=${sqlQuote(SCOPE_ID)});
 `), 'A4_RECOVERY_REQUEST_COUNT').match(/=(\d+)$/)?.[1] ?? '-1'));
 assert.equal(report.request_missions_pre, 1, 'exactly one mission row must exist for the request_id');
+
+// Atomically reserve the ONLY possible runtime POST. A retry after this point
+// is rejected by PostgreSQL, even if the first process crashes before fetch().
+const tickClaimOutput = runSqlWriteOnce(`
+  SELECT 'A4_TICK_CLAIM_OK=' ||
+    CASE WHEN coalesce(v->>'action','')='tick_claimed'
+       AND coalesce(v->>'tick_claim_ref','')=${sqlQuote(GRANT_REF + ':tick')}
+      THEN 'true' ELSE 'false' END
+    FROM (
+      SELECT aria_internal.aria_m22_a4_claim_recovery_tick_v1(
+        ${sqlQuote(MISSION_ID)}, ${sqlQuote(SCOPE_ID)}, ${sqlQuote(GRANT_REF)}
+      ) AS v
+    ) claimed;
+`);
+requireMarker(tickClaimOutput, 'A4_TICK_CLAIM_OK=true');
+report.tick_claimed = true;
+persistReport();
 
 // --- Dispatch the runtime tick EXACTLY ONCE. Polling below is read-only.
 const tickResponse = await fetch(TICK_URL, {

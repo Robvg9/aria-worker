@@ -8,8 +8,16 @@ name: Mission Wonder 2 — Step 4 A4 Recovery Real-DB Behavioral Test
 # performs no production writes: everything is inside the ephemeral container.
 on:
   workflow_dispatch:
+  pull_request:
+    branches: ['main']
+    paths:
+      - 'supabase/migrations/**'
+      - 'tests/mission-wonder-2-step4-a4-recovery-pg-integration.test.mjs'
+      - '.github/workflows/mission-wonder-2-step4-a4-recovery-db-integration.yml'
   push:
-    branches: ['fix/mission-wonder-2-a4-execution-lane-recovery-v1']
+    branches:
+      - 'fix/mission-wonder-2-a4-execution-lane-recovery-v1'
+      - 'fix/mission-wonder-2-a4-consumed-scope-safe-resume-v1'
 
 permissions:
   contents: read

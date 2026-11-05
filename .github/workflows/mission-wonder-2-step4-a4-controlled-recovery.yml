@@ -101,12 +101,11 @@ jobs:
       # Authorized path, three auditable gates, each aborting BEFORE the next:
       #   1) identity-verified recovery RPC (re-arm + grant the ONE dispatch
       #      reservation transactionally, persisted in the mission row);
-      #   2) dispatch-token claim RPC: flips the reservation to consumed exactly
-      #      once and re-checks physical agent eligibility server-side. A rerun of
-      #      this workflow gets dispatch_already_consumed here and must abort with
-      #      no tick dispatched;
-      #   3) single recovery tick script (its own read-only preflight verifies the
-      #      consumed reservation + agent eligibility before the ONLY fetch).
+      #   2) dispatch-token claim RPC only for a fresh grant. A preexisting consumed
+      #      grant bypasses this gate and may renew only its same scope once; the grant
+      #      reference is never regenerated or consumed again;
+      #   3) the tick script re-verifies identity/agent eligibility, then atomically
+      #      claims the one tick in PostgreSQL before its ONLY runtime POST.
       - name: Gate 1 — recovery RPC (re-arm scope + grant reservation)
         if: github.event.inputs.execute_recovery_tick == 'true'
         env:
@@ -151,6 +150,16 @@ jobs:
               echo "A4_RECOVERY_RESERVATION_REFUSED preexisting but not consumed; aborting"
               exit 1
             fi
+            # The original dispatch token was already consumed by run 42110933267,
+            # whose Gate 3 never dispatched. Renew only this same expired bound scope,
+            # preserving the exact consumed grant_ref. No new token or scope is issued.
+            RESUME_SQL=$(printf "SELECT 'A4_SCOPE_RESUME_OK=' || CASE WHEN coalesce(v->>'action','') IN ('scope_resumed','already_fresh') AND coalesce(v->>'dispatch_grant_ref','')='%s' AND coalesce(v->>'dispatch_token_reused','false')='true' THEN 'true' ELSE 'false' END FROM (SELECT aria_internal.aria_m22_a4_resume_consumed_scope_v1('mission_a4_authorized_once','%s','%s','%s','%s','%s')::jsonb AS v) resumed;\\n" "$RESULT_REF" "$A4_RECOVERY_SCOPE_ID" "$A4_RECOVERY_USER_ID" "$A4_RECOVERY_REQUEST_ID" "$A4_RECOVERY_GOAL_HASH" "$RESULT_REF")
+            RESUME_OUT=$(supabase db query "$RESUME_SQL" --yes --remote)
+            if ! printf "%s" "$RESUME_OUT" | grep -q 'A4_SCOPE_RESUME_OK=true'; then
+              echo "A4_SCOPE_RESUME_REFUSED; same consumed grant retained; no token claim or tick"
+              exit 1
+            fi
+            echo "A4_SCOPE_RESUME_OK=true exact_scope_and_grant_preserved=true"
             echo "A4_RECOVERY_RPC_OK action=$ACTION reservation_preexisting_consumed=true grant_ref=$RESULT_REF"
             echo "A4_DISPATCH_GRANT_REF=$RESULT_REF" >> "$GITHUB_ENV"
             echo "A4_RECOVERY_RPC_RESULT_REF=$RESULT_REF" >> "$GITHUB_ENV"
@@ -167,7 +176,7 @@ jobs:
           fi
 
       - name: Gate 2 — dispatch-token claim RPC (single-token consumption)
-        if: github.event.inputs.execute_recovery_tick == 'true'
+        if: github.event.inputs.execute_recovery_tick == 'true' && env.A4_RECOVERY_SKIP_CLAIM != 'true'
         env:
           A4_RECOVERY_SCOPE_ID: ${{ env.A4_RECOVERY_SCOPE_ID }}
           A4_DISPATCH_GRANT_REF: ${{ env.A4_DISPATCH_GRANT_REF }}
