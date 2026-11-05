@@ -62,10 +62,10 @@ jobs:
           OUT=$(supabase db query "$SQL" --read-only --remote)
           LINE=$(printf "%s" "$OUT" | grep -o 'A4_RECOVERY_IDENTITY=.*' | head -1)
           echo "A4_RECOVERY_IDENTITY_RAW=$LINE" >> "$GITHUB_ENV"
-          SCOPE_ID=$(printf "%s" "$LINE" | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{const j=JSON.parse(d.slice('A4_RECOVERY_IDENTITY='.length));console.log(j.scope_id)})")
-          GOAL_HASH=$(printf "%s" "$LINE" | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{const j=JSON.parse(d.slice('A4_RECOVERY_IDENTITY='.length));console.log(j.goal_hash)})")
-          REQ_ID=$(printf "%s" "$LINE" | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{const j=JSON.parse(d.slice('A4_RECOVERY_IDENTITY='.length));if(!/^[0-9a-f-]{6,64}$/.test(String(j.request_id)))process.exit(1);console.log(j.request_id)})")
-          USR_ID=$(printf "%s" "$LINE" | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{const j=JSON.parse(d.slice('A4_RECOVERY_IDENTITY='.length));if(!/^[a-f0-9-]{6,64}$/.test(String(j.user_id)))process.exit(1);console.log(j.user_id)})")
+          SCOPE_ID=$(printf "%s" "$LINE" | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{const j=JSON.parse(d.slice('A4_RECOVERY_IDENTITY='.length));const v=j.scope_id;if(typeof v!=='string'||!/^[A-Za-z0-9_-]{8,120}$/.test(v)){console.error('A4_RECOVERY_SCOPE_ID_INVALID');process.exit(1)}console.log(v)})")
+          GOAL_HASH=$(printf "%s" "$LINE" | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{const j=JSON.parse(d.slice('A4_RECOVERY_IDENTITY='.length));const v=j.goal_hash;if(typeof v!=='string'||!/^[0-9a-f]{64}$/.test(v)){console.error('A4_RECOVERY_GOAL_HASH_INVALID');process.exit(1)}console.log(v)})")
+          REQ_ID=$(printf "%s" "$LINE" | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{const j=JSON.parse(d.slice('A4_RECOVERY_IDENTITY='.length));const v=j.request_id;if(typeof v!=='string'||!/^[a-f0-9-]{10,80}$/.test(v)){console.error('A4_RECOVERY_REQUEST_ID_INVALID');process.exit(1)}console.log(v)})")
+          USR_ID=$(printf "%s" "$LINE" | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{const j=JSON.parse(d.slice('A4_RECOVERY_IDENTITY='.length));const v=j.user_id;if(typeof v!=='string'||!/^[a-f0-9-]{10,80}$/.test(v)){console.error('A4_RECOVERY_USER_ID_INVALID');process.exit(1)}console.log(v)})")
           echo "A4_RECOVERY_SCOPE_ID=$SCOPE_ID" >> "$GITHUB_ENV"
           echo "A4_RECOVERY_GOAL_HASH=$GOAL_HASH" >> "$GITHUB_ENV"
           echo "A4_RECOVERY_REQUEST_ID=$REQ_ID" >> "$GITHUB_ENV"
@@ -107,17 +107,33 @@ jobs:
         run: |
           set -euo pipefail
           GRANT_REF="a4-recovery-${GITHUB_RUN_ID}.${GITHUB_RUN_ATTEMPT}"
-          SQL=$(printf "SELECT 'A4_RECOVER_ACTION=' || v->>'action' || '|GRANT_REF=' || v->>'grant_ref' FROM (select aria_internal.aria_m22_a4_recover_mission_v1('mission_a4_authorized_once','%s','%s','%s','%s','%s') as v) t;\n" "$A4_RECOVERY_SCOPE_ID" "$A4_RECOVERY_USER_ID" "$A4_RECOVERY_REQUEST_ID" "$A4_RECOVERY_GOAL_HASH" "$GRANT_REF")
+          [[ "$A4_RECOVERY_SCOPE_ID" =~ ^[A-Za-z0-9_-]{8,120}$ ]] || { echo "A4_RECOVERY_SCOPE_ID_INVALID"; exit 1; }
+          [[ "$A4_RECOVERY_GOAL_HASH" =~ ^[0-9a-f]{64}$ ]] || { echo "A4_RECOVERY_GOAL_HASH_INVALID"; exit 1; }
+          [[ "$A4_RECOVERY_REQUEST_ID" =~ ^[a-f0-9-]{10,80}$ ]] || { echo "A4_RECOVERY_REQUEST_ID_INVALID"; exit 1; }
+          [[ "$A4_RECOVERY_USER_ID" =~ ^[a-f0-9-]{10,80}$ ]] || { echo "A4_RECOVERY_USER_ID_INVALID"; exit 1; }
+          [[ "$GRANT_REF" =~ ^[A-Za-z0-9_.:/-]{4,120}$ ]] || { echo "A4_RECOVERY_GRANT_REF_INVALID"; exit 1; }
+
+          SQL=$(printf "SELECT 'A4_RECOVER_ACTION=' || coalesce(v->>'action','') || '|RES_GRANTED=' || coalesce(v->>'dispatch_reservation_granted','') || '|RES_PERSISTED=' || coalesce(v->>'dispatch_reservation_persisted','') || '|RES_PREEXISTING=' || coalesce(v->>'dispatch_reservation_preexisting','') || '|DISPATCH_GRANT_REF=' || coalesce(v->>'dispatch_grant_ref','') FROM (select aria_internal.aria_m22_a4_recover_mission_v1('mission_a4_authorized_once','%s','%s','%s','%s','%s') as v) t;\n" "$A4_RECOVERY_SCOPE_ID" "$A4_RECOVERY_USER_ID" "$A4_RECOVERY_REQUEST_ID" "$A4_RECOVERY_GOAL_HASH" "$GRANT_REF")
           OUT=$(supabase db query "$SQL" --yes --remote)
           printf '%s\n' "$(printf "%s" "$OUT" | grep -o 'A4_RECOVER_ACTION=.*' | head -1)" > recovery-action.txt
           LINE=$(sed -n 's/^A4_RECOVER_ACTION=//p' recovery-action.txt | head -1)
           ACTION=$(printf "%s" "$LINE" | cut -d'|' -f1)
-          RESULT_REF=$(printf "%s" "$LINE" | sed -n 's/.*|GRANT_REF=//p')
-          case "$ACTION" in
-            recovered|already_recovered) echo "A4_RECOVERY_RPC_OK action=$ACTION";;
-            *) echo "A4_RECOVERY_RPC_REFUSED action=$ACTION (identity, state or physical-agent mismatch; nothing granted; aborting before any tick)"; exit 1;;
-          esac
-          echo "A4_DISPATCH_GRANT_REF=$GRANT_REF" >> "$GITHUB_ENV"
+          RES_GRANTED=$(printf "%s" "$LINE" | sed -n 's/.*|RES_GRANTED=\([^|]*\).*/\1/p')
+          RES_PERSISTED=$(printf "%s" "$LINE" | sed -n 's/.*|RES_PERSISTED=\([^|]*\).*/\1/p')
+          RES_PREEXISTING=$(printf "%s" "$LINE" | sed -n 's/.*|RES_PREEXISTING=\([^|]*\).*/\1/p')
+          RESULT_REF=$(printf "%s" "$LINE" | sed -n 's/.*|DISPATCH_GRANT_REF=//p')
+
+          if [[ "$ACTION" != "recovered" ]]; then
+            echo "A4_RECOVERY_RPC_REFUSED action=$ACTION; aborting before token claim and tick"
+            exit 1
+          fi
+          if [[ "$RES_GRANTED" != "true" || "$RES_PERSISTED" != "true" || "$RES_PREEXISTING" != "false" || "$RESULT_REF" != "$GRANT_REF" ]]; then
+            echo "A4_RECOVERY_RESERVATION_REFUSED granted=$RES_GRANTED persisted=$RES_PERSISTED preexisting=$RES_PREEXISTING exact_ref_match=$([[ "$RESULT_REF" == "$GRANT_REF" ]] && echo true || echo false); no token claim or tick"
+            exit 1
+          fi
+
+          echo "A4_RECOVERY_RPC_OK action=$ACTION reservation_persisted=true exact_grant_ref_match=true"
+          echo "A4_DISPATCH_GRANT_REF=$RESULT_REF" >> "$GITHUB_ENV"
           echo "A4_RECOVERY_RPC_RESULT_REF=$RESULT_REF" >> "$GITHUB_ENV"
 
       - name: Gate 2 — dispatch-token claim RPC (single-token consumption)
@@ -127,6 +143,8 @@ jobs:
           A4_DISPATCH_GRANT_REF: ${{ env.A4_DISPATCH_GRANT_REF }}
         run: |
           set -euo pipefail
+          [[ "$A4_RECOVERY_SCOPE_ID" =~ ^[A-Za-z0-9_-]{8,120}$ ]] || { echo "A4_RECOVERY_SCOPE_ID_INVALID_BEFORE_TOKEN_SQL"; exit 1; }
+          [[ "$A4_DISPATCH_GRANT_REF" =~ ^[A-Za-z0-9_.:/-]{4,120}$ ]] || { echo "A4_RECOVERY_GRANT_REF_INVALID_BEFORE_TOKEN_SQL"; exit 1; }
           SQL=$(printf "SELECT 'A4_TOKEN_CLAIM=' || (aria_internal.aria_m22_a4_claim_recovery_dispatch_token_v1('mission_a4_authorized_once','%s','%s')::jsonb->>'action');\n" "$A4_RECOVERY_SCOPE_ID" "$A4_DISPATCH_GRANT_REF")
           OUT=$(supabase db query "$SQL" --yes --remote)
           ACTION=$(printf "%s" "$OUT" | grep -o 'A4_TOKEN_CLAIM=.*' | head -1 | sed 's/^A4_TOKEN_CLAIM=//')
