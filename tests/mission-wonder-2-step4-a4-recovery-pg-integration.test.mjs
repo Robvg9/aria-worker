@@ -91,11 +91,19 @@ await client.query(`
     created_at timestamptz not null default clock_timestamp(), updated_at timestamptz not null default clock_timestamp()
   );
   create table aria_internal.mission_events (
-    id bigserial primary key,
+    event_id bigint generated always as identity primary key,
     mission_id text not null,
+    step_index integer,
     event_type text not null,
     payload jsonb not null default '{}'::jsonb,
-    created_at timestamptz not null default clock_timestamp()
+    created_at timestamptz not null default now(),
+    trace_id text,
+    span_id text,
+    request_id text,
+    execution_id text,
+    error_code text,
+    runtime_version text,
+    source_sha text
   );
   create table aria_internal.execution_jobs (
     job_id text primary key,
