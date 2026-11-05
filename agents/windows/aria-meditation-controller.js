@@ -206,7 +206,7 @@ function startControlServer(controller) {
   return server;
 }
 
-function createWindowsMeditationController() {
+function createWindowsMeditationController({ openNotepadImpl = openNotepad } = {}) {
   reclaimStaleCurrentPidLock();
   const store = createFileStateStore({ root_dir: MED_ROOT });
   let notepadPromise = null;
@@ -214,7 +214,7 @@ function createWindowsMeditationController() {
     if (!notepadPromise) {
       notepadPromise = (async () => {
         await ensureLogFile();
-        const result = await openNotepad();
+        const result = await openNotepadImpl();
         if (result.status === 'started') {
           await appendLog(`NOTEPAD_OPENED pid=${result.pid ?? 'unknown'}`);
         } else {
