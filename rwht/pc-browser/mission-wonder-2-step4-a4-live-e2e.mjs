@@ -173,7 +173,8 @@ try {
   // vs missing capability) so a retry does not repeat a blind wait.
   if (!deviceId) {
     const diagOutput = runSql(`
-      SELECT 'A4_DEVICE_DIAG=' || device_id || ' status=' || status
+      SELECT 'A4_DEVICE_DIAG=' || left(device_id, 4) || repeat('x', GREATEST(length(device_id) - 4, 3))
+             || ' status=' || status
              || ' age_s=' || COALESCE(EXTRACT(EPOCH FROM clock_timestamp() - last_seen_at)::numeric(8,0)::text, 'null')
              || ' shell_execute=' || (capabilities @> '["shell.execute"]'::jsonb)::text
         FROM aria_internal.device_registry
