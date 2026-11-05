@@ -184,4 +184,34 @@ assert.match(recoveryWorkflow, /A4_DISPATCH_TOKEN_CLAIMED: \$\{\{ env\.A4_DISPAT
 assert.match(recoveryWorkflow, /agent_type='windows-local'/, 'read-only agent eligibility evidence must be captured');
 assert.match(recoveryWorkflow, /180 seconds/, 'workflow agent evidence must use the 180 s heartbeat window');
 
+// The capture step validates every identity field BEFORE any SQL interpolation.
+for (const marker of [
+  'A4_RECOVERY_SCOPE_ID_INVALID',
+  'A4_RECOVERY_GOAL_HASH_INVALID',
+  'A4_RECOVERY_REQUEST_ID_INVALID',
+  'A4_RECOVERY_USER_ID_INVALID',
+  'A4_RECOVERY_GRANT_REF_INVALID',
+]) {
+  assert.ok(recoveryWorkflow.includes(marker), 'workflow must reject unsafe SQL input: ' + marker);
+}
+assert.match(recoveryWorkflow, /\^\[A-Za-z0-9_-\]\{8,120\}\$/);
+assert.match(recoveryWorkflow, /\^\[0-9a-f\]\{64\}\$/);
+assert.match(recoveryWorkflow, /\^\[a-f0-9-\]\{10,80\}\$/);
+
+// Gate 1 must use the exact RPC response contract, never the obsolete grant_ref key,
+// and must fail closed on pre-existing/mismatched/non-persisted reservations.
+assert.match(recoveryWorkflow, /dispatch_grant_ref/);
+assert.doesNotMatch(recoveryWorkflow, /v->>'grant_ref'/,
+  'Gate 1 must not read the obsolete grant_ref response key');
+for (const key of [
+  'dispatch_reservation_granted',
+  'dispatch_reservation_persisted',
+  'dispatch_reservation_preexisting',
+]) {
+  assert.ok(recoveryWorkflow.includes(key), 'Gate 1 must validate RPC field: ' + key);
+}
+assert.match(recoveryWorkflow, /RESULT_REF.*GRANT_REF/);
+assert.match(recoveryWorkflow, /RES_PREEXISTING.*false/);
+assert.match(recoveryWorkflow, /RES_PERSISTED.*true/);
+
 console.log('mission-wonder-2-step4-a4-recovery contract: PASS');
