@@ -104,7 +104,7 @@ report.rdbms.events = readMarker(runSql(`
 // 3) Execution jobs for the mission: did the probe job ever get dispatched?
 report.rdbms.jobs = readMarker(runSql(`
   SELECT 'A4_STATE_DIAG_JOBS=' || COALESCE((
-    SELECT jsonb_agg(jsonb_build_object('id_prefix', left(j.job_id::text,8), 'status', j.status, 'created_at', j.created_at) ORDER BY j.created_at)::text
+    SELECT jsonb_agg(jsonb_build_object('id_prefix', left(j.job_id::text,8), 'status', j.status, 'updated_at', j.updated_at) ORDER BY j.updated_at)::text
     FROM aria_internal.execution_jobs j
     WHERE j.mission_id = ${sqlQuote(MISSION_ID)}
   ), '[]');
