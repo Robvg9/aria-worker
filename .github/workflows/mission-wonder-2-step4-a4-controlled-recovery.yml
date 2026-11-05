@@ -60,7 +60,7 @@ jobs:
           set -euo pipefail
           SQL=$(printf "%s" "SELECT 'A4_RECOVERY_IDENTITY=' || jsonb_build_object('scope_id',s.scope_id,'goal_hash',s.goal_hash,'request_id',s.request_id,'user_id',s.owner_user_id,'scope_status',s.status,'mission_status',m.status,'lane',m.metadata->>'execution_lane','readonly',m.metadata->>'mission_wonder_2_a4_readonly','device_matches',(m.metadata->>'mission_wonder_2_a4_allowed_device_id')=(s.allowed_device_id))::text FROM aria_internal.mission_wonder_2_a4_scopes s JOIN aria_internal.mission_state m ON m.mission_id=s.mission_id WHERE s.mission_id='mission_a4_authorized_once';")
           OUT=$(supabase db query "$SQL" --read-only --remote)
-          LINE=$(printf "%s" "$OUT" | grep -o 'A4_RECOVERY_IDENTITY=.*' | head -1)
+          LINE=$(printf "%s" "$OUT" | grep -o 'A4_RECOVERY_IDENTITY=.*' | head -1 | sed -E 's/[[:space:]]*│[[:space:]]*$//' | tr -d '\r')
           echo "A4_RECOVERY_IDENTITY_RAW=$LINE" >> "$GITHUB_ENV"
           SCOPE_ID=$(printf "%s" "$LINE" | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{const j=JSON.parse(d.slice('A4_RECOVERY_IDENTITY='.length));const v=j.scope_id;if(typeof v!=='string'||!/^[A-Za-z0-9_-]{8,120}$/.test(v)){console.error('A4_RECOVERY_SCOPE_ID_INVALID');process.exit(1)}console.log(v)})")
           GOAL_HASH=$(printf "%s" "$LINE" | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{const j=JSON.parse(d.slice('A4_RECOVERY_IDENTITY='.length));const v=j.goal_hash;if(typeof v!=='string'||!/^[0-9a-f]{64}$/.test(v)){console.error('A4_RECOVERY_GOAL_HASH_INVALID');process.exit(1)}console.log(v)})")
@@ -73,7 +73,7 @@ jobs:
           printf 'A4_RECOVERY_IDENTITY_CAPTURED scope_status_and_mission_state=%s\n' "$(printf "%s" "$LINE" | sed -E 's/[0-9a-f-]{10,64}/MASKED/g')"
           ELIG_SQL=$(printf "SELECT CASE WHEN (SELECT count(*) FROM aria_internal.device_registry d WHERE d.device_id=(SELECT allowed_device_id FROM aria_internal.mission_wonder_2_a4_scopes WHERE scope_id='%s') AND d.agent_type='windows-local' AND d.status='online' AND d.token_hash IS NOT NULL AND d.capabilities @> '[\"shell.execute\"]'::jsonb AND d.last_seen_at > clock_timestamp() - interval '180 seconds' AND NOT EXISTS (SELECT 1 FROM aria_internal.device_registry o WHERE o.device_id<>d.device_id AND o.agent_type='windows-local' AND o.status='online' AND o.token_hash IS NOT NULL AND o.capabilities @> '[\"shell.execute\"]'::jsonb AND o.last_seen_at > clock_timestamp() - interval '180 seconds'))=1 THEN 'A4_AGENT_ELIGIBLE=pass' ELSE 'A4_AGENT_ELIGIBLE=fail' END;\n" "$SCOPE_ID")
           ELIG_OUT=$(supabase db query "$ELIG_SQL" --read-only --remote)
-          ELIG_LINE=$(printf "%s" "$ELIG_OUT" | grep -o 'A4_AGENT_ELIGIBLE=.*' | head -1)
+          ELIG_LINE=$(printf "%s" "$ELIG_OUT" | grep -o 'A4_AGENT_ELIGIBLE=.*' | head -1 | tr -d '\r' | sed -E 's/[[:space:]]*│[[:space:]]*$//')
           echo "A4_AGENT_ELIGIBLE_VERDICT=$ELIG_LINE" >> "$GITHUB_ENV"
           echo "READ-ONLY AGENT ELIGIBILITY EVIDENCE: $ELIG_LINE"
           case "$ELIG_LINE" in
@@ -169,4 +169,4 @@ jobs:
         with:
           name: a4-controlled-recovery-${{ github.run_id }}-${{ github.run_attempt }}
           path: rwht/pc-browser/a4-recovery-artifacts/
-          if-no-files-found: never
+          if-no-files-found: ignore
