@@ -48,5 +48,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: a4-state-diag-${{ github.run_id }}-${{ github.run_attempt }}
-          path: a4-state-diag-artifacts/
+          path: rwht/pc-browser/a4-state-diag-artifacts/
           if-no-files-found: error
