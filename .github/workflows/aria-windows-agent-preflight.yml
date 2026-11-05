@@ -136,6 +136,7 @@ jobs:
           exit 0
 
       - name: Restart Ollama to clear model OOM state
+        if: vars.ARIA_WINDOWS_AGENT_QWEN_PREFLIGHT == 'true'
         run: |
           $ErrorActionPreference = 'SilentlyContinue'
           try { & ollama stop qwen3:4b 2>$null | Out-Null } catch {}
@@ -156,6 +157,7 @@ jobs:
           exit 0
 
       - name: Verify Ollama service
+        if: vars.ARIA_WINDOWS_AGENT_QWEN_PREFLIGHT == 'true'
         run: |
           $ErrorActionPreference = 'Stop'
           $response = Invoke-RestMethod -Uri 'http://127.0.0.1:11434/api/tags' -Method Get -TimeoutSec 15
@@ -165,6 +167,7 @@ jobs:
           Write-Host 'OLLAMA_MODEL=qwen3:4b'
 
       - name: Verify qwen3 execution locally
+        if: vars.ARIA_WINDOWS_AGENT_QWEN_PREFLIGHT == 'true'
         run: |
           $ErrorActionPreference = 'Stop'
           $payload = @{
@@ -336,10 +339,20 @@ jobs:
           $url = 'https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-device-gateway'
           if ([string]::IsNullOrWhiteSpace($env:ARIA_DEVICE_TOKEN)) { throw 'ARIA_DEVICE_TOKEN repository secret is missing' }
           $headers = @{ Authorization = "Bearer $env:ARIA_DEVICE_TOKEN"; 'x-aria-device-id' = $deviceId; 'content-type' = 'application/json' }
-          $body = @{ device_id = $deviceId; agent_type = 'windows-local'; capabilities = @('ollama.qwen3') } | ConvertTo-Json
+          $capabilities = @('shell.execute','computer.use','computer.use.autonomous')
+          $configPath = 'D:\ARIA-Windows-Agent\Data\config.json'
+          if (Test-Path $configPath) {
+            try {
+              $config = Get-Content -Raw $configPath | ConvertFrom-Json
+              if ($config.ollama_enabled -eq $true) { $capabilities = @('ollama.qwen3') + $capabilities }
+            } catch { throw "Unable to read ARIA agent capability config: $($_.Exception.Message)" }
+          }
+          if ($capabilities -notcontains 'shell.execute') { throw 'Gateway heartbeat probe must preserve shell.execute' }
+          $body = @{ device_id = $deviceId; agent_type = 'windows-local'; capabilities = $capabilities } | ConvertTo-Json
           try { $heartbeat = Invoke-RestMethod -Uri "$url/v1/devices/heartbeat" -Headers $headers -Method Post -Body $body -TimeoutSec 15 }
           catch { throw "Gateway heartbeat probe failed: $($_.Exception.Message)" }
           if ($null -eq $heartbeat) { throw 'Gateway heartbeat returned an empty response' }
+          if (@($heartbeat.capabilities) -notcontains 'shell.execute') { throw 'Gateway heartbeat response dropped shell.execute' }
           Write-Host 'GATEWAY_HEARTBEAT=PASS'
           Write-Host "DEVICE_ID=$deviceId"
-          Write-Host 'CAPABILITY=ollama.qwen3'
+          Write-Host "CAPABILITIES=$($capabilities -join ',')"
