@@ -41,6 +41,18 @@ const { default: pg } = await import('pg');
 const client = new pg.Client({ connectionString: url });
 await client.connect();
 
+// Supabase-provisioned roles referenced by the migration's REVOKE/GRANT statements
+// (anon, authenticated, service_role) exist in production but not in vanilla
+// PostgreSQL; the mirror pre-creates them so the migration applies verbatim.
+await client.query(`
+  do $$ begin
+    if not exists (select 1 from pg_roles where rolname='authenticator') then create role authenticator nologin; end if;
+    if not exists (select 1 from pg_roles where rolname='anon') then create role anon nologin; end if;
+    if not exists (select 1 from pg_roles where rolname='authenticated') then create role authenticated nologin; end if;
+    if not exists (select 1 from pg_roles where rolname='service_role') then create role service_role nologin; end if;
+  end $$;
+`);
+
 // ---------------------------------------------------------------- schema mirror
 await client.query(`
   create schema if not exists aria_internal;
