@@ -89,7 +89,7 @@ const masked = (value) => String(value ?? '').replace(/[a-f0-9]{40,}/gi, 'MASKED
 
 assert.ok(PROJECT, 'SUPABASE_PROJECT_REF required');
 assert.ok(RUNTIME_SECRET, 'ARIA_RUNTIME_SHARED_SECRET required');
-assert.ok(/^[0-9a-f-]{10,64}$/.test(SCOPE_ID), 'A4_RECOVERY_SCOPE_ID (full scope id) required');
+assert.ok(/^[A-Za-z0-9_-]{8,120}$/.test(SCOPE_ID), 'A4_RECOVERY_SCOPE_ID (full scope id) required');
 assert.ok(/^[A-Za-z0-9_.:\/-]{4,120}$/.test(GRANT_REF), 'A4_DISPATCH_GRANT_REF required');
 assert.equal(TOKEN_CLAIMED, 'true', 'A4_DISPATCH_TOKEN_CLAIMED must be true: only a successful server-side dispatch-token claim (RPC) sets it; without it this script must never dispatch');
 assert.ok(SESSION_STATE_B64 || SESSION_STATE_GZIP_B64, 'authenticated storage state required (no interactive browser here)');
