@@ -1,24 +1,37 @@
 -- Mission Wonder 2 / Step 4 A4: controlled, idempotent recovery for ONE already-created
 -- mission whose one-shot attempt stalled before the runner could complete it, and whose
 -- scope was revoked by the E2E cleanup while the mission row itself is preserved as
--- evidence. This function only ever:
---   * restores the ONE named scope row from 'revoked' back to 'bound' with a bounded
---     fresh expiry so the canonical runtime can process the SAME mission_id again,
---   * stamps the explicit execution_lane provenance expected beside the A4 identity
---     metadata,
---   * appends exactly one audit event when this recovery performs any mutation.
--- It NEVER creates missions, scopes, jobs or leases, never invokes the runner, never
--- claims anything by itself, and never touches any other mission or scope row.
--- Designed for execution only behind a future explicit human authorization; creating
--- this function performs no state change on production rows.
+-- evidence. Hardened per independent PR review:
+--   * LOCKED to mission_id 'mission_a4_authorized_once' (any other id is rejected
+--     before any row is read or written),
+--   * every identity argument is strictly regex-validated before any SQL runs,
+--   * the exact scope_key 'mission-wonder-2-step4-a4:single-authorized-execution' is
+--     verified before any scope mutation,
+--   * physical agent eligibility (authenticated, online, heartbeat < 180 s,
+--     shell.execute capability, exact allowed device, exactly one candidate) is
+--     enforced SERVER-SIDE before the scope is re-armed,
+--   * the ONE runtime-tick dispatch is governed by a transactional, persisted,
+--     idempotent reservation in the mission row (a4_recovery_dispatch_v1): the
+--     recovery grants it at most once and a separate claim flips it to consumed
+--     exactly once; a claimed/consumed reservation can never dispatch another tick.
+-- The functions NEVER create missions, scopes, jobs or leases, never invoke the
+-- runner, and never touch any other mission or scope row. This migration performs no
+-- state change on production rows by itself; execution only ever happens behind the
+-- explicit human authorization encoded in the human-gated workflow.
 begin;
 
+-- ---------------------------------------------------------------------------
+-- Function 1: recovery = identity-verified re-arm + single reservation grant.
+-- Returns jsonb with action in:
+--   recovered | already_recovered | noop | rejected(anych reason)
+-- ---------------------------------------------------------------------------
 create or replace function aria_internal.aria_m22_a4_recover_mission_v1(
   p_mission_id text,
   p_scope_id text,
   p_user_id text,
   p_request_id text,
-  p_goal_hash text
+  p_goal_hash text,
+  p_grant_ref text
 )
 returns jsonb
 language plpgsql
@@ -30,13 +43,30 @@ declare
   v_scope aria_internal.mission_wonder_2_a4_scopes;
   v_rearmed integer := 0;
   v_stamped integer := 0;
+  v_eligible_count integer := 0;
 begin
-  -- Fail closed: every identity field must match the persisted rows exactly before
-  -- any mutation. Rejections perform no writes.
-  if coalesce(btrim(p_mission_id),'')='' or coalesce(btrim(p_scope_id),'')=''
-     or coalesce(btrim(p_user_id),'')='' or coalesce(btrim(p_request_id),'')=''
-     or coalesce(btrim(p_goal_hash),'')='' or btrim(p_goal_hash) !~ '^[0-9a-f]{64}$' then
-    return jsonb_build_object('action','rejected','reason','invalid_arguments');
+  -- Hard lock: this recovery mechanism exists for exactly one mission id. Any other
+  -- value is rejected before any database work happens.
+  if coalesce(btrim(p_mission_id),'') <> 'mission_a4_authorized_once' then
+    return jsonb_build_object('action','rejected','reason','mission_id_not_locked');
+  end if;
+
+  -- Strict argument validation before any SQL against business tables.
+  if coalesce(btrim(p_grant_ref),'')='' or length(btrim(p_grant_ref)) > 120
+     or btrim(p_grant_ref) !~ '^[A-Za-z0-9_.:\/-]{4,120}$' then
+    return jsonb_build_object('action','rejected','reason','invalid_grant_ref');
+  end if;
+  if coalesce(btrim(p_scope_id),'')='' or btrim(p_scope_id) !~ '^[A-Za-z0-9_-]{8,120}$' then
+    return jsonb_build_object('action','rejected','reason','invalid_scope_id');
+  end if;
+  if coalesce(btrim(p_user_id),'')='' or btrim(p_user_id) !~ '^[a-f0-9-]{10,80}$' then
+    return jsonb_build_object('action','rejected','reason','invalid_user_id');
+  end if;
+  if coalesce(btrim(p_request_id),'')='' or btrim(p_request_id) !~ '^[a-f0-9-]{10,80}$' then
+    return jsonb_build_object('action','rejected','reason','invalid_request_id');
+  end if;
+  if coalesce(btrim(p_goal_hash),'')='' or btrim(p_goal_hash) !~ '^[0-9a-f]{64}$' then
+    return jsonb_build_object('action','rejected','reason','invalid_goal_hash');
   end if;
 
   select * into v_mission from aria_internal.mission_state
@@ -51,12 +81,15 @@ begin
     return jsonb_build_object('action','rejected','reason','mission_status_not_queued','mission_status',v_mission.status);
   end if;
 
+  -- Scope identity join pins mission, owner, request, goal hash AND the exact
+  -- scope_key, so no other scope can ever be re-armed through this function.
   select * into v_scope from aria_internal.mission_wonder_2_a4_scopes
    where scope_id=btrim(p_scope_id)
      and mission_id=btrim(p_mission_id)
      and owner_user_id=btrim(p_user_id)
      and request_id=btrim(p_request_id)
-     and goal_hash=btrim(p_goal_hash);
+     and goal_hash=btrim(p_goal_hash)
+     and scope_key='mission-wonder-2-step4-a4:single-authorized-execution';
   if not found then
     return jsonb_build_object('action','rejected','reason','scope_identity_mismatch');
   end if;
@@ -67,7 +100,7 @@ begin
     return jsonb_build_object('action','rejected','reason','scope_status_not_recoverable','scope_status',v_scope.status);
   end if;
 
-  -- The mission metadata must carry the full A4 identity chain, including the exact
+  -- Mission metadata must carry the full A4 identity chain, including the exact
   -- authorized device of the scope row.
   if coalesce(v_mission.metadata->>'mission_wonder_2_a4_scope_id','')<>btrim(p_scope_id)
      or coalesce(v_mission.metadata->>'mission_wonder_2_a4_goal_hash','')<>btrim(p_goal_hash)
@@ -78,16 +111,28 @@ begin
     return jsonb_build_object('action','rejected','reason','mission_identity_mismatch');
   end if;
 
-  -- Idempotent fast path: nothing left to do.
-  if v_scope.status='bound'
-     and coalesce(v_mission.metadata->>'execution_lane','')='user' then
-    return jsonb_build_object(
-      'action','already_recovered',
-      'mission_id',v_mission.mission_id,
-      'scope_id_prefix',left(v_scope.scope_id,12),
-      'scope_status','bound',
-      'execution_lane','user'
-    );
+  -- SERVER-SIDE physical agent eligibility gate: the allowed device must be the ONE
+  -- eligible candidate in the registry at this instant. Without it the scope is
+  -- never re-armed.
+  select count(*) into v_eligible_count
+    from aria_internal.device_registry d
+   where d.device_id = v_scope.allowed_device_id
+     and d.agent_type = 'windows-local'
+     and d.status = 'online'
+     and d.token_hash is not null
+     and d.capabilities @> '["shell.execute"]'::jsonb
+     and d.last_seen_at > clock_timestamp() - interval '180 seconds'
+     and not exists (
+       select 1 from aria_internal.device_registry other
+        where other.device_id <> d.device_id
+          and other.agent_type='windows-local'
+          and other.status='online'
+          and other.token_hash is not null
+          and other.capabilities @> '["shell.execute"]'::jsonb
+          and other.last_seen_at > clock_timestamp() - interval '180 seconds'
+     );
+  if v_eligible_count <> 1 then
+    return jsonb_build_object('action','rejected','reason','agent_not_eligible','eligible_count',v_eligible_count);
   end if;
 
   -- Step 1: re-arm the revoked scope exactly once, with a bounded fresh window.
@@ -113,7 +158,20 @@ begin
      and coalesce(metadata->>'execution_lane','')<>'user';
   get diagnostics v_stamped=row_count;
 
-  -- Single audit event whenever this recovery mutated any row.
+  -- Step 3: grant the ONE dispatch reservation transactionally with the mutations
+  -- above. The reservation lives in the mission row (persisted, idempotent).
+  if coalesce(v_mission.metadata->'a4_recovery_dispatch_v1'->>'granted','false')<>'true' then
+    update aria_internal.mission_state
+       set metadata=jsonb_set(
+             jsonb_set(
+               jsonb_set(metadata,'{a4_recovery_dispatch_v1,granted}',to_jsonb(true),true),
+               '{a4_recovery_dispatch_v1,granted_at}', to_jsonb(clock_timestamp()::text), true),
+             '{a4_recovery_dispatch_v1,grant_ref}', to_jsonb(btrim(p_grant_ref)), true),
+           updated_at=clock_timestamp()
+     where mission_id=v_mission.mission_id;
+  end if;
+
+  -- Single audit event whenever this recovery mutated a row.
   if v_rearmed=1 or v_stamped=1 then
     insert into aria_internal.mission_events(mission_id, event_type, payload)
     values (
@@ -128,6 +186,7 @@ begin
         'execution_lane','user',
         'scope_rearmed', (v_rearmed=1),
         'lane_stamped', (v_stamped=1),
+        'agent_eligible_count', v_eligible_count,
         'note','Single identity-verified recovery of the stalled A4 attempt; no new mission, scope, job or lease was created.'
       )
     );
@@ -140,12 +199,130 @@ begin
     'scope_status','bound',
     'execution_lane','user',
     'scope_rearmed',(v_rearmed=1),
-    'lane_stamped',(v_stamped=1)
+    'lane_stamped',(v_stamped=1),
+    'dispatch_reservation_granted',true,
+    'agent_eligible_count',v_eligible_count
   );
 end;
 $function$;
 
-revoke all on function aria_internal.aria_m22_a4_recover_mission_v1(text,text,text,text,text) from public,anon,authenticated;
-grant execute on function aria_internal.aria_m22_a4_recover_mission_v1(text,text,text,text,text) to service_role;
+-- ---------------------------------------------------------------------------
+-- Function 2: the ONLY dispatch gate. One row-level token, flipped consumed
+-- exactly once. Only 'token_claimed' may ever precede a runtime tick; every
+-- other outcome must abort without dispatching. Also enforces server-side
+-- agent eligibility again, directly before the claim, so an agent that went
+-- offline between grant and claim cannot get the token.
+-- ---------------------------------------------------------------------------
+create or replace function aria_internal.aria_m22_a4_claim_recovery_dispatch_token_v1(
+  p_mission_id text,
+  p_scope_id text,
+  p_grant_ref text
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path to 'pg_catalog', 'aria_internal'
+as $function$
+declare
+  v_mission aria_internal.mission_state;
+  v_scope aria_internal.mission_wonder_2_a4_scopes;
+  v_claimed integer := 0;
+  v_eligible_count integer := 0;
+begin
+  if coalesce(btrim(p_mission_id),'') <> 'mission_a4_authorized_once' then
+    return jsonb_build_object('action','rejected','reason','mission_id_not_locked');
+  end if;
+  if coalesce(btrim(p_scope_id),'')='' or btrim(p_scope_id) !~ '^[A-Za-z0-9_-]{8,120}$' then
+    return jsonb_build_object('action','rejected','reason','invalid_scope_id');
+  end if;
+  if coalesce(btrim(p_grant_ref),'')='' or length(btrim(p_grant_ref)) > 120
+     or btrim(p_grant_ref) !~ '^[A-Za-z0-9_.:\/-]{4,120}$' then
+    return jsonb_build_object('action','rejected','reason','invalid_grant_ref');
+  end if;
+
+  select * into v_mission from aria_internal.mission_state
+   where mission_id=btrim(p_mission_id);
+  if not found then
+    return jsonb_build_object('action','rejected','reason','mission_not_found');
+  end if;
+  if v_mission.status <> 'queued' then
+    return jsonb_build_object('action','rejected','reason','mission_status_not_queued','mission_status',v_mission.status);
+  end if;
+
+  select * into v_scope from aria_internal.mission_wonder_2_a4_scopes
+   where scope_id=btrim(p_scope_id)
+     and mission_id=btrim(p_mission_id)
+     and scope_key='mission-wonder-2-step4-a4:single-authorized-execution';
+  if not found then
+    return jsonb_build_object('action','rejected','reason','scope_identity_mismatch');
+  end if;
+  if v_scope.status <> 'bound' or v_scope.expires_at <= clock_timestamp() then
+    return jsonb_build_object('action','rejected','reason','scope_not_bound_fresh','scope_status',v_scope.status);
+  end if;
+
+  -- Reservation must exist and not be consumed yet; grant_ref must match exactly.
+  if coalesce(v_mission.metadata->'a4_recovery_dispatch_v1'->>'granted','false')<>'true' then
+    return jsonb_build_object('action','rejected','reason','dispatch_not_granted');
+  end if;
+  if v_mission.metadata->'a4_recovery_dispatch_v1'->>'consumed'='true' then
+    return jsonb_build_object('action','rejected','reason','dispatch_already_consumed');
+  end if;
+  if coalesce(v_mission.metadata->'a4_recovery_dispatch_v1'->>'grant_ref','')
+     <> btrim(p_grant_ref) then
+    return jsonb_build_object('action','rejected','reason','dispatch_grant_ref_mismatch');
+  end if;
+
+  -- Server-side physical eligibility re-check directly before handing the token.
+  select count(*) into v_eligible_count
+    from aria_internal.device_registry d
+   where d.device_id = v_scope.allowed_device_id
+     and d.agent_type = 'windows-local'
+     and d.status = 'online'
+     and d.token_hash is not null
+     and d.capabilities @> '["shell.execute"]'::jsonb
+     and d.last_seen_at > clock_timestamp() - interval '180 seconds'
+     and not exists (
+       select 1 from aria_internal.device_registry other
+        where other.device_id <> d.device_id
+          and other.agent_type='windows-local'
+          and other.status='online'
+          and other.token_hash is not null
+          and other.capabilities @> '["shell.execute"]'::jsonb
+          and other.last_seen_at > clock_timestamp() - interval '180 seconds'
+     );
+  if v_eligible_count <> 1 then
+    return jsonb_build_object('action','rejected','reason','agent_not_eligible','eligible_count',v_eligible_count);
+  end if;
+
+  -- Atomic single-token flip: mark the reservation consumed FIRST, then the caller
+  -- may dispatch exactly one tick. A concurrent second caller loses the row-count
+  -- race and is rejected without a tick. If the caller crashes after this commit
+  -- before dispatching, the tick is simply lost (fail-safe: no double tick) and the
+  -- recovery stalls for a human decision, which is the safe direction.
+  update aria_internal.mission_state
+     set metadata=jsonb_set(
+           jsonb_set(metadata,'{a4_recovery_dispatch_v1,consumed}',to_jsonb(true),true),
+           '{a4_recovery_dispatch_v1,consumed_at}', to_jsonb(clock_timestamp()::text), true),
+         updated_at=clock_timestamp()
+   where mission_id=v_mission.mission_id
+     and coalesce(metadata->'a4_recovery_dispatch_v1'->>'consumed','false') <> 'true';
+  get diagnostics v_claimed=row_count;
+  if v_claimed<>1 then
+    return jsonb_build_object('action','rejected','reason','dispatch_already_consumed');
+  end if;
+
+  return jsonb_build_object(
+    'action','token_claimed',
+    'mission_id',v_mission.mission_id,
+    'grant_ref',btrim(p_grant_ref),
+    'agent_eligible_count',v_eligible_count
+  );
+end;
+$function$;
+
+revoke all on function aria_internal.aria_m22_a4_recover_mission_v1(text,text,text,text,text,text) from public,anon,authenticated;
+revoke all on function aria_internal.aria_m22_a4_claim_recovery_dispatch_token_v1(text,text,text) from public,anon,authenticated;
+grant execute on function aria_internal.aria_m22_a4_recover_mission_v1(text,text,text,text,text,text) to service_role;
+grant execute on function aria_internal.aria_m22_a4_claim_recovery_dispatch_token_v1(text,text,text) to service_role;
 
 commit;

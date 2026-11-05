@@ -33,6 +33,8 @@ const RUNTIME_SECRET = process.env.ARIA_RUNTIME_SHARED_SECRET || '';
 const SESSION_STATE_GZIP_B64 = String(process.env.RWHT_STORAGE_STATE_GZIP_B64 || '');
 const SESSION_STATE_B64 = String(process.env.RWHT_STORAGE_STATE_B64 || '');
 const SCOPE_ID = String(process.env.A4_RECOVERY_SCOPE_ID || ''); // FULL scope id, supplied by the recovery workflow
+const GRANT_REF = String(process.env.A4_DISPATCH_GRANT_REF || ''); // reservation ref persisted by the recover RPC
+const TOKEN_CLAIMED = String(process.env.A4_DISPATCH_TOKEN_CLAIMED || ''); // must be 'true', set only by a successful claim
 const MISSION_API_BASE = String(process.env.RWHT_MISSION_API_BASE || 'https://aria.robvg9.workers.dev/api/missions');
 const NOTIF_API_URL = String(process.env.RWHT_NOTIF_API_URL || 'https://aria.robvg9.workers.dev/api/meditation/notifications');
 const TICK_URL = String(process.env.A4_RECOVERY_TICK_URL || `https://${PROJECT}.supabase.co/functions/v1/aria-canonical-runtime-v1`);
@@ -61,7 +63,8 @@ function requireMarker(output, mark) {
 
 const report = {
   status: 'running', run_id: RUN_ID, run_attempt: RUN_ATTEMPT, mission_id: MISSION_ID,
-  pwa_authenticated: false, preflight_pass: false, recovery_dispatched: false,
+  pwa_authenticated: false, preflight_pass: false, agent_eligible_pass: false,
+  recovery_dispatched: false,
   runtime_ticks: [], mission_terminal_status: null, mission_verified_events: 0,
   notifications_seen: 0, request_missions_pre: null, request_missions_post: null,
   scope_terminal_status: null, failure: null,
@@ -74,6 +77,8 @@ const masked = (value) => String(value ?? '').replace(/[a-f0-9]{40,}/gi, 'MASKED
 assert.ok(PROJECT, 'SUPABASE_PROJECT_REF required');
 assert.ok(RUNTIME_SECRET, 'ARIA_RUNTIME_SHARED_SECRET required');
 assert.ok(/^[0-9a-f-]{10,64}$/.test(SCOPE_ID), 'A4_RECOVERY_SCOPE_ID (full scope id) required');
+assert.ok(/^[A-Za-z0-9_.:\/-]{4,120}$/.test(GRANT_REF), 'A4_DISPATCH_GRANT_REF required');
+assert.equal(TOKEN_CLAIMED, 'true', 'A4_DISPATCH_TOKEN_CLAIMED must be true: only a successful server-side dispatch-token claim (RPC) sets it; without it this script must never dispatch');
 assert.ok(SESSION_STATE_B64 || SESSION_STATE_GZIP_B64, 'authenticated storage state required (no interactive browser here)');
 report.pwa_authenticated = true;
 
@@ -96,6 +101,9 @@ requireMarker(runSql(`
     AND s.status='bound'
     AND s.scope_key=${sqlQuote(SCOPE_KEY)}
     AND s.expires_at > clock_timestamp()
+    AND m.metadata->'a4_recovery_dispatch_v1'->>'granted'='true'
+    AND m.metadata->'a4_recovery_dispatch_v1'->>'consumed'='true'
+    AND m.metadata->'a4_recovery_dispatch_v1'->>'grant_ref'=${sqlQuote(GRANT_REF)}
   ) THEN 'A4_RECOVERY_PREFLIGHT_PASS' ELSE 'A4_RECOVERY_PREFLIGHT_FAIL' END
     FROM aria_internal.mission_state m
     JOIN aria_internal.mission_wonder_2_a4_scopes s
@@ -103,6 +111,30 @@ requireMarker(runSql(`
    WHERE m.mission_id=${sqlQuote(MISSION_ID)};
 `), 'A4_RECOVERY_PREFLIGHT_PASS');
 report.preflight_pass = true;
+// Physical agent eligibility gate #2 (read-only), immediately before the only dispatch:
+// authenticated (token_hash present), online, heartbeat < 180 s, shell.execute
+// capability, matching the exact allowed device, and exactly ONE eligible candidate.
+requireMarker(runSql(`
+  SELECT CASE WHEN (
+    SELECT count(*) FROM aria_internal.device_registry d
+     WHERE d.device_id = (SELECT s.allowed_device_id FROM aria_internal.mission_wonder_2_a4_scopes s WHERE s.scope_id=${sqlQuote(SCOPE_ID)})
+       AND d.agent_type='windows-local'
+       AND d.status='online'
+       AND d.token_hash IS NOT NULL
+       AND d.capabilities @> '["shell.execute"]'::jsonb
+       AND d.last_seen_at > clock_timestamp() - interval '180 seconds'
+       AND NOT EXISTS (
+         SELECT 1 FROM aria_internal.device_registry other
+          WHERE other.device_id <> d.device_id
+            and other.agent_type='windows-local'
+            and other.status='online'
+            and other.token_hash IS NOT NULL
+            and other.capabilities @> '["shell.execute"]'::jsonb
+            and other.last_seen_at > clock_timestamp() - interval '180 seconds'
+       )
+  ) = 1 THEN 'A4_RECOVERY_AGENT_ELIGIBLE_PASS' ELSE 'A4_RECOVERY_AGENT_ELIGIBLE_FAIL' END;
+`), 'A4_RECOVERY_AGENT_ELIGIBLE_PASS');
+report.agent_eligible_pass = true;
 report.request_missions_pre = Number(String(requireMarker(runSql(`
   SELECT 'A4_RECOVERY_REQUEST_COUNT=' || count(*)::text
     FROM aria_internal.mission_state
