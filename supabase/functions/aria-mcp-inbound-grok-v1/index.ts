@@ -78,6 +78,9 @@ const CHATBENDING_CONTEXT_ALLOWED_DOCUMENTS = Object.freeze([
   { pageId: "3c6feb355ec18154bba0d7da31cfe854", label: "ChatBending — Reglas permanentes" },
   { pageId: "3c7feb355ec181f4aa74d45d45705e63", label: "ChatBending Agent Protocol v1 — Memoria Automática" },
   { pageId: "3c8feb355ec18190bbc1cc07b6e4480e", label: "01 — Evidence Registry" },
+  { pageId: "3c6feb355ec1818baa76c19260902af6", label: "02 — ADN ChatBending: Reglas generales" },
+  { pageId: "3c6feb355ec18105b83bd51bd24133fd", label: "02 — Protocolos de Trabajo IA" },
+  { pageId: "3ebfeb355ec1813a86b3d861ee5b4ce3", label: "Runtime State v1 — Estado operativo compacto" },
 ]);
 
 const CHATBENDING_CONTEXT_EXPECTED_SOURCES = Object.freeze([
