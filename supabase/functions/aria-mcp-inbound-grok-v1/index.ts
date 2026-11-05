@@ -165,10 +165,11 @@ async function retrieveChatBendingContext(query: string) {
   ]);
   // Keep short identifiers such as IA, PR, A3 and DAP; discard connective words
   // and avoid truncating multi-topic questions before their final subject terms.
-  const words = [...new Set(
+  const queryWordSet = new Set(
     normalizedQuery.split(/[^\p{L}\p{N}_-]+/u)
       .filter((word) => (word.length >= 3 || /\d/u.test(word)) && !contextStopWords.has(word)),
-  )].slice(0, 40);
+  );
+  const words = Array.from(queryWordSet).slice(0, 40);
 
   const rankedCandidates = chunkRows.map((chunk: any) => {
     const document: any = documentsById.get(chunk.document_id) ?? {};
