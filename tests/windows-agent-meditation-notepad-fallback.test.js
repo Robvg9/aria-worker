@@ -125,3 +125,19 @@ test('Windows preflight resolves runtime source from the checked-out repository 
   assert.ok(workflow.includes("git -C $repoRoot ls-tree -r --name-only HEAD -- 'agents/windows'"));
   assert.ok(workflow.includes('Synced run-agent.ps1 missing at'));
 });
+
+test('Windows preflight self-heals a stale sparse checkout before failing on a missing launcher', () => {
+  const workflow = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'aria-windows-agent-preflight.yml'), 'utf8');
+  assert.ok(workflow.includes('git -C $repoRoot config --get core.sparsecheckout'));
+  assert.ok(workflow.includes('SPARSE_CHECKOUT_SELF_HEAL=START'));
+  assert.ok(workflow.includes("git -C $repoRoot sparse-checkout disable"));
+  assert.ok(workflow.includes('SPARSE_CHECKOUT_SELF_HEAL=DISABLED_FULL_TREE_MATERIALIZED'));
+  assert.ok(workflow.includes('SPARSE_CHECKOUT_STATE='));
+  // The self-heal must run strictly before the fatal missing-source throw so a
+  // legacy sparse checkout recovers instead of aborting the preflight.
+  assert.ok(
+    workflow.indexOf('SPARSE_CHECKOUT_SELF_HEAL=START') <
+    workflow.indexOf('source run-agent.ps1 missing at'),
+    'sparse-checkout self-heal must precede the missing-source throw'
+  );
+});
