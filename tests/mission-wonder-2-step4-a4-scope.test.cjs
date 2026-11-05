@@ -78,8 +78,11 @@ const path = require('node:path');
 
   assert.match(appApi, /aria_m22_a4_claim_scope_v1/);
   assert.match(appApi, /mission_wonder_2_a4_readonly/);
-  assert.match(appApi, /headers\\["x-aria-user-id"\\] = options\\.userId\\.trim\\(\\)/);
-  assert.ok(appApi.includes("}, undefined, { userId: user.id });"), "A4 owner identity must be sent as an HTTP header to DIRECT");
+  assert.match(appApi, /async function internal\\(url: string, payload: unknown, timeoutMs\\?: number\\)/);
+  assert.match(appApi, /async function internalAsUser\\(url: string, payload: unknown, userId: string\\)/);
+  assert.match(appApi, /internalRequest\\(url, payload, undefined, \\{ "x-aria-user-id": userId\\.trim\\(\\) \\}\\)/);
+  assert.ok(appApi.includes("direct = await internalAsUser(DIRECT,"), "A4 must call DIRECT with the authenticated owner header");
+  assert.ok(appApi.includes("}, user.id);"), "A4 must bind the PWA-authenticated owner to DIRECT");
   assert.match(direct, /request\\.headers\\.get\\("x-aria-user-id"\\)/);
   assert.match(appApi, /path\.endsWith\("\/missions"\)/);
   assert.match(direct, /m22A4ScopeRowMatchesV1/);
