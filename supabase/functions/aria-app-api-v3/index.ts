@@ -349,13 +349,11 @@ async function requireUser(token: string) {
   if (error || !claims?.sub) throw Object.assign(new Error("invalid_or_expired_session"), { status: 401 });
   return { id: String(claims.sub), email: typeof claims.email === "string" ? claims.email : null };
 }
-async function internal(url: string, payload: unknown, timeoutMs?: number, options?: { userId?: string }) {
+async function internalRequest(url: string, payload: unknown, timeoutMs?: number, extraHeaders: Record<string,string> = {}) {
   if (!SECRET) throw new Error("runtime_secret_not_configured");
   const headers: Record<string,string> = { "content-type": "application/json", authorization: `Bearer ${SECRET}` };
   if (EDGE_API_KEY) headers.apikey = EDGE_API_KEY;
-  // Propagate the authenticated PWA owner as an HTTP identity header to trusted internal
-  // functions; keeping it out of the JSON body prevents the receiver from mistaking data for auth.
-  if (typeof options?.userId === "string" && options.userId.trim()) headers["x-aria-user-id"] = options.userId.trim();
+  Object.assign(headers, extraHeaders);
   const controller = timeoutMs !== undefined && Number.isFinite(timeoutMs) ? new AbortController() : null;
   const timer = controller ? setTimeout(() => controller.abort(), Math.max(1000, Number(timeoutMs))) : null;
   try {
@@ -382,6 +380,13 @@ async function internal(url: string, payload: unknown, timeoutMs?: number, optio
   } finally {
     if (timer) clearTimeout(timer);
   }
+}
+async function internal(url: string, payload: unknown, timeoutMs?: number) {
+  return internalRequest(url, payload, timeoutMs);
+}
+async function internalAsUser(url: string, payload: unknown, userId: string) {
+  if (!userId.trim()) throw new Error("internal_user_id_required");
+  return internalRequest(url, payload, undefined, { "x-aria-user-id": userId.trim() });
 }
 async function persistConversationMessage(userId:string,conversationId:string,role:"user"|"assistant"|"system",content:string,parts:any[],traceId:string,visualState:string|null,providerId:string|null,modelId:string|null,title:string,project:any){
   const sb=serviceClient();
@@ -2863,11 +2868,11 @@ Deno.serve(async (req) => {
       let direct: any = null;
       let directTransportError: string | null = null;
       try {
-        direct = await internal(DIRECT, {
+        direct = await internalAsUser(DIRECT, {
           goal,
           mission_id: a4Scope?.mission_id || (typeof body?.missionId === "string" ? body.missionId : undefined),
           metadata: intakeMetadata
-        }, undefined, { userId: user.id });
+        }, user.id);
       } catch (error) {
         // A transport failure can happen after DIRECT has committed the mission.
         // Reconcile by request_id below before reporting a failure to the browser.
