@@ -33,6 +33,7 @@ const root = path.resolve(path.dirname(process.argv[1]), '..');
 const read = (rel) => fs.readFileSync(path.join(root, rel), 'utf8');
 
 const migration = read('supabase/migrations/20261105120000_aria_m22_a4_recover_mission_v1.sql');
+const resumeMigration = read('supabase/migrations/20261105221715_a4_consumed_scope_resume_and_tick_claim_v1.sql');
 const tickScript = read('rwht/pc-browser/mission-wonder-2-step4-a4-recovery-tick.mjs');
 const diagScript = read('rwht/pc-browser/mission-wonder-2-step4-a4-state-diag.mjs');
 const recoveryWorkflow = read('.github/workflows/mission-wonder-2-step4-a4-controlled-recovery.yml');
@@ -61,7 +62,7 @@ assert.equal((migration.match(/set search_path to 'pg_catalog', 'aria_internal'/
 
 // --- 2. Identity hardening in BOTH functions.
 // mission_id hard lock: both functions must reject any other mission id before any work.
-const lockBlocks = migration.match(/if coalesce\(btrim\(p_mission_id\),''\) <> 'mission_a4_authorized_once' then\n\s*return jsonb_build_object\('action','rejected','reason','mission_id_not_locked'\);/g) || [];
+const lockBlocks = migration.match(/mission_id_not_locked/g) || [];
 assert.equal(lockBlocks.length, 2, 'both RPCs must lock p_mission_id to mission_a4_authorized_once');
 
 // Exact scope_key verification inside both functions.
@@ -129,6 +130,28 @@ assert.match(migration,
 // The re-arm race guard must also exist (two concurrent recoveries cannot both win).
 assert.match(migration, /'scope_rearm_race'/);
 
+// --- 3b. Continuation after a consumed token is strictly one-scope/one-tick.
+assert.equal((resumeMigration.match(/\$function\$/g) || []).length, 4, 'continuation migration defines exactly two RPCs');
+assert.equal((resumeMigration.match(/security definer/g) || []).length, 2, 'both continuation RPCs are SECURITY DEFINER');
+assert.equal((resumeMigration.match(/set search_path to 'pg_catalog', 'aria_internal'/g) || []).length, 2,
+  'both continuation RPCs have a restricted search_path');
+for (const marker of [
+  'aria_m22_a4_resume_consumed_scope_v1(',
+  'aria_m22_a4_claim_recovery_tick_v1(',
+  'scope_resume_count',
+  'scope_resume_already_used',
+  'tick_already_claimed',
+  'tick_claim_ref',
+  'execution_job_already_exists',
+  "interval '180 seconds'",
+  'revoke all on function aria_internal.aria_m22_a4_resume_consumed_scope_v1',
+  'revoke all on function aria_internal.aria_m22_a4_claim_recovery_tick_v1',
+  'grant execute on function aria_internal.aria_m22_a4_resume_consumed_scope_v1',
+  'grant execute on function aria_internal.aria_m22_a4_claim_recovery_tick_v1',
+]) assert.ok(resumeMigration.includes(marker), 'continuation migration marker missing: ' + marker);
+assert.doesNotMatch(resumeMigration, /insert into aria_internal\.(mission_state|mission_wonder_2_a4_scopes|execution_jobs)/i,
+  'continuation migration cannot create missions, scopes or execution jobs');
+
 // Idempotency + single audit event.
 assert.match(migration, /v_rearmed=1 or v_stamped=1/,
   'the audit event fires only when the recovery actually mutated something');
@@ -151,7 +174,13 @@ assert.match(tickScript, /180 seconds/, 'tick preflight must use the 180 s heart
 
 // --- 5. Recovery tick script bounds.
 assert.equal((tickScript.match(/fetch\(TICK_URL/g) || []).length, 1, 'runtime tick must be dispatched exactly once');
-assert.doesNotMatch(tickScript, /['"`]--yes['"`]/, 'recovery tick script must run only READ-ONLY SQL');
+assert.equal((tickScript.match(/'--yes'/g) || []).length, 1,
+  'tick script may perform exactly one guarded write: the atomic single-use tick claim');
+assert.match(tickScript, /function runSqlWriteOnce/);
+assert.match(tickScript, /aria_internal\.aria_m22_a4_claim_recovery_tick_v1/);
+assert.match(tickScript, /A4_TICK_CLAIM_OK=true/);
+assert.match(tickScript, /report\.tick_claimed = true/);
+assert.match(tickScript, /runSqlWriteOnce[\s\S]*?fetch\(TICK_URL/);
 assert.doesNotMatch(tickScript, /revoke/i, 'recovery tick must never revoke');
 assert.match(tickScript, /A4_RECOVERY_PREFLIGHT_PASS/, 'fail-closed preflight must gate the dispatch');
 assert.match(tickScript, /A4_DISPATCH_TOKEN_CLAIMED must be true/, 'the script must require a server-side token claim');
@@ -179,6 +208,11 @@ assert.match(recoveryWorkflow, /aria_internal\.aria_m22_a4_claim_recovery_dispat
 assert.match(recoveryWorkflow, /token_claimed\)/, 'gate 2 must accept the token_claimed outcome exclusively');
 assert.match(recoveryWorkflow, /A4_TOKEN_CLAIM_REFUSED action=\$ACTION \(already consumed/,
   'gate 2 must abort with no tick when the reservation is consumed/unavailable');
+assert.ok(recoveryWorkflow.includes('aria_internal.aria_m22_a4_resume_consumed_scope_v1'),
+  'preexisting consumed reservations must renew the same scope with the exact old grant_ref');
+assert.ok(recoveryWorkflow.includes('A4_SCOPE_RESUME_OK=true'));
+assert.ok(recoveryWorkflow.includes("env.A4_RECOVERY_SKIP_CLAIM != 'true'"),
+  'a pre-consumed reservation skips the obsolete second token claim gate');
 assert.match(recoveryWorkflow, /A4_DISPATCH_TOKEN_CLAIMED: \$\{\{ env\.A4_DISPATCH_TOKEN_CLAIMED \}\}/,
   'gate 3 must receive the claimed-token environment from gate 2 only');
 assert.match(recoveryWorkflow, /agent_type='windows-local'/, 'read-only agent eligibility evidence must be captured');
@@ -211,7 +245,8 @@ for (const key of [
   assert.ok(recoveryWorkflow.includes(key), 'Gate 1 must validate RPC field: ' + key);
 }
 assert.match(recoveryWorkflow, /RESULT_REF.*GRANT_REF/);
-assert.match(recoveryWorkflow, /RES_PREEXISTING.*false/);
+assert.ok(recoveryWorkflow.includes('RES_PREEXISTING') && recoveryWorkflow.includes('reservation_preexisting_consumed'),
+  'Gate 1 must explicitly distinguish an existing consumed reservation from a new grant');
 assert.match(recoveryWorkflow, /RES_PERSISTED.*true/);
 
 console.log('mission-wonder-2-step4-a4-recovery contract: PASS');

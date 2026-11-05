@@ -20,6 +20,7 @@ import path from 'node:path';
 
 const root = path.resolve(path.dirname(process.argv[1]), '..');
 const MIGRATION = path.join(root, 'supabase/migrations/20261105120000_aria_m22_a4_recover_mission_v1.sql');
+const RESUME_MIGRATION = path.join(root, 'supabase/migrations/20261105221715_a4_consumed_scope_resume_and_tick_claim_v1.sql');
 const LOCKED = 'mission_a4_authorized_once';
 const SCOPE_KEY = 'mission-wonder-2-step4-a4:single-authorized-execution';
 const SCOPE_ID = 'scope_test_recovery_0001';
@@ -56,6 +57,7 @@ await client.query(`
 // ---------------------------------------------------------------- schema mirror
 await client.query(`
   create schema if not exists aria_internal;
+  drop table if exists aria_internal.execution_jobs cascade;
   drop table if exists aria_internal.mission_events cascade;
   drop table if exists aria_internal.mission_wonder_2_a4_scopes cascade;
   drop table if exists aria_internal.device_registry cascade;
@@ -89,25 +91,43 @@ await client.query(`
     created_at timestamptz not null default clock_timestamp(), updated_at timestamptz not null default clock_timestamp()
   );
   create table aria_internal.mission_events (
-    id bigserial primary key,
+    event_id bigint generated always as identity primary key,
     mission_id text not null,
+    step_index integer,
     event_type text not null,
     payload jsonb not null default '{}'::jsonb,
-    created_at timestamptz not null default clock_timestamp()
+    created_at timestamptz not null default now(),
+    trace_id text,
+    span_id text,
+    request_id text,
+    execution_id text,
+    error_code text,
+    runtime_version text,
+    source_sha text
+  );
+  create table aria_internal.execution_jobs (
+    job_id text primary key,
+    mission_id text not null,
+    status text not null default 'queued'
   );
 `);
 
 // ------------------------------------------------- real migration, applied verbatim
 const migrationSql = fs.readFileSync(MIGRATION, 'utf8');
 await client.query(migrationSql);
+const resumeMigrationSql = fs.readFileSync(RESUME_MIGRATION, 'utf8');
+await client.query(resumeMigrationSql);
 
 // ------------------------------------------------------------------- helpers
 const RECOVER = (args) => ({ text: `select aria_internal.aria_m22_a4_recover_mission_v1($1,$2,$3,$4,$5,$6)::jsonb as r`, values: [args.missionId ?? LOCKED, args.scopeId ?? SCOPE_ID, args.userId ?? USER_ID, args.requestId ?? REQUEST_ID, args.goalHash ?? GOAL_HASH, args.grantRef] });
 const CLAIM = (args) => ({ text: `select aria_internal.aria_m22_a4_claim_recovery_dispatch_token_v1($1,$2,$3)::jsonb as r`, values: [args.missionId ?? LOCKED, args.scopeId ?? SCOPE_ID, args.grantRef] });
+const RESUME = (args) => ({ text: `select aria_internal.aria_m22_a4_resume_consumed_scope_v1($1,$2,$3,$4,$5,$6)::jsonb as r`, values: [args.missionId ?? LOCKED, args.scopeId ?? SCOPE_ID, args.userId ?? USER_ID, args.requestId ?? REQUEST_ID, args.goalHash ?? GOAL_HASH, args.grantRef] });
+const TICK_CLAIM = (args) => ({ text: `select aria_internal.aria_m22_a4_claim_recovery_tick_v1($1,$2,$3)::jsonb as r`, values: [args.missionId ?? LOCKED, args.scopeId ?? SCOPE_ID, args.grantRef] });
 const q = (text, params) => client.query(text, params);
 
 // Reset production-mirror rows to a canonical pre-recovery state.
 async function resetState({ missionMetadata = {}, scopeStatus = 'revoked', device = 'fresh', deviceAlt = false } = {}) {
+  await q(`delete from aria_internal.execution_jobs`);
   await q(`delete from aria_internal.mission_events`);
   await q(`delete from aria_internal.mission_wonder_2_a4_scopes`);
   await q(`delete from aria_internal.mission_state`);
@@ -363,6 +383,129 @@ await start('capability and authentication components of the physical gate');
     assert.equal(r.rows[0].r.action, 'rejected', `S9 ${variant} must reject`);
     assert.equal(r.rows[0].r.reason, 'agent_not_eligible', `S9 ${variant} reason`);
   }
+}
+
+
+// ===========================================================================
+// S10. The consumed one-shot reservation resumes the SAME expired bound scope
+//      once, preserving its exact grant_ref and never issuing another token.
+// ===========================================================================
+await start('consumed reservation renews the same expired scope exactly once');
+{
+  const grantRef = 'a4-recovery-42110933267.1';
+  await resetState({ scopeStatus: 'bound', missionMetadata: { execution_lane: 'user' } });
+  await q(`update aria_internal.mission_state
+             set metadata=jsonb_set(metadata,'{a4_recovery_dispatch_v1}',
+               $1::jsonb,true)
+           where mission_id=$2`,
+    [JSON.stringify({ granted: true, consumed: true, grant_ref: grantRef,
+      granted_at: '2026-11-05T21:15:33.378979Z', consumed_at: '2026-11-05T21:15:34.498657Z' }), LOCKED]);
+  await q(`update aria_internal.mission_wonder_2_a4_scopes
+             set expires_at=clock_timestamp()-interval '1 minute'
+           where scope_id=$1`, [SCOPE_ID]);
+
+  res = await q(RESUME({ grantRef }).text, RESUME({ grantRef }).values);
+  rec = res.rows[0].r;
+  assert.equal(rec.action, 'scope_resumed', 'S10 the exact consumed reservation may resume its own expired scope');
+  assert.equal(rec.dispatch_grant_ref, grantRef, 'S10 the original grant_ref is preserved');
+  assert.equal(rec.dispatch_token_reused, true, 'S10 no new dispatch token is issued');
+  assert.equal(rec.scope_resume_count, 1, 'S10 one bounded scope renewal only');
+  const renewed = await scopeRow();
+  assert.equal(renewed.status, 'bound', 'S10 same scope remains bound');
+  assert.ok(new Date(renewed.expires_at) > new Date(), 'S10 scope expiry is extended into the future');
+  const dispatch = await reservation();
+  assert.equal(dispatch.granted, true, 'S10 original grant remains granted');
+  assert.equal(dispatch.consumed, true, 'S10 original grant remains consumed');
+  assert.equal(dispatch.grant_ref, grantRef, 'S10 exact old grant_ref remains');
+  assert.equal(dispatch.scope_resume_count, 1, 'S10 resume marker is persisted');
+  assert.equal(await resumedCount(), 1, 'S10 one audit event is written');
+
+  const again = await q(RESUME({ grantRef }).text, RESUME({ grantRef }).values);
+  assert.equal(again.rows[0].r.action, 'already_fresh', 'S10 immediate retry is read-only and harmless');
+  assert.equal(await resumedCount(), 1, 'S10 retry does not create another event');
+
+  await q(`update aria_internal.mission_wonder_2_a4_scopes
+             set expires_at=clock_timestamp()-interval '1 second'
+           where scope_id=$1`, [SCOPE_ID]);
+  const third = await q(RESUME({ grantRef }).text, RESUME({ grantRef }).values);
+  assert.equal(third.rows[0].r.action, 'rejected', 'S10 a second expired-window renewal must refuse');
+  assert.equal(third.rows[0].r.reason, 'scope_resume_already_used', 'S10 one-time resume guard');
+  assert.equal((await scopeRow()).status, 'bound', 'S10 refused second renewal does not change scope state');
+  assert.equal((await reservation()).scope_resume_count, 1, 'S10 resume count cannot be incremented twice');
+}
+
+// ===========================================================================
+// S11. After the one-time scope renewal, the tick-claim RPC atomically reserves
+//      the ONLY runtime POST. A repeat or concurrent claimant cannot win again.
+// ===========================================================================
+await start('single tick claim is atomic, persisted, and replay-proof');
+{
+  const grantRef = 'a4-recovery-42110933267.1';
+  await resetState({ scopeStatus: 'bound', missionMetadata: { execution_lane: 'user' } });
+  await q(`update aria_internal.mission_state
+             set metadata=jsonb_set(metadata,'{a4_recovery_dispatch_v1}',
+               $1::jsonb,true)
+           where mission_id=$2`,
+    [JSON.stringify({ granted: true, consumed: true, grant_ref: grantRef,
+      granted_at: '2026-11-05T21:15:33.378979Z', consumed_at: '2026-11-05T21:15:34.498657Z',
+      scope_resume_count: 1, scope_resumed_at: new Date().toISOString(), scope_resume_grant_ref: grantRef }), LOCKED]);
+
+  const clientA = new pg.Client({ connectionString: url });
+  const clientB = new pg.Client({ connectionString: url });
+  await clientA.connect();
+  await clientB.connect();
+  const race = await Promise.all([
+    clientA.query(TICK_CLAIM({ grantRef }).text, TICK_CLAIM({ grantRef }).values),
+    clientB.query(TICK_CLAIM({ grantRef }).text, TICK_CLAIM({ grantRef }).values),
+  ]);
+  await clientA.end();
+  await clientB.end();
+  const outcomes = race.map((x) => x.rows[0].r);
+  const winners = outcomes.filter((x) => x.action === 'tick_claimed');
+  const losers = outcomes.filter((x) => x.action === 'rejected' && x.reason === 'tick_already_claimed');
+  assert.equal(winners.length, 1, 'S11 exactly one concurrent first claimant wins');
+  assert.equal(losers.length, 1, 'S11 the concurrent loser is refused');
+  claim = winners[0];
+  assert.equal(claim.tick_claim_ref, grantRef + ':tick', 'S11 exact one-tick claim identity');
+  assert.equal(claim.dispatch_persisted, true, 'S11 claim is persisted before returning');
+  const dispatch = await reservation();
+  assert.equal(dispatch.tick_claimed, true, 'S11 persisted tick claim flag');
+  assert.equal(dispatch.consumed, true, 'S11 original one-shot dispatch token remains consumed');
+  const replay = await q(TICK_CLAIM({ grantRef }).text, TICK_CLAIM({ grantRef }).values);
+  assert.equal(replay.rows[0].r.action, 'rejected', 'S11 a later replay is refused');
+  assert.equal(replay.rows[0].r.reason, 'tick_already_claimed', 'S11 replay rejection reason');
+  assert.equal((await reservation()).tick_claim_ref, grantRef + ':tick', 'S11 claimed tick reference remains unchanged');
+}
+
+// ===========================================================================
+// S12. A preexisting execution job, stale/offline agent, wrong grant or missing
+//      resume marker cannot claim the one tick.
+// ===========================================================================
+await start('tick claim refuses preexisting work and unsafe physical state');
+{
+  const grantRef = 'a4-recovery-42110933267.1';
+  const seed = async () => {
+    await resetState({ scopeStatus: 'bound', missionMetadata: { execution_lane: 'user' } });
+    await q(`update aria_internal.mission_state set metadata=jsonb_set(metadata,'{a4_recovery_dispatch_v1}',$1::jsonb,true) where mission_id=$2`,
+      [JSON.stringify({ granted:true, consumed:true, grant_ref:grantRef, scope_resume_count:1,
+        scope_resumed_at:new Date().toISOString(), scope_resume_grant_ref:grantRef }), LOCKED]);
+  };
+  await seed();
+  await q(`insert into aria_internal.execution_jobs(job_id,mission_id,status) values ('existing-job', $1, 'queued')`, [LOCKED]);
+  res = await q(TICK_CLAIM({ grantRef }).text, TICK_CLAIM({ grantRef }).values);
+  assert.equal(res.rows[0].r.reason, 'execution_job_already_exists', 'S12 do not create work twice');
+  assert.equal((await reservation()).tick_claimed, undefined, 'S12 no tick claim with a preexisting job');
+
+  await seed();
+  await q(`update aria_internal.device_registry set last_seen_at=clock_timestamp()-interval '500 seconds' where device_id=$1`, [DEVICE_ID]);
+  res = await q(TICK_CLAIM({ grantRef }).text, TICK_CLAIM({ grantRef }).values);
+  assert.equal(res.rows[0].r.reason, 'agent_not_eligible', 'S12 stale physical agent cannot claim tick');
+  assert.equal((await reservation()).tick_claimed, undefined, 'S12 stale agent leaves tick unclaimed');
+
+  await seed();
+  res = await q(TICK_CLAIM({ grantRef: grantRef + '-wrong' }).text, TICK_CLAIM({ grantRef: grantRef + '-wrong' }).values);
+  assert.equal(res.rows[0].r.reason, 'consumed_reservation_mismatch', 'S12 wrong reservation identity refused');
+  assert.equal((await reservation()).tick_claimed, undefined, 'S12 wrong ref leaves tick unclaimed');
 }
 
 await client.end();

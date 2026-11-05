@@ -59,7 +59,7 @@ check(runnerSource.includes("routes = [primaryRoute, ...gate3Fallbacks]"),"scope
 check(runnerSource.includes("model_execution_failures: failures.map((failure: any)"),"scoped success persists sanitized Google 429 evidence");
 check(runnerSource.includes("model_fallback_attempts: failures.length"),"scoped success records exactly one primary route attempt");
 const workflowSource=await readFile(new URL("../.github/workflows/mission-wonder-2-gate3-live-e2e.yml",import.meta.url),"utf8");
-const liveScript=await readFile(new URL("../scripts/mission-wonder-2-gate3-live-e2e.py",import.meta.url),"utf8");
+const liveScript=(await readFile(new URL("../scripts/mission-wonder-2-gate3-live-e2e.py",import.meta.url),"utf8")).replace(/\r\n/g,"\n");
 check(workflowSource.includes("workflow_dispatch:"),"live E2E is manual-only");
 check(workflowSource.includes("default: false")&&workflowSource.includes("type: boolean"),"manual dispatch requires explicit confirmation");
 check(workflowSource.includes("environment: production"),"live probe uses the production approval environment");
