@@ -28,6 +28,8 @@ assert.ok(source.includes('fetch-depth: 0'),'migration detector requires merge p
 assert.ok(source.includes('supabase link --project-ref "$SUPABASE_PROJECT_REF"'));
 assert.ok(source.includes("'!autonomy/worker-single-instance-lock-v1.js'"), 'the A3-only Windows worker lock helper must not trigger canonical Supabase deploys');
 assert.ok(source.includes("'!tests/supabase-canonical-deploy-contract.test.js'"), 'changing only the deployment trigger contract must not deploy Supabase runtime functions');
+assert.ok(source.includes("'rwht/pc-browser/mission-wonder-2-step4-a4-live-e2e.mjs'"), 'changing the A4 live E2E must run the exact-SHA canonical runtime deploy before retrying the one-shot workflow');
+assert.ok(source.includes("'tests/mission-wonder-2-step4-a4-scope.test.cjs'"), 'changing the A4 scope contract must run the canonical same-SHA validation/deploy gate');
 assert.ok(source.includes("printf 'ARIA_PLAN_PRODUCER_SHARED_SECRET=%s\\n' \"$ARIA_PLAN_PRODUCER_SHARED_SECRET\" > \"$tmp_env\""),'plan bridge secret env file must end with a real newline, not literal backslash-n');
 assert.ok(!source.includes("printf 'ARIA_PLAN_PRODUCER_SHARED_SECRET=%s\\\\n'"),'plan bridge env file must not append a literal backslash-n to the secret');
 assert.ok(source.includes('grep -Fx -- "ARIA_PLAN_PRODUCER_SHARED_SECRET=$ARIA_PLAN_PRODUCER_SHARED_SECRET" "$tmp_env" >/dev/null'),'plan bridge env-file value must equal the secret exactly before syncing');
