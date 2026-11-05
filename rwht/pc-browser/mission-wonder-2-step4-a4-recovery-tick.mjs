@@ -152,7 +152,7 @@ report.request_missions_pre = Number(String(requireMarker(runSql(`
   SELECT 'A4_RECOVERY_REQUEST_COUNT=' || count(*)::text
     FROM aria_internal.mission_state
    WHERE metadata->>'request_id' = (SELECT request_id FROM aria_internal.mission_wonder_2_a4_scopes WHERE scope_id=${sqlQuote(SCOPE_ID)});
-`), 'A4_RECOVERY_REQUEST_COUNT').match(/=(\d+)$/)?.[1] ?? '-1'));
+`), 'A4_RECOVERY_REQUEST_COUNT').match(/=(\d+)/)?.[1] ?? '-1'));
 assert.equal(report.request_missions_pre, 1, 'exactly one mission row must exist for the request_id');
 
 // Atomically reserve the ONLY possible runtime POST. A retry after this point
@@ -241,7 +241,7 @@ report.request_missions_post = Number(String(requireMarker(runSql(`
   SELECT 'A4_RECOVERY_REQUEST_COUNT=' || count(*)::text
     FROM aria_internal.mission_state
    WHERE metadata->>'request_id' = (SELECT request_id FROM aria_internal.mission_wonder_2_a4_scopes WHERE scope_id=${sqlQuote(SCOPE_ID)});
-`), 'A4_RECOVERY_REQUEST_COUNT').match(/=(\d+)$/)?.[1] ?? '-1'));
+`), 'A4_RECOVERY_REQUEST_COUNT').match(/=(\d+)/)?.[1] ?? '-1'));
 assert.equal(report.request_missions_post, 1, 'no second mission may exist for the request_id');
 
 report.status = 'PASS_RECOVERED';
