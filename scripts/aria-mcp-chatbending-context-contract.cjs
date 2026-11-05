@@ -13,6 +13,20 @@ assert.notEqual(retrievalStart, -1, 'MCP must implement the real ChatBending ret
 assert.ok(retrievalEnd > retrievalStart, 'retrieval helper must have a clear boundary');
 const retrieval = source.slice(retrievalStart, retrievalEnd);
 
+function canonicalPageIds(constantName, nextMarker) {
+  const start = source.indexOf(`const ${constantName} = Object.freeze([`);
+  const end = source.indexOf(nextMarker, start);
+  assert.notEqual(start, -1, constantName + ' must exist');
+  assert.ok(end > start, constantName + ' must have a clear boundary');
+  return [...source.slice(start, end).matchAll(/pageId: "([0-9a-f]{32})"/g)].map(match => match[1]);
+}
+
+const allowedPageIds = canonicalPageIds('CHATBENDING_CONTEXT_ALLOWED_DOCUMENTS', 'const CHATBENDING_CONTEXT_EXPECTED_SOURCES');
+const expectedPageIds = canonicalPageIds('CHATBENDING_CONTEXT_EXPECTED_SOURCES', 'function notionPageIdFromUrl');
+assert.equal(allowedPageIds.length, 9, 'allowlist must contain exactly nine canonical ChatBending pages');
+assert.equal(new Set(allowedPageIds).size, 9, 'allowlist must not contain duplicate canonical pages');
+assert.deepEqual([...expectedPageIds].sort(), [...allowedPageIds].sort(), 'missing-source reporting must cover every allowlisted page');
+
 for (const token of [
   'CHATBENDING_CONTEXT_ALLOWED_DOCUMENTS',
   'CHATBENDING_CONTEXT_EXPECTED_SOURCES',
@@ -40,6 +54,16 @@ for (const token of [
   'termVariants',
   'word.endsWith("es")',
   'word.endsWith("s")',
+  'contextStopWords',
+  'word.length >= 3 || /\\d/u.test(word)',
+  ').slice(0, 40)',
+  'const MAX_CONTEXT_RESULTS = 12',
+  'const MAX_CHUNKS_PER_CANONICAL_SOURCE = 2',
+  'chunksPerSource',
+  'candidate_count: rankedCandidates.length',
+  'result_limit: MAX_CONTEXT_RESULTS',
+  'covered_source_count:',
+  'matched_query_terms: item.matchedQueryTerms',
 ]) {
   assert.ok(retrieval.includes(token), 'Missing safe retrieval contract: ' + token);
 }
