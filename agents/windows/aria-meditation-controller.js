@@ -30,11 +30,48 @@ async function ensureLogFile() {
   }
 }
 
-function openNotepad() {
+function resolveNotepadExecutable() {
+  const windowsRoot = process.env.WINDIR || process.env.SystemRoot || 'C:\\Windows';
+  const systemNotepad = path.join(windowsRoot, 'System32', 'notepad.exe');
+  return fs.existsSync(systemNotepad) ? systemNotepad : 'notepad.exe';
+}
+
+function openNotepad({
+  executable = resolveNotepadExecutable(),
+  existsSync = fs.existsSync,
+  spawnImpl = spawn
+} = {}) {
+  if (executable !== 'notepad.exe' && !existsSync(executable)) {
+    return Promise.resolve({ status: 'unavailable', error: 'notepad_executable_not_found' });
+  }
   return new Promise(resolve => {
-    const p = spawn('notepad.exe', [LOG_PATH], { detached: true, windowsHide: false, stdio: 'ignore' });
-    p.unref();
-    resolve({ status: 'started', pid: p.pid });
+    let settled = false;
+    const finish = result => {
+      if (settled) return;
+      settled = true;
+      resolve(result);
+    };
+    let child;
+    try {
+      child = spawnImpl(executable, [LOG_PATH], {
+        detached: true,
+        windowsHide: false,
+        stdio: 'ignore'
+      });
+    } catch (error) {
+      finish({ status: 'unavailable', error: 'notepad_spawn_failed:' + String(error?.code || error?.message || error) });
+      return;
+    }
+    // ChildProcess emits "error" asynchronously when Windows cannot resolve
+    // notepad.exe. Keep that optional UI failure from becoming an uncaught
+    // process error that terminates the entire ARIA Windows agent.
+    child.once('error', error => {
+      finish({ status: 'unavailable', error: 'notepad_spawn_failed:' + String(error?.code || error?.message || error) });
+    });
+    child.once('spawn', () => {
+      try { child.unref(); } catch {}
+      finish({ status: 'started', pid: child.pid ?? null });
+    });
   });
 }
 
@@ -172,14 +209,21 @@ function startControlServer(controller) {
 function createWindowsMeditationController() {
   reclaimStaleCurrentPidLock();
   const store = createFileStateStore({ root_dir: MED_ROOT });
-  let notepadOpened = false;
+  let notepadPromise = null;
   const ensureNotepadOnce = async () => {
-    await ensureLogFile();
-    if (notepadOpened) return { status: 'already_open' };
-    const result = await openNotepad();
-    notepadOpened = true;
-    await appendLog(`NOTEPAD_OPENED pid=${result.pid ?? 'unknown'}`);
-    return result;
+    if (!notepadPromise) {
+      notepadPromise = (async () => {
+        await ensureLogFile();
+        const result = await openNotepad();
+        if (result.status === 'started') {
+          await appendLog(`NOTEPAD_OPENED pid=${result.pid ?? 'unknown'}`);
+        } else {
+          await appendLog(`NOTEPAD_UNAVAILABLE reason=${String(result.error || 'spawn_failed')}`);
+        }
+        return result;
+      })();
+    }
+    return notepadPromise;
   };
   const core = createMeditationController({
     stateStore: store,
@@ -211,7 +255,7 @@ function createWindowsMeditationController() {
       }
     })();
   }
-  return Object.freeze({ core, server, event: appendLog, start: core.start, pause: core.pause, resume: core.resume, stop: async () => { notepadOpened = false; return core.stop(); }, shutdown: async () => { await core.shutdown(); server.close(); } });
+  return Object.freeze({ core, server, event: appendLog, start: core.start, pause: core.pause, resume: core.resume, stop: async () => { notepadPromise = null; return core.stop(); }, shutdown: async () => { await core.shutdown(); server.close(); } });
 }
 
-module.exports = Object.freeze({ createWindowsMeditationController, requestLocalTick, constants: Object.freeze({ ROOT, MED_ROOT, LOG_PATH, OFFLINE_JOURNAL_PATH, CONTROL_PORT, CONTROLLER_VERSION }) });
+module.exports = Object.freeze({ createWindowsMeditationController, requestLocalTick, openNotepad, resolveNotepadExecutable, constants: Object.freeze({ ROOT, MED_ROOT, LOG_PATH, OFFLINE_JOURNAL_PATH, CONTROL_PORT, CONTROLLER_VERSION }) });
