@@ -52,6 +52,24 @@ jobs:
           Write-Host "RUNTIME_SOURCE=$source"
           Write-Host "RUNTIME_SOURCE_SCRIPT_PRESENT=$(Test-Path -LiteralPath $sourceScript -PathType Leaf)"
 
+          # A self-hosted runner reuses its checkout directory across workflow
+          # runs. An older workflow may have left sparse-checkout enabled in
+          # that directory, which keeps tracked files such as
+          # agents/windows/run-agent.ps1 out of the working tree even though
+          # they exist in the fetched commit. Materialize the full tracked
+          # tree once, then re-check the launcher before failing.
+          if (-not (Test-Path -LiteralPath $sourceScript -PathType Leaf)) {
+            $sparseState = (& git -C $repoRoot config --get core.sparsecheckout 2>$null)
+            if ([string]$sparseState -match '^(?i)true$') {
+              Write-Host 'SPARSE_CHECKOUT_SELF_HEAL=START'
+              & git -C $repoRoot sparse-checkout disable
+              if ($LASTEXITCODE -ne 0) { throw "sparse-checkout disable failed with exit code $LASTEXITCODE at $repoRoot" }
+              Write-Host 'SPARSE_CHECKOUT_SELF_HEAL=DISABLED_FULL_TREE_MATERIALIZED'
+            } else {
+              Write-Host "SPARSE_CHECKOUT_STATE=$sparseState"
+            }
+          }
+
           if (-not (Test-Path -LiteralPath $sourceScript -PathType Leaf)) {
             $trackedFiles = & git -C $repoRoot ls-tree -r --name-only HEAD -- 'agents/windows' 2>$null
             if ($LASTEXITCODE -eq 0 -and $trackedFiles) {
