@@ -19,7 +19,7 @@ function fail(message) { throw new Error(message); }
 function sqlQuote(value) { return "'" + String(value).replace(/'/g, "''") + "'"; }
 function runSql(query, write = false) {
   const args = ['db', 'query', query, ...(write ? ['--yes'] : ['--read-only']), '--remote'];
-  const result = spawnSync('supabase', args, { encoding: 'utf8', env: process.env, maxBuffer: 8 * 1024 * 1024 });
+  const result = spawnSync('supabase', args, { cwd: process.env.GITHUB_WORKSPACE, encoding: 'utf8', env: process.env, maxBuffer: 8 * 1024 * 1024 });
   const output = String(result.stdout || '') + '\n' + String(result.stderr || '');
   if (result.status !== 0) {
     console.error('SUPABASE_SQL_FAILED exit=' + result.status + ' output=' + output.slice(-3000));
@@ -125,7 +125,7 @@ const report = {
 let browser = null;
 let page = null;
 let scopeId = null;
-let scopeInserted = false;
+let scopeCleanupRequired = false;
 
 try {
   assert.ok(PROJECT && RUNTIME_SECRET && RUN_ID, 'A4 workflow secrets/context missing');
@@ -185,10 +185,10 @@ try {
       ${sqlQuote(missionId)},${sqlQuote(deviceId)},'armed',clock_timestamp()+interval '25 minutes')
     ON CONFLICT (scope_id) DO NOTHING;
   `;
+  // Arm cleanup before the write because a lost CLI response can make an INSERT
+  // ambiguous even when the database committed it successfully.
+  scopeCleanupRequired = true;
   runSql(insert, true);
-  // From this point on, every failure path must revoke the scope in finally,
-  // including a failed readback of the just-inserted row.
-  scopeInserted = true;
   const armedCheck = `
     SELECT CASE WHEN count(*)=1 THEN 'A4_SCOPE_ARMED_PASS' ELSE 'A4_SCOPE_ARMED_FAIL' END
       FROM aria_internal.mission_wonder_2_a4_scopes
@@ -346,14 +346,27 @@ try {
   if (page) await page.screenshot({ path: path.join(ARTIFACT_DIR, 'a4-failure.png'), fullPage: true }).catch(() => {});
   throw error;
 } finally {
-  if (scopeInserted && scopeId) {
+  if (scopeCleanupRequired && scopeId) {
     try {
-      const revoke = runSql(`SELECT aria_internal.aria_m22_a4_revoke_scope_v1(${sqlQuote(scopeId)}) AS revoked;`, true);
+      const revoke = runSql(`SELECT CASE WHEN EXISTS (
+        SELECT 1 FROM aria_internal.mission_wonder_2_a4_scopes WHERE scope_id=${sqlQuote(scopeId)}
+      ) THEN aria_internal.aria_m22_a4_revoke_scope_v1(${sqlQuote(scopeId)}) ELSE true END AS revoked;`, true);
       requireMarker(revoke, 'true');
-      const check = runSql(`SELECT CASE WHEN status='revoked' THEN 'A4_SCOPE_REVOKED_PASS' ELSE 'A4_SCOPE_REVOKED_FAIL' END FROM aria_internal.mission_wonder_2_a4_scopes WHERE scope_id=${sqlQuote(scopeId)};`);
-      requireMarker(check, 'A4_SCOPE_REVOKED_PASS');
-      report.scope_revoked = true;
-      if (report.status === 'PASS') console.log('A4_SCOPE_REVOKED=PASS');
+      const check = runSql(`SELECT CASE
+        WHEN NOT EXISTS (SELECT 1 FROM aria_internal.mission_wonder_2_a4_scopes WHERE scope_id=${sqlQuote(scopeId)})
+          THEN 'A4_SCOPE_NOT_CREATED_CLEAN'
+        WHEN EXISTS (SELECT 1 FROM aria_internal.mission_wonder_2_a4_scopes WHERE scope_id=${sqlQuote(scopeId)} AND status='revoked')
+          THEN 'A4_SCOPE_REVOKED_PASS'
+        ELSE 'A4_SCOPE_REVOKED_FAIL' END;`);
+      if (check.includes('A4_SCOPE_REVOKED_PASS')) {
+        report.scope_revoked = true;
+        if (report.status === 'PASS') console.log('A4_SCOPE_REVOKED=PASS');
+      } else if (check.includes('A4_SCOPE_NOT_CREATED_CLEAN')) {
+        report.scope_revoked = false;
+        console.log('A4_SCOPE_NOT_CREATED=PASS');
+      } else {
+        requireMarker(check, 'A4_SCOPE_REVOKED_PASS');
+      }
     } catch (error) {
       report.scope_revoked = false;
       report.failure = (report.failure || '') + '\nSCOPE_REVOKE_FAILURE=' + String(error?.message || error);
