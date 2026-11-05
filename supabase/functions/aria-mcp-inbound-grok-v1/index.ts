@@ -111,7 +111,7 @@ async function retrieveChatBendingContext(query: string) {
   const client = db();
   const { data: documentRows, error: documentsError } = await client
     .from("cb_documents")
-    .select("id,title,canonical_url,source_type,project,status,authority,verified_at,synced_at,source_version,updated_at")
+    .select("id,title,canonical_url,source_type,project,status,authority,verified_at,synced_at,source_version,updated_at,metadata")
     .eq("project", "ChatBending")
     .eq("status", "vigente")
     .limit(200);
@@ -125,7 +125,14 @@ async function retrieveChatBendingContext(query: string) {
   );
   const approvedDocuments = documentRows.filter((document: any) => {
     const pageId = notionPageIdFromUrl(document.canonical_url);
-    return Boolean(pageId && allowlist.has(pageId));
+    const canonicalUrl = String(document.canonical_url ?? "");
+    const trustedNotionHost = /^https:\/\/(?:app\.notion\.com|www\.notion\.so)\//i.test(canonicalUrl);
+    const notionSource = document.source_type === "notion" || document.source_type === "notion_page";
+    const privacyClass = document.metadata && typeof document.metadata === "object"
+      ? document.metadata.privacy_class
+      : null;
+    const explicitlyNotPrivate = !privacyClass || privacyClass === "general";
+    return Boolean(pageId && allowlist.has(pageId) && trustedNotionHost && notionSource && explicitlyNotPrivate);
   });
   const approvedDocumentIds = [...new Set(approvedDocuments.map((document: any) => document.id))];
 
@@ -152,11 +159,19 @@ async function retrieveChatBendingContext(query: string) {
     const heading = normalizeContextText(chunk.heading);
     const title = normalizeContextText(document.title);
     const occurrences = (haystack: string, needle: string) => Math.max(0, haystack.split(needle).length - 1);
+    const termVariants = (word: string) => {
+      const variants = [word];
+      if (word.length >= 7 && word.endsWith("es")) variants.push(word.slice(0, -2));
+      if (word.length >= 5 && word.endsWith("s")) variants.push(word.slice(0, -1));
+      return [...new Set(variants)];
+    };
+    const termOccurrences = (haystack: string, word: string) =>
+      Math.max(...termVariants(word).map((variant) => occurrences(haystack, variant)));
     const score = words.reduce((total, word) =>
       total +
-      Math.min(occurrences(content, word), 5) +
-      4 * Math.min(occurrences(title, word), 3) +
-      2 * Math.min(occurrences(heading, word), 3), 0);
+      Math.min(termOccurrences(content, word), 5) +
+      4 * Math.min(termOccurrences(title, word), 3) +
+      2 * Math.min(termOccurrences(heading, word), 3), 0);
     const phraseBonus = normalizedQuery.length >= 12 && content.includes(normalizedQuery) ? 8 : 0;
     return { chunk, document, score: score + phraseBonus };
   }).filter((item: any) => item.score > 0)
