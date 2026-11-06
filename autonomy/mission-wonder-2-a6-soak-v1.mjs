@@ -71,13 +71,16 @@ export function m22A6BuildSoakReportV1(input = {}) {
   if (elapsedMs < minimumDurationHours * HOUR_MS) blockers.push("soak_duration_below_declared_minimum");
 
   const minimumMissions = Number(thresholds.minimumMissions);
-  if (!Number.isSafeInteger(minimumMissions) || minimumMissions < 5) blockers.push("threshold_minimum_missions_invalid");
+  const proposedMissionFloor = minimumDurationHours === 72 ? 15 : 5;
+  if (!Number.isSafeInteger(minimumMissions) || minimumMissions < proposedMissionFloor) blockers.push("threshold_minimum_missions_invalid");
 
   const heartbeatIntervalMs = Number(thresholds.heartbeatIntervalMs);
   const maxNormalHeartbeatGapMs = Number(thresholds.maxNormalHeartbeatGapMs);
   if (!Number.isFinite(heartbeatIntervalMs) || heartbeatIntervalMs <= 0 ||
       !Number.isFinite(maxNormalHeartbeatGapMs) || maxNormalHeartbeatGapMs < heartbeatIntervalMs) {
     blockers.push("heartbeat_thresholds_invalid");
+  } else if (maxNormalHeartbeatGapMs > heartbeatIntervalMs * 3) {
+    blockers.push("heartbeat_threshold_exceeds_three_intervals");
   }
 
   const maxRecoveryMs = Number(thresholds.maxRecoveryMs);
@@ -99,6 +102,7 @@ export function m22A6BuildSoakReportV1(input = {}) {
   const jobIds = missions.map(item => String(item && item.jobId || ""));
   const verificationEventIds = missions.map(item => String(item && item.verificationEventId || ""));
   const artifactHashes = missions.flatMap(item => Array.isArray(item && item.artifactSha256) ? item.artifactSha256 : []);
+  const validArtifactHashes = artifactHashes.filter(value => /^[a-f0-9]{64}$/i.test(String(value)));
   if (missionIds.some(value => !value) || !unique(missionIds)) blockers.push("mission_ids_missing_or_duplicated");
   if (jobIds.some(value => !value) || !unique(jobIds)) blockers.push("job_ids_missing_or_duplicated");
   if (verificationEventIds.some(value => !value) || !unique(verificationEventIds)) blockers.push("verification_event_ids_missing_or_duplicated");
@@ -195,7 +199,7 @@ export function m22A6BuildSoakReportV1(input = {}) {
       missionCount: missions.length,
       independentlyVerifiedMissionCount: missions.filter(item => item && item.status === "succeeded" && item.objectiveVerified === true).length,
       uniqueJobCount: unique(jobIds.filter(Boolean)) ? new Set(jobIds.filter(Boolean)).size : null,
-      uniqueArtifactHashCount: unique(artifactHashes.filter(value => /^[a-f0-9]{64}$/i.test(String(value)))) ? new Set(artifactHashes).size : null,
+      uniqueArtifactHashCount: unique(validArtifactHashes) ? new Set(validArtifactHashes).size : null,
       normalHeartbeatGapMaxMs: normalGaps.length ? Math.max(...normalGaps) : null,
       expectedOutageGapMaxMs: outageGaps.length ? Math.max(...outageGaps) : null,
       latencyP50Ms: percentile(latencySamples, 0.50),
