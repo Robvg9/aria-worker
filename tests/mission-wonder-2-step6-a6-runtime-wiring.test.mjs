@@ -64,6 +64,8 @@ assert.match(migration, /max_a6_pending_jobs<=1/);
 assert.match(migration, /max_a6_oldest_pending_age_ms<=300000/);
 assert.match(migration, /active_job\.status in \('queued','claimed','running'\)/);
 assert.match(migration, /a6_backlog_threshold_exceeded/);
+assert.match(migration, /manualReconciliationRequired/);
+assert.match(migration, /where run_id=p_run_id and status in \('armed','claimed','bound'\)/);
 assert.match(migration, /r\.job_status in \('failed','timeout','cancelled'\)/);
 assert.match(migration, /job_count=5/);
 assert.match(deploy, /supabase functions deploy aria-mission-wonder-2-a6-dispatch-v1/);
