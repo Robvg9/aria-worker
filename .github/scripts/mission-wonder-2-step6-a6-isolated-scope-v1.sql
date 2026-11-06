@@ -339,6 +339,14 @@ begin
      and sc.status in ('armed','claimed')
      and sc.scheduled_at<=clock_timestamp()
      and sc.expires_at>clock_timestamp()
+     and not exists (
+       select 1
+         from aria_internal.execution_jobs active_job
+         join aria_internal.mission_wonder_2_a6_scopes active_scope
+           on active_scope.job_id=active_job.job_id
+        where active_scope.run_id=ru.run_id
+          and active_job.status in ('queued','claimed','running')
+     )
      and exists (
        select 1 from aria_internal.device_registry d
         where d.device_id=ru.allowed_device_id and d.agent_type='windows-local'
@@ -637,6 +645,7 @@ declare
   previous_sample timestamptz;
   sample_gap_ms bigint;
   age_ms bigint;
+  block_reason text;
   payload jsonb;
 begin
   select * into r from aria_internal.mission_wonder_2_a6_runs
@@ -681,6 +690,12 @@ begin
   if coalesce(d.status,'')<>'online' or age_ms is null
      or age_ms>r.max_normal_heartbeat_gap_ms
      or (previous_sample is not null and sample_gap_ms>r.max_normal_heartbeat_gap_ms) then
+    block_reason := 'heartbeat_continuity_threshold_exceeded';
+  elsif pending_count>1 or oldest_pending_age_ms>300000 then
+    block_reason := 'a6_backlog_threshold_exceeded';
+  end if;
+
+  if block_reason is not null then
     update aria_internal.mission_wonder_2_a6_runs
        set status='blocked',completed_at=clock_timestamp(),updated_at=clock_timestamp()
      where run_id=r.run_id and status='running';
@@ -689,17 +704,19 @@ begin
      where run_id=r.run_id and status='armed';
     insert into aria_internal.mission_wonder_2_a6_telemetry(run_id,event_type,payload)
     values (r.run_id,'fault_observed',jsonb_build_object(
-      'event','heartbeat_continuity_threshold_exceeded',
+      'event',block_reason,
       'deviceOnline',coalesce(d.status='online',false),
       'heartbeatAgeMs',age_ms,
       'sampleGapMs',sample_gap_ms,
       'maxNormalHeartbeatGapMs',r.max_normal_heartbeat_gap_ms,
+      'a6PendingJobs',pending_count,
+      'oldestA6PendingAgeMs',oldest_pending_age_ms,
       'automaticRetry',false
     ));
     update cron.job set active=false
      where jobname='aria-mission-wonder-2-a6-dispatcher-every-minute';
     return jsonb_build_object('status','blocked','run_id',r.run_id,
-      'reason','heartbeat_continuity_threshold_exceeded','payload',payload);
+      'reason',block_reason,'payload',payload);
   end if;
 
   return jsonb_build_object('status','sampled','run_id',r.run_id,'payload',payload);
@@ -718,9 +735,10 @@ declare
   blocked_count integer:=0;
 begin
   for r in
-    select sc.run_id,sc.scope_id,sc.mission_id,sc.job_id,sc.status
+    select sc.run_id,sc.scope_id,sc.mission_id,sc.job_id,sc.status,j.status as job_status
       from aria_internal.mission_wonder_2_a6_scopes sc
       join aria_internal.mission_wonder_2_a6_runs ru on ru.run_id=sc.run_id
+      left join aria_internal.execution_jobs j on j.job_id=sc.job_id
      where ru.status='running' and sc.status in ('bound','claimed')
      order by sc.ordinal
   loop
@@ -730,13 +748,14 @@ begin
       if aria_internal.aria_m22_a6_complete_scope_v1(r.run_id,r.scope_id,r.mission_id,r.job_id) then
         completed_count:=completed_count+1;
       end if;
-    elsif m.status in ('failed','blocked','cancelled','timeout') then
+    elsif m.status in ('failed','blocked','cancelled','timeout')
+       or r.job_status in ('failed','timeout','cancelled') then
       update aria_internal.mission_wonder_2_a6_runs
          set status='blocked',completed_at=clock_timestamp(),updated_at=clock_timestamp()
        where run_id=r.run_id and status='running';
       update aria_internal.mission_wonder_2_a6_scopes
          set status='revoked',revoked_at=coalesce(revoked_at,clock_timestamp()),updated_at=clock_timestamp()
-       where scope_id=r.scope_id and status in ('claimed','bound');
+       where run_id=r.run_id and status in ('armed','claimed','bound');
       insert into aria_internal.mission_wonder_2_a6_telemetry(run_id,event_type,payload)
       values (r.run_id,'fault_observed',jsonb_build_object(
         'event','mission_terminal_failure',
