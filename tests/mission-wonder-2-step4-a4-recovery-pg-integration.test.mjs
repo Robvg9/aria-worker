@@ -21,6 +21,7 @@ import path from 'node:path';
 const root = path.resolve(path.dirname(process.argv[1]), '..');
 const MIGRATION = path.join(root, 'supabase/migrations/20261105120000_aria_m22_a4_recover_mission_v1.sql');
 const RESUME_MIGRATION = path.join(root, 'supabase/migrations/20261105221715_a4_consumed_scope_resume_and_tick_claim_v1.sql');
+const HANDOFF_MIGRATION = path.join(root, 'supabase/migrations/20261105235800_a4_runner_handoff_retry_v1.sql');
 const LOCKED = 'mission_a4_authorized_once';
 const SCOPE_KEY = 'mission-wonder-2-step4-a4:single-authorized-execution';
 const SCOPE_ID = 'scope_test_recovery_0001';
@@ -66,6 +67,10 @@ await client.query(`
   create table aria_internal.mission_state (
     mission_id text primary key,
     status text not null,
+    current_step integer not null default 0,
+    completed_steps integer not null default 0,
+    lease_owner text,
+    lease_until timestamptz,
     metadata jsonb not null default '{}'::jsonb,
     updated_at timestamptz not null default clock_timestamp()
   );
@@ -117,12 +122,15 @@ const migrationSql = fs.readFileSync(MIGRATION, 'utf8');
 await client.query(migrationSql);
 const resumeMigrationSql = fs.readFileSync(RESUME_MIGRATION, 'utf8');
 await client.query(resumeMigrationSql);
+const handoffMigrationSql = fs.readFileSync(HANDOFF_MIGRATION, 'utf8');
+await client.query(handoffMigrationSql);
 
 // ------------------------------------------------------------------- helpers
 const RECOVER = (args) => ({ text: `select aria_internal.aria_m22_a4_recover_mission_v1($1,$2,$3,$4,$5,$6)::jsonb as r`, values: [args.missionId ?? LOCKED, args.scopeId ?? SCOPE_ID, args.userId ?? USER_ID, args.requestId ?? REQUEST_ID, args.goalHash ?? GOAL_HASH, args.grantRef] });
 const CLAIM = (args) => ({ text: `select aria_internal.aria_m22_a4_claim_recovery_dispatch_token_v1($1,$2,$3)::jsonb as r`, values: [args.missionId ?? LOCKED, args.scopeId ?? SCOPE_ID, args.grantRef] });
 const RESUME = (args) => ({ text: `select aria_internal.aria_m22_a4_resume_consumed_scope_v1($1,$2,$3,$4,$5,$6)::jsonb as r`, values: [args.missionId ?? LOCKED, args.scopeId ?? SCOPE_ID, args.userId ?? USER_ID, args.requestId ?? REQUEST_ID, args.goalHash ?? GOAL_HASH, args.grantRef] });
 const TICK_CLAIM = (args) => ({ text: `select aria_internal.aria_m22_a4_claim_recovery_tick_v1($1,$2,$3)::jsonb as r`, values: [args.missionId ?? LOCKED, args.scopeId ?? SCOPE_ID, args.grantRef] });
+const HANDOFF = (args) => ({ text: `select aria_internal.aria_m22_a4_claim_runner_handoff_retry_v1($1,$2,$3,$4,$5,$6,$7,$8)::jsonb as r`, values: [args.missionId ?? LOCKED, args.scopeId ?? SCOPE_ID, args.userId ?? USER_ID, args.requestId ?? REQUEST_ID, args.goalHash ?? GOAL_HASH, args.grantRef, args.failedRunId ?? '42131077740', args.runnerHttpStatus ?? 401] });
 const q = (text, params) => client.query(text, params);
 
 // Reset production-mirror rows to a canonical pre-recovery state.
@@ -506,6 +514,77 @@ await start('tick claim refuses preexisting work and unsafe physical state');
   res = await q(TICK_CLAIM({ grantRef: grantRef + '-wrong' }).text, TICK_CLAIM({ grantRef: grantRef + '-wrong' }).values);
   assert.equal(res.rows[0].r.reason, 'consumed_reservation_mismatch', 'S12 wrong reservation identity refused');
   assert.equal((await reservation()).tick_claimed, undefined, 'S12 wrong ref leaves tick unclaimed');
+}
+
+// ===========================================================================
+// S13. The original tick claim is reused for exactly ONE runner handoff retry
+//      after the recorded downstream 401. No second tick, mission, job or lease
+//      is created by this RPC. A historical revoked_at marker remains untouched
+//      when the current status is bound with a fresh bounded expiry.
+// ===========================================================================
+await start('runner handoff retry reuses the consumed tick exactly once');
+{
+  const grantRef = 'a4-recovery-42110933267.1';
+  await resetState({ scopeStatus: 'bound', missionMetadata: { execution_lane: 'user' } });
+  await q(`update aria_internal.mission_state set metadata=jsonb_set(metadata,'{a4_recovery_dispatch_v1}',$1::jsonb,true) where mission_id=$2`, [
+    JSON.stringify({ granted:true, consumed:true, grant_ref:grantRef, tick_claimed:true,
+      tick_claim_ref:grantRef + ':tick', scope_resume_count:1, scope_resume_grant_ref:grantRef,
+      runner_handoff_retry_count:0 }), LOCKED]);
+  await q(`update aria_internal.mission_wonder_2_a4_scopes set revoked_at=clock_timestamp()-interval '12 hours' where scope_id=$1`, [SCOPE_ID]);
+  const revokedAtBefore = (await q(`select revoked_at from aria_internal.mission_wonder_2_a4_scopes where scope_id=$1`, [SCOPE_ID])).rows[0].revoked_at;
+
+  res = await q(HANDOFF({ grantRef }).text, HANDOFF({ grantRef }).values);
+  rec = res.rows[0].r;
+  assert.equal(rec.action, 'runner_handoff_retry_claimed', 'S13 the existing tick may be forwarded once after proven 401');
+  assert.equal(rec.existing_tick_claim_reused, true, 'S13 the consumed tick is reused');
+  assert.equal(rec.new_tick_claim_created, false, 'S13 no second tick claim');
+  const dispatch = await reservation();
+  assert.equal(dispatch.consumed, true, 'S13 original dispatch remains consumed');
+  assert.equal(dispatch.grant_ref, grantRef, 'S13 original grant_ref is unchanged');
+  assert.equal(dispatch.tick_claim_ref, grantRef + ':tick', 'S13 original tick claim is unchanged');
+  assert.equal(dispatch.runner_handoff_retry_count, 1, 'S13 one runner handoff retry is persisted');
+  assert.equal(dispatch.runner_handoff_retry_source_run, '42131077740', 'S13 retry is bound to failed run evidence');
+  assert.equal(dispatch.runner_handoff_retry_source_status, 401, 'S13 retry is bound to HTTP 401 evidence');
+  assert.equal((await q(`select count(*)::int as n from aria_internal.execution_jobs where mission_id=$1`, [LOCKED])).rows[0].n, 0, 'S13 claim creates no execution job');
+  assert.equal((await q(`select count(*)::int as n from aria_internal.mission_events where mission_id=$1 and event_type='mission_resumed'`, [LOCKED])).rows[0].n, 1, 'S13 one retry audit event');
+  assert.equal((await q(`select revoked_at from aria_internal.mission_wonder_2_a4_scopes where scope_id=$1`, [SCOPE_ID])).rows[0].revoked_at.toISOString(), revokedAtBefore.toISOString(), 'S13 historical revoked_at is preserved, not erased');
+
+  const replay = await q(HANDOFF({ grantRef }).text, HANDOFF({ grantRef }).values);
+  assert.equal(replay.rows[0].r.action, 'rejected', 'S13 a second runner handoff is rejected');
+  assert.equal(replay.rows[0].r.reason, 'runner_handoff_retry_already_used', 'S13 replay reason is explicit');
+  assert.equal((await reservation()).runner_handoff_retry_count, 1, 'S13 retry count cannot exceed one');
+}
+
+await start('runner handoff retry rejects mismatched evidence before mutation');
+{
+  const grantRef = 'a4-recovery-42110933267.1';
+  await resetState({ scopeStatus: 'bound', missionMetadata: { execution_lane: 'user' } });
+  await q(`update aria_internal.mission_state set metadata=jsonb_set(metadata,'{a4_recovery_dispatch_v1}',$1::jsonb,true) where mission_id=$2`, [
+    JSON.stringify({ granted:true, consumed:true, grant_ref:grantRef, tick_claimed:true,
+      tick_claim_ref:grantRef + ':tick', scope_resume_count:1, scope_resume_grant_ref:grantRef,
+      runner_handoff_retry_count:0 }), LOCKED]);
+  res = await q(HANDOFF({ grantRef, failedRunId: '42131077741', runnerHttpStatus: 401 }).text,
+    HANDOFF({ grantRef, failedRunId: '42131077741', runnerHttpStatus: 401 }).values);
+  assert.equal(res.rows[0].r.reason, 'failed_handoff_evidence_mismatch', 'S13 wrong failed run cannot claim retry');
+  assert.equal((await reservation()).runner_handoff_retry_count, 0, 'S13 mismatched evidence has no mutation');
+
+  await resetState({ scopeStatus: 'bound', missionMetadata: { execution_lane: 'user', mission_wonder_2_a4_allowed_device_id: DEVICE_ID_ALT } });
+  await q(`update aria_internal.mission_state set metadata=jsonb_set(metadata,'{a4_recovery_dispatch_v1}',$1::jsonb,true) where mission_id=$2`, [
+    JSON.stringify({ granted:true, consumed:true, grant_ref:grantRef, tick_claimed:true,
+      tick_claim_ref:grantRef + ':tick', scope_resume_count:1, scope_resume_grant_ref:grantRef,
+      runner_handoff_retry_count:0 }), LOCKED]);
+  res = await q(HANDOFF({ grantRef }).text, HANDOFF({ grantRef }).values);
+  assert.equal(res.rows[0].r.reason, 'mission_identity_mismatch', 'S13 metadata device must equal the scope device');
+  assert.equal((await reservation()).runner_handoff_retry_count, 0, 'S13 device mismatch has no mutation');
+
+  await resetState({ scopeStatus: 'bound', device: 'stale', missionMetadata: { execution_lane: 'user' } });
+  await q(`update aria_internal.mission_state set metadata=jsonb_set(metadata,'{a4_recovery_dispatch_v1}',$1::jsonb,true) where mission_id=$2`, [
+    JSON.stringify({ granted:true, consumed:true, grant_ref:grantRef, tick_claimed:true,
+      tick_claim_ref:grantRef + ':tick', scope_resume_count:1, scope_resume_grant_ref:grantRef,
+      runner_handoff_retry_count:0 }), LOCKED]);
+  res = await q(HANDOFF({ grantRef }).text, HANDOFF({ grantRef }).values);
+  assert.equal(res.rows[0].r.reason, 'agent_not_eligible', 'S13 stale agent must reject the one-time retry');
+  assert.equal((await reservation()).runner_handoff_retry_count, 0, 'S13 stale agent has no mutation');
 }
 
 await client.end();
