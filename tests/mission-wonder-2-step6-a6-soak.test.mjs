@@ -162,6 +162,13 @@ const undetectedOutage = m22A6BuildSoakReportV1({
 assert.equal(undetectedOutage.status, "BLOCKED");
 assert.ok(undetectedOutage.blockers.includes("heartbeat_outage_0_not_detected_and_recovered_within_threshold"));
 
+const undetectedOutage = m22A6BuildSoakReportV1({
+  ...validEvidence,
+  heartbeatGaps: [{ gapMs: 45000, expectedOutage: true, recovered: true }],
+});
+assert.equal(undetectedOutage.status, "BLOCKED");
+assert.ok(undetectedOutage.blockers.includes("heartbeat_outage_0_not_detected_and_recovered_within_threshold"));
+
 const retryFailureMissions = missions.map(item => ({ ...item }));
 retryFailureMissions[0].attemptCount = 4;
 const retryFailure = m22A6BuildSoakReportV1({ ...validEvidence, missions: retryFailureMissions });
@@ -203,6 +210,35 @@ assert.ok(invalidBacklogSample.blockers.includes("backlog_sample_0_oldest_age_in
 const orphanFailure = m22A6BuildSoakReportV1({ ...validEvidence, orphanJobs: 1 });
 assert.equal(orphanFailure.status, "BLOCKED");
 assert.ok(orphanFailure.blockers.includes("orphan_jobs_present_or_unmeasured"));
+
+const unmeasuredOrphanCount = m22A6BuildSoakReportV1({ ...validEvidence, orphanJobs: null });
+assert.equal(unmeasuredOrphanCount.status, "BLOCKED");
+assert.ok(unmeasuredOrphanCount.blockers.includes("orphan_jobs_present_or_unmeasured"));
+
+const coercedCostSample = m22A6BuildSoakReportV1({ ...validEvidence, costSamplesUsd: [null] });
+assert.equal(coercedCostSample.status, "BLOCKED");
+assert.ok(coercedCostSample.blockers.includes("cost_sample_invalid"));
+
+const missingTypedThreshold = m22A6BuildSoakReportV1({
+  ...validEvidence,
+  thresholds: { ...thresholds, maxTotalCostUsd: null },
+});
+assert.equal(missingTypedThreshold.status, "BLOCKED");
+assert.ok(missingTypedThreshold.blockers.includes("threshold_max_total_cost_usd_required"));
+
+const coercedBacklogSample = m22A6BuildSoakReportV1({
+  ...validEvidence,
+  backlogSamples: [{ pendingJobs: null, oldestPendingAgeMs: null }],
+});
+assert.equal(coercedBacklogSample.status, "BLOCKED");
+assert.ok(coercedBacklogSample.blockers.includes("backlog_sample_0_pending_job_count_invalid"));
+assert.ok(coercedBacklogSample.blockers.includes("backlog_sample_0_oldest_age_invalid_or_exceeded"));
+
+const stringAttemptCount = missions.map(item => ({ ...item }));
+stringAttemptCount[0].attemptCount = "1";
+const stringAttemptReport = m22A6BuildSoakReportV1({ ...validEvidence, missions: stringAttemptCount });
+assert.equal(stringAttemptReport.status, "BLOCKED");
+assert.ok(stringAttemptReport.blockers.includes("mission_0_attempt_count_out_of_bounds"));
 
 const liveWorker = read("cloudflare-autonomy/worker.mjs");
 assert.match(liveWorker, /export const MISSION_EXECUTION_PAUSED = true;/,
