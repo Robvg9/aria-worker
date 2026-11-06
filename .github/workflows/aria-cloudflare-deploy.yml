@@ -19,6 +19,8 @@ on:
       - 'supabase/functions/**'
       # A6 isolated scope contract is CI-only until the separately gated runtime-wiring PR.
       - '.github/workflows/mission-wonder-2-step6-a6-isolated-contract.yml'
+      - '.github/workflows/mission-wonder-2-step6-a6-migration-cli.yml'
+      - '.github/scripts/mission-wonder-2-step6-a6-isolated-scope-v1.sql'
       - 'tests/mission-wonder-2-step6-a6-isolated-scope.test.mjs'
       - 'autonomy/dynamic-goal-engine.mjs'
       - 'tests/aria-no-mission-reactivation.contract.test.js'
