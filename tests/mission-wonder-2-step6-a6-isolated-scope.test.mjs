@@ -161,6 +161,12 @@ assert.match(cloudflareDeployWorkflow, /'.github\/workflows\/mission-wonder-2-st
 assert.match(cloudflareDeployWorkflow, /'tests\/mission-wonder-2-step6-a6-isolated-scope\.test\.mjs'/);
 assert.match(pwaDeployWorkflow, /'.github\/workflows\/mission-wonder-2-step6-a6-migration-cli\.yml'/);
 assert.match(pwaDeployWorkflow, /'.github\/scripts\/mission-wonder-2-step6-a6-isolated-scope-v1\.sql'/);
+assert.match(pwaDeployWorkflow, /'supabase\/migrations\/\*_aria_mission_wonder_2_a6_isolated_scope_v1\.sql'/);
+assert.match(cloudflareDeployWorkflow, /'.github\/workflows\/mission-wonder-2-step6-a6-migration-cli\.yml'/);
+assert.match(cloudflareDeployWorkflow, /'.github\/scripts\/mission-wonder-2-step6-a6-isolated-scope-v1\.sql'/);
+assert.match(cloudflareDeployWorkflow, /'supabase\/migrations\/\*_aria_mission_wonder_2_a6_isolated_scope_v1\.sql'/);
+assert.match(pwaDeployWorkflow, /'.github\/workflows\/mission-wonder-2-step6-a6-migration-cli\.yml'/);
+assert.match(pwaDeployWorkflow, /'.github\/scripts\/mission-wonder-2-step6-a6-isolated-scope-v1\.sql'/);
 assert.match(cloudflareDeployWorkflow, /'.github\/workflows\/mission-wonder-2-step6-a6-migration-cli\.yml'/);
 assert.match(cloudflareDeployWorkflow, /'.github\/scripts\/mission-wonder-2-step6-a6-isolated-scope-v1\.sql'/);
 
