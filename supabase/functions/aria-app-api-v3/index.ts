@@ -6,6 +6,9 @@ import { classifyConversation } from "../_shared/fast-lane.ts";
 import { shouldDebate, debatePrompt } from "../_shared/model-debate.ts";
 import { buildIdeaMissionProposal, validateProposal } from "../_shared/idea-to-mission.mjs";
 import { deriveOperationalDiagnostic } from "../_shared/operational-diagnostics.mjs";
+import { missionRequestIdentityMatchesV1 } from "../_shared/mission-request-identity-v1.mjs";
+import { A4_EXECUTION_LANE_V1, m22A4GoalIdentityHashV1 } from "../_shared/mission-wonder-2-a4-scope-v1.mjs";
+import { m22A5GoalIdentityHashV1, m22A5ScopeRowMatchesV1, M22_A5_SCOPE_ID } from "../_shared/mission-wonder-2-a5-scope-v1.mjs";
 import { inspectGithubSource, buildCapabilityIndex, buildAbsorptionPlan, buildAbsorptionIdentity, advanceAbsorptionPlan, evaluateAbsorptionCompletion } from "../_shared/absorb-engine.mjs";
 import { deriveMissionDisplayTitle, MISSION_TITLE_VERSION } from "../_shared/mission-title.mjs";
 import { handlePrivateVaultRequest, isPrivateVaultRoute, privateVaultAuthFailure, privateVaultPreflight } from "./private-vault.ts";
@@ -381,6 +384,20 @@ async function internal(url: string, payload: unknown, timeoutMs?: number) {
   } finally {
     if (timer) clearTimeout(timer);
   }
+}
+async function internalAsUser(url: string, payload: unknown, userId: string) {
+  if (!SECRET) throw new Error("runtime_secret_not_configured");
+  if (!userId.trim()) throw new Error("internal_user_id_required");
+  const headers: Record<string,string> = {
+    "content-type": "application/json",
+    authorization: `Bearer ${SECRET}`,
+    "x-aria-user-id": userId.trim(),
+  };
+  if (EDGE_API_KEY) headers.apikey = EDGE_API_KEY;
+  const r = await fetch(url, { method: "POST", headers, body: JSON.stringify(payload) });
+  let b: any = null;
+  try { b = await r.json(); } catch { /* Preserve non-JSON responses for caller status handling. */ }
+  return { r, b };
 }
 async function persistConversationMessage(userId:string,conversationId:string,role:"user"|"assistant"|"system",content:string,parts:any[],traceId:string,visualState:string|null,providerId:string|null,modelId:string|null,title:string,project:any){
   const sb=serviceClient();
@@ -2195,7 +2212,6 @@ Deno.serve(async (req) => {
     const pausedMissionMutation =
       req.method === "POST" &&
       (
-        path.endsWith("/missions") ||
         /\/missions\/[^/]+\/(?:verify-retry|invalidate-unverified-success|retry|human-gate\/approve|cancel)$/.test(path) ||
         path.endsWith("/meditation/control") ||
         path.endsWith("/meditation/idea-to-mission") ||
@@ -3320,6 +3336,13 @@ Deno.serve(async (req) => {
         if (error) throw new Error("mission_request_readback_failed:" + error.message);
         return data ?? null;
       };
+      const matchesCanonicalMissionRequest = (mission: any) => missionRequestIdentityMatchesV1({
+        mission,
+        request_id: requestId,
+        user_id: user.id,
+        goal,
+        project_id: project?.id ?? null
+      });
       let priorMission: any = null;
       try {
         priorMission = await readMissionByRequestId();
@@ -3337,6 +3360,64 @@ Deno.serve(async (req) => {
         }, 503);
       }
       if (priorMission?.mission_id) {
+        if (!matchesCanonicalMissionRequest(priorMission)) {
+          return json({
+            error: "mission_request_idempotency_conflict",
+            stage: "canonical_mission_intake",
+            detail: "Este request_id ya pertenece a otra solicitud. No se creará una segunda misión.",
+            trace_id: trace,
+            request_id: requestId
+          }, 409);
+        }
+        if (MISSION_EXECUTION_PAUSED) {
+          const md = priorMission.metadata && typeof priorMission.metadata === "object" ? priorMission.metadata : {};
+          if (String(md.mission_wonder_2_a5_scope_id || "") === M22_A5_SCOPE_ID) {
+            const goalHash = await m22A5GoalIdentityHashV1(user.id, goal, null);
+            const { data: scope, error: scopeError } = await service.schema("aria_internal")
+              .from("mission_wonder_2_a5_scopes").select("*").eq("scope_id", M22_A5_SCOPE_ID).maybeSingle();
+            const matches = !scopeError && await m22A5ScopeRowMatchesV1({
+              scope, metadata: md, missionId: String(priorMission.mission_id), userId: user.id,
+              requestId, goal, projectId: md.project_id ?? null,
+              requiredStatuses: ["claimed","bound","recovered","completed"],
+            });
+            if (!matches || md.mission_wonder_2_a5_goal_hash !== goalHash) {
+              return json({ error: "mission_execution_paused", execution_enabled: false, trace_id: trace }, 423);
+            }
+            if (["claimed","bound"].includes(String(scope.status))) {
+              const { data: bound, error: bindError } = await service.schema("aria_internal").rpc("aria_m22_a5_bind_scope_v1", {
+                p_scope_id: M22_A5_SCOPE_ID, p_mission_id: String(priorMission.mission_id),
+                p_user_id: user.id, p_request_id: requestId, p_goal_hash: goalHash,
+              });
+              if (bindError || bound !== true) return json({ error: "mission_a5_scope_replay_bind_failed", trace_id: trace }, 503);
+            } else if (!["succeeded","failed","blocked","cancelled"].includes(String(priorMission.status)) &&
+                       String(scope.status) !== "recovered") {
+              return json({ error: "mission_execution_paused", execution_enabled: false, trace_id: trace }, 423);
+            }
+          } else {
+            const scopeId = String(md.mission_wonder_2_a4_scope_id || "");
+            const goalHash = await m22A4GoalIdentityHashV1(user.id, goal, null);
+            if (!scopeId || md.mission_wonder_2_a4_goal_hash !== goalHash ||
+                md.mission_wonder_2_a4_readonly !== true || !md.mission_wonder_2_a4_allowed_device_id) {
+              return json({ error: "mission_execution_paused", execution_enabled: false, trace_id: trace }, 423);
+            }
+            const { data: scope, error: scopeError } = await service.schema("aria_internal")
+              .from("mission_wonder_2_a4_scopes").select("*").eq("scope_id", scopeId).maybeSingle();
+            const matches = !scopeError && scope && scope.mission_id === String(priorMission.mission_id) &&
+              scope.owner_user_id === user.id && scope.request_id === requestId && scope.goal_hash === goalHash &&
+              scope.allowed_device_id === md.mission_wonder_2_a4_allowed_device_id &&
+              ["claimed","bound","completed","revoked"].includes(String(scope.status));
+            if (!matches) return json({ error: "mission_execution_paused", execution_enabled: false, trace_id: trace }, 423);
+            if (["claimed","bound"].includes(String(scope.status))) {
+              const { data: bound, error: bindError } = await service.schema("aria_internal").rpc("aria_m22_a4_bind_scope_v1", {
+                p_scope_id: scopeId, p_mission_id: String(priorMission.mission_id),
+                p_user_id: user.id, p_request_id: requestId, p_goal_hash: goalHash,
+              });
+              if (bindError || bound !== true) return json({ error: "mission_a4_scope_replay_bind_failed", trace_id: trace }, 503);
+            } else if (!["succeeded","failed","blocked","cancelled"].includes(String(priorMission.status))) {
+              return json({ error: "mission_execution_paused", execution_enabled: false, trace_id: trace }, 423);
+            }
+          }
+        }
         const missionId = String(priorMission.mission_id);
         return json({
           ok: true,
@@ -3349,15 +3430,64 @@ Deno.serve(async (req) => {
           idempotent_replay: true
         }, 200);
       }
+      let a4Scope: any = null;
+      let a4GoalHash: string | null = null;
+      let a5Scope: any = null;
+      let a5GoalHash: string | null = null;
+      if (MISSION_EXECUTION_PAUSED) {
+        const pwaRequestId = String(req.headers.get("x-aria-request-id") || "").trim();
+        const rawProjectId = body?.project_id ?? body?.project?.id ?? null;
+        const audioCount = Array.isArray(body?.audio_attachments) ? body.audio_attachments.length : 0;
+        if (!pwaRequestId || pwaRequestId.length > 200 ||
+            (rawProjectId != null && String(rawProjectId).trim() !== "") || project?.id ||
+            audioCount > 0 || body?.visual_context) {
+          return json({ error: "mission_execution_paused", execution_enabled: false, trace_id: trace }, 423);
+        }
+        a4GoalHash = await m22A4GoalIdentityHashV1(user.id, goal, null);
+        const { data: claimedA4Scope, error: a4ClaimError } = await service.schema("aria_internal")
+          .rpc("aria_m22_a4_claim_scope_v1", {
+            p_user_id: user.id, p_request_id: pwaRequestId,
+            p_goal_hash: a4GoalHash, p_project_id: null,
+          });
+        if (!a4ClaimError && claimedA4Scope?.scope_id && claimedA4Scope?.mission_id && claimedA4Scope?.allowed_device_id) {
+          a4Scope = claimedA4Scope;
+          Object.assign(intakeMetadata, {
+            mission_wonder_2_a4_scope_id: String(a4Scope.scope_id),
+            mission_wonder_2_a4_goal_hash: a4GoalHash,
+            mission_wonder_2_a4_allowed_device_id: String(a4Scope.allowed_device_id),
+            mission_wonder_2_a4_readonly: true,
+            execution_lane: A4_EXECUTION_LANE_V1,
+          });
+        } else {
+          a5GoalHash = await m22A5GoalIdentityHashV1(user.id, goal, null);
+          const { data: claimedA5Scope, error: a5ClaimError } = await service.schema("aria_internal")
+            .rpc("aria_m22_a5_claim_scope_v1", {
+              p_user_id: user.id, p_request_id: pwaRequestId,
+              p_goal_hash: a5GoalHash, p_project_id: null,
+            });
+          if (a5ClaimError || !claimedA5Scope?.scope_id || !claimedA5Scope?.mission_id ||
+              !claimedA5Scope?.allowed_device_id || claimedA5Scope.scope_id !== M22_A5_SCOPE_ID) {
+            return json({ error: "mission_execution_paused", execution_enabled: false, scope: "no_authorized_one_shot_scope", trace_id: trace }, 423);
+          }
+          a5Scope = claimedA5Scope;
+          Object.assign(intakeMetadata, {
+            mission_wonder_2_a5_scope_id: String(a5Scope.scope_id),
+            mission_wonder_2_a5_goal_hash: a5GoalHash,
+            mission_wonder_2_a5_allowed_device_id: String(a5Scope.allowed_device_id),
+            mission_wonder_2_a5_recovery: true,
+            execution_lane: A4_EXECUTION_LANE_V1,
+          });
+        }
+      }
+
       let direct: any = null;
       let directTransportError: string | null = null;
       try {
-        direct = await internal(DIRECT, {
+        direct = await internalAsUser(DIRECT, {
           goal,
-          mission_id: typeof body?.missionId === "string" ? body.missionId : undefined,
-          metadata: intakeMetadata,
-          "x-aria-user-id": user.id
-        });
+          mission_id: a4Scope?.mission_id || a5Scope?.mission_id || (typeof body?.missionId === "string" ? body.missionId : undefined),
+          metadata: intakeMetadata
+        }, user.id);
       } catch (error) {
         // A transport failure can happen after DIRECT has committed the mission.
         // Reconcile by request_id below before reporting a failure to the browser.
@@ -3388,6 +3518,15 @@ Deno.serve(async (req) => {
         try {
           const found = await readMissionByRequestId();
           if (found?.mission_id) {
+            if (!matchesCanonicalMissionRequest(found)) {
+              return json({
+                error: "mission_request_idempotency_conflict",
+                stage: "canonical_mission_intake",
+                detail: "La respuesta ambigua se resolvió con una misión canónica de otra solicitud; no se repetirá la creación.",
+                trace_id: trace,
+                request_id: requestId
+              }, 409);
+            }
             canonicalMission = found;
             createdMissionId = String(found.mission_id);
             recoveredByRequestId = true;
@@ -3436,17 +3575,69 @@ Deno.serve(async (req) => {
             .eq("mission_id", createdMissionId)
             .maybeSingle();
           if (error) {
-            console.error("[aria-app-api-v3] mission canonical readback warning", JSON.stringify({
+            console.error("[aria-app-api-v3] mission canonical readback failed closed", JSON.stringify({
               trace_id: trace, request_id: requestId, mission_id: createdMissionId, detail: error.message
             }));
-          } else {
-            canonicalMission = data ?? null;
+            return json({
+              error: "mission_request_idempotency_readback_failed",
+              stage: "canonical_mission_intake",
+              detail: "DIRECT devolvió un ID, pero ARIA no pudo leer la misión canónica para comprobar su identidad. No se confirmará la solicitud.",
+              trace_id: trace,
+              request_id: requestId
+            }, 503);
           }
+          canonicalMission = data ?? null;
         } catch (error) {
-          console.error("[aria-app-api-v3] mission canonical readback warning", JSON.stringify({
+          console.error("[aria-app-api-v3] mission canonical readback failed closed", JSON.stringify({
             trace_id: trace, request_id: requestId, mission_id: createdMissionId,
             detail: error instanceof Error ? error.message : String(error)
           }));
+          return json({
+            error: "mission_request_idempotency_readback_failed",
+            stage: "canonical_mission_intake",
+            detail: "DIRECT devolvió un ID, pero la lectura canónica falló. No se confirmará la solicitud.",
+            trace_id: trace,
+            request_id: requestId
+          }, 503);
+        }
+      }
+
+      if (!canonicalMission?.mission_id) {
+        return json({
+          error: "mission_request_idempotency_readback_missing",
+          stage: "canonical_mission_intake",
+          detail: "DIRECT devolvió un ID, pero todavía no existe una fila canónica legible. No se confirmará la solicitud.",
+          trace_id: trace,
+          request_id: requestId
+        }, 503);
+      }
+      if (!matchesCanonicalMissionRequest(canonicalMission)) {
+        return json({
+          error: "mission_request_idempotency_conflict",
+          stage: "canonical_mission_intake",
+          detail: "DIRECT devolvió una misión canónica con otro propietario, objetivo o proyecto. No se presentará como aceptación de esta solicitud.",
+          trace_id: trace,
+          request_id: requestId
+        }, 409);
+      }
+
+      if (a4Scope) {
+        const { data: bound, error: bindError } = await service.schema("aria_internal")
+          .rpc("aria_m22_a4_bind_scope_v1", {
+            p_scope_id: String(a4Scope.scope_id), p_mission_id: String(createdMissionId),
+            p_user_id: user.id, p_request_id: requestId, p_goal_hash: String(a4GoalHash),
+          });
+        if (bindError || bound !== true) {
+          return json({ error: "mission_a4_scope_bind_failed", stage: "canonical_mission_intake", trace_id: trace, request_id: requestId }, 503);
+        }
+      } else if (a5Scope) {
+        const { data: bound, error: bindError } = await service.schema("aria_internal")
+          .rpc("aria_m22_a5_bind_scope_v1", {
+            p_scope_id: String(a5Scope.scope_id), p_mission_id: String(createdMissionId),
+            p_user_id: user.id, p_request_id: requestId, p_goal_hash: String(a5GoalHash),
+          });
+        if (bindError || bound !== true) {
+          return json({ error: "mission_a5_scope_bind_failed", stage: "canonical_mission_intake", trace_id: trace, request_id: requestId }, 503);
         }
       }
 

@@ -1,0 +1,43 @@
+name: Mission Wonder 2 — Step 4 A4 Authenticated PWA Readback (READ-ONLY)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mission-wonder-2-step4-a4-pwa-readback
+  cancel-in-progress: false
+
+jobs:
+  authenticated-pwa-readback:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      SUPABASE_PROJECT_REF: icuqsstxfdbvjytkhlog
+      SUPABASE_PUBLISHABLE_KEY: sb_publishable_E2AmZNo2hAbOYlytkVbyBQ_X7JH0HPw
+      RWHT_EMAIL: ${{ secrets.RWHT_EMAIL }}
+      RWHT_PASSWORD: ${{ secrets.RWHT_PASSWORD }}
+      A4_PWA_EVIDENCE_DIR: a4-pwa-readback-evidence
+    steps:
+      - name: Checkout current main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Setup Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Authenticate as the A4 owner and read mission plus completion notification
+        run: node scripts/mission-wonder-2-step4-a4-pwa-readback.mjs
+
+      - name: Upload sanitized PWA readback evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: a4-pwa-readback-${{ github.run_id }}-${{ github.run_attempt }}
+          path: a4-pwa-readback-evidence/
+          if-no-files-found: ignore

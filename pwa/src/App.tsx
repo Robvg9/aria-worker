@@ -11,6 +11,7 @@ import { missionActivityLabel, missionGoalPreview, missionHumanTitle, missionLis
 import { artifactKindLabel, missionArtifacts, type MissionArtifact } from './missionArtifacts';
 import { TEST_CATALOG, TEST_CATALOG_STATS, TEST_CATALOG_VERSION, filterTestCatalog } from './testCatalog';
 import { ensurePwaWebPushSubscription, getNotificationIdFromHash, humanizeMeditationDetail, humanizeMeditationNotification, requestPwaNotificationPermission, showPwaNotification, type PwaNotificationItem } from './notifications';
+import { clearMissionSubmissionRequestIdV1, getOrCreateMissionSubmissionRequestIdV1 } from './mission-submission-request-v1.mjs';
 
 const API = '/api';
 const CACHE_PREFIX = 'aria-runtime-cache-v3';
@@ -706,6 +707,7 @@ const HUMAN_API_ERRORS: Record<string, string> = {
   conversation_model_execution_failed: 'El modelo que tomó la solicitud no pudo completar la respuesta. ARIA agotó las rutas disponibles; inténtalo de nuevo.',
   conversation_planner_failed: 'El planificador de ARIA no respondió. La interfaz sigue disponible y puedes reintentar.',
   project_conversation_lookup_failed: 'No se pudo abrir el chat de este proyecto. ARIA está reparando la conexión del chat; vuelve a entrar en unos segundos.',
+  mission_execution_paused: 'La ejecución de misiones está pausada por seguridad. No se creó ni se encoló ninguna misión; tu objetivo se conserva en el formulario. No lo reenvíes hasta que ARIA esté habilitada.',
   invalid_or_expired_session: 'La sesión de ARIA expiró. Vuelve a entrar para continuar.'
 };
 
@@ -2867,6 +2869,12 @@ function Chat({
     setShowNewMission(false);
     if (window.location.hash === '#mission') window.location.hash = '#home';
     try {
+      // Reuse this identity when the same PWA intent is retried after an ambiguous response.
+      const missionRequestId = await getOrCreateMissionSubmissionRequestIdV1({
+        userId: session.userId,
+        goal: missionGoal,
+        projectId: null,
+      });
       const audioAttachments: Array<{ path: string; filename: string; mime_type: string }> = [];
       if (outgoingAudio) {
         const contentType = outgoingAudio.type || 'audio/webm';
@@ -2883,6 +2891,7 @@ function Chat({
       }
       const d = await api('/missions', session.accessToken, {
         method: 'POST',
+        headers: { 'x-aria-request-id': missionRequestId },
         body: JSON.stringify({
           goal: missionGoal,
           audio_attachments: audioAttachments,
@@ -2891,6 +2900,11 @@ function Chat({
       });
       const missionId = d?.mission?.mission_id ?? d?.mission_id;
       if (!missionId) throw new Error('ARIA no confirmó la creación de la misión.');
+      await clearMissionSubmissionRequestIdV1({
+        userId: session.userId,
+        goal: missionGoal,
+        projectId: null,
+      });
       setGoal('');
       setMissionAudioFile(null);
       const createdTitle = missionHumanTitle(d.mission || { goal: missionGoal });
@@ -3162,6 +3176,7 @@ function Chat({
               <textarea aria-label='Objetivo de la misión' value={goal} onChange={e => setGoal(e.target.value)} placeholder='Describe el resultado que quieres. ARIA decide cómo conseguirlo.' />
               <VoiceInputButton captureAudio onAudio={setMissionAudioFile} onTranscript={transcript => setGoal(previous => previous.trim() ? previous.replace(/\s+$/, '') + ' ' + transcript : transcript)} />
             </div>
+            {error && <p className='muted' role='alert'>{error}</p>}
             {missionAudioFile && <div className='fileChip'>🎙️ {missionAudioFile.name}<button aria-label='Quitar audio de la misión' onClick={() => setMissionAudioFile(null)}>×</button></div>}
             <div className='modalActions'>
               <button className='ghost' onClick={() => setShowNewMission(false)}>Cancelar</button>

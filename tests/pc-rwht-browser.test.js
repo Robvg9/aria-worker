@@ -209,6 +209,8 @@ const catalogVersionMatch = pwaTestCatalog.match(/export const TEST_CATALOG_VERS
 assert.ok(catalogVersionMatch?.[1], 'PWA test catalog version must be declared');
 const catalogTotal = [...pwaTestCatalog.matchAll(/"file": "tests\//g)].length;
 assert.ok(catalogTotal > 0, 'PWA test catalog must contain test entries');
+const repositoryTestFiles = fs.readdirSync(__dirname).filter(file => file.endsWith('.test.js'));
+assert.equal([...pwaTestCatalog.matchAll(/"file": "tests\//g)].length, repositoryTestFiles.length);
 assert.match(pwaViteConfig, /const testCatalogVersion = testCatalogSource\.match\(/);
 assert.match(pwaViteConfig, /const testCatalogTotal = \[\.\.\.testCatalogSource\.matchAll\(/);
 assert.match(projectsRwhtWorkflow, /export const TEST_CATALOG_VERSION/);
@@ -429,7 +431,7 @@ assert.match(appSource, /data-testid='chat-window'/);
 assert.match(appSource, /node\.scrollTop = node\.scrollHeight/);
 
 const projectsSource = fs.readFileSync(path.join(__dirname, '..', 'rwht', 'pc-browser', 'rwht-projects-e2e.mjs'), 'utf8');
-assert.match(projectsSource, /aria-projects-rwht-e2e-v1\.1\.10/);
+assert.match(projectsSource, /aria-projects-rwht-e2e-v1\.1\.11/);
 assert.match(
   projectsSource,
   /return \/Misión confirmada por ARIA con el diseño/,
@@ -443,6 +445,9 @@ assert.doesNotMatch(
 assert.match(projectsSource, /battlecruiser|cuevacoin|aria/);
 assert.match(projectsSource, /server_persistence_verified/);
 assert.match(projectsSource, /visual_mission_verified/);
+assert.match(projectsSource, /const ALLOW_MUTATIONS = process\.env\.RWHT_ALLOW_MUTATIONS === 'true'/, 'Projects E2E must default to no production mutations');
+assert.match(projectsSource, /report\.visual_mission_gate\.status = 'HUMAN_GATE'/, 'Visual mission submission remains a separate Human Gate when mutations are disabled');
+assert.match(projectsSource, /report\.visual_mission_gate\.status = 'OUT_OF_SCOPE'/, 'Steps 7-8-only certification does not claim visual mission coverage');
 assert.match(projectsSource, /async function cleanupInterruptedRwhtVisualMissions/,
   'Projects E2E must recover only scoped orphan markers left by an interrupted visual-mission run.');
 assert.match(projectsSource, /cleanupInterruptedRwhtVisualMissions\(page, visualProject\.id, session\.userId\)/,

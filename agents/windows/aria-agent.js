@@ -245,7 +245,7 @@ async function executeShellJob(job){
   }finally{guard.stop()}
   if(guard.signal.aborted&&result.status!=='cancelled')result={...result,status:'cancelled',exit_code:null,stderr:'mission_authorization_revoked'};
   result.stdout=redact(result.stdout);result.stderr=redact(result.stderr);
-  result.metadata={...result.metadata,agent_version:'aria-windows-agent-v2',platform:`windows/${os.release()}`,request_nonce:crypto.randomUUID(),operation:SHELL_OPERATION};
+  result.metadata={...result.metadata,agent_version:'aria-windows-agent-v2',platform:`windows/${os.release()}`,request_nonce:crypto.randomUUID(),operation:SHELL_OPERATION,...(job?.policy?.mission_wonder_2_a5_recovery===true?{mission_wonder_2_a5_attempt:Math.max(1,Number(job?.metadata?.mission_wonder_2_a5_attempt||1))}:{})};
   log(`JOB RESULT id=${job.job_id} status=${result.status} exit_code=${result.exit_code} duration_ms=${result.duration_ms}`);
   try{await api(`/v1/jobs/${encodeURIComponent(job.job_id)}/result`,{method:'POST',body:JSON.stringify({device_id:DEVICE_ID,result})})}
   catch(error){if(!guard.signal.aborted&&error.status!==409)throw error;log(`JOB RESULT already terminal id=${job.job_id}`)}

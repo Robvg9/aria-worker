@@ -2,6 +2,8 @@
 
 const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
+const fs = require('node:fs');
+const path = require('node:path');
 
 const CONTROL_TOKEN = 'package3-scope-control-token'.padEnd(48, 'c');
 const WORKER_TOKEN = 'package3-scope-worker-token'.padEnd(48, 'w');
@@ -60,6 +62,18 @@ async function payload(response) {
     await import('../cloudflare-autonomy/worker.mjs');
   assert.equal(MISSION_EXECUTION_PAUSED, true, 'global production freeze must remain true');
 
+  // Regression contract: LIVE recovery must be observed from durable worker
+  // lease evidence plus the persisted job record, not by sampling "leased".
+  const liveE2ESource = fs.readFileSync(
+    path.join(__dirname, '..', 'scripts', 'mission-wonder-2-package3-live-e2e.cjs'),
+    'utf8'
+  );
+  assert.match(liveE2ESource, /const recoveredClaim = await waitUntil/);
+  assert.match(liveE2ESource, /lease\.worker_id !== afterWorkerId/);
+  assert.match(liveE2ESource, /job\.attempts === 2/);
+  assert.match(liveE2ESource, /\['leased', 'completed'\]\.includes\(job\.status\)/);
+  assert.doesNotMatch(liveE2ESource, /job\.status === 'leased' && job\.attempts === 2/);
+
   const env = {
     ARIA_CONTROL_TOKEN: CONTROL_TOKEN,
     ARIA_WORKER_TOKEN: WORKER_TOKEN,
@@ -112,7 +126,7 @@ async function payload(response) {
   const startedBody = await payload(started);
   assert.equal(startedBody.probe.status, 'active');
   const missionId = startedBody.mission.mission_id;
-  assert.equal(startedBody.mission.status, 'planning');
+  assert.equal(startedBody.mission.status, 'running');
 
   const concurrentStart = await call(store, '/api/package3/probe/start', {
     method: 'POST',
@@ -129,7 +143,7 @@ async function payload(response) {
   const proofContent = 'Mission Wonder 2 Package 3 LIVE proof ' + probeId + '\n';
   const proofHash = crypto.createHash('sha256').update(proofContent).digest('hex');
   assert.equal(startedBody.mission.metadata.package3_live_probe, true);
-  assert.equal(startedBody.probe.allowed_job_operations.length, 3);
+  assert.deepEqual(new Set(startedBody.probe.allowed_job_operations), new Set(['task.execute', 'mission.verify']));
 
   const wrongScopeToken = await call(store, '/api/worker/claim', {
     method: 'POST',
@@ -140,54 +154,25 @@ async function payload(response) {
   });
   assert.equal(wrongScopeToken.status, 423);
 
-  const planClaimResponse = await call(store, '/api/worker/claim', {
-    method: 'POST',
-    token: WORKER_TOKEN,
-    probeId,
-    scopeToken: SCOPE_TOKEN,
-    body: { worker_id: beforeWorker, capabilities: ['mission.plan', 'workspace', 'mission.verify'] }
-  });
-  assert.equal(planClaimResponse.status, 200);
-  const planJob = (await payload(planClaimResponse)).job;
-  assert.equal(planJob.operation, 'mission.plan');
-  assert.equal(planJob.mission_id, missionId);
-  assert.equal(planJob.attempts, 1);
-
-  const planComplete = await call(store, '/api/worker/jobs/' + encodeURIComponent(planJob.job_id) + '/complete', {
-    method: 'POST',
-    token: WORKER_TOKEN,
-    probeId,
-    scopeToken: SCOPE_TOKEN,
-    body: {
-      worker_id: beforeWorker,
-      lease_token: planJob.lease_token,
-      result: {
-        passed: true,
-        evidence: {
-          tasks: [{
-            task_id: 'write-proof-artifact',
-            title: 'Write one temporary proof artifact',
-            operation: 'workspace.write',
-            payload: { relative_path: relativePath, content: proofContent },
-            idempotent: true,
-            max_attempts: 2,
-            depends_on: []
-          }]
-        }
-      }
-    }
-  });
-  assert.equal(planComplete.status, 200);
-  const afterPlan = await payload(planComplete);
-  assert.equal(afterPlan.mission.status, 'running');
-  assert.equal(afterPlan.mission.tasks.length, 1);
+  const initialJobs = await state.storage.list({ prefix: 'job:' });
+  const plannerJob = Array.from(initialJobs.values()).find(job =>
+    job.mission_id === missionId && job.operation === 'mission.plan'
+  );
+  assert.ok(plannerJob, 'mission creation retains an auditable planner-job record');
+  assert.equal(plannerJob.status, 'cancelled');
+  assert.equal(plannerJob.last_error, 'superseded_by_package3_scoped_static_plan');
+  assert.equal(startedBody.mission.tasks.length, 1);
+  assert.equal(startedBody.mission.tasks[0].operation, 'workspace.write');
+  assert.equal(startedBody.mission.tasks[0].payload.relative_path, relativePath);
+  assert.equal(startedBody.mission.tasks[0].payload.content, proofContent);
+  assert.equal(startedBody.mission.tasks[0].status, 'running');
 
   const firstTaskClaimResponse = await call(store, '/api/worker/claim', {
     method: 'POST',
     token: WORKER_TOKEN,
     probeId,
     scopeToken: SCOPE_TOKEN,
-    body: { worker_id: beforeWorker, capabilities: ['mission.plan', 'workspace', 'mission.verify'] }
+    body: { worker_id: beforeWorker, capabilities: ['workspace', 'mission.verify'] }
   });
   assert.equal(firstTaskClaimResponse.status, 200);
   const firstTaskJob = (await payload(firstTaskClaimResponse)).job;
@@ -206,7 +191,7 @@ async function payload(response) {
     token: WORKER_TOKEN,
     probeId,
     scopeToken: SCOPE_TOKEN,
-    body: { worker_id: afterWorker, capabilities: ['mission.plan', 'workspace', 'mission.verify'] }
+    body: { worker_id: afterWorker, capabilities: ['workspace', 'mission.verify'] }
   });
   assert.equal(recoveredClaimResponse.status, 200);
   const recoveredTaskJob = (await payload(recoveredClaimResponse)).job;
@@ -241,6 +226,7 @@ async function payload(response) {
         passed: true,
         evidence: {
           relative_path: relativePath,
+          bytes: Buffer.byteLength(proofContent),
           sha256: proofHash,
           execution_attempt: 2,
           write_action: 'already_identical'
@@ -256,7 +242,7 @@ async function payload(response) {
     token: WORKER_TOKEN,
     probeId,
     scopeToken: SCOPE_TOKEN,
-    body: { worker_id: afterWorker, capabilities: ['mission.plan', 'workspace', 'mission.verify'] }
+    body: { worker_id: afterWorker, capabilities: ['workspace', 'mission.verify'] }
   });
   assert.equal(verifyClaimResponse.status, 200);
   const verifyJob = (await payload(verifyClaimResponse)).job;
@@ -290,16 +276,17 @@ async function payload(response) {
   const readback = await payload(readbackResponse);
   assert.equal(readback.scope.status, 'active');
   assert.equal(readback.scope.mission_id, missionId);
-  assert.equal(readback.scope.claim_count, 4);
+  assert.equal(readback.scope.claim_count, 3);
   assert.deepEqual(new Set(readback.scope.claimed_worker_ids), new Set([beforeWorker, afterWorker]));
   assert.equal(readback.mission.status, 'succeeded');
   assert.equal(readback.mission.progress_percent, 100);
   assert.equal(readback.jobs.length, 3, 'only one plan, one task, and one verify job may exist');
   assert.deepEqual(readback.jobs.map(job => job.operation).sort(), ['mission.plan', 'mission.verify', 'task.execute']);
-  assert.ok(readback.jobs.every(job => job.status === 'completed'));
+  assert.equal(readback.jobs.find(job => job.operation === 'mission.plan').status, 'cancelled');
+  assert.ok(readback.jobs.filter(job => job.operation !== 'mission.plan').every(job => job.status === 'completed'));
   assert.equal(readback.jobs.find(job => job.operation === 'task.execute').attempts, 2);
   const eventTypes = readback.events.map(event => event.type);
-  for (const type of ['mission_created', 'mission_planned', 'task_started', 'task_succeeded', 'mission_verified_complete']) {
+  for (const type of ['mission_created', 'mission_plan_submitted', 'task_started', 'task_succeeded', 'mission_verified_complete']) {
     assert.equal(eventTypes.filter(value => value === type).length, 1, 'duplicate or missing event: ' + type);
   }
   assert.equal(readback.events.length, 5);
@@ -393,8 +380,9 @@ async function payload(response) {
   assert.equal(expiredReadback.scope.mission_id, orphanedMissionId);
   assert.equal(expiredReadback.scope.scope_token_revoked_at != null, true);
   assert.equal(expiredReadback.mission.status, 'cancelled');
-  assert.equal(expiredReadback.jobs.length, 1);
-  assert.equal(expiredReadback.jobs[0].status, 'cancelled');
+  assert.equal(expiredReadback.jobs.length, 2, 'expired cleanup must retain both the cancelled planner audit row and the cancelled scoped task');
+  assert.deepEqual(expiredReadback.jobs.map(job => job.operation).sort(), ['mission.plan', 'task.execute']);
+  assert.ok(expiredReadback.jobs.every(job => job.status === 'cancelled'));
 
   const nextProbeClose = await call(store, '/api/package3/probe/close', {
     method: 'POST',

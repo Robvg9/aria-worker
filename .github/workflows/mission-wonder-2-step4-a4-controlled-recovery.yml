@@ -1,0 +1,212 @@
+name: Mission Wonder 2 — Step 4 A4 Controlled Recovery (HUMAN-GATED)
+
+# DESIGN-ONLY EXECUTION CHANNEL. This workflow NEVER runs automatically and NEVER
+# dispatches anything on its own. It exists so that, once the owner grants the
+# specific recovery authorization, recovery happens in ONE auditable, identity-bound
+# action: guarded deterministic re-arm RPC + single runtime tick + verification.
+on:
+  workflow_dispatch:
+    inputs:
+      execute_recovery_tick:
+        description: 'Set to true to execute the controlled recovery. Anything else is a dry-run that only reads state.'
+        required: true
+        default: 'false'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mission-wonder-2-step4-a4-controlled-recovery
+  cancel-in-progress: false
+
+jobs:
+  a4-controlled-recovery:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    environment: production
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+      ARIA_RUNTIME_SHARED_SECRET: ${{ secrets.ARIA_RUNTIME_SHARED_SECRET }}
+      RWHT_STORAGE_STATE_B64: ${{ secrets.RWHT_STORAGE_STATE_B64 }}
+      RWHT_STORAGE_STATE_GZIP_B64: ${{ secrets.RWHT_STORAGE_STATE_GZIP_B64 }}
+      RWHT_ARTIFACT_DIR: a4-recovery-artifacts
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Install Supabase CLI
+        run: npm install -g supabase
+
+      - name: Link production project
+        run: |
+          set -euo pipefail
+          test "$SUPABASE_PROJECT_REF" = "icuqsstxfdbvjytkhlog"
+          test -n "$SUPABASE_ACCESS_TOKEN"
+          test -n "$ARIA_RUNTIME_SHARED_SECRET"
+          supabase link --project-ref "$SUPABASE_PROJECT_REF"
+
+      # Read-only identity capture: the full A4 identity chain comes from the
+      # production rows themselves, never from human-typed values. Also captures
+      # the read-only agent-eligibility verdict as evidence for BOTH dry-run and
+      # authorized runs.
+      - name: Capture A4 identity (READ-ONLY)
+        run: |
+          set -euo pipefail
+          SQL=$(printf "%s" "SELECT 'A4_RECOVERY_IDENTITY=' || jsonb_build_object('scope_id',s.scope_id,'goal_hash',s.goal_hash,'request_id',s.request_id,'user_id',s.owner_user_id,'scope_status',s.status,'mission_status',m.status,'lane',m.metadata->>'execution_lane','readonly',m.metadata->>'mission_wonder_2_a4_readonly','device_matches',(m.metadata->>'mission_wonder_2_a4_allowed_device_id')=(s.allowed_device_id))::text FROM aria_internal.mission_wonder_2_a4_scopes s JOIN aria_internal.mission_state m ON m.mission_id=s.mission_id WHERE s.mission_id='mission_a4_authorized_once';")
+          OUT=$(supabase db query "$SQL" --read-only --remote)
+          LINE=$(printf "%s" "$OUT" | grep -o 'A4_RECOVERY_IDENTITY=.*' | head -1 | sed -E 's/[[:space:]]*│[[:space:]]*$//' | tr -d '\r')
+          echo "A4_RECOVERY_IDENTITY_RAW=$LINE" >> "$GITHUB_ENV"
+          SCOPE_ID=$(printf "%s" "$LINE" | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{const j=JSON.parse(d.slice('A4_RECOVERY_IDENTITY='.length));const v=j.scope_id;if(typeof v!=='string'||!/^[A-Za-z0-9_-]{8,120}$/.test(v)){console.error('A4_RECOVERY_SCOPE_ID_INVALID');process.exit(1)}console.log(v)})")
+          GOAL_HASH=$(printf "%s" "$LINE" | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{const j=JSON.parse(d.slice('A4_RECOVERY_IDENTITY='.length));const v=j.goal_hash;if(typeof v!=='string'||!/^[0-9a-f]{64}$/.test(v)){console.error('A4_RECOVERY_GOAL_HASH_INVALID');process.exit(1)}console.log(v)})")
+          REQ_ID=$(printf "%s" "$LINE" | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{const j=JSON.parse(d.slice('A4_RECOVERY_IDENTITY='.length));const v=j.request_id;if(typeof v!=='string'||!/^[a-f0-9-]{10,80}$/.test(v)){console.error('A4_RECOVERY_REQUEST_ID_INVALID');process.exit(1)}console.log(v)})")
+          USR_ID=$(printf "%s" "$LINE" | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{const j=JSON.parse(d.slice('A4_RECOVERY_IDENTITY='.length));const v=j.user_id;if(typeof v!=='string'||!/^[a-f0-9-]{10,80}$/.test(v)){console.error('A4_RECOVERY_USER_ID_INVALID');process.exit(1)}console.log(v)})")
+          echo "A4_RECOVERY_SCOPE_ID=$SCOPE_ID" >> "$GITHUB_ENV"
+          echo "A4_RECOVERY_GOAL_HASH=$GOAL_HASH" >> "$GITHUB_ENV"
+          echo "A4_RECOVERY_REQUEST_ID=$REQ_ID" >> "$GITHUB_ENV"
+          echo "A4_RECOVERY_USER_ID=$USR_ID" >> "$GITHUB_ENV"
+          printf 'A4_RECOVERY_IDENTITY_CAPTURED scope_status_and_mission_state=%s\n' "$(printf "%s" "$LINE" | sed -E 's/[0-9a-f-]{10,64}/MASKED/g')"
+          ELIG_SQL=$(printf "SELECT CASE WHEN (SELECT count(*) FROM aria_internal.device_registry d WHERE d.device_id=(SELECT allowed_device_id FROM aria_internal.mission_wonder_2_a4_scopes WHERE scope_id='%s') AND d.agent_type='windows-local' AND d.status='online' AND d.token_hash IS NOT NULL AND d.capabilities @> '[\"shell.execute\"]'::jsonb AND d.last_seen_at > clock_timestamp() - interval '180 seconds' AND NOT EXISTS (SELECT 1 FROM aria_internal.device_registry o WHERE o.device_id<>d.device_id AND o.agent_type='windows-local' AND o.status='online' AND o.token_hash IS NOT NULL AND o.capabilities @> '[\"shell.execute\"]'::jsonb AND o.last_seen_at > clock_timestamp() - interval '180 seconds'))=1 THEN 'A4_AGENT_ELIGIBLE=pass' ELSE 'A4_AGENT_ELIGIBLE=fail' END;\n" "$SCOPE_ID")
+          ELIG_OUT=$(supabase db query "$ELIG_SQL" --read-only --remote)
+          ELIG_LINE=$(printf "%s" "$ELIG_OUT" | grep -o 'A4_AGENT_ELIGIBLE=.*' | head -1 | tr -d '\r' | sed -E 's/[[:space:]]*│[[:space:]]*$//')
+          echo "A4_AGENT_ELIGIBLE_VERDICT=$ELIG_LINE" >> "$GITHUB_ENV"
+          echo "READ-ONLY AGENT ELIGIBILITY EVIDENCE: $ELIG_LINE"
+          case "$ELIG_LINE" in
+            'A4_AGENT_ELIGIBLE=pass') echo "Agent gate: PASS (authenticated, online, heartbeat < 180 s, shell.execute, exact device, exactly one candidate)";;
+            *) echo "Agent gate: FAIL - recovery cannot proceed past this point in this run";;
+          esac
+
+      # Dry-run by default: without execute_recovery_tick=true nothing is written.
+      - name: Dry-run gate
+        if: github.event.inputs.execute_recovery_tick != 'true'
+        run: |
+          echo "A4_RECOVERY_DRY_RUN=true identity captured; no write, no tick. Rerun with execute_recovery_tick=true only after explicit owner authorization."
+          echo "Agent eligibility verdict evidence: ${A4_AGENT_ELIGIBLE_VERDICT:-missing}"
+
+      # Cleanup orphaned reservation from a previous failed run (not consumed yet).
+      # Safe: only removes a granted-but-unconsumed reservation; a consumed one stays.
+      - name: Cleanup orphaned reservation (if any)
+        if: github.event.inputs.execute_recovery_tick == 'true'
+        run: |
+          set -euo pipefail
+          SQL=$(printf "UPDATE aria_internal.mission_state SET metadata = metadata - 'a4_recovery_dispatch_v1' WHERE mission_id='mission_a4_authorized_once' AND coalesce(metadata->'a4_recovery_dispatch_v1'->>'consumed','false') <> 'true' AND coalesce(metadata->'a4_recovery_dispatch_v1'->>'granted','false') = 'true';")
+          OUT=$(supabase db query "$SQL" --yes --remote)
+          echo "$OUT" | grep -o 'UPDATE [0-9]*' | head -1 || echo "No orphaned reservation to clean"
+
+      # Authorized path, three auditable gates, each aborting BEFORE the next:
+      #   1) identity-verified recovery RPC (re-arm + grant the ONE dispatch
+      #      reservation transactionally, persisted in the mission row);
+      #   2) dispatch-token claim RPC only for a fresh grant. A preexisting consumed
+      #      grant bypasses this gate and may renew only its same scope once; the grant
+      #      reference is never regenerated or consumed again;
+      #   3) the tick script re-verifies identity/agent eligibility, then atomically
+      #      claims the one tick in PostgreSQL before its ONLY runtime POST.
+      - name: Gate 1 — recovery RPC (re-arm scope + grant reservation)
+        if: github.event.inputs.execute_recovery_tick == 'true'
+        env:
+          A4_RECOVERY_SCOPE_ID: ${{ env.A4_RECOVERY_SCOPE_ID }}
+          A4_RECOVERY_GOAL_HASH: ${{ env.A4_RECOVERY_GOAL_HASH }}
+          A4_RECOVERY_REQUEST_ID: ${{ env.A4_RECOVERY_REQUEST_ID }}
+          A4_RECOVERY_USER_ID: ${{ env.A4_RECOVERY_USER_ID }}
+        run: |
+          set -euo pipefail
+          GRANT_REF="a4-recovery-${GITHUB_RUN_ID}.${GITHUB_RUN_ATTEMPT}"
+          [[ "$A4_RECOVERY_SCOPE_ID" =~ ^[A-Za-z0-9_-]{8,120}$ ]] || { echo "A4_RECOVERY_SCOPE_ID_INVALID"; exit 1; }
+          [[ "$A4_RECOVERY_GOAL_HASH" =~ ^[0-9a-f]{64}$ ]] || { echo "A4_RECOVERY_GOAL_HASH_INVALID"; exit 1; }
+          [[ "$A4_RECOVERY_REQUEST_ID" =~ ^[a-f0-9-]{10,80}$ ]] || { echo "A4_RECOVERY_REQUEST_ID_INVALID"; exit 1; }
+          [[ "$A4_RECOVERY_USER_ID" =~ ^[a-f0-9-]{10,80}$ ]] || { echo "A4_RECOVERY_USER_ID_INVALID"; exit 1; }
+          [[ "$GRANT_REF" =~ ^[A-Za-z0-9_.:/-]{4,120}$ ]] || { echo "A4_RECOVERY_GRANT_REF_INVALID"; exit 1; }
+
+          SQL=$(printf "SELECT 'A4_RECOVER_ACTION=' || coalesce(v->>'action','') || '|RES_GRANTED=' || coalesce(v->>'dispatch_reservation_granted','') || '|RES_PERSISTED=' || coalesce(v->>'dispatch_reservation_persisted','') || '|RES_PREEXISTING=' || coalesce(v->>'dispatch_reservation_preexisting','') || '|DISPATCH_GRANT_REF=' || coalesce(v->>'dispatch_grant_ref','') FROM (select aria_internal.aria_m22_a4_recover_mission_v1('mission_a4_authorized_once','%s','%s','%s','%s','%s') as v) t;\n" "$A4_RECOVERY_SCOPE_ID" "$A4_RECOVERY_USER_ID" "$A4_RECOVERY_REQUEST_ID" "$A4_RECOVERY_GOAL_HASH" "$GRANT_REF")
+          OUT=$(supabase db query "$SQL" --yes --remote)
+          printf '%s\n' "$(printf "%s" "$OUT" | grep -o 'A4_RECOVER_ACTION=.*' | head -1)" > recovery-action.txt
+          LINE=$(sed -n 's/^A4_RECOVER_ACTION=//p' recovery-action.txt | head -1 | sed -E 's/[[:space:]]*│[[:space:]]*$//' | tr -d '\r')
+          ACTION=$(printf "%s" "$LINE" | cut -d'|' -f1)
+          RES_GRANTED=$(printf "%s" "$LINE" | sed -n 's/.*|RES_GRANTED=\([^|]*\).*/\1/p')
+          RES_PERSISTED=$(printf "%s" "$LINE" | sed -n 's/.*|RES_PERSISTED=\([^|]*\).*/\1/p')
+          RES_PREEXISTING=$(printf "%s" "$LINE" | sed -n 's/.*|RES_PREEXISTING=\([^|]*\).*/\1/p')
+          RESULT_REF=$(printf "%s" "$LINE" | sed -n 's/.*|DISPATCH_GRANT_REF=//p')
+
+          if [[ "$ACTION" != "recovered" && "$ACTION" != "already_recovered" ]]; then
+            echo "A4_RECOVERY_RPC_REFUSED action=$ACTION; aborting before token claim and tick"
+            exit 1
+          fi
+          if [[ "$RES_PERSISTED" != "true" ]]; then
+            echo "A4_RECOVERY_RESERVATION_REFUSED persisted=$RES_PERSISTED; no token claim or tick"
+            exit 1
+          fi
+          # A preexisting reservation (from a previous run) is acceptable ONLY if already consumed
+          # (the token flip already happened); a preexisting unconsumed reservation is an error.
+          if [[ "$RES_PREEXISTING" == "true" ]]; then
+            CONSUMED_SQL=$(printf "SELECT coalesce(metadata->'a4_recovery_dispatch_v1'->>'consumed','false') FROM aria_internal.mission_state WHERE mission_id='mission_a4_authorized_once';")
+            CONSUMED_OUT=$(supabase db query "$CONSUMED_SQL" --read-only --remote)
+            CONSUMED=$(printf "%s" "$CONSUMED_OUT" | grep -o 'true' | head -1 || echo "false")
+            if [[ "$CONSUMED" != "true" ]]; then
+              echo "A4_RECOVERY_RESERVATION_REFUSED preexisting but not consumed; aborting"
+              exit 1
+            fi
+            # The original dispatch token was already consumed by run 42110933267,
+            # whose Gate 3 never dispatched. Renew only this same expired bound scope,
+            # preserving the exact consumed grant_ref. No new token or scope is issued.
+            RESUME_SQL=$(printf "SELECT 'A4_SCOPE_RESUME_OK=' || CASE WHEN coalesce(v->>'action','') IN ('scope_resumed','already_fresh') AND coalesce(v->>'dispatch_grant_ref','')='%s' AND coalesce(v->>'dispatch_token_reused','false')='true' THEN 'true' ELSE 'false' END FROM (SELECT aria_internal.aria_m22_a4_resume_consumed_scope_v1('mission_a4_authorized_once','%s','%s','%s','%s','%s')::jsonb AS v) resumed;\\n" "$RESULT_REF" "$A4_RECOVERY_SCOPE_ID" "$A4_RECOVERY_USER_ID" "$A4_RECOVERY_REQUEST_ID" "$A4_RECOVERY_GOAL_HASH" "$RESULT_REF")
+            RESUME_OUT=$(supabase db query "$RESUME_SQL" --yes --remote)
+            if ! printf "%s" "$RESUME_OUT" | grep -q 'A4_SCOPE_RESUME_OK=true'; then
+              echo "A4_SCOPE_RESUME_REFUSED; same consumed grant retained; no token claim or tick"
+              exit 1
+            fi
+            echo "A4_SCOPE_RESUME_OK=true exact_scope_and_grant_preserved=true"
+            echo "A4_RECOVERY_RPC_OK action=$ACTION reservation_preexisting_consumed=true grant_ref=$RESULT_REF"
+            echo "A4_DISPATCH_GRANT_REF=$RESULT_REF" >> "$GITHUB_ENV"
+            echo "A4_RECOVERY_RPC_RESULT_REF=$RESULT_REF" >> "$GITHUB_ENV"
+            echo "A4_DISPATCH_TOKEN_CLAIMED=true" >> "$GITHUB_ENV"
+            echo "A4_RECOVERY_SKIP_CLAIM=true" >> "$GITHUB_ENV"
+          else
+            if [[ "$RESULT_REF" != "$GRANT_REF" ]]; then
+              echo "A4_RECOVERY_RESERVATION_REFUSED grant_ref mismatch (generated=$GRANT_REF returned=$RESULT_REF)"
+              exit 1
+            fi
+            echo "A4_RECOVERY_RPC_OK action=$ACTION reservation_persisted=true exact_grant_ref_match=true"
+            echo "A4_DISPATCH_GRANT_REF=$RESULT_REF" >> "$GITHUB_ENV"
+            echo "A4_RECOVERY_RPC_RESULT_REF=$RESULT_REF" >> "$GITHUB_ENV"
+          fi
+
+      - name: Gate 2 — dispatch-token claim RPC (single-token consumption)
+        if: github.event.inputs.execute_recovery_tick == 'true' && env.A4_RECOVERY_SKIP_CLAIM != 'true'
+        env:
+          A4_RECOVERY_SCOPE_ID: ${{ env.A4_RECOVERY_SCOPE_ID }}
+          A4_DISPATCH_GRANT_REF: ${{ env.A4_DISPATCH_GRANT_REF }}
+        run: |
+          set -euo pipefail
+          [[ "$A4_RECOVERY_SCOPE_ID" =~ ^[A-Za-z0-9_-]{8,120}$ ]] || { echo "A4_RECOVERY_SCOPE_ID_INVALID_BEFORE_TOKEN_SQL"; exit 1; }
+          [[ "$A4_DISPATCH_GRANT_REF" =~ ^[A-Za-z0-9_.:/-]{4,120}$ ]] || { echo "A4_RECOVERY_GRANT_REF_INVALID_BEFORE_TOKEN_SQL"; exit 1; }
+          SQL=$(printf "SELECT 'A4_TOKEN_CLAIM=' || (aria_internal.aria_m22_a4_claim_recovery_dispatch_token_v1('mission_a4_authorized_once','%s','%s')::jsonb->>'action');\n" "$A4_RECOVERY_SCOPE_ID" "$A4_DISPATCH_GRANT_REF")
+          OUT=$(supabase db query "$SQL" --yes --remote)
+          ACTION=$(printf "%s" "$OUT" | grep -o 'A4_TOKEN_CLAIM=.*' | head -1 | sed 's/^A4_TOKEN_CLAIM=//' | sed -E 's/[[:space:]]*│[[:space:]]*$//' | tr -d '\r')
+          case "$ACTION" in
+            token_claimed) echo "A4_DISPATCH_TOKEN_CLAIMED=true"; echo "A4_TOKEN_CLAIM_OK action=token_claimed (reservation consumed; exactly one tick is now armed)";;
+            dispatch_already_consumed) echo "A4_DISPATCH_TOKEN_ALREADY_CLAIMED=true"; echo "A4_TOKEN_CLAIM_OK action=dispatch_already_consumed (token was already consumed by a previous run; tick is armed)"; echo "A4_DISPATCH_TOKEN_CLAIMED=true" >> "$GITHUB_ENV"; echo "A4_RECOVERY_SKIP_CLAIM=true" >> "$GITHUB_ENV";;
+            *) echo "A4_TOKEN_CLAIM_REFUSED action=$ACTION (already consumed, not granted, or eligibility/precondition failure). NO TICK DISPATCHED. This persists across reruns."; exit 1;;
+          esac
+          echo "A4_DISPATCH_TOKEN_CLAIMED=true" >> "$GITHUB_ENV"
+
+      - name: Gate 3 — single recovery tick (reservation + agent eligibility + ONE fetch)
+        if: github.event.inputs.execute_recovery_tick == 'true'
+        env:
+          A4_RECOVERY_SCOPE_ID: ${{ env.A4_RECOVERY_SCOPE_ID }}
+          A4_DISPATCH_GRANT_REF: ${{ env.A4_DISPATCH_GRANT_REF }}
+          A4_DISPATCH_TOKEN_CLAIMED: ${{ env.A4_DISPATCH_TOKEN_CLAIMED }}
+        working-directory: rwht/pc-browser
+        run: node mission-wonder-2-step4-a4-recovery-tick.mjs
+
+      - name: Upload recovery evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: a4-controlled-recovery-${{ github.run_id }}-${{ github.run_attempt }}
+          path: rwht/pc-browser/a4-recovery-artifacts/
+          if-no-files-found: ignore

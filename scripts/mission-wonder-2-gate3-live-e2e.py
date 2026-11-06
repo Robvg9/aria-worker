@@ -16,6 +16,8 @@ import time
 import urllib.error
 import urllib.request
 
+from mission_wonder_2_deploy_selection import collect_successful_canonical_supabase_deploys
+
 GOOGLE = {
     "provider_id": "google",
     "account_id": "acct_google_gemini_free",
@@ -64,10 +66,10 @@ expires_at = (now + dt.timedelta(minutes=10)).isoformat(timespec="seconds").repl
 
 
 def supabase_sql(query, allow_write=False):
-    # Supabase CLI db query has no --read-only flag. Keep read-mode safe by
-    # accepting exactly one SELECT statement; only the reviewed INSERT/UPDATE
-    # and the Human Gate approval RPC may use --yes.
-    args = ["supabase", "db", "query", "--linked", query]
+    # Hosted Supabase CLI queries require an explicit non-interactive intent.
+    # Permit exactly one SELECT in read mode and mark it --read-only; only the
+    # reviewed INSERT/UPDATE and Human Gate approval RPC may use --yes.
+    args = ["supabase", "db", "query", query, "--remote"]
     if allow_write:
         args.append("--yes")
     else:
@@ -76,6 +78,7 @@ def supabase_sql(query, allow_write=False):
             statement = statement[:-1].rstrip()
         if not re.match(r"(?is)^SELECT\b", statement) or ";" in statement:
             fail("read-only SQL must be a single SELECT statement")
+        args.append("--read-only")
     proc = subprocess.run(
         args,
         text=True,
@@ -89,7 +92,6 @@ def supabase_sql(query, allow_write=False):
         print(output[-5000:])
         fail("Supabase SQL command failed")
     return output
-
 
 def check_sql(query, marker, label, allow_write=False):
     output = supabase_sql(query, allow_write=allow_write)
@@ -124,17 +126,20 @@ def github_deploy_exact_sha():
     # Prefer a successful canonical deploy for this exact SHA. If main has
     # advanced only by the isolated harness/test changes, reuse the most recent
     # successful deployment after proving no runtime-bearing paths changed.
-    runs_url = f"https://api.github.com/repos/{GH_REPO}/actions/runs?branch=main&per_page=100"
-    payload = github_api_json(runs_url)
-    deployments = [
-        run for run in payload.get("workflow_runs", [])
-        if run.get("name") == "Deploy ARIA Supabase Runtime"
-        and run.get("head_branch") == "main"
-        and run.get("event") == "push"
-        and run.get("status") == "completed"
-        and run.get("conclusion") == "success"
-        and re.fullmatch(r"[0-9a-f]{40}", str(run.get("head_sha", "")))
-    ]
+    # Scope the query to the canonical workflow and page through its complete
+    # main history. The repository-wide endpoint can return 2,500+ main runs;
+    # the first 100 are often unrelated workflows and can hide valid deploys.
+    runs_url = (
+        f"https://api.github.com/repos/{GH_REPO}/actions/workflows/"
+        "supabase-canonical-deploy.yml/runs?branch=main&per_page=100"
+    )
+
+    def fetch_deploy_page(page):
+        return github_api_json(runs_url + "&page=" + str(page))
+
+    deployments = collect_successful_canonical_supabase_deploys(
+        fetch_deploy_page, page_size=100, max_pages=10
+    )
     deployments.sort(key=lambda run: str(run.get("updated_at", "")), reverse=True)
     if not deployments:
         fail("no successful canonical Supabase runtime deployment exists on main")
@@ -154,7 +159,12 @@ def github_deploy_exact_sha():
     # Any functions, migrations, runtime, worker or config path change forces
     # a new successful canonical deployment before this probe can proceed.
     safe_post_deploy_files = {
+        # Only isolated Gate 3 harness, selector helper, and their contracts may
+        # advance past the last canonical Supabase runtime deployment.
+        ".github/workflows/mission-wonder-2-gate3-contract.yml",
         "scripts/mission-wonder-2-gate3-live-e2e.py",
+        "scripts/mission_wonder_2_deploy_selection.py",
+        "tests/mission-wonder-2-deploy-selection.test.py",
         "tests/mission-wonder-2-gate3-scope.test.mjs",
     }
     changed_files = {

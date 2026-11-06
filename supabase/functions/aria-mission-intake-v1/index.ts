@@ -1,5 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { m22A4ScopeRowMatchesV1 } from "../_shared/mission-wonder-2-a4-scope-v1.mjs";
+import { m22A5ScopeRowMatchesV1, M22_A5_SCOPE_ID } from "../_shared/mission-wonder-2-a5-scope-v1.mjs";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -51,10 +53,6 @@ Deno.serve(async (req: Request) => {
     return json({ error: "unauthorized" }, 401);
   }
 
-  if (MISSION_EXECUTION_PAUSED) {
-    return json({ error: "mission_execution_paused", execution_enabled: false }, 423);
-  }
-
   let body: Record<string, unknown>;
   try {
     body = await req.json();
@@ -72,6 +70,30 @@ Deno.serve(async (req: Request) => {
   const metadata = body.metadata && typeof body.metadata === "object" && !Array.isArray(body.metadata)
     ? body.metadata
     : {};
+
+  if (MISSION_EXECUTION_PAUSED) {
+    const a5ScopeId = String(metadata.mission_wonder_2_a5_scope_id || "").trim();
+    if (a5ScopeId === M22_A5_SCOPE_ID && metadata.mission_wonder_2_a5_recovery === true) {
+      if (!metadata.user_id || !metadata.request_id) return json({ error: "mission_execution_paused", execution_enabled: false }, 423);
+      const { data: scope, error: scopeError } = await supabase.schema("aria_internal").from("mission_wonder_2_a5_scopes")
+        .select("*").eq("scope_id", a5ScopeId).maybeSingle();
+      const valid = !scopeError && await m22A5ScopeRowMatchesV1({
+        scope, metadata, missionId: id, userId: String(metadata.user_id),
+        requestId: String(metadata.request_id), goal, projectId: metadata.project_id ?? null, requiredStatuses: ["claimed"],
+      });
+      if (!valid) return json({ error: "mission_execution_paused", execution_enabled: false }, 423);
+    } else {
+      const scopeId = String(metadata.mission_wonder_2_a4_scope_id || "").trim();
+      if (!scopeId || !metadata.user_id || !metadata.request_id || metadata.mission_wonder_2_a4_readonly !== true) return json({ error: "mission_execution_paused", execution_enabled: false }, 423);
+      const { data: scope, error: scopeError } = await supabase.schema("aria_internal").from("mission_wonder_2_a4_scopes")
+        .select("*").eq("scope_id", scopeId).maybeSingle();
+      const valid = !scopeError && await m22A4ScopeRowMatchesV1({
+        scope, metadata, missionId: id, userId: String(metadata.user_id),
+        requestId: String(metadata.request_id), goal, projectId: metadata.project_id ?? null, requiredStatuses: ["claimed"],
+      });
+      if (!valid) return json({ error: "mission_execution_paused", execution_enabled: false }, 423);
+    }
+  }
 
   const checkpoint = body.checkpoint && typeof body.checkpoint === "object" && !Array.isArray(body.checkpoint)
     ? body.checkpoint

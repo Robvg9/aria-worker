@@ -1,0 +1,98 @@
+name: Mission Wonder 2 — Step 5 A5 Controlled PWA Pilot
+
+on:
+  workflow_dispatch:
+    inputs:
+      execute_pilot:
+        description: "Authorize the one-shot A5 ordinary mission, controlled interruption, same-job recovery and final verification."
+        type: boolean
+        required: true
+        default: false
+      verify_existing_success:
+        description: "Reconcile and verify the already-succeeded attempt-2 job only; no physical re-execution, new job or new recovery."
+        type: boolean
+        required: true
+        default: false
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: mission-wonder-2-step5-a5-single-pilot
+  cancel-in-progress: false
+
+jobs:
+  a5-recovery-e2e:
+    if: inputs.execute_pilot == true || inputs.verify_existing_success == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: production
+    env:
+      SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      ARIA_RUNTIME_SHARED_SECRET: ${{ secrets.ARIA_RUNTIME_SHARED_SECRET }}
+      RWHT_URL: https://aria.robvg9.workers.dev/pwa/
+      RWHT_EMAIL: ${{ secrets.RWHT_EMAIL }}
+      RWHT_PASSWORD: ${{ secrets.RWHT_PASSWORD }}
+      RWHT_STORAGE_STATE_B64: ${{ secrets.RWHT_STORAGE_STATE_B64 }}
+      RWHT_STORAGE_STATE_GZIP_B64: ${{ secrets.RWHT_STORAGE_STATE_GZIP_B64 }}
+      A5_ARTIFACT_DIR: rwht/pc-browser/a5-live-artifacts
+      A5_VERIFY_EXISTING_SUCCESS: ${{ inputs.verify_existing_success }}
+      A5_EXECUTE_PILOT: ${{ inputs.execute_pilot }}
+    steps:
+      - name: Checkout exact main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Setup Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Verify production project and link Supabase
+        run: |
+          set -euo pipefail
+          test "$SUPABASE_PROJECT_REF" = "icuqsstxfdbvjytkhlog"
+          test -n "$SUPABASE_ACCESS_TOKEN"
+          test -n "$ARIA_RUNTIME_SHARED_SECRET"
+          npm install --global supabase
+          supabase link --project-ref "$SUPABASE_PROJECT_REF"
+
+      - name: Install authenticated browser dependencies
+        working-directory: rwht/pc-browser
+        run: npm install --no-audit --no-fund
+
+      - name: Install Chromium
+        working-directory: rwht/pc-browser
+        run: npx playwright install --with-deps chromium
+
+      - name: Prepare authenticated PWA state
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "$RWHT_EMAIL" || -z "$RWHT_PASSWORD" ]]; then
+            if [[ -n "$RWHT_STORAGE_STATE_B64" ]]; then
+              printf '%s' "$RWHT_STORAGE_STATE_B64" | base64 --decode > "$RUNNER_TEMP/aria-a5-auth-state.json"
+            elif [[ -n "$RWHT_STORAGE_STATE_GZIP_B64" ]]; then
+              printf '%s' "$RWHT_STORAGE_STATE_GZIP_B64" | base64 --decode | gzip -dc > "$RUNNER_TEMP/aria-a5-auth-state.json"
+            fi
+          fi
+          if [[ -f "$RUNNER_TEMP/aria-a5-auth-state.json" ]]; then
+            chmod 600 "$RUNNER_TEMP/aria-a5-auth-state.json"
+            echo "RWHT_STORAGE_STATE=$RUNNER_TEMP/aria-a5-auth-state.json" >> "$GITHUB_ENV"
+          fi
+
+      - name: Run A5 ordinary mission, interrupt, reclaim same job and verify
+        working-directory: rwht/pc-browser
+        run: node mission-wonder-2-step5-a5-live-pilot.mjs
+
+      - name: Upload sanitized A5 end-to-end evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mission-wonder-2-step5-a5-e2e-${{ github.run_id }}-${{ github.run_attempt }}
+          path: rwht/pc-browser/a5-live-artifacts/
+          if-no-files-found: warn

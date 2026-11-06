@@ -5,7 +5,12 @@ const { execFileSync } = require('node:child_process');
 
 const NON_RELEASE_PATTERNS = [
   /^tests\//,
+  // This is a runner-only proof harness for a manual, frozen-scope E2E; it ships no runtime artifact.
+  /^scripts\/mission-wonder-2-package3-live-e2e\.cjs$/,
   /^\.github\/workflows\//,
+  // A3 PowerShell/shell/Python runner helpers are operator tooling for the isolated
+  // presence pilot, not code shipped in the public aria Worker release artifact.
+  /^\.github\/scripts\/mission-wonder-2-step3-a3-/,
   /^scripts\/release-bearing\.js$/,
   /^docs\//,
   /^reports\//,

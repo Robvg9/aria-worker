@@ -41,5 +41,7 @@ jobs:
           python-version: "3.12"
       - name: Compile supervised LIVE probe without running it
         run: python3 -m py_compile scripts/mission-wonder-2-gate3-live-e2e.py
+      - name: Test canonical deployment event selection (push and protected dispatch)
+        run: python3 tests/mission-wonder-2-deploy-selection.test.py
       - name: Test exact mission, route allowlist, expiry, retry limit and freeze contracts
         run: node tests/mission-wonder-2-gate3-scope.test.mjs

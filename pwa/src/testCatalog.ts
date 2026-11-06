@@ -8,7 +8,7 @@ export type TestCatalogItem = {
   capabilities: string;
 };
 
-export const TEST_CATALOG_VERSION = '2026-11-03-voice-v4-telegram-v1';
+export const TEST_CATALOG_VERSION = '2026-11-06-voice-v4-merged-v1';
 export const TEST_CATALOG: TestCatalogItem[] = [
   {
     "id": "voice-v4-telegram-delivery",
@@ -2459,6 +2459,15 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "capabilities": "Detecta bloqueos del agente, telemetría no crítica y pérdida de estados started/completed."
   },
   {
+    "id": "windows-agent-meditation-notepad-fallback",
+    "file": "tests/windows-agent-meditation-notepad-fallback.test.js",
+    "title": "Windows Agent Optional Notepad Fallback",
+    "category": "Windows / recursos / recuperación",
+    "includedInNpmTest": true,
+    "how": "Comprueba que la ausencia de Notepad se trate como un fallo opcional de interfaz y no cierre el agente Windows.",
+    "capabilities": "Detecta regresiones de ChildProcess ENOENT, continuidad de Meditation IA, heartbeat adaptativo y conservación de shell.execute en el preflight."
+  },
+  {
     "id": "windows-agent-resource-guard",
     "file": "tests/windows-agent-resource-guard.test.js",
     "title": "Windows Agent Resource Guard",
@@ -3111,6 +3120,15 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "includedInNpmTest": false,
     "how": "Verifica que el worker Windows ejecute operaciones acotadas de workspace sin planificador ni inferencia local.",
     "capabilities": "Bloquea rutas fuera del workspace, archivos sensibles y comandos arbitrarios; comprueba escritura idempotente, respaldos, hash SHA-256 y verificación de evidencia."
+  },
+  {
+    "id": "worker-single-instance-lock-v1",
+    "file": "tests/worker-single-instance-lock-v1.test.js",
+    "title": "Windows Worker Single-Instance Lock",
+    "category": "Autonomía / ejecución Windows",
+    "includedInNpmTest": false,
+    "how": "Comprueba que solo exista una instancia del worker, rechaza procesos duplicados y recupera bloqueos de procesos terminados.",
+    "capabilities": "Evita workers concurrentes y permite recuperación segura después de una caída sin borrar el bloqueo de una instancia activa."
   },
 ];
 

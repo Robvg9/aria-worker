@@ -4,16 +4,18 @@ const fs=require('node:fs');
 const path=require('node:path');
 const source=fs.readFileSync('.github/workflows/supabase-canonical-deploy.yml','utf8');
 const pwaDeploy=fs.readFileSync('.github/workflows/aria-cloudflare-deploy.yml','utf8');
+assert.ok(pwaDeploy.includes("'tests/supabase-canonical-deploy-contract.test.js'"), 'changing the Supabase deploy contract must not trigger a legacy Worker deployment');
+assert.ok(pwaDeploy.includes("'scripts/aria-mcp-chatbending-context-contract.cjs'"), 'the static OpenCode MCP contract helper must not trigger a Cloudflare Worker deployment');
 const deliveryGate=fs.readFileSync('.github/workflows/aria-delivery-deterministic-gate.yml','utf8');
 const workerPwa=fs.readFileSync('worker.js','utf8');
 
-const releaseFunctions=['aria-planner-v11','aria-canonical-runtime-v1','aria-mission-runner-v22','aria-runtime-gateway-v1','aria-execution-runtime-v1','aria-device-gateway','aria-smart-verifier-v1','aria-direct-v1','aria-memory-v2'];
+const releaseFunctions=['aria-planner-v11','aria-canonical-runtime-v1','aria-mission-runner-v22','aria-runtime-gateway-v1','aria-execution-runtime-v1','aria-device-gateway','aria-smart-verifier-v1','aria-direct-v1','aria-mission-intake-v1','aria-memory-v2'];
 for(const fn of releaseFunctions) assert.match(source,new RegExp(`functions deploy ${fn}\\b`),`${fn} must be deployed`);
 const deployCommands=source.split("\n").filter(line=>line.includes("supabase functions deploy "));
 assert.ok(deployCommands.length>0,"canonical deployment commands must exist");
 for(const command of deployCommands) assert.match(command,/--yes(?:\s|$)/,"every canonical Edge Function deployment must be non-interactive");
 
-const protectedFunctions=['aria-planner-v11','aria-mission-runner-v22','aria-runtime-gateway-v1','aria-execution-runtime-v1','aria-device-gateway','aria-smart-verifier-v1'];
+const protectedFunctions=['aria-planner-v11','aria-mission-runner-v22','aria-runtime-gateway-v1','aria-execution-runtime-v1','aria-device-gateway','aria-smart-verifier-v1','aria-mission-intake-v1'];
 for(const fn of protectedFunctions) assert.ok(fs.existsSync(path.join('supabase','functions',fn,'index.ts')),`${fn} source index.ts must be versioned`);
 assert.ok(fs.existsSync(path.join('supabase','functions','aria-runtime-gateway-v1','deno.json')),'aria-runtime-gateway-v1 deno.json must be versioned');
 
@@ -25,14 +27,21 @@ assert.doesNotMatch(source,/functions deploy aria-mcp-oauth-grok-v2\\b/);
 assert.match(source,/canonical execution chain is release-bearing/);
 assert.ok(source.includes('fetch-depth: 0'),'migration detector requires merge parent history');
 assert.ok(source.includes('supabase link --project-ref "$SUPABASE_PROJECT_REF"'));
+assert.ok(source.includes("'!autonomy/worker-single-instance-lock-v1.js'"), 'the A3-only Windows worker lock helper must not trigger canonical Supabase deploys');
+assert.ok(source.includes("'!tests/supabase-canonical-deploy-contract.test.js'"), 'changing only the deployment trigger contract must not deploy Supabase runtime functions');
+assert.ok(source.includes("'!supabase/functions/aria-mcp-inbound-grok-v1/**'"), 'the OpenCode MCP inbound must deploy independently without redeploying the 12-function canonical runtime');
+assert.ok(source.includes("'rwht/pc-browser/mission-wonder-2-step4-a4-live-e2e.mjs'"), 'changing the A4 live E2E must run the exact-SHA canonical runtime deploy before retrying the one-shot workflow');
+assert.ok(source.includes("'tests/mission-wonder-2-step4-a4-scope.test.cjs'"), 'changing the A4 scope contract must run the canonical same-SHA validation/deploy gate');
 assert.ok(source.includes("printf 'ARIA_PLAN_PRODUCER_SHARED_SECRET=%s\\n' \"$ARIA_PLAN_PRODUCER_SHARED_SECRET\" > \"$tmp_env\""),'plan bridge secret env file must end with a real newline, not literal backslash-n');
 assert.ok(!source.includes("printf 'ARIA_PLAN_PRODUCER_SHARED_SECRET=%s\\\\n'"),'plan bridge env file must not append a literal backslash-n to the secret');
 assert.ok(source.includes('grep -Fx -- "ARIA_PLAN_PRODUCER_SHARED_SECRET=$ARIA_PLAN_PRODUCER_SHARED_SECRET" "$tmp_env" >/dev/null'),'plan bridge env-file value must equal the secret exactly before syncing');
-assert.match(source,/supabase migration fetch --linked --yes/);
+assert.match(source,/supabase migration fetch --yes --remote/,'migration inventory must explicitly target the hosted project with Supabase CLI v3');
 assert.match(source,/BASE_SHA="\$\(git rev-list --parents -n 1 "\$GITHUB_SHA" \| cut -d' ' -f2\)"/);
-assert.match(source,/git diff --name-only "\$BASE_SHA" "\$GITHUB_SHA"/);
+// Migration reconciliation is unconditional on each canonical release run.
 assert.doesNotMatch(source,/git diff-tree --no-commit-id --name-only -r "\$GITHUB_SHA"/);
-assert.match(source,/supabase db push --include-all/);
+assert.match(source,/supabase db push --include-all --yes --remote/,'production migration push must explicitly target the linked project with Supabase CLI v3');
+assert.ok(source.includes('MIGRATION_RECONCILIATION=every_canonical_deploy'),'every release-bearing run must reconcile the remote migration history');
+assert.ok(source.includes('echo "changed=true" >> "$GITHUB_OUTPUT"'),'canonical deployments must not leave previously merged migrations pending');
 assert.match(source,/remote_hashes/);
 assert.match(source,/remote_versions/,'migration gate must track remote migration versions');
 assert.match(source,/REMOTE_MAX_MIGRATION_VERSION=/,'migration gate must establish the remote migration watermark');

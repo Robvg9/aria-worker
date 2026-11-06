@@ -1,8 +1,12 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const { execFileSync } = require('node:child_process');
 const test = require('node:test');
-const { parseShellJob, validateScript, normalizeCwd } = require('../autonomy/windows-shell-executor');
+const { parseShellJob, executePowerShell, validateScript, normalizeCwd } = require('../autonomy/windows-shell-executor');
 
 test('accepts raw PowerShell command jobs', () => {
   const job = { device_id: 'windows-1', operation: 'shell.execute', command: 'Write-Output ARIA_WINDOWS_OK' };
@@ -36,4 +40,42 @@ test('requires an absolute working directory', () => {
 test('rejects jobs for another device or operation', () => {
   assert.throws(() => parseShellJob({ device_id: 'other', operation: 'shell.execute', command: 'Write-Output x' }, 'windows-1'), /unsupported_job/);
   assert.throws(() => parseShellJob({ device_id: 'windows-1', operation: 'ollama.qwen3', command: 'Write-Output x' }, 'windows-1'), /unsupported_job/);
+});
+
+test('authorization abort kills the active PowerShell process tree', { skip: process.platform !== 'win32' }, async (t) => {
+  const pidFile = path.join(os.tmpdir(), `aria-shell-abort-${process.pid}-${Date.now()}.pid`);
+  t.after(() => { try { fs.unlinkSync(pidFile); } catch {} });
+  const controller = new AbortController();
+  const escapedPidFile = pidFile.replace(/'/g, "''");
+  const execution = executePowerShell({
+    script: `[IO.File]::WriteAllText('${escapedPidFile}',[string]$PID); while ($true) { Start-Sleep -Seconds 1 }`,
+    cwd: os.tmpdir(),
+    timeout_ms: 30_000,
+    signal: controller.signal,
+  });
+
+  for (let poll = 0; poll < 50 && !fs.existsSync(pidFile); poll += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  const pid = fs.existsSync(pidFile) ? fs.readFileSync(pidFile, 'utf8').trim() : '';
+  controller.abort();
+
+  const result = await execution;
+  assert.ok(pid, 'PowerShell process did not publish its PID before cancellation');
+  assert.ok(Number.isInteger(Number(pid)) && Number(pid) > 0, 'PowerShell PID must be numeric');
+  assert.equal(result.status, 'cancelled');
+  assert.equal(result.metadata?.cancelled, true);
+
+  let processGone = false;
+  for (let poll = 0; poll < 30; poll += 1) {
+    try {
+      const state = execFileSync('powershell.exe', [
+        '-NoLogo', '-NoProfile', '-NonInteractive', '-Command',
+        `if (Get-Process -Id ${pid} -ErrorAction SilentlyContinue) { 'alive' } else { 'gone' }`,
+      ], { encoding: 'utf8', windowsHide: true }).trim();
+      if (state === 'gone') { processGone = true; break; }
+    } catch { processGone = true; break; }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  assert.equal(processGone, true, `PowerShell PID ${pid} survived authorization cancellation`);
 });

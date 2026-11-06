@@ -19,6 +19,10 @@ on:
       - 'tests/mission-runner-v22-executor-inference.test.js'
       - 'tests/phase3-canonical-runtime-contract.test.js'
       - 'tests/supabase-canonical-deploy-contract.test.js'
+      - 'rwht/pc-browser/mission-wonder-2-step4-a4-live-e2e.mjs'
+      - 'tests/mission-wonder-2-step4-a4-scope.test.cjs'
+      - 'tests/mission-wonder-2-step4-a4-runner-handoff-retry.test.cjs'
+      - 'tests/mission-wonder-2-step4-a4-frozen-device-claim.test.cjs'
       - 'runtime/**'
       - 'health/effective-status.js'
       - '!autonomy/PERSISTENT_AUTONOMY_V1.md'
@@ -31,7 +35,16 @@ on:
       - '!autonomy/persistent-worker-bridge-v1.js'
       - '!autonomy/persistent-worker-error-policy-v1.js'
       - '!autonomy/persistent-worker-coordinator-adapter-v1.js'
+      # A6 soak evaluator/docs are CI-only preparation and must not trigger a canonical Supabase redeploy.
+      - '!autonomy/mission-wonder-2-a6-soak-v1.mjs'
+      - '!autonomy/MISSION_WONDER_2_STEP6_A6_SOAK.md'
+      - '!tests/mission-wonder-2-step6-a6-soak.test.mjs'
+      # A3 local worker lock is not a Supabase runtime dependency; exclude this and the trigger contract from production deploys.
+      - '!autonomy/worker-single-instance-lock-v1.js'
+      - '!tests/supabase-canonical-deploy-contract.test.js'
       - '!.github/workflows/supabase-canonical-deploy.yml'
+      # OpenCode MCP inbound is released independently; do not redeploy the 12-function canonical runtime for this single-function change.
+      - '!supabase/functions/aria-mcp-inbound-grok-v1/**'
   workflow_dispatch:
     inputs:
       confirm_plan_bridge_secret_sync:
@@ -67,6 +80,10 @@ jobs:
           node tests/aria-eas-mcp-contract.test.js
           node tests/eas-universal-executor.test.js
           node tests/eas-runner-patch.test.js
+          node tests/mission-wonder-2-step4-a4-scope.test.cjs
+          node tests/mission-wonder-2-step4-a4-runner-handoff-retry.test.cjs
+          node tests/mission-wonder-2-step4-a4-frozen-device-claim.test.cjs
+          node tests/mission-wonder-2-step5-a5-recovery.test.mjs
           node tests/mission-runner-v22-executor-inference.test.js
           node tests/aria-app-api-v3-contract.test.js
           node tests/phase3-canonical-runtime-contract.test.js
@@ -87,11 +104,10 @@ jobs:
             exit 1
           fi
           echo "MIGRATION_DIFF_BASE_SHA=$BASE_SHA"
-          if git diff --name-only "$BASE_SHA" "$GITHUB_SHA" | grep -q '^supabase/migrations/'; then
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-          fi
+          # This workflow is release-bearing: always reconcile remotely so a prior failed deploy
+          # cannot leave an already-merged migration pending until another migration commit arrives.
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+          echo "MIGRATION_RECONCILIATION=every_canonical_deploy"
       - name: Apply Supabase migrations
         if: steps.migration_changes.outputs.changed == 'true'
         env:
@@ -109,7 +125,7 @@ jobs:
             mv "$file" ".ci/supabase-migrations-source/$(basename "$file")"
           done
 
-          supabase migration fetch --linked --yes
+          supabase migration fetch --yes --remote
 
           declare -A remote_hashes=()
           declare -A remote_versions=()
@@ -178,7 +194,7 @@ jobs:
           echo "MIGRATIONS_PENDING_COUNT=$pending"
           if (( pending > 0 )); then
             echo "APPLYING_PENDING_MIGRATIONS=true"
-            supabase db push --include-all --yes
+            supabase db push --include-all --yes --remote
           else
             echo "APPLYING_PENDING_MIGRATIONS=false"
             echo "SUPABASE_MIGRATION_NOOP=true"
@@ -225,6 +241,7 @@ jobs:
           supabase functions deploy aria-agent-runtime-v1 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt --yes
           supabase functions deploy aria-gemini-direct-live-check-v1 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt --yes
           supabase functions deploy aria-direct-v1 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt --yes
+          supabase functions deploy aria-mission-intake-v1 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt --yes
           supabase functions deploy aria-app-api-v3 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt --yes
           supabase functions deploy aria-github-app-runtime-v1 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt --yes
           supabase functions deploy aria-memory-v2 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt --yes

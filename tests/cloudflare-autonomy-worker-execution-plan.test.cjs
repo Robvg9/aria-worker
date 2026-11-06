@@ -136,7 +136,7 @@ async function call(store, route, { method = 'GET', token = CONTROL_TOKEN, body 
       lease_token: executionJob.lease_token,
       result: {
         passed: true,
-        evidence: { path: 'proof/remote-plan.txt', sha256: 'a'.repeat(64) }
+        evidence: { operation: 'workspace.write', path: 'proof/remote-plan.txt', backup: null, bytes_written: 18, sha256: 'a'.repeat(64) }
       }
     }
   });
