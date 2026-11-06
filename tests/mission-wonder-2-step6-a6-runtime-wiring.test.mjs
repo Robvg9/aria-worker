@@ -68,7 +68,7 @@ assert.match(migration, /active_job\.status in \('queued','claimed','running'\)/
 assert.match(migration, /a6_backlog_threshold_exceeded/);
 assert.match(migration, /manualReconciliationRequired/);
 assert.match(migration, /perform aria_internal\.aria_m22_a6_block_run_v1/);
-assert.match(migration, /mission_or_job_terminal_failure/);
+assert.match(migration, /mission_terminal_failure/);
 assert.match(migration, /where run_id=p_run_id and status in \('armed','claimed','bound'\)/);
 assert.match(migration, /r\.job_status in \('failed','timeout','cancelled'\)/);
 assert.match(migration, /job_count=5/);
