@@ -33,7 +33,7 @@ const runStarted = new Date(NOW - 1000).toISOString();
 assert.equal(M22_A6_WINDOW_HOURS, 24);
 assert.equal(M22_A6_MISSION_COUNT, 5);
 assert.equal(M22_A6_MAX_JOBS, 5);
-assert.equal(M22_A6_MAX_ATTEMPTS, 3);
+assert.equal(M22_A6_MAX_ATTEMPTS, 1);
 assert.deepEqual(M22_A6_MISSION_OFFSETS_HOURS, [1, 6, 12, 18, 23]);
 assert.equal(m22A6RunScopeIdV1(RUN_ID), "mission_wonder_2_a6_run_m22-a6-abcdef123456");
 assert.equal(m22A6MissionIdV1(RUN_ID, 1), "mission_m22_a6_abcdef123456_01");
