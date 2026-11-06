@@ -62,8 +62,8 @@ for (let ordinal = 1; ordinal <= M22_A6_MISSION_COUNT; ordinal += 1) {
   assert.equal(step.policy.max_artifacts, 1);
   assert.equal(step.policy.network_access, false);
   assert.equal(step.policy.external_mutations, false);
-  assert.match(step.input.command, /\\[IO\\.File\\]::WriteAllText\\(\\$artifact, \\$marker/);
-  assert.match(step.input.command, /\\[IO\\.File\\]::ReadAllText\\(\\$artifact/);
+  assert.match(step.input.command, /\[IO\.File\]::WriteAllText\(\$artifact, \$marker/);
+  assert.match(step.input.command, /\[IO\.File\]::ReadAllText\(\$artifact/);
   assert.match(step.input.command, /A6_ARTIFACT_DUPLICATES_FOUND/);
   assert.match(step.input.command, /A6_ARTIFACT_CONTENT_MISMATCH/);
   assert.match(step.input.command, /A6_ARTIFACT_VERIFIED;mode=identical/);
