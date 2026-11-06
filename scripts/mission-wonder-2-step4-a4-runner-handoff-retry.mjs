@@ -165,7 +165,10 @@ async function main() {
   if (!identity.goal_hash || !/^[0-9a-f]{64}$/.test(identity.goal_hash)) fail("preflight_goal_hash_invalid");
   if (!identity.scope_id || !/^[A-Za-z0-9_-]{8,120}$/.test(identity.scope_id)) fail("preflight_scope_id_invalid");
   if (!identity.allowed_device_id) fail("preflight_device_missing");
-  if (Date.parse(identity.scope_expires_at) <= Date.now()) fail("preflight_scope_expired");
+  const scopeExpiryMs = Date.parse(identity.scope_expires_at);
+  if (!Number.isFinite(scopeExpiryMs) || scopeExpiryMs <= Date.now() - 2 * 60 * 60 * 1000) {
+    fail("preflight_scope_expired_outside_one_time_continuation_window");
+  }
 
   const apiKeys = await loadApiKeys();
   let acceptedApiKey = null;
