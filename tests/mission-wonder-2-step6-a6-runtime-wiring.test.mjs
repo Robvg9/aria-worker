@@ -35,6 +35,8 @@ assert.match(canonical, /m22A6ScopeRowMatchesV1/);
 assert.match(deviceGateway, /aria_m22_a6_has_claimable_job_v1/);
 assert.match(deviceGateway, /aria_m22_a6_claim_frozen_job_v1/);
 assert.match(deviceGateway, /aria_m22_a6_frozen_job_authorized_v1/);
+assert.match(migration, /left\(p_mission_id,15\)='mission_m22_a6_'/);
+assert.match(migration, /aria_m22_a6_frozen_job_authorized_v1\(p_job_id,v_device_id,v_job_status\)/);
 assert.match(deviceGateway, /execution_enabled:false[\s\S]{0,100}423/);
 assert.match(runtimeGateway, /MISSION_EXECUTION_PAUSED&&\["vision_sync","self_improve","enqueue_device_job"\]/);
 assert.match(helper, /m22A6MissionPlanMatchesV1/);
