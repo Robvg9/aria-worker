@@ -12,6 +12,8 @@ on:
       - '.github/workflows/aria-absorb.yml'
       - '.github/workflows/aria-autonomy-coordinator-deploy.yml'
       - '.github/workflows/aria-npm-test.yml'
+      # Root package.json changes CI scripts only; production PWA dependencies live under pwa/.
+      - 'package.json'
       - 'tests/aria-no-mission-reactivation.contract.test.js'
       - '.github/workflows/persistent-autonomy-v1-tests.yml'
       # A3 worker presence/recovery workflow and its local-only helper/tests do not change the PWA runtime.
