@@ -874,105 +874,6 @@ begin
 end;
 $function$;
 
-create or replace function aria_internal.aria_m22_a6_enqueue_frozen_job_v1(
-  p_run_id text,p_scope_id text,p_job_id text,p_mission_id text,
-  p_device_id text,p_operation text,p_command text,p_cwd text,
-  p_timeout_ms integer,p_policy jsonb,p_metadata jsonb
-) returns jsonb
-language plpgsql security definer
-set search_path to 'pg_catalog','aria_internal'
-as $function$
-declare
-  sc aria_internal.mission_wonder_2_a6_scopes;
-  r aria_internal.mission_wonder_2_a6_runs;
-  m aria_internal.mission_state;
-  existing aria_internal.execution_jobs;
-  step jsonb;
-begin
-  select * into sc from aria_internal.mission_wonder_2_a6_scopes
-   where run_id=p_run_id and scope_id=p_scope_id and mission_id=p_mission_id
-   for update;
-  if not found or sc.status<>'bound' or sc.expires_at<=clock_timestamp() then
-    raise exception 'a6_enqueue_scope_not_bound';
-  end if;
-  select * into r from aria_internal.mission_wonder_2_a6_runs
-   where run_id=p_run_id;
-  if not found or r.status<>'running' or r.expires_at<=clock_timestamp()
-     or r.allowed_device_id<>p_device_id then
-    raise exception 'a6_enqueue_run_not_active';
-  end if;
-  if p_job_id is distinct from sc.job_id
-     or p_mission_id is distinct from sc.mission_id
-     or p_device_id is distinct from sc.allowed_device_id
-     or p_operation is distinct from 'shell.execute'
-     or p_command is distinct from sc.command
-     or p_cwd is distinct from 'C:\Windows\Temp'
-     or p_timeout_ms is distinct from 60000
-     or coalesce(p_metadata->>'idempotency_key','') is distinct from sc.job_id
-     or coalesce(p_policy->>'mission_wonder_2_a6_continuity','false')<>'true'
-     or coalesce(p_policy->>'allowed_artifact_path','')<>sc.artifact_path
-     or coalesce(p_policy->>'idempotent_artifact','false')<>'true'
-     or coalesce(p_policy->>'max_artifacts','')<>'1'
-     or coalesce(p_policy->>'network_access','true')<>'false'
-     or coalesce(p_policy->>'external_mutations','true')<>'false' then
-    raise exception 'a6_enqueue_payload_mismatch';
-  end if;
-
-  select * into m from aria_internal.mission_state
-   where mission_id=p_mission_id for update;
-  if not found or m.status<>'running' or m.total_steps<>1
-     or m.current_step<>0 or m.completed_steps<>0 then
-    raise exception 'a6_enqueue_mission_not_running';
-  end if;
-  if m.metadata->>'mission_wonder_2_a6_run_id' is distinct from p_run_id
-     or m.metadata->>'mission_wonder_2_a6_scope_id' is distinct from p_scope_id
-     or m.metadata->>'mission_wonder_2_a6_goal_hash' is distinct from sc.goal_hash
-     or m.metadata->>'user_id' is distinct from sc.owner_user_id
-     or m.metadata->>'request_id' is distinct from sc.request_id then
-    raise exception 'a6_enqueue_mission_identity_mismatch';
-  end if;
-  if jsonb_typeof(m.checkpoint->'plan') is distinct from 'array'
-     or jsonb_array_length(m.checkpoint->'plan')<>1 then
-    raise exception 'a6_enqueue_plan_missing';
-  end if;
-  step:=m.checkpoint->'plan'->0;
-  if step->>'id' is distinct from 'a6_continuity_marker_'||lpad(sc.ordinal::text,2,'0')
-     or step->>'operation' is distinct from 'shell.execute'
-     or step->'target'->>'device_id' is distinct from p_device_id
-     or step->'input'->>'command' is distinct from p_command
-     or step->'input'->>'cwd' is distinct from p_cwd
-     or step->'policy'->>'allowed_artifact_path' is distinct from sc.artifact_path then
-    raise exception 'a6_enqueue_plan_mismatch';
-  end if;
-
-  select * into existing from aria_internal.execution_jobs
-   where job_id=p_job_id for update;
-  if not found then
-    insert into aria_internal.execution_jobs(
-      job_id,mission_id,device_id,operation,command,cwd,timeout_ms,policy,status,metadata
-    ) values (
-      p_job_id,p_mission_id,p_device_id,p_operation,p_command,p_cwd,p_timeout_ms,
-      coalesce(p_policy,'{}'::jsonb),'queued',coalesce(p_metadata,'{}'::jsonb)
-    ) returning * into existing;
-  else
-    if existing.mission_id is distinct from p_mission_id
-       or existing.device_id is distinct from p_device_id
-       or existing.operation is distinct from p_operation
-       or existing.command is distinct from p_command
-       or existing.cwd is distinct from p_cwd
-       or existing.timeout_ms is distinct from p_timeout_ms
-       or existing.policy is distinct from coalesce(p_policy,'{}'::jsonb)
-       or existing.metadata->>'idempotency_key' is distinct from p_job_id then
-      raise exception 'a6_enqueue_idempotency_conflict';
-    end if;
-  end if;
-  if (select count(*) from aria_internal.execution_jobs where mission_id=p_mission_id)<>1 then
-    raise exception 'a6_mission_job_count_not_one';
-  end if;
-  return to_jsonb(existing);
-end;
-$function$;
-
 create or replace function aria_internal.aria_m22_a6_has_claimable_job_v1(p_device_id text)
 returns boolean
 language sql security definer
@@ -1127,113 +1028,6 @@ begin
 end;
 $function$;
 
-create or replace function aria_internal.aria_m22_a6_sample_runtime_v1()
-returns jsonb
-language plpgsql security definer
-set search_path to 'pg_catalog','aria_internal'
-as $function$
-declare
-  r aria_internal.mission_wonder_2_a6_runs;
-  d aria_internal.device_registry;
-  pending_count integer;
-  oldest_pending_age_ms bigint;
-  heartbeat_gap_ms bigint;
-  previous_sample timestamptz;
-  age_ms bigint;
-  payload jsonb;
-begin
-  select * into r from aria_internal.mission_wonder_2_a6_runs
-   where status='running' order by started_at desc limit 1;
-  if not found then return jsonb_build_object('status','idle'); end if;
-
-  select * into d from aria_internal.device_registry
-   where device_id=r.allowed_device_id;
-  age_ms := case when d.last_seen_at is null then null
-    else greatest(0,(extract(epoch from (clock_timestamp()-d.last_seen_at))*1000)::bigint) end;
-  select max(sampled_at) into previous_sample
-    from aria_internal.mission_wonder_2_a6_telemetry
-   where run_id=r.run_id and event_type='heartbeat_sample';
-  heartbeat_gap_ms := case when previous_sample is null then null
-    else greatest(0,(extract(epoch from (clock_timestamp()-previous_sample))*1000)::bigint) end;
-
-  select count(*)::integer,
-         coalesce(max((extract(epoch from (clock_timestamp()-j.created_at))*1000)::bigint),0)
-    into pending_count,oldest_pending_age_ms
-    from aria_internal.execution_jobs j
-    join aria_internal.mission_wonder_2_a6_scopes sc on sc.job_id=j.job_id
-   where sc.run_id=r.run_id and j.status in ('queued','claimed','running');
-
-  payload := jsonb_build_object(
-    'heartbeatIntervalMs',r.heartbeat_interval_ms,
-    'heartbeatGapMs',heartbeat_gap_ms,
-    'deviceFreshnessMs',age_ms,
-    'deviceOnline',coalesce(d.status='online',false),
-    'a6PendingJobs',pending_count,
-    'oldestA6PendingAgeMs',oldest_pending_age_ms,
-    'nonA6JobsIncluded',false,
-    'globalMissionFreezePreserved',true
-  );
-  insert into aria_internal.mission_wonder_2_a6_telemetry(
-    run_id,event_type,device_last_seen_at,device_status,heartbeat_age_ms,payload
-  ) values (
-    r.run_id,'heartbeat_sample',d.last_seen_at,d.status,age_ms,payload
-  );
-  return jsonb_build_object('status','sampled','run_id',r.run_id,'payload',payload);
-end;
-$function$;
-
-create or replace function aria_internal.aria_m22_a6_reconcile_v1()
-returns jsonb
-language plpgsql security definer
-set search_path to 'pg_catalog','aria_internal'
-as $function$
-declare
-  r record;
-  m aria_internal.mission_state;
-  completed_count integer:=0;
-  blocked_count integer:=0;
-begin
-  for r in
-    select sc.run_id,sc.scope_id,sc.mission_id,sc.job_id,sc.status
-      from aria_internal.mission_wonder_2_a6_scopes sc
-      join aria_internal.mission_wonder_2_a6_runs ru on ru.run_id=sc.run_id
-     where ru.status='running' and sc.status in ('bound','claimed')
-     order by sc.ordinal
-  loop
-    select * into m from aria_internal.mission_state where mission_id=r.mission_id;
-    if not found then continue; end if;
-    if m.status='succeeded' then
-      if aria_internal.aria_m22_a6_complete_scope_v1(r.run_id,r.scope_id,r.mission_id,r.job_id) then
-        completed_count:=completed_count+1;
-      end if;
-    elsif m.status in ('failed','blocked','cancelled','timeout') then
-      update aria_internal.mission_wonder_2_a6_runs
-         set status='blocked',completed_at=clock_timestamp(),updated_at=clock_timestamp()
-       where run_id=r.run_id and status='running';
-      update aria_internal.mission_wonder_2_a6_scopes
-         set status='revoked',revoked_at=coalesce(revoked_at,clock_timestamp()),updated_at=clock_timestamp()
-       where scope_id=r.scope_id and status in ('claimed','bound');
-      insert into aria_internal.mission_wonder_2_a6_telemetry(run_id,event_type,payload)
-      values (r.run_id,'fault_observed',jsonb_build_object(
-        'event','mission_terminal_failure',
-        'mission_id',r.mission_id,
-        'mission_status',m.status,
-        'automatic_retry',false
-      ));
-      blocked_count:=blocked_count+1;
-    end if;
-  end loop;
-  if exists(select 1 from aria_internal.mission_wonder_2_a6_runs where status<>'running')
-     or not exists(select 1 from aria_internal.mission_wonder_2_a6_runs where status='running') then
-    if not exists(select 1 from aria_internal.mission_wonder_2_a6_runs where status='running') then
-      update cron.job set active=false
-       where jobname='aria-mission-wonder-2-a6-dispatcher-every-minute';
-    end if;
-  end if;
-  return jsonb_build_object('completed',completed_count,'blocked',blocked_count);
-end;
-$function$;
-
 create or replace function aria_internal.aria_m22_a6_revoke_run_v1(p_run_id text)
 returns boolean
 language plpgsql security definer
@@ -1325,7 +1119,7 @@ revoke all on function aria_internal.aria_m22_a6_start_run_v1(text,text) from pu
 revoke all on function aria_internal.aria_m22_a6_claim_due_scope_v1() from public,anon,authenticated;
 revoke all on function aria_internal.aria_m22_a6_bind_scope_v1(text,text,text,text,text,text) from public,anon,authenticated;
 revoke all on function aria_internal.aria_m22_a6_materialize_due_mission_v1(text,text) from public,anon,authenticated;
-revoke all on function aria_internal.aria_m22_a6_enqueue_frozen_job_v1(text,text,text,text,text,text,text,integer,jsonb,jsonb) from public,anon,authenticated;
+revoke all on function aria_internal.aria_m22_a6_enqueue_frozen_job_v1(text,text,text,text,text,text,text,text,integer,jsonb,jsonb) from public,anon,authenticated;
 revoke all on function aria_internal.aria_m22_a6_sample_runtime_v1() from public,anon,authenticated;
 revoke all on function aria_internal.aria_m22_a6_reconcile_v1() from public,anon,authenticated;
 revoke all on function aria_internal.aria_m22_a6_frozen_job_authorized_v1(text,text,text) from public,anon,authenticated;
@@ -1341,7 +1135,7 @@ grant execute on function aria_internal.aria_m22_a6_start_run_v1(text,text) to s
 grant execute on function aria_internal.aria_m22_a6_claim_due_scope_v1() to service_role;
 grant execute on function aria_internal.aria_m22_a6_bind_scope_v1(text,text,text,text,text,text) to service_role;
 grant execute on function aria_internal.aria_m22_a6_materialize_due_mission_v1(text,text) to service_role;
-grant execute on function aria_internal.aria_m22_a6_enqueue_frozen_job_v1(text,text,text,text,text,text,text,integer,jsonb,jsonb) to service_role;
+grant execute on function aria_internal.aria_m22_a6_enqueue_frozen_job_v1(text,text,text,text,text,text,text,text,integer,jsonb,jsonb) to service_role;
 grant execute on function aria_internal.aria_m22_a6_sample_runtime_v1() to service_role;
 grant execute on function aria_internal.aria_m22_a6_reconcile_v1() to service_role;
 grant execute on function aria_internal.aria_m22_a6_frozen_job_authorized_v1(text,text,text) to service_role;
