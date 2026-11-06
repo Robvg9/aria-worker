@@ -87,7 +87,7 @@ const run = {
   window_hours: 24,
   max_missions: 5,
   max_jobs: 5,
-  max_attempts: 3,
+  max_attempts: 1,
   started_at: runStarted,
   expires_at: runExpiry,
 };
