@@ -170,6 +170,10 @@ assert.match(direct, /m22A5ScopeRowMatchesV1/);
 assert.match(intake, /m22A5ScopeRowMatchesV1/);
 assert.match(canonical, /m22A5ScopeRowMatchesV1/);
 assert.match(runner, /m22A5BuildRecoveryProbeStepV1/);
+assert.ok(runner.includes(String.raw`job.cwd === "C:\\Windows\\Temp"`),
+  "A5 independent readback must compare the exact Windows cwd with escaped backslashes");
+assert.equal(runner.includes(String.raw`job.cwd === "C:\Windows\Temp"`), false,
+  "A5 independent readback must not drop Windows path separators");
 assert.match(runner, /m22A5RecoveryProbeStepMatchesV1/);
 assert.match(runner, /a5_independent_same_job_recovery_readback/);
 assert.match(runner, /aria_m22_a5_complete_scope_v1/);
