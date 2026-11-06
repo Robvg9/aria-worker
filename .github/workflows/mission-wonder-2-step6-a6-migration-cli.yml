@@ -129,6 +129,7 @@ jobs:
           create function aria_internal.aria_m22_a5_frozen_job_authorized_v1(text,text,text) returns boolean language sql as 'select false';
           SQL
 
+      # This database is a disposable CI service only; no Supabase project link or credentials are configured.
       - name: Apply generated migration to isolated PostgreSQL only
         shell: bash
         run: |
