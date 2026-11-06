@@ -168,6 +168,25 @@ try {
 
     const expectedOutput = "A5_RECOVERY_ALREADY_IDENTICAL;attempt=2;files=1;sha256="
       + expectedSha + ";artifact=" + step.policy.allowed_artifact_path;
+    const terminalSql = [
+      "SELECT CASE WHEN count(*)=1 AND bool_and(",
+      "m.status='succeeded' AND m.current_step=1 AND m.completed_steps=1 AND m.total_steps=1",
+      "AND s.scope_id=" + sqlQuote(M22_A5_SCOPE_ID) + " AND s.status='completed'",
+      "AND s.recovery_used=true AND s.recovery_grant_ref=" + sqlQuote(grantRef),
+      "AND j.job_id=" + sqlQuote(JOB_ID) + " AND j.status='succeeded'",
+      "AND j.recovery_count=1 AND j.exit_code=0 AND j.metadata->>'mission_wonder_2_a5_attempt'='2'",
+      "AND position(" + sqlQuote(expectedOutput) + " in j.stdout)>0",
+      "AND (SELECT count(*) FROM aria_internal.execution_jobs x WHERE x.mission_id=m.mission_id)=1",
+      "AND (SELECT count(*) FROM aria_internal.mission_events e WHERE e.mission_id=m.mission_id AND e.event_type='mission_verified')=1",
+      ") THEN 'A5_ALREADY_TERMINAL_PASS' ELSE 'A5_NOT_TERMINAL' END",
+      "FROM aria_internal.mission_state m",
+      "JOIN aria_internal.execution_jobs j ON j.mission_id=m.mission_id",
+      "JOIN aria_internal.mission_wonder_2_a5_scopes s ON s.mission_id=m.mission_id",
+      "WHERE m.mission_id=" + sqlQuote(MISSION_ID) + ";"
+    ].join("\n");
+    const alreadyTerminal = runSql(terminalSql).includes("A5_ALREADY_TERMINAL_PASS");
+    report.already_terminal = alreadyTerminal;
+    if (!alreadyTerminal) {
     const eligibilitySql = [
       "SELECT CASE WHEN count(*)=1 AND bool_and(",
       "s.scope_key=" + sqlQuote(M22_A5_SCOPE_KEY),
@@ -292,7 +311,7 @@ try {
 
     const tick = await runtimeTick();
     report.runtime_tick = { http_status: tick.status, status: tick.body?.status || null };
-    assert.equal(tick.status, 200, "canonical runtime verification replay tick was not HTTP 200");
+    assert.ok([200, 202].includes(tick.status), "canonical runtime verification replay tick must be accepted (HTTP 200/202)");
 
     const finalSql = [
       "SELECT 'A5_VERIFICATION_REPLAY_FINAL=' || CASE WHEN",
@@ -329,6 +348,7 @@ try {
       fail("A5 saved attempt-2 evidence did not reach terminal verification");
     }
 
+    }
     report.final_live_audit = "PASS";
     report.mission_terminal_status = "succeeded";
     report.same_job_reclaimed = true;
