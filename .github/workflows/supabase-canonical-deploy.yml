@@ -43,6 +43,10 @@ on:
       - '!autonomy/worker-single-instance-lock-v1.js'
       - '!tests/supabase-canonical-deploy-contract.test.js'
       - '!.github/workflows/supabase-canonical-deploy.yml'
+      # A6 ambient snapshot migration/client are manual-install, read-only tooling; never auto-apply or redeploy production.
+      - '!supabase/migrations/20261106040000_aria_mission_wonder_2_a6_readonly_ambient_snapshot_v1.sql'
+      - '!scripts/mission-wonder-2-a6-readonly-snapshot.mjs'
+      - '!tests/mission-wonder-2-a6-readonly-snapshot.test.mjs'
       # OpenCode MCP inbound is released independently; do not redeploy the 12-function canonical runtime for this single-function change.
       - '!supabase/functions/aria-mcp-inbound-grok-v1/**'
   workflow_dispatch:
