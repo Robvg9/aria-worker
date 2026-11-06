@@ -320,7 +320,8 @@ begin
   expected_goal := 'Mission Wonder 2 A6 bounded continuity marker '||p_run_id||
     ' sequence '||lpad(s.ordinal::text,2,'0');
   select * into m from aria_internal.mission_state where mission_id=p_mission_id;
-  if not found or p_mission_id<>s.mission_id or p_user_id<>s.owner_user_id
+  if not found then return false; end if;
+  if p_mission_id<>s.mission_id or p_user_id<>s.owner_user_id
      or p_request_id<>s.request_id or p_goal_hash<>s.goal_hash
      or m.goal<>expected_goal
      or m.metadata->>'mission_wonder_2_a6_run_id'<>p_run_id
@@ -392,7 +393,7 @@ begin
   if jsonb_typeof(m.checkpoint->'plan') is distinct from 'array'
      or jsonb_array_length(m.checkpoint->'plan')<>1 then return false; end if;
   step:=m.checkpoint->'plan'->0;
-  if step->>'id'<>'a6_continuity_marker_'||lpad(s.ordinal::text,2,'0')
+  if (step->>'id') is distinct from ('a6_continuity_marker_'||lpad(s.ordinal::text,2,'0'))
      or step->>'operation'<>'shell.execute'
      or step->>'executor_type'<>'device'
      or step->>'risk'<>'WRITE'
@@ -413,10 +414,9 @@ begin
      or step->'authorization'->>'risk_class'<>'WRITE'
      or step->'authorization'->>'evidence_ref'<>'mission-wonder-2-step6-a6-v1-owner-authorization'
      or step->'verify'->>'expected_exit_code'<>'0'
-     or step->'verify'->>'stdout_contains'<>'A6_ARTIFACT_VERIFIED;sequence='||lpad(s.ordinal::text,2,'0') then return false; end if;
+     or step->'verify'->>'stdout_contains' is distinct from ('A6_ARTIFACT_VERIFIED;sequence='||lpad(s.ordinal::text,2,'0')) then return false; end if;
 
-  pending:=m.checkpoint->'pending_jobs'->step->>'id';
-  -- The pending job is stored under the step ID, not under a planner-selected key.
+  -- The pending job is stored under the exact fixed step ID.
   pending:=m.checkpoint->'pending_jobs'->(step->>'id');
   if coalesce(pending->>'job_id','')<>p_job_id
      or coalesce(pending->>'attempt','')<>'1' then return false; end if;
@@ -519,9 +519,11 @@ begin
    for update;
   if not found or s.status not in ('bound','completed') then return false; end if;
   select * into m from aria_internal.mission_state where mission_id=p_mission_id;
+  if not found then return false; end if;
   select * into j from aria_internal.execution_jobs where job_id=p_job_id and mission_id=p_mission_id;
+  if not found then return false; end if;
 
-  if not found or m.status<>'succeeded' or m.completed_steps<>1 or m.total_steps<>1
+  if m.status<>'succeeded' or m.completed_steps<>1 or m.total_steps<>1
      or m.lease_owner is not null or m.lease_until is not null
      or j.status<>'succeeded' or j.exit_code<>0 or j.completed_at is null
      or j.lease_owner is not null or j.lease_until is not null
@@ -649,7 +651,75 @@ begin
     return aria_internal.aria_m22_a5_frozen_job_authorized_v1(p_job_id,v_device_id,v_job_status);
   end if;
 
-  if p_mission_id ~ '^mission_m22_a6_[a-f0-9]{12}_[0-5][0-9]$' then
+  if p_mission_id ~ '^mission_m22_a6_[a-f0-9]{12}_0[1-5]
+    select j.device_id,j.status into v_device_id,v_job_status
+      from aria_internal.execution_jobs j where j.job_id=p_job_id and j.mission_id=p_mission_id;
+    if not found then return false; end if;
+    return aria_internal.aria_m22_a6_frozen_job_authorized_v1(p_job_id,v_device_id,v_job_status);
+  end if;
+
+  if v_status='running' then return true; end if;
+  if v_status not in ('paused','waiting') then return false; end if;
+  if coalesce(v_checkpoint->'recovery'->>'status','')<>'waiting_for_async_executor' then return false; end if;
+  v_pending_jobs:=v_checkpoint->'pending_jobs';
+  if jsonb_typeof(v_pending_jobs) is distinct from 'object' then return false; end if;
+  return exists(select 1 from jsonb_each(v_pending_jobs) as pending(step_id,job) where pending.job->>'job_id'=p_job_id);
+end;
+$function$;
+
+revoke all on function aria_internal.aria_m22_a6_arm_run_v1(text,text,text,text,integer,integer,jsonb) from public,anon,authenticated;
+revoke all on function aria_internal.aria_m22_a6_start_run_v1(text,text) from public,anon,authenticated;
+revoke all on function aria_internal.aria_m22_a6_claim_due_scope_v1() from public,anon,authenticated;
+revoke all on function aria_internal.aria_m22_a6_bind_scope_v1(text,text,text,text,text,text) from public,anon,authenticated;
+revoke all on function aria_internal.aria_m22_a6_frozen_job_authorized_v1(text,text,text) from public,anon,authenticated;
+revoke all on function aria_internal.aria_m22_a6_has_claimable_job_v1(text) from public,anon,authenticated;
+revoke all on function aria_internal.aria_m22_a6_claim_frozen_job_v1(text) from public,anon,authenticated;
+revoke all on function aria_internal.aria_m22_a6_complete_scope_v1(text,text,text,text) from public,anon,authenticated;
+revoke all on function aria_internal.aria_m22_a6_finish_run_if_due_v1() from public,anon,authenticated;
+revoke all on function aria_internal.aria_m22_a6_revoke_run_v1(text) from public,anon,authenticated;
+
+grant execute on function aria_internal.aria_m22_a6_arm_run_v1(text,text,text,text,integer,integer,jsonb) to service_role;
+grant execute on function aria_internal.aria_m22_a6_start_run_v1(text,text) to service_role;
+grant execute on function aria_internal.aria_m22_a6_claim_due_scope_v1() to service_role;
+grant execute on function aria_internal.aria_m22_a6_bind_scope_v1(text,text,text,text,text,text) to service_role;
+grant execute on function aria_internal.aria_m22_a6_frozen_job_authorized_v1(text,text,text) to service_role;
+grant execute on function aria_internal.aria_m22_a6_has_claimable_job_v1(text) to service_role;
+grant execute on function aria_internal.aria_m22_a6_claim_frozen_job_v1(text) to service_role;
+grant execute on function aria_internal.aria_m22_a6_complete_scope_v1(text,text,text,text) to service_role;
+grant execute on function aria_internal.aria_m22_a6_finish_run_if_due_v1() to service_role;
+grant execute on function aria_internal.aria_m22_a6_revoke_run_v1(text) to service_role;
+
+-- Dedicated scheduler #51 exists but stays INACTIVE until the separately approved start_run RPC.
+do $block$
+declare
+  v_job_id bigint;
+begin
+  select jobid into v_job_id
+    from cron.job
+   where jobname='aria-mission-wonder-2-a6-dispatcher-every-minute';
+  if v_job_id is null then
+    v_job_id := cron.schedule(
+      'aria-mission-wonder-2-a6-dispatcher-every-minute',
+      '* * * * *',
+      $job$
+        select net.http_post(
+          url := 'https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-mission-wonder-2-a6-dispatch-v1',
+          headers := jsonb_build_object(
+            'x-aria-autonomy-token',(select decrypted_secret from vault.decrypted_secrets where name='aria_autonomy_cron_token' limit 1),
+            'Content-Type','application/json'
+          ),
+          body := '{"action":"dispatch_due"}'::jsonb,
+          timeout_milliseconds := 60000
+        );
+      $job$
+    );
+  end if;
+  update cron.job set active=false where jobid=v_job_id;
+end;
+$block$;
+
+commit;
+ then
     select j.device_id,j.status into v_device_id,v_job_status
       from aria_internal.execution_jobs j where j.job_id=p_job_id and j.mission_id=p_mission_id;
     if not found then return false; end if;
