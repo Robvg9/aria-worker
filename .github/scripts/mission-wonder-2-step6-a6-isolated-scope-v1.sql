@@ -646,6 +646,7 @@ declare
   sample_gap_ms bigint;
   age_ms bigint;
   block_reason text;
+  current_scope_id text;
   payload jsonb;
 begin
   select * into r from aria_internal.mission_wonder_2_a6_runs
@@ -696,12 +697,22 @@ begin
   end if;
 
   if block_reason is not null then
-    update aria_internal.mission_wonder_2_a6_runs
-       set status='blocked',completed_at=clock_timestamp(),updated_at=clock_timestamp()
-     where run_id=r.run_id and status='running';
-    update aria_internal.mission_wonder_2_a6_scopes
-       set status='revoked',revoked_at=coalesce(revoked_at,clock_timestamp()),updated_at=clock_timestamp()
-     where run_id=r.run_id and status='armed';
+    select scope_id into current_scope_id
+      from aria_internal.mission_wonder_2_a6_scopes
+     where run_id=r.run_id and status in ('claimed','bound')
+     order by ordinal limit 1;
+    if current_scope_id is not null then
+      perform aria_internal.aria_m22_a6_block_run_v1(r.run_id,current_scope_id,block_reason);
+    else
+      update aria_internal.mission_wonder_2_a6_runs
+         set status='blocked',completed_at=clock_timestamp(),updated_at=clock_timestamp()
+       where run_id=r.run_id and status='running';
+      update aria_internal.mission_wonder_2_a6_scopes
+         set status='revoked',revoked_at=coalesce(revoked_at,clock_timestamp()),updated_at=clock_timestamp()
+       where run_id=r.run_id and status in ('armed','claimed','bound');
+      update cron.job set active=false
+       where jobname='aria-mission-wonder-2-a6-dispatcher-every-minute';
+    end if;
     insert into aria_internal.mission_wonder_2_a6_telemetry(run_id,event_type,payload)
     values (r.run_id,'fault_observed',jsonb_build_object(
       'event',block_reason,
@@ -711,10 +722,9 @@ begin
       'maxNormalHeartbeatGapMs',r.max_normal_heartbeat_gap_ms,
       'a6PendingJobs',pending_count,
       'oldestA6PendingAgeMs',oldest_pending_age_ms,
-      'automaticRetry',false
+      'automaticRetry',false,
+      'manualReconciliationRequired',(current_scope_id is not null)
     ));
-    update cron.job set active=false
-     where jobname='aria-mission-wonder-2-a6-dispatcher-every-minute';
     return jsonb_build_object('status','blocked','run_id',r.run_id,
       'reason',block_reason,'payload',payload);
   end if;
@@ -1232,20 +1242,20 @@ begin
   select * into sc from aria_internal.mission_wonder_2_a6_scopes
    where run_id=p_run_id and scope_id=p_scope_id for update;
   if not found then return false; end if;
-  select count(*) into active_jobs from aria_internal.execution_jobs
-   where job_id=sc.job_id and status in ('queued','claimed','running');
-  if active_jobs=0 then
-    update aria_internal.mission_wonder_2_a6_scopes
-       set status='revoked',revoked_at=coalesce(revoked_at,clock_timestamp()),updated_at=clock_timestamp()
-     where scope_id=p_scope_id and status in ('armed','claimed','bound');
-    select * into m from aria_internal.mission_state where mission_id=sc.mission_id for update;
-    if found and m.status in ('queued','planning','running','waiting','paused') then
-      update aria_internal.mission_state
-         set status='blocked',finished_at=clock_timestamp(),updated_at=clock_timestamp(),
-             last_stderr=left(coalesce(p_reason,'a6_dispatch_blocked'),1000),
-             next_action='A6 stopped; human review required'
-       where mission_id=sc.mission_id;
-    end if;
+  select count(*) into active_jobs
+    from aria_internal.execution_jobs j
+    join aria_internal.mission_wonder_2_a6_scopes scope_row on scope_row.job_id=j.job_id
+   where scope_row.run_id=p_run_id and j.status in ('queued','claimed','running');
+  update aria_internal.mission_wonder_2_a6_scopes
+     set status='revoked',revoked_at=coalesce(revoked_at,clock_timestamp()),updated_at=clock_timestamp()
+   where run_id=p_run_id and status in ('armed','claimed','bound');
+  select * into m from aria_internal.mission_state where mission_id=sc.mission_id for update;
+  if found and m.status in ('queued','planning','running','waiting','paused') then
+    update aria_internal.mission_state
+       set status='blocked',finished_at=clock_timestamp(),updated_at=clock_timestamp(),
+           last_stderr=left(coalesce(p_reason,'a6_dispatch_blocked'),1000),
+           next_action='A6 stopped; human review required'
+     where mission_id=sc.mission_id;
   end if;
   update aria_internal.mission_wonder_2_a6_runs
      set status='blocked',completed_at=coalesce(completed_at,clock_timestamp()),updated_at=clock_timestamp()
@@ -1255,7 +1265,8 @@ begin
     'event','run_blocked',
     'scope_id',p_scope_id,
     'reason',left(coalesce(p_reason,'a6_dispatch_blocked'),1000),
-    'activeJobPreserved',(active_jobs>0),
+    'activeJobAtBlock',(active_jobs>0),
+    'manualReconciliationRequired',(active_jobs>0),
     'automaticRetry',false
   ));
   if not exists(select 1 from aria_internal.mission_wonder_2_a6_runs where status='running') then
