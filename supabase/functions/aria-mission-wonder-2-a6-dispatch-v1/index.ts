@@ -82,7 +82,6 @@ Deno.serve(async (request: Request) => {
       headers: {
         apikey: API_KEY,
         "x-aria-autonomy-token": token,
-        "x-aria-trigger": "mission-tick",
         "content-type": "application/json",
       },
       body: JSON.stringify({ mission_id: missionId }),
