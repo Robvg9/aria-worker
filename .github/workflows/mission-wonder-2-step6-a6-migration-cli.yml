@@ -65,8 +65,7 @@ jobs:
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/a6-migration-workspace"
           cd "$RUNNER_TEMP/a6-migration-workspace"
-          supabase migration new aria_mission_wonder_2_a6_isolated_scope_v1 \
-            < "$GITHUB_WORKSPACE/.github/scripts/mission-wonder-2-step6-a6-isolated-scope-v1.sql"
+          supabase migration new aria_mission_wonder_2_a6_isolated_scope_v1
           mapfile -t generated < <(find supabase/migrations -maxdepth 1 -type f -name '*_aria_mission_wonder_2_a6_isolated_scope_v1.sql' -print)
           test "${#generated[@]}" -eq 1
 
@@ -81,7 +80,7 @@ jobs:
             target="$GITHUB_WORKSPACE/supabase/migrations/$(basename "${generated[0]}")"
           fi
           mkdir -p "$GITHUB_WORKSPACE/supabase/migrations"
-          cp "${generated[0]}" "$target"
+          cp "$GITHUB_WORKSPACE/.github/scripts/mission-wonder-2-step6-a6-isolated-scope-v1.sql" "$target"
           echo "MIGRATION_FILE=$target" >> "$GITHUB_OUTPUT"
           echo "MIGRATION_BASENAME=$(basename "$target")" >> "$GITHUB_OUTPUT"
           echo "MIGRATION_RELATIVE_PATH=supabase/migrations/$(basename "$target")" >> "$GITHUB_OUTPUT"
