@@ -339,6 +339,13 @@ begin
      and sc.status in ('armed','claimed')
      and sc.scheduled_at<=clock_timestamp()
      and sc.expires_at>clock_timestamp()
+     and exists (
+       select 1 from aria_internal.device_registry d
+        where d.device_id=ru.allowed_device_id and d.agent_type='windows-local'
+          and d.status='online' and d.token_hash is not null
+          and d.capabilities @> '["shell.execute"]'::jsonb
+          and d.last_seen_at>clock_timestamp()-interval '180 seconds'
+     )
    order by sc.scheduled_at,sc.ordinal
    for update of sc skip locked
    limit 1;
@@ -641,8 +648,7 @@ begin
   select max(sampled_at) into previous_sample
     from aria_internal.mission_wonder_2_a6_telemetry
    where run_id=r.run_id and event_type='heartbeat_sample';
-  heartbeat_gap_ms := case when previous_sample is null then null
-    else greatest(0,(extract(epoch from (clock_timestamp()-previous_sample))*1000)::bigint) end;
+  heartbeat_gap_ms := age_ms;
 
   select count(*)::integer,
          coalesce(max((extract(epoch from (clock_timestamp()-j.created_at))*1000)::bigint),0)
@@ -1113,6 +1119,55 @@ begin
 end;
 $function$;
 
+
+create or replace function aria_internal.aria_m22_a6_block_run_v1(
+  p_run_id text,p_scope_id text,p_reason text
+) returns boolean
+language plpgsql security definer
+set search_path to 'pg_catalog','aria_internal'
+as $function$
+declare
+  sc aria_internal.mission_wonder_2_a6_scopes;
+  m aria_internal.mission_state;
+  active_jobs integer;
+begin
+  select * into sc from aria_internal.mission_wonder_2_a6_scopes
+   where run_id=p_run_id and scope_id=p_scope_id for update;
+  if not found then return false; end if;
+  select count(*) into active_jobs from aria_internal.execution_jobs
+   where job_id=sc.job_id and status in ('queued','claimed','running');
+  if active_jobs=0 then
+    update aria_internal.mission_wonder_2_a6_scopes
+       set status='revoked',revoked_at=coalesce(revoked_at,clock_timestamp()),updated_at=clock_timestamp()
+     where scope_id=p_scope_id and status in ('armed','claimed','bound');
+    select * into m from aria_internal.mission_state where mission_id=sc.mission_id for update;
+    if found and m.status in ('queued','planning','running','waiting','paused') then
+      update aria_internal.mission_state
+         set status='blocked',finished_at=clock_timestamp(),updated_at=clock_timestamp(),
+             last_stderr=left(coalesce(p_reason,'a6_dispatch_blocked'),1000),
+             next_action='A6 stopped; human review required'
+       where mission_id=sc.mission_id;
+    end if;
+  end if;
+  update aria_internal.mission_wonder_2_a6_runs
+     set status='blocked',completed_at=coalesce(completed_at,clock_timestamp()),updated_at=clock_timestamp()
+   where run_id=p_run_id and status in ('armed','running');
+  insert into aria_internal.mission_wonder_2_a6_telemetry(run_id,event_type,payload)
+  values (p_run_id,'dispatcher_event',jsonb_build_object(
+    'event','run_blocked',
+    'scope_id',p_scope_id,
+    'reason',left(coalesce(p_reason,'a6_dispatch_blocked'),1000),
+    'activeJobPreserved',(active_jobs>0),
+    'automaticRetry',false
+  ));
+  if not exists(select 1 from aria_internal.mission_wonder_2_a6_runs where status='running') then
+    update cron.job set active=false
+     where jobname='aria-mission-wonder-2-a6-dispatcher-every-minute';
+  end if;
+  return true;
+end;
+$function$;
+
 revoke all on function aria_internal.aria_m22_a6_ambient_snapshot_v1() from public,anon,authenticated;
 revoke all on function aria_internal.aria_m22_a6_arm_run_v1(text,text,text,text,integer,integer,jsonb) from public,anon,authenticated;
 revoke all on function aria_internal.aria_m22_a6_start_run_v1(text,text) from public,anon,authenticated;
@@ -1122,6 +1177,7 @@ revoke all on function aria_internal.aria_m22_a6_materialize_due_mission_v1(text
 revoke all on function aria_internal.aria_m22_a6_enqueue_frozen_job_v1(text,text,text,text,text,text,text,text,integer,jsonb,jsonb) from public,anon,authenticated;
 revoke all on function aria_internal.aria_m22_a6_sample_runtime_v1() from public,anon,authenticated;
 revoke all on function aria_internal.aria_m22_a6_reconcile_v1() from public,anon,authenticated;
+revoke all on function aria_internal.aria_m22_a6_block_run_v1(text,text,text) from public,anon,authenticated;
 revoke all on function aria_internal.aria_m22_a6_frozen_job_authorized_v1(text,text,text) from public,anon,authenticated;
 revoke all on function aria_internal.aria_m22_a6_has_claimable_job_v1(text) from public,anon,authenticated;
 revoke all on function aria_internal.aria_m22_a6_claim_frozen_job_v1(text) from public,anon,authenticated;
@@ -1138,6 +1194,7 @@ grant execute on function aria_internal.aria_m22_a6_materialize_due_mission_v1(t
 grant execute on function aria_internal.aria_m22_a6_enqueue_frozen_job_v1(text,text,text,text,text,text,text,text,integer,jsonb,jsonb) to service_role;
 grant execute on function aria_internal.aria_m22_a6_sample_runtime_v1() to service_role;
 grant execute on function aria_internal.aria_m22_a6_reconcile_v1() to service_role;
+grant execute on function aria_internal.aria_m22_a6_block_run_v1(text,text,text) to service_role;
 grant execute on function aria_internal.aria_m22_a6_frozen_job_authorized_v1(text,text,text) to service_role;
 grant execute on function aria_internal.aria_m22_a6_has_claimable_job_v1(text) to service_role;
 grant execute on function aria_internal.aria_m22_a6_claim_frozen_job_v1(text) to service_role;
