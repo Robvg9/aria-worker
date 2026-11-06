@@ -84,6 +84,7 @@ jobs:
           cp "${generated[0]}" "$target"
           echo "MIGRATION_FILE=$target" >> "$GITHUB_OUTPUT"
           echo "MIGRATION_BASENAME=$(basename "$target")" >> "$GITHUB_OUTPUT"
+          echo "MIGRATION_RELATIVE_PATH=supabase/migrations/$(basename "$target")" >> "$GITHUB_OUTPUT"
           sha256sum "$target"
 
       - name: Prepare isolated PostgreSQL migration test
@@ -184,7 +185,7 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add "${{ steps.migration.outputs.MIGRATION_FILE }}"
+          git add "${{ steps.migration.outputs.MIGRATION_RELATIVE_PATH }}"
           if git diff --cached --quiet; then
             echo "No generated migration change to commit."
             exit 0
