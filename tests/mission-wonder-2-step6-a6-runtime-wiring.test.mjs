@@ -24,7 +24,7 @@ assert.match(dispatcher, /aria_m22_a6_sample_runtime_v1/);
 assert.match(dispatcher, /aria_m22_a6_claim_due_scope_v1/);
 assert.match(dispatcher, /aria_m22_a6_materialize_due_mission_v1/);
 assert.match(dispatcher, /aria-canonical-runtime-v1/);
-assert.match(dispatcher, /mission-tick/);
+assert.doesNotMatch(dispatcher, /x-aria-trigger.*(?:mission-tick|scheduler)/);
 assert.match(dispatcher, /runtimePayload\.ok !== true/);
 assert.match(dispatcher, /a6_canonical_runtime_did_not_enqueue_exact_scoped_job/);
 assert.match(dispatcher, /exactJobReadback: true/);
