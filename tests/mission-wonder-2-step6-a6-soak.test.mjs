@@ -22,11 +22,15 @@ const thresholds = {
   maxTotalCostUsd: 0.05,
   maxAttemptsPerJob: 3,
   maxBacklogAgeMs: 300000,
+  maxMissionIntermissionMs: 7 * 60 * 60 * 1000,
+  minimumMissionSpanRatio: 0.75,
 };
+const missionCompletionHours = [1, 6, 12, 18, 23];
 const missions = Array.from({ length: 5 }, (_, index) => ({
   missionId: "a6-mission-" + index,
   jobId: "a6-job-" + index,
   status: "succeeded",
+  completedAt: hours(missionCompletionHours[index]),
   objectiveVerified: true,
   verificationEventId: "a6-verified-event-" + index,
   verificationEventCount: 1,
@@ -60,6 +64,14 @@ const validEvidence = {
     { gapMs: 10000, expectedOutage: false },
     { gapMs: 45000, expectedOutage: true, detected: true, recovered: true },
   ],
+  heartbeatCoverage: {
+    observedStartAt: hours(0),
+    observedEndAt: hours(24),
+    expectedIntervals: 17280,
+    observedIntervals: 17271,
+    outageMissingIntervals: 9,
+    unexplainedMissingIntervals: 0,
+  },
   faultScenarios,
   latencySamplesMs: [900, 1200, 1500, 2400, 3000, 4200, 5800, 7000, 8500, 12000],
   costSamplesUsd: [0.001, 0.001, 0.001, 0.001, 0.001],
@@ -80,6 +92,9 @@ assert.equal(report.evidenceClassification, "UNATTESTED_INPUT");
 assert.equal(report.liveAttestation, "NOT_CHECKED_BY_PURE_EVALUATOR");
 assert.equal(report.metrics.elapsedHours, 24);
 assert.equal(report.metrics.missionCount, 5);
+assert.ok(report.metrics.missionCompletionSpanRatio >= 0.75);
+assert.equal(report.metrics.heartbeatCoverage.expectedIntervals, 17280);
+assert.equal(report.metrics.heartbeatCoverage.unexplainedMissingIntervals, 0);
 assert.equal(report.metrics.independentlyVerifiedMissionCount, 5);
 assert.equal(report.metrics.uniqueJobCount, 5);
 assert.equal(report.metrics.faultScenariosRecovered, 5);
@@ -137,6 +152,47 @@ assert.ok(missingCostBudget.blockers.includes("threshold_max_total_cost_usd_requ
 const shortWindow = m22A6BuildSoakReportV1({ ...validEvidence, finishedAt: hours(23) });
 assert.equal(shortWindow.status, "BLOCKED");
 assert.ok(shortWindow.blockers.includes("soak_duration_below_declared_minimum"));
+
+const collapsedMissionTimeline = missions.map((item, index) => ({
+  ...item,
+  completedAt: hours(index + 1),
+}));
+const collapsedTimelineReport = m22A6BuildSoakReportV1({
+  ...validEvidence,
+  missions: collapsedMissionTimeline,
+});
+assert.equal(collapsedTimelineReport.status, "BLOCKED");
+assert.ok(collapsedTimelineReport.blockers.includes("mission_completions_do_not_span_minimum_window_ratio"));
+
+const missionOutsideWindow = missions.map(item => ({ ...item }));
+missionOutsideWindow[0].completedAt = hours(25);
+const outsideWindowReport = m22A6BuildSoakReportV1({ ...validEvidence, missions: missionOutsideWindow });
+assert.equal(outsideWindowReport.status, "BLOCKED");
+assert.ok(outsideWindowReport.blockers.includes("mission_0_completion_outside_soak_window"));
+
+const missingMissionTimestamp = missions.map(item => ({ ...item }));
+delete missingMissionTimestamp[0].completedAt;
+const missingMissionTimestampReport = m22A6BuildSoakReportV1({ ...validEvidence, missions: missingMissionTimestamp });
+assert.equal(missingMissionTimestampReport.status, "BLOCKED");
+assert.ok(missingMissionTimestampReport.blockers.includes("mission_0_completion_timestamp_missing_or_invalid"));
+
+const heartbeatCoverageFailure = m22A6BuildSoakReportV1({
+  ...validEvidence,
+  heartbeatCoverage: { ...validEvidence.heartbeatCoverage, observedEndAt: hours(23) },
+});
+assert.equal(heartbeatCoverageFailure.status, "BLOCKED");
+assert.ok(heartbeatCoverageFailure.blockers.includes("heartbeat_coverage_does_not_cover_full_soak_window"));
+
+const unexplainedHeartbeatGap = m22A6BuildSoakReportV1({
+  ...validEvidence,
+  heartbeatCoverage: {
+    ...validEvidence.heartbeatCoverage,
+    outageMissingIntervals: 8,
+    unexplainedMissingIntervals: 1,
+  },
+});
+assert.equal(unexplainedHeartbeatGap.status, "BLOCKED");
+assert.ok(unexplainedHeartbeatGap.blockers.includes("heartbeat_unexplained_missing_intervals"));
 
 const duplicateJob = missions.map(item => ({ ...item }));
 duplicateJob[1].jobId = duplicateJob[0].jobId;
