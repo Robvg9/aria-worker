@@ -73,9 +73,11 @@ export function m22A6ArtifactPathV1(runId, ordinal) {
     String(ordinal).padStart(2, "0") + ".txt";
 }
 
-export function m22A6BuildContinuityProbeStepV1(deviceId, runId, ordinal) {
+export function m22A6BuildContinuityProbeStepV1(deviceId, runId, ordinal, humanGateRef) {
   const device = norm(deviceId);
   const id = norm(runId);
+  const gateRef = norm(humanGateRef);
+  if (!/^a6-human-gate-[0-9]{10,20}\\.[0-9]{1,3}$/.test(gateRef)) throw new Error("a6_human_gate_ref_invalid");
   if (device !== M22_A6_ALLOWED_DEVICE_ID) throw new Error("a6_device_not_allowlisted");
   const stepId = m22A6StepIdV1(ordinal);
   const artifactPath = m22A6ArtifactPathV1(id, ordinal);
@@ -122,7 +124,7 @@ export function m22A6BuildContinuityProbeStepV1(deviceId, runId, ordinal) {
     authorization: {
       status: "approved",
       risk_class: "WRITE",
-      evidence_ref: "mission-wonder-2-step6-a6-v1-owner-authorization",
+      evidence_ref: gateRef,
     },
     timeout_ms: 60000,
     retryable: false,
@@ -135,10 +137,10 @@ export function m22A6BuildContinuityProbeStepV1(deviceId, runId, ordinal) {
   };
 }
 
-export function m22A6ContinuityProbeStepMatchesV1(step, deviceId, runId, ordinal) {
+export function m22A6ContinuityProbeStepMatchesV1(step, deviceId, runId, ordinal, humanGateRef) {
   if (!step || typeof step !== "object" || Array.isArray(step)) return false;
   try {
-    return JSON.stringify(step) === JSON.stringify(m22A6BuildContinuityProbeStepV1(deviceId, runId, ordinal));
+    return JSON.stringify(step) === JSON.stringify(m22A6BuildContinuityProbeStepV1(deviceId, runId, ordinal, humanGateRef));
   } catch {
     return false;
   }
@@ -166,12 +168,13 @@ export async function m22A6ScopeRowMatchesV1({
   const ordinal = Number(scope.ordinal);
   if (!owner || !request || !M22_A6_RUN_ID_PATTERN.test(runId) ||
       id !== m22A6MissionIdV1(runId, ordinal) ||
+      !/^a6-human-gate-[0-9]{10,20}\\.[0-9]{1,3}$/.test(norm(run.human_gate_ref)) ||
       projectNorm(projectId) !== null || projectNorm(metadata.project_id) !== null) return false;
 
   const expectedGoal = m22A6GoalV1(runId, ordinal);
   const expectedHash = await m22A6GoalIdentityHashV1(owner, expectedGoal, null);
   const expectedJobId = await m22A6ExpectedJobIdV1(id, m22A6StepIdV1(ordinal));
-  const expectedStep = m22A6BuildContinuityProbeStepV1(M22_A6_ALLOWED_DEVICE_ID, runId, ordinal);
+  const expectedStep = m22A6BuildContinuityProbeStepV1(M22_A6_ALLOWED_DEVICE_ID, runId, ordinal, run.human_gate_ref);
   const expectedExpiry = Date.parse(String(run.expires_at || ""));
   const scopeExpiry = Date.parse(String(scope.expires_at || ""));
   const startedAt = Date.parse(String(run.started_at || ""));
@@ -210,6 +213,7 @@ export async function m22A6ScopeRowMatchesV1({
     metadata.mission_wonder_2_a6_allowed_device_id === M22_A6_ALLOWED_DEVICE_ID &&
     metadata.mission_wonder_2_a6_ordinal === ordinal &&
     metadata.mission_wonder_2_a6_continuity === true &&
+    metadata.mission_wonder_2_a6_human_gate_ref === run.human_gate_ref &&
     metadata.user_id === owner &&
     (metadata.owner_user_id == null || metadata.owner_user_id === owner) &&
     metadata.request_id === request &&
@@ -226,11 +230,11 @@ function m22A6CanonicalValueV1(value) {
   return Object.fromEntries(Object.keys(value).sort().map((key) => [key, m22A6CanonicalValueV1(value[key])]));
 }
 
-export function m22A6MissionPlanMatchesV1({ mission, deviceId = M22_A6_ALLOWED_DEVICE_ID, runId, ordinal }) {
+export function m22A6MissionPlanMatchesV1({ mission, deviceId = M22_A6_ALLOWED_DEVICE_ID, runId, ordinal, humanGateRef }) {
   if (!mission || typeof mission !== "object" || Array.isArray(mission) ||
       norm(deviceId) !== M22_A6_ALLOWED_DEVICE_ID) return false;
   try {
-    const expectedStep = m22A6BuildContinuityProbeStepV1(deviceId, runId, ordinal);
+    const expectedStep = m22A6BuildContinuityProbeStepV1(deviceId, runId, ordinal, humanGateRef);
     const plan = mission.checkpoint?.plan;
     if (!Array.isArray(plan) || plan.length !== 1) return false;
     if (JSON.stringify(m22A6CanonicalValueV1(plan[0])) !== JSON.stringify(m22A6CanonicalValueV1(expectedStep))) return false;
