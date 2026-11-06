@@ -148,6 +148,7 @@ for (const change of [
   assert.equal(await m22A6ScopeRowMatchesV1({ ...args, ...change }), false);
 }
 assert.equal(await m22A6ScopeRowMatchesV1({ ...args, userId: "other-owner" }), false);
+assert.equal(await m22A6ScopeRowMatchesV1({ ...args, goal: "mutated objective" }), false);
 assert.equal(await m22A6ScopeRowMatchesV1({ ...args, projectId: "battlecruiser" }), false);
 
 const missionPlan = {
