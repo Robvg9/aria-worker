@@ -17,6 +17,7 @@ on:
       - 'pwa/src/testCatalog.ts'
       # Backend-only mission freeze/governance work must not redeploy the unrelated Cloudflare Worker.
       - 'supabase/functions/**'
+      - 'supabase/migrations/*_aria_mission_wonder_2_a6_isolated_scope_v1.sql'
       # A6 isolated scope contract is CI-only until the separately gated runtime-wiring PR.
       - '.github/workflows/mission-wonder-2-step6-a6-isolated-contract.yml'
       - '.github/workflows/mission-wonder-2-step6-a6-migration-cli.yml'
