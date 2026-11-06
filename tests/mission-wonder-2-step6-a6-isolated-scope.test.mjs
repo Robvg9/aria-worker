@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import { webcrypto } from "node:crypto";
 import {
   M22_A6_ALLOWED_DEVICE_ID,
@@ -147,5 +148,11 @@ for (const change of [
 }
 assert.equal(await m22A6ScopeRowMatchesV1({ ...args, userId: "other-owner" }), false);
 assert.equal(await m22A6ScopeRowMatchesV1({ ...args, projectId: "battlecruiser" }), false);
+
+const supabaseDeployWorkflow = fs.readFileSync(".github/workflows/supabase-canonical-deploy.yml", "utf8");
+const pwaDeployWorkflow = fs.readFileSync(".github/workflows/aria-pwa-fast-deploy.yml", "utf8");
+assert.match(supabaseDeployWorkflow, /!\s*'supabase\/functions\/_shared\/mission-wonder-2-a6-scope-v1\.mjs'/);
+assert.match(pwaDeployWorkflow, /'supabase\/functions\/_shared\/mission-wonder-2-a6-scope-v1\.mjs'/);
+assert.match(pwaDeployWorkflow, /'package\.json'/);
 
 console.log("MISSION_WONDER_2_STEP6_A6_ISOLATED_SCOPE_CONTRACT=PASS");
