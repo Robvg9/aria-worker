@@ -162,13 +162,6 @@ const undetectedOutage = m22A6BuildSoakReportV1({
 assert.equal(undetectedOutage.status, "BLOCKED");
 assert.ok(undetectedOutage.blockers.includes("heartbeat_outage_0_not_detected_and_recovered_within_threshold"));
 
-const undetectedOutage = m22A6BuildSoakReportV1({
-  ...validEvidence,
-  heartbeatGaps: [{ gapMs: 45000, expectedOutage: true, recovered: true }],
-});
-assert.equal(undetectedOutage.status, "BLOCKED");
-assert.ok(undetectedOutage.blockers.includes("heartbeat_outage_0_not_detected_and_recovered_within_threshold"));
-
 const retryFailureMissions = missions.map(item => ({ ...item }));
 retryFailureMissions[0].attemptCount = 4;
 const retryFailure = m22A6BuildSoakReportV1({ ...validEvidence, missions: retryFailureMissions });
