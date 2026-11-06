@@ -83,6 +83,7 @@ assert.match(cloudflareDeploy, /'supabase\/functions\/\*\*'/);
 assert.match(cloudflareDeploy, /'supabase\/migrations\/\*_aria_mission_wonder_2_a6_isolated_scope_v1\.sql'/);
 
 assert.match(migration, /human_gate_ref text not null unique/);
+assert.ok(migration.includes("replace(artifact_path, chr(92), '/')"));
 assert.equal((migration.match(/create table if not exists aria_internal\.mission_wonder_2_a6_runs/g) || []).length, 1);
 assert.equal((migration.match(/^commit;$/gm) || []).length, 1);
 assert.doesNotMatch(migration, /^\),$/m);
