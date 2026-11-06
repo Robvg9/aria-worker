@@ -45,6 +45,7 @@ assert.match(runtimeGateway, /MISSION_EXECUTION_PAUSED&&\["vision_sync","self_im
 assert.match(helper, /m22A6MissionPlanMatchesV1/);
 assert.match(helper, /metadata\.mission_wonder_2_a6_human_gate_ref === run\.human_gate_ref/);
 assert.match(migration, /\x27evidence_ref\x27,r\.human_gate_ref/);
+assert.doesNotMatch(migration, /mission-wonder-2-step6-a6-v1-owner-authorization/);
 assert.match(runner, /humanGateRef: String\(run\?\.human_gate_ref \|\| \x22\x22\)/);
 
 for (const rpc of [
