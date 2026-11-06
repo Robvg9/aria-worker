@@ -14,7 +14,7 @@ on:
       - 'tests/voice-v4-device-agent.test.js'
       - 'agents/windows/voice-owner-session-keystore.cjs'
       - 'tests/voice-v4-windows-dpapi-signer.test.js'
-      - 'supabase/migrations/20261102193000_voice_v4_owner_nonce_and_command_idempotency.sql'
+      - 'supabase/migrations/20261106170000_voice_v4_owner_nonce_and_command_idempotency.sql'
       - 'tests/voice-v4-owner-session-migration.test.js'
       - 'tests/fixtures/voice-v4-migration-prerequisites.sql'
       - '.github/workflows/aria-voice-agent-contract.yml'
@@ -77,7 +77,7 @@ jobs:
           PGPASSWORD: postgres
         run: |
           psql -h localhost -U postgres -d voice_contract -v ON_ERROR_STOP=1 -f tests/fixtures/voice-v4-migration-prerequisites.sql
-          psql -h localhost -U postgres -d voice_contract -v ON_ERROR_STOP=1 -f supabase/migrations/20261102193000_voice_v4_owner_nonce_and_command_idempotency.sql
+          psql -h localhost -U postgres -d voice_contract -v ON_ERROR_STOP=1 -f supabase/migrations/20261106170000_voice_v4_owner_nonce_and_command_idempotency.sql
           psql -h localhost -U postgres -d voice_contract -v ON_ERROR_STOP=1 <<'SQL'
           DO $v4$
           DECLARE
@@ -326,8 +326,8 @@ jobs:
         env:
           PGPASSWORD: postgres
         run: |
-          psql -h localhost -U postgres -d voice_contract -v ON_ERROR_STOP=1 -f supabase/migrations/20261103160000_voice_v4_telegram_message_delivery.sql
-          psql -h localhost -U postgres -d voice_contract -v ON_ERROR_STOP=1 -f supabase/migrations/20261103193000_voice_v4_windows_owner_readonly_pairing.sql
+          psql -h localhost -U postgres -d voice_contract -v ON_ERROR_STOP=1 -f supabase/migrations/20261106170100_voice_v4_telegram_message_delivery.sql
+          psql -h localhost -U postgres -d voice_contract -v ON_ERROR_STOP=1 -f supabase/migrations/20261106170200_voice_v4_windows_owner_readonly_pairing.sql
           psql -h localhost -U postgres -d voice_contract -v ON_ERROR_STOP=1 <<'SQL'
           DO $extra$
           DECLARE

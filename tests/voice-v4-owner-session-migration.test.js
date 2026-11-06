@@ -8,11 +8,11 @@ const root = path.resolve(__dirname, '..');
 const normalizeNewlines = (text) => text.replace(/\r\n/g, '\n');
 const migration = normalizeNewlines(fs.readFileSync(path.join(
   root,
-  'supabase/migrations/20261102193000_voice_v4_owner_nonce_and_command_idempotency.sql'
+  'supabase/migrations/20261106170000_voice_v4_owner_nonce_and_command_idempotency.sql'
 ), 'utf8'));
 const windowsMigration = normalizeNewlines(fs.readFileSync(path.join(
   root,
-  'supabase/migrations/20261103193000_voice_v4_windows_owner_readonly_pairing.sql'
+  'supabase/migrations/20261106170200_voice_v4_windows_owner_readonly_pairing.sql'
 ), 'utf8'));
 const storage = fs.readFileSync(path.join(
   root,

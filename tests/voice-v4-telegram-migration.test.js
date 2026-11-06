@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const root = path.resolve(__dirname, '..');
-const migration = fs.readFileSync(path.join(root, 'supabase/migrations/20261103160000_voice_v4_telegram_message_delivery.sql'), 'utf8');
+const migration = fs.readFileSync(path.join(root, 'supabase/migrations/20261106170100_voice_v4_telegram_message_delivery.sql'), 'utf8');
 const adapter = fs.readFileSync(path.join(root, 'supabase/functions/_shared/telegram-message-delivery.mjs'), 'utf8');
 const api = fs.readFileSync(path.join(root, 'supabase/functions/aria-app-api-v3/index.ts'), 'utf8');
 const pwa = fs.readFileSync(path.join(root, 'pwa/src/App.tsx'), 'utf8');
