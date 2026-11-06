@@ -6,6 +6,16 @@ on:
     paths:
       - 'supabase/functions/_shared/mission-wonder-2-a6-scope-v1.mjs'
       - 'tests/mission-wonder-2-step6-a6-isolated-scope.test.mjs'
+      - 'tests/mission-wonder-2-step6-a6-runtime-wiring.test.mjs'
+      - 'supabase/functions/aria-mission-wonder-2-a6-dispatch-v1/index.ts'
+      - 'supabase/functions/aria-canonical-runtime-v1/index.ts'
+      - 'supabase/functions/aria-mission-runner-v22/index.ts'
+      - 'supabase/functions/aria-device-gateway/index.ts'
+      - '.github/scripts/mission-wonder-2-step6-a6-isolated-scope-v1.sql'
+      - 'supabase/migrations/*_aria_mission_wonder_2_a6_isolated_scope_v1.sql'
+      - '.github/workflows/supabase-canonical-deploy.yml'
+      - '.github/workflows/aria-cloudflare-deploy.yml'
+      - '.github/workflows/aria-pwa-fast-deploy.yml'
       - 'tests/mission-wonder-2-step6-a6-soak.test.mjs'
       - '.github/workflows/mission-wonder-2-step6-a6-isolated-contract.yml'
   workflow_dispatch:
@@ -14,7 +24,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: mission-wonder-2-step6-a6-isolated-contract-\${{ github.event.pull_request.number || github.ref }}
+  group: mission-wonder-2-step6-a6-isolated-contract-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -32,3 +42,5 @@ jobs:
         run: node tests/mission-wonder-2-step6-a6-isolated-scope.test.mjs
       - name: Verify A6 soak evidence evaluator and frozen baseline
         run: node tests/mission-wonder-2-step6-a6-soak.test.mjs
+      - name: Verify A6 runtime wiring and deployment isolation
+        run: node tests/mission-wonder-2-step6-a6-runtime-wiring.test.mjs
