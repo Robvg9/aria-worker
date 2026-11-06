@@ -431,7 +431,7 @@ begin
     'authorization',jsonb_build_object(
       'status','approved',
       'risk_class','WRITE',
-      'evidence_ref','mission-wonder-2-step6-a6-v1-owner-authorization'
+      'evidence_ref',r.human_gate_ref
     ),
     'timeout_ms',60000,
     'retryable',false,
@@ -451,6 +451,7 @@ begin
     'mission_wonder_2_a6_allowed_device_id',sc.allowed_device_id,
     'mission_wonder_2_a6_ordinal',sc.ordinal,
     'mission_wonder_2_a6_continuity',true,
+    'mission_wonder_2_a6_human_gate_ref',r.human_gate_ref,
     'user_id',sc.owner_user_id,
     'owner_user_id',sc.owner_user_id,
     'request_id',sc.request_id,
@@ -488,6 +489,7 @@ begin
      or m.metadata->>'mission_wonder_2_a6_allowed_device_id' is distinct from sc.allowed_device_id
      or nullif(m.metadata->>'mission_wonder_2_a6_ordinal','')::integer is distinct from sc.ordinal
      or m.metadata->>'mission_wonder_2_a6_continuity' is distinct from 'true'
+     or m.metadata->>'mission_wonder_2_a6_human_gate_ref' is distinct from r.human_gate_ref
      or m.metadata->>'user_id' is distinct from sc.owner_user_id
      or m.metadata->>'owner_user_id' is distinct from sc.owner_user_id
      or m.metadata->>'request_id' is distinct from sc.request_id
@@ -585,6 +587,7 @@ begin
   if m.metadata->>'mission_wonder_2_a6_run_id' is distinct from p_run_id
      or m.metadata->>'mission_wonder_2_a6_scope_id' is distinct from p_scope_id
      or m.metadata->>'mission_wonder_2_a6_goal_hash' is distinct from sc.goal_hash
+     or m.metadata->>'mission_wonder_2_a6_human_gate_ref' is distinct from r.human_gate_ref
      or m.metadata->>'user_id' is distinct from sc.owner_user_id
      or m.metadata->>'request_id' is distinct from sc.request_id then
     raise exception 'a6_enqueue_mission_identity_mismatch';
@@ -599,7 +602,8 @@ begin
      or step->'target'->>'device_id' is distinct from p_device_id
      or step->'input'->>'command' is distinct from p_command
      or step->'input'->>'cwd' is distinct from p_cwd
-     or step->'policy'->>'allowed_artifact_path' is distinct from sc.artifact_path then
+     or step->'policy'->>'allowed_artifact_path' is distinct from sc.artifact_path
+     or step->'authorization'->>'evidence_ref' is distinct from r.human_gate_ref then
     raise exception 'a6_enqueue_plan_mismatch';
   end if;
 
@@ -821,6 +825,7 @@ begin
      or m.metadata->>'mission_wonder_2_a6_allowed_device_id'<>s.allowed_device_id
      or nullif(m.metadata->>'mission_wonder_2_a6_ordinal','')::integer<>s.ordinal
      or m.metadata->>'mission_wonder_2_a6_continuity'<>'true'
+     or m.metadata->>'mission_wonder_2_a6_human_gate_ref'<>r.human_gate_ref
      or m.metadata->>'user_id'<>s.owner_user_id
      or m.metadata->>'request_id'<>s.request_id
      or m.metadata->>'source_application'<>'aria-app-v1'
@@ -874,6 +879,7 @@ begin
      or m.metadata->>'mission_wonder_2_a6_allowed_device_id'<>p_device_id
      or nullif(m.metadata->>'mission_wonder_2_a6_ordinal','')::integer<>s.ordinal
      or m.metadata->>'mission_wonder_2_a6_continuity'<>'true'
+     or m.metadata->>'mission_wonder_2_a6_human_gate_ref'<>r.human_gate_ref
      or m.metadata->>'user_id'<>s.owner_user_id
      or m.metadata->>'request_id'<>s.request_id
      or m.metadata->>'source_application'<>'aria-app-v1'
