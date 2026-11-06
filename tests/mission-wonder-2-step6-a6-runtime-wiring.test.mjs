@@ -103,4 +103,6 @@ assert.match(a6ContractWorkflow, /node tests\/mission-wonder-2-step6-a6-fault-ma
 assert.match(a6ContractWorkflow, /actions\/upload-artifact@v4/);
 assert.match(a6ContractWorkflow, /mission-wonder-2-a6-fault-matrix-\$\{\{ github\.sha \}\}/);
 assert.match(a6ContractWorkflow, /retention-days: 30/);
+const faultMatrixTest = read("tests/mission-wonder-2-step6-a6-fault-matrix.test.mjs");
+assert.match(faultMatrixTest, /M22_A6_FAULT_SCENARIOS_V1.*autonomy\/mission-wonder-2-a6-soak-v1\.mjs/s);
 console.log("MISSION_WONDER_2_STEP6_A6_DEPLOY_ISOLATION=PASS");
