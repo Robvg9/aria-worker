@@ -17,6 +17,10 @@ const kickSource=directSource.slice(directSource.indexOf("async function kickCan
 assert.match(kickSource,/"x-aria-trigger":\s*"mission-tick"/,"user mission dispatch must use the async canonical runtime trigger");
 assert.ok(canonicalRuntimeSource.includes('trigger==="mission-tick"||trigger==="scheduler"'),"canonical runtime must accept the async mission trigger");
 assert.ok(canonicalRuntimeSource.includes("EdgeRuntime?.waitUntil?.(p)"),"canonical runtime must retain the runner promise in the edge execution context");
+const runnerForwardHeaders=canonicalRuntimeSource.slice(canonicalRuntimeSource.indexOf("const h=new Headers"),canonicalRuntimeSource.indexOf("if(trace)"));
+assert.ok(runnerForwardHeaders.indexOf("if(SECRET)")>=0&&runnerForwardHeaders.indexOf("if(SECRET)")<runnerForwardHeaders.indexOf("else if(KEY)"),"canonical internal runner calls must prefer ARIA_RUNTIME_SHARED_SECRET over the service-role key");
+assert.ok(runnerForwardHeaders.includes('h.set("authorization",`Bearer ${SECRET}`)'),"canonical runner handoff must send the shared secret the runner explicitly accepts");
+assert.ok(runnerForwardHeaders.includes('else if(at)h.set("x-aria-autonomy-token",at)'),"autonomy-token fallback must remain available only when internal shared/service credentials are absent");
 assert.equal(registry.canonical_entrypoint,"aria-canonical-runtime-v1");
 assert.deepEqual(registry.stage_order,["planner","runner","runtime_gateway","execution","device_gateway","verification"]);
 assert.equal(runtime.canonicalStage("planner"),"aria-planner-v11");
