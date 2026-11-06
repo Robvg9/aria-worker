@@ -159,5 +159,9 @@ assert.match(pwaDeployWorkflow, /'.github\/workflows\/mission-wonder-2-step6-a6-
 assert.match(pwaDeployWorkflow, /'tests\/mission-wonder-2-step6-a6-isolated-scope\.test\.mjs'/);
 assert.match(cloudflareDeployWorkflow, /'.github\/workflows\/mission-wonder-2-step6-a6-isolated-contract\.yml'/);
 assert.match(cloudflareDeployWorkflow, /'tests\/mission-wonder-2-step6-a6-isolated-scope\.test\.mjs'/);
+assert.match(pwaDeployWorkflow, /'.github\/workflows\/mission-wonder-2-step6-a6-migration-cli\.yml'/);
+assert.match(pwaDeployWorkflow, /'.github\/scripts\/mission-wonder-2-step6-a6-isolated-scope-v1\.sql'/);
+assert.match(cloudflareDeployWorkflow, /'.github\/workflows\/mission-wonder-2-step6-a6-migration-cli\.yml'/);
+assert.match(cloudflareDeployWorkflow, /'.github\/scripts\/mission-wonder-2-step6-a6-isolated-scope-v1\.sql'/);
 
 console.log("MISSION_WONDER_2_STEP6_A6_ISOLATED_SCOPE_CONTRACT=PASS");
