@@ -88,9 +88,9 @@ assert.equal((migration.match(/create table if not exists aria_internal\.mission
 assert.equal((migration.match(/^commit;$/gm) || []).length, 1);
 assert.doesNotMatch(migration, /^\),$/m);
 const migrationCli = fs.readFileSync(".github/workflows/mission-wonder-2-step6-a6-migration-cli.yml", "utf8");
-assert.match(migrationCli, /supabase migration new aria_mission_wonder_2_a6_isolated_scope_v1\\n/);
-assert.match(migrationCli, /cp "\\$GITHUB_WORKSPACE\\/\\.github\\/scripts\\/mission-wonder-2-step6-a6-isolated-scope-v1\\.sql" "\\$target"/);
-assert.doesNotMatch(migrationCli, /supabase migration new[\\s\\S]{0,120}< "\\$GITHUB_WORKSPACE/);
+assert.ok(migrationCli.includes("supabase migration new aria_mission_wonder_2_a6_isolated_scope_v1"));
+assert.ok(migrationCli.includes('cp "$GITHUB_WORKSPACE/.github/scripts/mission-wonder-2-step6-a6-isolated-scope-v1.sql" "$target"'));
+assert.ok(!migrationCli.includes('< "$GITHUB_WORKSPACE/.github/scripts/mission-wonder-2-step6-a6-isolated-scope-v1.sql"'));
 
 assert.doesNotMatch(migration, /mission-wonder-2-step6-a6-v1-owner-authorization/);
 console.log("MISSION_WONDER_2_STEP6_A6_RUNTIME_WIRING=PASS");
