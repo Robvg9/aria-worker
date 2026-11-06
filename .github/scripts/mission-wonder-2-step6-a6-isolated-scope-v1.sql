@@ -614,6 +614,7 @@ declare
   n integer := 0;
   completed_count integer;
   active_count integer;
+  ambient jsonb;
 begin
   for r in
     select * from aria_internal.mission_wonder_2_a6_runs
@@ -626,15 +627,28 @@ begin
      where run_id=r.run_id and status='completed';
     select count(*) into active_count
       from aria_internal.execution_jobs j
-      join aria_internal.mission_wonder_2_a6_scopes s on s.job_id=j.job_id
-     where s.run_id=r.run_id and j.status in ('queued','claimed','running');
-    if completed_count=5 and active_count=0 then
+      join aria_internal.mission_wonder_2_a6_scopes sc on sc.job_id=j.job_id
+     where sc.run_id=r.run_id and j.status in ('queued','claimed','running');
+    ambient := aria_internal.aria_m22_a6_ambient_snapshot_v1();
+    insert into aria_internal.mission_wonder_2_a6_telemetry(run_id,event_type,payload)
+    values (r.run_id,'final_reconciliation',jsonb_build_object(
+      'completed_scope_count',completed_count,
+      'active_a6_job_count',active_count,
+      'ambient_final',ambient,
+      'ambient_unchanged',(ambient is not distinct from r.ambient_baseline)
+    ));
+    if completed_count=5 and active_count=0 and
+       ambient is not distinct from r.ambient_baseline and
+       (ambient->>'cron48Active')::boolean=false and
+       (ambient->>'cron49Active')::boolean=false and
+       (ambient->>'cron50Active')::boolean=false and
+       (ambient->>'missionExecutionPaused')::boolean=true then
       update aria_internal.mission_wonder_2_a6_runs
-         set status='completed',completed_at=clock_timestamp(),updated_at=clock_timestamp()
+         set status='completed',ambient_final=ambient,completed_at=clock_timestamp(),updated_at=clock_timestamp()
        where run_id=r.run_id and status='running';
     else
       update aria_internal.mission_wonder_2_a6_runs
-         set status='blocked',completed_at=clock_timestamp(),updated_at=clock_timestamp()
+         set status='blocked',ambient_final=ambient,completed_at=clock_timestamp(),updated_at=clock_timestamp()
        where run_id=r.run_id and status='running';
     end if;
     n:=n+1;
@@ -658,6 +672,12 @@ begin
     select 1 from aria_internal.execution_jobs j
     join aria_internal.mission_wonder_2_a6_scopes s on s.job_id=j.job_id
     where s.run_id=p_run_id and j.status in ('queued','claimed','running')
+  ) then return false; end if;
+
+  if exists (
+    select 1 from aria_internal.mission_state m
+    join aria_internal.mission_wonder_2_a6_scopes sc on sc.mission_id=m.mission_id
+    where sc.run_id=p_run_id and m.status in ('queued','planning','running','waiting','paused')
   ) then return false; end if;
 
   update aria_internal.mission_wonder_2_a6_scopes
@@ -726,6 +746,7 @@ begin
 end;
 $function$;
 
+revoke all on function aria_internal.aria_m22_a6_ambient_snapshot_v1() from public,anon,authenticated;
 revoke all on function aria_internal.aria_m22_a6_arm_run_v1(text,text,text,text,integer,integer,jsonb) from public,anon,authenticated;
 revoke all on function aria_internal.aria_m22_a6_start_run_v1(text,text) from public,anon,authenticated;
 revoke all on function aria_internal.aria_m22_a6_claim_due_scope_v1() from public,anon,authenticated;
@@ -737,6 +758,7 @@ revoke all on function aria_internal.aria_m22_a6_complete_scope_v1(text,text,tex
 revoke all on function aria_internal.aria_m22_a6_finish_run_if_due_v1() from public,anon,authenticated;
 revoke all on function aria_internal.aria_m22_a6_revoke_run_v1(text) from public,anon,authenticated;
 
+grant execute on function aria_internal.aria_m22_a6_ambient_snapshot_v1() to service_role;
 grant execute on function aria_internal.aria_m22_a6_arm_run_v1(text,text,text,text,integer,integer,jsonb) to service_role;
 grant execute on function aria_internal.aria_m22_a6_start_run_v1(text,text) to service_role;
 grant execute on function aria_internal.aria_m22_a6_claim_due_scope_v1() to service_role;
