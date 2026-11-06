@@ -69,7 +69,7 @@ export function m22A6ArtifactPathV1(runId, ordinal) {
   if (!Number.isSafeInteger(ordinal) || ordinal < 1 || ordinal > M22_A6_MISSION_COUNT) {
     throw new Error("a6_mission_ordinal_invalid");
   }
-  return "C:\\Windows\\Temp\\ARIA-MW2-A6\\" + id + "\\proof-" +
+  return "C:\\Windows\\Temp\\ARIA-MW2-A6\\" + id + "\\mission-" + String(ordinal).padStart(2, "0") + "\\proof-" +
     String(ordinal).padStart(2, "0") + ".txt";
 }
 
@@ -79,7 +79,7 @@ export function m22A6BuildContinuityProbeStepV1(deviceId, runId, ordinal) {
   if (device !== M22_A6_ALLOWED_DEVICE_ID) throw new Error("a6_device_not_allowlisted");
   const stepId = m22A6StepIdV1(ordinal);
   const artifactPath = m22A6ArtifactPathV1(id, ordinal);
-  const directory = "C:\\Windows\\Temp\\ARIA-MW2-A6\\" + id;
+  const directory = "C:\\Windows\\Temp\\ARIA-MW2-A6\\" + id + "\\mission-" + String(ordinal).padStart(2, "0");
   const marker = "ARIA_MW2_A6_CONTINUITY_V1|" + id + "|" + String(ordinal).padStart(2, "0");
   const sequence = String(ordinal).padStart(2, "0");
   const script = [
