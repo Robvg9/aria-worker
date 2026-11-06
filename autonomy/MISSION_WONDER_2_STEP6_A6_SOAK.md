@@ -11,7 +11,7 @@ The master roadmap proposes an initial **24-hour** window and an optional reinfo
 ## Required evidence
 
 1. Mission and job identity: each mission/job ID is unique; every mission ends in `succeeded`; an independent objective verifier confirms the result exactly once.
-2. Artifacts: evidence hashes are valid and unique; duplicate count is zero.
+2. Artifacts: every mission has exactly one valid SHA-256 hash, all hashes are unique, `duplicateCount` is explicitly zero, and the mission is inactive at close.
 3. Worker continuity: normal heartbeat gaps remain within the declared threshold; expected outage gaps are explicitly recorded and recover within the declared recovery limit.
 4. Fault matrix: one controlled, observed and recovered scenario for each of host restart, provider degradation, executor offline, timeout and rate limiting.
 5. Bounded execution: each job stays within the declared attempt limit (maximum three); no orphan jobs/processes; backlog returns to zero at the end.
