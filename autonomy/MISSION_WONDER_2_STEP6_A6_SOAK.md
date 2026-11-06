@@ -63,3 +63,13 @@ The `a6BacklogSamples` evidence field measures only pending jobs belonging to th
 ### A6 mission marker execution bound
 
 Each of the five idempotent marker missions carries one physical execution job and exactly one attempt. This keeps the run capped at five jobs total; a retry from the generic runner cannot generate a sixth job. Continuity/recovery is measured at the worker/dispatcher level, and each marker's fixed content makes repeated manual verification non-mutating. Any failed marker blocks the run rather than silently enqueueing another job.
+
+## LIVE 24h gate (prepared, not started)
+
+- Five single-step missions are scheduled at +1h, +6h, +12h, +18h and +23h.
+- One allowlisted Windows device; one job per mission; one attempt; no LLM/provider call; no automatic retry.
+- Heartbeat target 30s with a 90s maximum age and maximum sample gap.
+- The dispatcher blocks and disables only the A6 cron if device freshness or sampling continuity exceeds the limit.
+- Final reconciliation requires at least 1,368 heartbeat samples, all five independently verified jobs, zero recoveries/retries, p95 job latency at or below 90s, no more than one pending A6 job, backlog age at or below 5 minutes, and unchanged non-A6 fingerprints with crons 48/49/50 still disabled.
+- The migration creates the dedicated A6 cron inactive. Only a separately approved start_run call activates it; global MISSION_EXECUTION_PAUSED=true remains unchanged.
+- This is not yet a live soak. CI and local PostgreSQL validation do not count as 24h evidence.
