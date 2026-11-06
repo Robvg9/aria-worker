@@ -121,7 +121,7 @@ async function runtimeTick() {
 
 const report = {
   status: "running", run_id: RUN_ID, run_attempt: RUN_ATTEMPT,
-  pwa_authenticated: false, scope_armed: false, pwa_mission_created: false,
+  pwa_authenticated: false, scope_armed: false, pwa_mission_created: false, pwa_mission_resumed: false,
   scope_bound: false, runtime_tick: null, mission_id: MISSION_ID,
   request_id: null, device_id: null, job_id: JOB_ID,
   job_running: false, artifact_checkpoint_waiting: false,
@@ -138,14 +138,7 @@ try {
   assert.equal(PROJECT, "icuqsstxfdbvjytkhlog", "unexpected ARIA Supabase project");
   assert.ok(/^https:\/\//.test(BASE), "PWA URL must be HTTPS");
 
-  const preflightSql = [
-    "SELECT CASE WHEN",
-    "(SELECT count(*) FROM aria_internal.mission_wonder_2_a5_scopes WHERE scope_id=" + sqlQuote(M22_A5_SCOPE_ID) + ")=0",
-    "AND (SELECT count(*) FROM aria_internal.mission_state WHERE mission_id=" + sqlQuote(MISSION_ID) + ")=0",
-    "AND (SELECT count(*) FROM aria_internal.execution_jobs WHERE mission_id=" + sqlQuote(MISSION_ID) + ")=0",
-    "THEN 'A5_ONE_SHOT_UNUSED_PASS' ELSE 'A5_ONE_SHOT_ALREADY_EXISTS' END;"
-  ].join("\n");
-  requireMarker(runSql(preflightSql), "A5_ONE_SHOT_UNUSED_PASS");
+  // The prior failed claim left one mission/job in place; the pilot resumes that exact identity.
 
   browser = await chromium.launch({ headless: true });
   const storageState = process.env.RWHT_STORAGE_STATE || "";
@@ -184,60 +177,98 @@ try {
   assert.equal(deviceId, DEVICE_ID, "exact A5 Windows agent is not uniquely eligible");
   report.device_id = deviceId;
 
-  const insertSql = [
-    "INSERT INTO aria_internal.mission_wonder_2_a5_scopes",
-    "(scope_id,scope_key,owner_user_id,goal_hash,mission_id,job_id,allowed_device_id,command,status,expires_at)",
-    "VALUES (" + [
-      sqlQuote(M22_A5_SCOPE_ID), sqlQuote(M22_A5_SCOPE_KEY), sqlQuote(session.userId),
-      sqlQuote(goalHash), sqlQuote(MISSION_ID), sqlQuote(JOB_ID), sqlQuote(DEVICE_ID),
-      sqlQuote(step.input.command), "'armed'", "clock_timestamp()+interval '45 minutes'"
-    ].join(",") + ")",
-    "ON CONFLICT (scope_id) DO NOTHING;"
+  // Resume the exact PWA mission and job left untouched by the first failed gateway claim.
+  // Do not POST /api/missions again and do not create a replacement job.
+  const resumePreflightSql = [
+    "SELECT CASE WHEN count(*)=1 AND bool_and(",
+    "s.scope_key=" + sqlQuote(M22_A5_SCOPE_KEY),
+    "AND s.owner_user_id=" + sqlQuote(session.userId) + " AND s.goal_hash=" + sqlQuote(goalHash),
+    "AND s.mission_id=" + sqlQuote(MISSION_ID) + " AND s.job_id=" + sqlQuote(JOB_ID),
+    "AND s.allowed_device_id=" + sqlQuote(DEVICE_ID) + " AND s.command=" + sqlQuote(step.input.command),
+    "AND s.status='revoked' AND s.recovery_used=false AND s.request_id IS NOT NULL",
+    "AND m.goal=" + sqlQuote(GOAL) + " AND m.status='waiting'",
+    "AND m.current_step=0 AND m.completed_steps=0 AND m.total_steps=1",
+    "AND m.metadata->>'user_id'=" + sqlQuote(session.userId),
+    "AND m.metadata->>'request_id'=s.request_id",
+    "AND m.metadata->>'mission_wonder_2_a5_scope_id'=" + sqlQuote(M22_A5_SCOPE_ID),
+    "AND m.metadata->>'mission_wonder_2_a5_goal_hash'=" + sqlQuote(goalHash),
+    "AND m.metadata->>'mission_wonder_2_a5_allowed_device_id'=" + sqlQuote(DEVICE_ID),
+    "AND m.metadata->>'mission_wonder_2_a5_recovery'='true'",
+    "AND m.metadata->>'execution_lane'='user' AND m.metadata->>'source_application'='aria-app-v1'",
+    "AND m.metadata->>'goal_source'='user' AND nullif(coalesce(m.metadata->>'project_id',''),'') IS NULL",
+    "AND m.checkpoint->'recovery'->>'status'='waiting_for_async_executor'",
+    "AND m.checkpoint->'pending_jobs'->'a5_idempotent_recovery_marker'->>'job_id'=" + sqlQuote(JOB_ID),
+    "AND m.checkpoint->'pending_jobs'->'a5_idempotent_recovery_marker'->>'attempt'='1'",
+    "AND j.status='queued' AND j.completed_at IS NULL",
+    "AND j.claimed_at IS NULL AND j.lease_owner IS NULL AND j.lease_until IS NULL",
+    "AND j.recovery_count=0 AND j.device_id=" + sqlQuote(DEVICE_ID),
+    "AND j.operation='shell.execute' AND j.command=" + sqlQuote(step.input.command),
+    "AND j.cwd='C:\\Windows\\Temp' AND j.timeout_ms=900000",
+    "AND j.policy @> '{\"mission_wonder_2_a5_recovery\":true,\"idempotent_artifact\":true,\"max_artifacts\":1}'::jsonb",
+    "AND j.metadata->>'idempotency_key'=" + sqlQuote(JOB_ID)
+    + ") THEN 'A5_RESUME_ORPHAN_PASS' ELSE 'A5_RESUME_ORPHAN_FAIL' END",
+    "FROM aria_internal.mission_wonder_2_a5_scopes s",
+    "JOIN aria_internal.mission_state m ON m.mission_id=s.mission_id",
+    "JOIN aria_internal.execution_jobs j ON j.job_id=s.job_id",
+    "WHERE s.scope_id=" + sqlQuote(M22_A5_SCOPE_ID) + " AND",
+    "(SELECT count(*) FROM aria_internal.execution_jobs WHERE mission_id=" + sqlQuote(MISSION_ID) + ")=1;"
   ].join("\n");
-  // Set cleanup before the write: a lost CLI response must not leave an unknown armed scope.
-  scopeCleanupRequired = true;
-  runSql(insertSql, true);
-  const armedSql = [
-    "SELECT CASE WHEN count(*)=1 AND bool_and(owner_user_id=" + sqlQuote(session.userId),
-    "AND goal_hash=" + sqlQuote(goalHash) + " AND mission_id=" + sqlQuote(MISSION_ID),
-    "AND job_id=" + sqlQuote(JOB_ID) + " AND allowed_device_id=" + sqlQuote(DEVICE_ID),
-    "AND status='armed' AND request_id IS NULL AND expires_at>clock_timestamp())",
-    "THEN 'A5_SCOPE_ARMED_PASS' ELSE 'A5_SCOPE_ARMED_FAIL' END",
-    "FROM aria_internal.mission_wonder_2_a5_scopes WHERE scope_id=" + sqlQuote(M22_A5_SCOPE_ID) + ";"
-  ].join("\n");
-  requireMarker(runSql(armedSql), "A5_SCOPE_ARMED_PASS");
-  report.scope_armed = true;
+  requireMarker(runSql(resumePreflightSql), "A5_RESUME_ORPHAN_PASS");
 
-  await page.goto(BASE + "#home", { waitUntil: "domcontentloaded", timeout: 30000 });
-  await page.locator(".topActions button.primary.desktopOnly").click();
-  const goalField = page.locator('textarea[aria-label="Objetivo de la misión"]');
-  await goalField.waitFor({ state: "visible" });
-  await goalField.fill(GOAL);
-  const postResponsePromise = page.waitForResponse((response) => {
-    const request = response.request();
-    return request.method() === "POST" && new URL(response.url()).pathname.endsWith("/api/missions");
-  }, { timeout: 90000 });
-  await page.getByRole("button", { name: "Crear misión", exact: true }).click();
-  const postResponse = await postResponsePromise;
-  const postHeaders = await postResponse.request().allHeaders();
-  const requestId = String(postHeaders["x-aria-request-id"] || "");
-  const postBody = await postResponse.json().catch(() => null);
-  assert.equal(postResponse.status(), 200, "A5 PWA mission POST was not HTTP 200");
-  assert.ok(requestId, "real PWA x-aria-request-id header missing");
-  assert.equal(String(postBody?.mission_id || postBody?.mission?.mission_id || ""), MISSION_ID,
-    "PWA did not create the one mission bound to the A5 scope");
-  report.pwa_mission_created = true;
+  const requestOutput = runSql(
+    "SELECT 'A5_RESUME_REQUEST_ID=' || request_id FROM aria_internal.mission_wonder_2_a5_scopes WHERE scope_id="
+      + sqlQuote(M22_A5_SCOPE_ID) + ";"
+  );
+  const requestId = requestOutput.match(/A5_RESUME_REQUEST_ID=([0-9a-f-]{20,})/i)?.[1] || "";
+  assert.ok(requestId, "original PWA request id missing from orphaned A5 scope");
   report.request_id = requestId;
 
-  const boundSql = [
-    "SELECT CASE WHEN count(*)=1 AND bool_and(status='bound'",
-    "AND request_id=" + sqlQuote(requestId) + " AND owner_user_id=" + sqlQuote(session.userId),
-    "AND goal_hash=" + sqlQuote(goalHash) + ") THEN 'A5_SCOPE_BOUND_PASS' ELSE 'A5_SCOPE_BOUND_FAIL' END",
-    "FROM aria_internal.mission_wonder_2_a5_scopes",
-    "WHERE scope_id=" + sqlQuote(M22_A5_SCOPE_ID) + " AND mission_id=" + sqlQuote(MISSION_ID) + ";"
+  const existingMissionReadback = await pwaApi(page, session.accessToken, "/api/missions/" + encodeURIComponent(MISSION_ID));
+  report.pwa_existing_mission_readback_http = existingMissionReadback.status;
+  assert.equal(existingMissionReadback.status, 200, "original A5 mission is not readable from the authenticated PWA");
+  const existingMission = existingMissionReadback.body?.mission || null;
+  assert.equal(String(existingMission?.status || ""), "waiting", "orphaned A5 mission must still be waiting");
+  assert.equal(Number(existingMission?.completed_steps), 0);
+  assert.equal(Number(existingMission?.total_steps), 1);
+  report.pwa_mission_resumed = true;
+
+  // Re-arm only the already-approved A5 row, after proving owner, goal, mission and job identity.
+  const rearmSql = [
+    "UPDATE aria_internal.mission_wonder_2_a5_scopes",
+    "SET status='armed',expires_at=clock_timestamp()+interval '45 minutes',revoked_at=NULL,updated_at=clock_timestamp()",
+    "WHERE scope_id=" + sqlQuote(M22_A5_SCOPE_ID),
+    "AND scope_key=" + sqlQuote(M22_A5_SCOPE_KEY),
+    "AND owner_user_id=" + sqlQuote(session.userId) + " AND request_id=" + sqlQuote(requestId),
+    "AND goal_hash=" + sqlQuote(goalHash) + " AND mission_id=" + sqlQuote(MISSION_ID),
+    "AND job_id=" + sqlQuote(JOB_ID) + " AND allowed_device_id=" + sqlQuote(DEVICE_ID),
+    "AND command=" + sqlQuote(step.input.command) + " AND status='revoked' AND recovery_used=false",
+    "AND EXISTS (SELECT 1 FROM aria_internal.mission_state m WHERE m.mission_id=" + sqlQuote(MISSION_ID),
+    "AND m.status='waiting' AND m.current_step=0 AND m.completed_steps=0 AND m.total_steps=1",
+    "AND m.metadata->>'user_id'=" + sqlQuote(session.userId),
+    "AND m.metadata->>'request_id'=" + sqlQuote(requestId),
+    "AND m.metadata->>'mission_wonder_2_a5_goal_hash'=" + sqlQuote(goalHash) + ")",
+    "AND EXISTS (SELECT 1 FROM aria_internal.execution_jobs j WHERE j.job_id=" + sqlQuote(JOB_ID),
+    "AND j.mission_id=" + sqlQuote(MISSION_ID) + " AND j.status='queued' AND j.completed_at IS NULL",
+    "AND j.claimed_at IS NULL AND j.lease_owner IS NULL AND j.lease_until IS NULL AND j.recovery_count=0)",
+    "AND (SELECT count(*) FROM aria_internal.execution_jobs WHERE mission_id=" + sqlQuote(MISSION_ID) + ")=1",
+    "RETURNING 'A5_SCOPE_REARMED=' || scope_id;"
   ].join("\n");
-  requireMarker(runSql(boundSql), "A5_SCOPE_BOUND_PASS");
+  scopeCleanupRequired = true;
+  requireMarker(runSql(rearmSql, true), "A5_SCOPE_REARMED=" + M22_A5_SCOPE_ID);
+
+  const claimScopeSql = "SELECT 'A5_SCOPE_CLAIM=' || coalesce((aria_internal.aria_m22_a5_claim_scope_v1("
+    + [sqlQuote(session.userId), sqlQuote(requestId), sqlQuote(goalHash), "NULL"].join(",")
+    + ")->>'status','null');";
+  requireMarker(runSql(claimScopeSql, true), "A5_SCOPE_CLAIM=claimed");
+
+  const bindScopeSql = "SELECT 'A5_SCOPE_BIND=' || aria_internal.aria_m22_a5_bind_scope_v1("
+    + [sqlQuote(M22_A5_SCOPE_ID), sqlQuote(MISSION_ID), sqlQuote(session.userId),
+      sqlQuote(requestId), sqlQuote(goalHash)].join(",") + ")::text;";
+  requireMarker(runSql(bindScopeSql, true), "A5_SCOPE_BIND=true");
+  report.scope_armed = true;
   report.scope_bound = true;
+  report.pwa_mission_created = false;
+  console.log("MISSION_WONDER_2_STEP5_A5_ORIGINAL_PWA_MISSION_RESUMED=PASS");
 
   const denied = await pwaApi(page, session.accessToken, "/api/missions", {
     method: "POST",
