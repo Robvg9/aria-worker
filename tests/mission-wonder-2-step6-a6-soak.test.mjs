@@ -75,9 +75,9 @@ const validEvidence = {
   faultScenarios,
   latencySamplesMs: [900, 1200, 1500, 2400, 3000, 4200, 5800, 7000, 8500, 12000],
   costSamplesUsd: [0.001, 0.001, 0.001, 0.001, 0.001],
-  backlogSamples: [
-    { pendingJobs: 2, oldestPendingAgeMs: 1000 },
-    { pendingJobs: 0, oldestPendingAgeMs: 0 },
+  a6BacklogSamples: [
+    { a6PendingJobs: 2, oldestA6PendingAgeMs: 1000 },
+    { a6PendingJobs: 0, oldestA6PendingAgeMs: 0 },
   ],
   orphanJobs: 0,
   orphanProcesses: 0,
@@ -98,7 +98,7 @@ assert.equal(report.metrics.heartbeatCoverage.unexplainedMissingIntervals, 0);
 assert.equal(report.metrics.independentlyVerifiedMissionCount, 5);
 assert.equal(report.metrics.uniqueJobCount, 5);
 assert.equal(report.metrics.faultScenariosRecovered, 5);
-assert.equal(report.metrics.finalPendingJobs, 0);
+assert.equal(report.metrics.finalA6PendingJobs, 0);
 assert.equal(report.metrics.orphanJobs, 0);
 assert.equal(report.metrics.orphanProcesses, 0);
 assert.equal(report.metrics.ambient.legacyNonterminalMissionCount, 291);
@@ -260,21 +260,21 @@ assert.ok(costFailure.blockers.includes("total_cost_exceeded_threshold"));
 
 const backlogFailure = m22A6BuildSoakReportV1({
   ...validEvidence,
-  backlogSamples: [{ pendingJobs: 2, oldestPendingAgeMs: 999999 }],
+  a6BacklogSamples: [{ a6PendingJobs: 2, oldestA6PendingAgeMs: 999999 }],
 });
 assert.equal(backlogFailure.status, "BLOCKED");
-assert.ok(backlogFailure.blockers.includes("backlog_not_drained_at_end"));
-assert.ok(backlogFailure.blockers.includes("backlog_sample_0_oldest_age_invalid_or_exceeded"));
+assert.ok(backlogFailure.blockers.includes("a6_backlog_not_drained_at_end"));
+assert.ok(backlogFailure.blockers.includes("a6_backlog_sample_0_oldest_age_invalid_or_exceeded"));
 
 const invalidBacklogSample = m22A6BuildSoakReportV1({
   ...validEvidence,
-  backlogSamples: [
-    { pendingJobs: 1, oldestPendingAgeMs: -1 },
-    { pendingJobs: 0, oldestPendingAgeMs: 0 },
+  a6BacklogSamples: [
+    { a6PendingJobs: 1, oldestA6PendingAgeMs: -1 },
+    { a6PendingJobs: 0, oldestA6PendingAgeMs: 0 },
   ],
 });
 assert.equal(invalidBacklogSample.status, "BLOCKED");
-assert.ok(invalidBacklogSample.blockers.includes("backlog_sample_0_oldest_age_invalid_or_exceeded"));
+assert.ok(invalidBacklogSample.blockers.includes("a6_backlog_sample_0_oldest_age_invalid_or_exceeded"));
 
 const orphanFailure = m22A6BuildSoakReportV1({ ...validEvidence, orphanJobs: 1 });
 assert.equal(orphanFailure.status, "BLOCKED");
@@ -341,11 +341,11 @@ assert.ok(missingAmbientSnapshot.blockers.includes("ambient_baseline_or_final_sn
 
 const coercedBacklogSample = m22A6BuildSoakReportV1({
   ...validEvidence,
-  backlogSamples: [{ pendingJobs: null, oldestPendingAgeMs: null }],
+  a6BacklogSamples: [{ a6PendingJobs: null, oldestA6PendingAgeMs: null }],
 });
 assert.equal(coercedBacklogSample.status, "BLOCKED");
-assert.ok(coercedBacklogSample.blockers.includes("backlog_sample_0_pending_job_count_invalid"));
-assert.ok(coercedBacklogSample.blockers.includes("backlog_sample_0_oldest_age_invalid_or_exceeded"));
+assert.ok(coercedBacklogSample.blockers.includes("a6_backlog_sample_0_pending_job_count_invalid"));
+assert.ok(coercedBacklogSample.blockers.includes("a6_backlog_sample_0_oldest_age_invalid_or_exceeded"));
 
 const stringAttemptCount = missions.map(item => ({ ...item }));
 stringAttemptCount[0].attemptCount = "1";
