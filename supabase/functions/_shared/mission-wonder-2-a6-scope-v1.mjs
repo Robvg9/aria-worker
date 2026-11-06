@@ -77,7 +77,7 @@ export function m22A6BuildContinuityProbeStepV1(deviceId, runId, ordinal, humanG
   const device = norm(deviceId);
   const id = norm(runId);
   const gateRef = norm(humanGateRef);
-  if (!/^a6-human-gate-[0-9]{10,20}\\.[0-9]{1,3}$/.test(gateRef)) throw new Error("a6_human_gate_ref_invalid");
+  if (!/^a6-human-gate-[0-9]{10,20}[.][0-9]{1,3}$/.test(gateRef)) throw new Error("a6_human_gate_ref_invalid");
   if (device !== M22_A6_ALLOWED_DEVICE_ID) throw new Error("a6_device_not_allowlisted");
   const stepId = m22A6StepIdV1(ordinal);
   const artifactPath = m22A6ArtifactPathV1(id, ordinal);
@@ -168,7 +168,7 @@ export async function m22A6ScopeRowMatchesV1({
   const ordinal = Number(scope.ordinal);
   if (!owner || !request || !M22_A6_RUN_ID_PATTERN.test(runId) ||
       id !== m22A6MissionIdV1(runId, ordinal) ||
-      !/^a6-human-gate-[0-9]{10,20}\\.[0-9]{1,3}$/.test(norm(run.human_gate_ref)) ||
+      !/^a6-human-gate-[0-9]{10,20}[.][0-9]{1,3}$/.test(norm(run.human_gate_ref)) ||
       projectNorm(projectId) !== null || projectNorm(metadata.project_id) !== null) return false;
 
   const expectedGoal = m22A6GoalV1(runId, ordinal);
