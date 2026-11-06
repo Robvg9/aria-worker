@@ -118,7 +118,7 @@ jobs:
           create table aria_internal.execution_jobs (
             job_id text primary key, mission_id text, device_id text, operation text, command text, cwd text,
             timeout_ms integer, policy jsonb default '{}'::jsonb, metadata jsonb default '{}'::jsonb,
-            status text, claimed_at timestamptz, started_at timestamptz, completed_at timestamptz,
+            status text, requested_at timestamptz default clock_timestamp(), claimed_at timestamptz, started_at timestamptz, completed_at timestamptz, recovery_count integer default 0,
             lease_owner text, lease_until timestamptz, updated_at timestamptz default clock_timestamp(),
             exit_code integer, stdout text
           );
