@@ -2596,7 +2596,7 @@ async function independentVerify(mission:any, step:any, result:any){
       Boolean(job) && Boolean(scope) && jobCount === 1 &&
       job.job_id === jobId && job.mission_id === String(mission.mission_id) &&
       job.device_id === expectedDeviceId && job.operation === "shell.execute" &&
-      job.command === String(step?.input?.command || "") && job.cwd === "C:\Windows\Temp" &&
+      job.command === String(step?.input?.command || "") && job.cwd === "C:\\Windows\\Temp" &&
       Number(job.timeout_ms) === 900000 && job.policy?.mission_wonder_2_a5_recovery === true &&
       job.policy?.idempotent_artifact === true && job.metadata?.idempotency_key === jobId &&
       Number(job.metadata?.mission_wonder_2_a5_attempt) === 2 &&
