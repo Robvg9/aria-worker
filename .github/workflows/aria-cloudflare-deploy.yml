@@ -53,6 +53,10 @@ on:
       - 'cloudflare-autonomy/**'
       - 'autonomy/worker-single-instance-lock-v1.js'
       - 'tests/worker-single-instance-lock-v1.test.js'
+      # A6 soak evaluator/docs/tests are CI-only and do not change the production Cloudflare Worker.
+      - 'autonomy/mission-wonder-2-a6-soak-v1.mjs'
+      - 'autonomy/MISSION_WONDER_2_STEP6_A6_SOAK.md'
+      - 'tests/mission-wonder-2-step6-a6-soak.test.mjs'
       - 'tests/mission-wonder-2-step3-a3-presence.test.mjs'
       - 'tests/mission-wonder-2-step3-a3-live-workflow-contract.test.cjs'
       - 'tests/supabase-canonical-deploy-contract.test.js'
