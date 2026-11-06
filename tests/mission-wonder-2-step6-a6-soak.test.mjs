@@ -38,6 +38,17 @@ const missions = Array.from({ length: 5 }, (_, index) => ({
 const faultScenarios = M22_A6_FAULT_SCENARIOS_V1.map((name, index) => ({
   name, injected: true, detected: true, recovered: true, recoveryMs: 15000 + index * 1000,
 }));
+
+const ambientSnapshot = {
+  legacyNonterminalMissionCount: 291,
+  legacyNonterminalMissionFingerprint: "713960e84a7ec49b55fc765ef627e8ff",
+  nonA6ActiveJobCount: 0,
+  nonA6ActiveJobFingerprint: "d41d8cd98f00b204e9800998ecf8427e",
+  cron48Active: false,
+  cron49Active: false,
+  cron50Active: false,
+  missionExecutionPaused: true,
+};
 const validEvidence = {
   startedAt: hours(0),
   finishedAt: hours(24),
@@ -58,6 +69,8 @@ const validEvidence = {
   ],
   orphanJobs: 0,
   orphanProcesses: 0,
+  ambientBaseline: ambientSnapshot,
+  ambientFinal: { ...ambientSnapshot },
 };
 
 const report = m22A6BuildSoakReportV1(validEvidence);
@@ -73,6 +86,11 @@ assert.equal(report.metrics.faultScenariosRecovered, 5);
 assert.equal(report.metrics.finalPendingJobs, 0);
 assert.equal(report.metrics.orphanJobs, 0);
 assert.equal(report.metrics.orphanProcesses, 0);
+assert.equal(report.metrics.ambient.legacyNonterminalMissionCount, 291);
+assert.equal(report.metrics.ambient.nonA6ActiveJobCount, 0);
+assert.equal(report.metrics.ambient.ambientFingerprintUnchanged, true);
+assert.equal(report.metrics.ambient.crons48_49_50RemainDisabled, true);
+assert.equal(report.metrics.ambient.globalMissionFreezeRemainsEnabled, true);
 assert.ok(Math.abs(report.metrics.totalCostUsd - 0.005) < 1e-9);
 assert.equal(M22_A6_SOAK_WINDOWS_V1.initial_hours, 24);
 assert.equal(M22_A6_SOAK_WINDOWS_V1.reinforced_hours, 72);
@@ -236,6 +254,34 @@ const missingTypedThreshold = m22A6BuildSoakReportV1({
 });
 assert.equal(missingTypedThreshold.status, "BLOCKED");
 assert.ok(missingTypedThreshold.blockers.includes("threshold_max_total_cost_usd_required"));
+
+const changedAmbientMissionCount = m22A6BuildSoakReportV1({
+  ...validEvidence,
+  ambientFinal: { ...ambientSnapshot, legacyNonterminalMissionCount: 292 },
+});
+assert.equal(changedAmbientMissionCount.status, "BLOCKED");
+assert.ok(changedAmbientMissionCount.blockers.includes("ambient_snapshot_changed_legacyNonterminalMissionCount"));
+
+const changedAmbientMissionFingerprint = m22A6BuildSoakReportV1({
+  ...validEvidence,
+  ambientFinal: { ...ambientSnapshot, legacyNonterminalMissionFingerprint: "ffffffffffffffffffffffffffffffff" },
+});
+assert.equal(changedAmbientMissionFingerprint.status, "BLOCKED");
+assert.ok(changedAmbientMissionFingerprint.blockers.includes("ambient_snapshot_changed_legacyNonterminalMissionFingerprint"));
+
+const newlyEnabledLegacyCron = m22A6BuildSoakReportV1({
+  ...validEvidence,
+  ambientFinal: { ...ambientSnapshot, cron49Active: true },
+});
+assert.equal(newlyEnabledLegacyCron.status, "BLOCKED");
+assert.ok(newlyEnabledLegacyCron.blockers.includes("ambient_baseline_or_final_snapshot_missing_or_invalid"));
+
+const missingAmbientSnapshot = m22A6BuildSoakReportV1({
+  ...validEvidence,
+  ambientFinal: undefined,
+});
+assert.equal(missingAmbientSnapshot.status, "BLOCKED");
+assert.ok(missingAmbientSnapshot.blockers.includes("ambient_baseline_or_final_snapshot_missing_or_invalid"));
 
 const coercedBacklogSample = m22A6BuildSoakReportV1({
   ...validEvidence,
