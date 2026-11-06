@@ -60,7 +60,7 @@ assert.match(migration, /max_heartbeat_age_ms<=r\.max_normal_heartbeat_gap_ms/);
 assert.match(migration, /max_sample_gap_ms<=r\.max_normal_heartbeat_gap_ms/);
 assert.match(migration, /percentile_cont\(0\.95\)/);
 assert.match(migration, /j\.stdout !~ \('\^A6_ARTIFACT_VERIFIED;mode=\(created\|identical\);sequence=/);
-assert.match(migration, /right\(rtrim\(coalesce\(j\.stdout,''\),E' \\t\\r\\n'\),length\(s\.artifact_path\)\)<>s\.artifact_path/);
+assert.match(migration, /right\(rtrim\(coalesce\(j\.stdout,''\), chr\(32\)\|\|chr\(9\)\|\|chr\(10\)\|\|chr\(13\)\),length\(s\.artifact_path\)\)<>s\.artifact_path/);
 assert.match(migration, /max_recovery_count=0/);
 assert.match(migration, /max_a6_pending_jobs<=1/);
 assert.match(migration, /max_a6_oldest_pending_age_ms<=300000/);
