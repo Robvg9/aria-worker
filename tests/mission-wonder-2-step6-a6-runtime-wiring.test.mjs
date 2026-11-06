@@ -95,4 +95,10 @@ assert.ok(!migrationCli.includes('< "$GITHUB_WORKSPACE/.github/scripts/mission-w
 assert.doesNotMatch(migration, /mission-wonder-2-step6-a6-v1-owner-authorization/);
 console.log("MISSION_WONDER_2_STEP6_A6_RUNTIME_WIRING=PASS");
 console.log("MISSION_WONDER_2_STEP6_A6_GLOBAL_FREEZE=PASS");
+
+const a6ContractWorkflow = read(".github/workflows/mission-wonder-2-step6-a6-isolated-contract.yml");
+assert.match(a6ContractWorkflow, /node tests\/mission-wonder-2-step6-a6-fault-matrix\.test\.mjs/);
+assert.match(a6ContractWorkflow, /actions\/upload-artifact@v4/);
+assert.match(a6ContractWorkflow, /mission-wonder-2-a6-fault-matrix-\$\{\{ github\.sha \}\}/);
+assert.match(a6ContractWorkflow, /retention-days: 30/);
 console.log("MISSION_WONDER_2_STEP6_A6_DEPLOY_ISOLATION=PASS");
