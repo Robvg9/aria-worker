@@ -58,3 +58,8 @@ Run exact-SHA CI for this preparation slice and review the generated diff. Only 
 ### A6-only backlog accounting
 
 The `a6BacklogSamples` evidence field measures only pending jobs belonging to this A6 run (`a6PendingJobs`, `oldestA6PendingAgeMs`). It must be empty at the end. It must never include or drain historical/non-A6 missions or jobs; those remain protected by the before/after count and fingerprint invariance checks.
+
+
+### A6 mission marker execution bound
+
+Each of the five idempotent marker missions carries one physical execution job and exactly one attempt. This keeps the run capped at five jobs total; a retry from the generic runner cannot generate a sixth job. Continuity/recovery is measured at the worker/dispatcher level, and each marker's fixed content makes repeated manual verification non-mutating. Any failed marker blocks the run rather than silently enqueueing another job.
