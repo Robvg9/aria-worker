@@ -8,6 +8,11 @@ on:
         type: boolean
         required: true
         default: false
+      verify_existing_success:
+        description: "Reconcile and verify the already-succeeded attempt-2 job only; no physical re-execution, new job or new recovery."
+        type: boolean
+        required: true
+        default: false
 
 permissions:
   contents: read
@@ -19,7 +24,7 @@ concurrency:
 
 jobs:
   a5-recovery-e2e:
-    if: inputs.execute_pilot == true
+    if: inputs.execute_pilot == true || inputs.verify_existing_success == true
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment: production
@@ -33,6 +38,8 @@ jobs:
       RWHT_STORAGE_STATE_B64: ${{ secrets.RWHT_STORAGE_STATE_B64 }}
       RWHT_STORAGE_STATE_GZIP_B64: ${{ secrets.RWHT_STORAGE_STATE_GZIP_B64 }}
       A5_ARTIFACT_DIR: rwht/pc-browser/a5-live-artifacts
+      A5_VERIFY_EXISTING_SUCCESS: ${{ inputs.verify_existing_success }}
+      A5_EXECUTE_PILOT: ${{ inputs.execute_pilot }}
     steps:
       - name: Checkout exact main
         uses: actions/checkout@v4

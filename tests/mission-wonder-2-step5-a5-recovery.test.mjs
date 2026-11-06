@@ -210,6 +210,16 @@ assert.ok(pilotWorkflow.includes("node mission-wonder-2-step5-a5-live-pilot.mjs"
 assert.equal(pilotWorkflow.includes("workflow_run:"), false);
 assert.equal(/^\s*push:/m.test(pilotWorkflow), false);
 assert.ok(pilotScript.includes("A5_RESUME_ORPHAN_PASS"));
+assert.ok(pilotScript.includes("A5_VERIFY_EXISTING_SUCCESS"));
+assert.ok(pilotScript.includes("A5_VERIFY_REPLAY_ELIGIBLE"));
+assert.ok(pilotScript.includes("A5_VERIFY_REPLAY_PREPARED="));
+assert.ok(pilotScript.includes("A5_VERIFICATION_REPLAY_FINAL=true"));
+assert.ok(pilotScript.includes("verification_replay_only"));
+assert.ok(pilotScript.includes("A5_RECOVERY_ALREADY_IDENTICAL;attempt=2;"));
+assert.ok(pilotScript.includes("aria-canonical-runtime-v1"));
+assert.equal(pilotScript.includes("aria_m22_a5_recover_running_job_v1"), true, "the original authorized pilot must retain its one recovery path");
+assert.equal(pilotScript.includes("INSERT INTO aria_internal.execution_jobs"), false);
+assert.equal(pilotScript.includes("INSERT INTO aria_internal.mission_state"), false);
 assert.ok(pilotScript.includes("A5_SCOPE_REARMED="));
 assert.ok(pilotScript.includes("aria_m22_a5_claim_scope_v1"));
 assert.ok(pilotScript.includes("coalesce(aria_internal.aria_m22_a5_claim_scope_v1("),

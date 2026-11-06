@@ -121,6 +121,7 @@ async function runtimeTick() {
 
 const report = {
   status: "running", run_id: RUN_ID, run_attempt: RUN_ATTEMPT,
+  verification_replay_only: false, job_reexecuted: false, recovery_used_again: false,
   pwa_authenticated: false, scope_armed: false, pwa_mission_created: false, pwa_mission_resumed: false,
   scope_bound: false, runtime_tick: null, mission_id: MISSION_ID,
   request_id: null, device_id: null, job_id: JOB_ID,
@@ -134,6 +135,250 @@ let scopeOwnerId = null;
 let scopeGoalHash = null;
 
 try {
+  if (process.env.A5_VERIFY_EXISTING_SUCCESS === "true") {
+    // Reconcile the already-succeeded A5 job only. Never enqueue, reclaim or execute a job here.
+    assert.equal(process.env.A5_EXECUTE_PILOT, "false", "verification-only mode cannot execute the A5 pilot");
+    assert.ok(PROJECT && RUNTIME_SECRET && RUN_ID, "A5 verification replay workflow context/secrets missing");
+    assert.equal(PROJECT, "icuqsstxfdbvjytkhlog", "unexpected ARIA Supabase project");
+    assert.ok(/^https:\/\//.test(BASE), "PWA URL must be HTTPS");
+
+    browser = await chromium.launch({ headless: true });
+    const storageState = process.env.RWHT_STORAGE_STATE || "";
+    const context = await browser.newContext({
+      viewport: { width: 1440, height: 900 },
+      ...(storageState && fs.existsSync(storageState) ? { storageState } : {}),
+    });
+    page = await context.newPage();
+    page.setDefaultTimeout(30000);
+    await page.goto(BASE + "#projects", { waitUntil: "domcontentloaded", timeout: 60000 });
+    const session = await browserSession(page);
+    report.pwa_authenticated = true;
+    assert.ok(session.userId, "authenticated PWA owner id missing");
+    const goalHash = await m22A5GoalIdentityHashV1(session.userId, GOAL, null);
+    const step = m22A5BuildRecoveryProbeStepV1(DEVICE_ID);
+    const expectedSha = createHash("sha256").update("MISSION_WONDER_2_A5_RECOVERY_V1", "ascii").digest("hex");
+    const grantRef = "a5-recovery-42220479305.1";
+    const requestOutput = runSql(
+      "SELECT 'A5_VERIFY_REQUEST_ID=' || request_id FROM aria_internal.mission_wonder_2_a5_scopes WHERE scope_id="
+        + sqlQuote(M22_A5_SCOPE_ID) + ";"
+    );
+    const requestId = requestOutput.match(/A5_VERIFY_REQUEST_ID=([0-9a-f-]{20,})/i)?.[1] || "";
+    assert.ok(requestId, "original PWA request ID is missing");
+    report.request_id = requestId;
+
+    const expectedOutput = "A5_RECOVERY_ALREADY_IDENTICAL;attempt=2;files=1;sha256="
+      + expectedSha + ";artifact=" + step.policy.allowed_artifact_path;
+    const eligibilitySql = [
+      "SELECT CASE WHEN count(*)=1 AND bool_and(",
+      "s.scope_key=" + sqlQuote(M22_A5_SCOPE_KEY),
+      "AND s.status='revoked' AND s.recovery_used=true",
+      "AND s.recovery_grant_ref=" + sqlQuote(grantRef),
+      "AND s.old_lease_owner_hash IS NOT NULL AND s.old_lease_until IS NOT NULL",
+      "AND s.owner_user_id=" + sqlQuote(session.userId) + " AND s.request_id=" + sqlQuote(requestId),
+      "AND s.goal_hash=" + sqlQuote(goalHash) + " AND s.mission_id=" + sqlQuote(MISSION_ID),
+      "AND s.job_id=" + sqlQuote(JOB_ID) + " AND s.allowed_device_id=" + sqlQuote(DEVICE_ID),
+      "AND s.command=" + sqlQuote(step.input.command) + " AND s.expires_at>clock_timestamp()",
+      "AND m.goal=" + sqlQuote(GOAL) + " AND m.status='waiting'",
+      "AND m.current_step=1 AND m.completed_steps=1 AND m.total_steps=1",
+      "AND m.metadata->>'user_id'=" + sqlQuote(session.userId),
+      "AND m.metadata->>'request_id'=" + sqlQuote(requestId),
+      "AND m.metadata->>'mission_wonder_2_a5_scope_id'=" + sqlQuote(M22_A5_SCOPE_ID),
+      "AND m.metadata->>'mission_wonder_2_a5_goal_hash'=" + sqlQuote(goalHash),
+      "AND m.metadata->>'mission_wonder_2_a5_allowed_device_id'=" + sqlQuote(DEVICE_ID),
+      "AND m.metadata->>'mission_wonder_2_a5_recovery'='true'",
+      "AND jsonb_typeof(m.checkpoint->'plan')='array'",
+      "AND jsonb_array_length(m.checkpoint->'plan')=1",
+      "AND m.checkpoint->'plan'->0->>'id'=" + sqlQuote(M22_A5_STEP_ID),
+      "AND m.checkpoint->'plan'->0->'input'->>'command'=" + sqlQuote(step.input.command),
+      "AND m.checkpoint->'results'->'a5_idempotent_recovery_marker'->>'status'='succeeded'",
+      "AND m.checkpoint->'results'->'a5_idempotent_recovery_marker'->>'job_id'=" + sqlQuote(JOB_ID),
+      "AND m.checkpoint->'results'->'a5_idempotent_recovery_marker'->'result'->>'exit_code'='0'",
+      "AND j.status='succeeded' AND j.recovery_count=1 AND j.exit_code=0",
+      "AND j.metadata->>'mission_wonder_2_a5_attempt'='2'",
+      "AND j.metadata->>'mission_wonder_2_a5_recovery_ref'=" + sqlQuote(grantRef),
+      "AND j.metadata->>'idempotency_key'=" + sqlQuote(JOB_ID),
+      "AND j.job_id=" + sqlQuote(JOB_ID) + " AND j.mission_id=" + sqlQuote(MISSION_ID),
+      "AND j.device_id=" + sqlQuote(DEVICE_ID) + " AND j.operation='shell.execute'",
+      "AND j.command=" + sqlQuote(step.input.command) + " AND j.cwd=" + sqlQuote(step.input.cwd),
+      "AND j.timeout_ms=900000 AND j.completed_at IS NOT NULL",
+      "AND j.lease_owner IS NULL AND j.lease_until IS NULL",
+      "AND j.policy @> '{\"mission_wonder_2_a5_recovery\":true,\"idempotent_artifact\":true,\"max_artifacts\":1}'::jsonb",
+      "AND position(" + sqlQuote(expectedOutput) + " in j.stdout)>0",
+      "AND (SELECT count(*) FROM aria_internal.execution_jobs x WHERE x.mission_id=" + sqlQuote(MISSION_ID) + ")=1",
+      "AND (SELECT count(*) FROM aria_internal.execution_job_events e WHERE e.job_id=j.job_id AND e.event_type='job.timeout')=1",
+      "AND (SELECT count(*) FROM aria_internal.execution_job_events e WHERE e.job_id=j.job_id AND e.event_type='job.claimed_a5_one_shot' AND e.payload->>'attempt'='1')=1",
+      "AND (SELECT count(*) FROM aria_internal.execution_job_events e WHERE e.job_id=j.job_id AND e.event_type='job.claimed_a5_one_shot' AND e.payload->>'attempt'='2')=1",
+      "AND (SELECT count(*) FROM aria_internal.execution_job_events e WHERE e.job_id=j.job_id AND e.event_type='job.a5_stale_attempt_rejected' AND e.payload->>'expected_http_status'='409' AND e.payload->>'stale_attempt'='1' AND e.payload->>'current_attempt'='2')=1",
+      "AND (SELECT count(*) FROM aria_internal.execution_job_events e WHERE e.job_id=j.job_id AND e.event_type='job.succeeded')=1",
+      "AND (SELECT count(*) FROM aria_internal.mission_events e WHERE e.mission_id=m.mission_id AND e.event_type='mission_verified')=0",
+      ") THEN 'A5_VERIFY_REPLAY_ELIGIBLE' ELSE 'A5_VERIFY_REPLAY_REJECTED' END",
+      "FROM aria_internal.mission_wonder_2_a5_scopes s",
+      "JOIN aria_internal.mission_state m ON m.mission_id=s.mission_id",
+      "JOIN aria_internal.execution_jobs j ON j.job_id=s.job_id",
+      "WHERE s.scope_id=" + sqlQuote(M22_A5_SCOPE_ID) + ";"
+    ].join("\n");
+    requireMarker(runSql(eligibilitySql), "A5_VERIFY_REPLAY_ELIGIBLE");
+
+    // Atomically return only the scope to "recovered" (never "armed") and queue
+    // the mission to reconcile its already-succeeded job result. No new job is inserted.
+    const prepareSql = [
+      "WITH eligible AS MATERIALIZED (",
+      "SELECT s.scope_id,m.mission_id FROM aria_internal.mission_wonder_2_a5_scopes s",
+      "JOIN aria_internal.mission_state m ON m.mission_id=s.mission_id",
+      "JOIN aria_internal.execution_jobs j ON j.job_id=s.job_id",
+      "WHERE s.scope_id=" + sqlQuote(M22_A5_SCOPE_ID),
+      "AND s.status='revoked' AND s.recovery_used=true AND s.recovery_grant_ref=" + sqlQuote(grantRef),
+      "AND s.owner_user_id=" + sqlQuote(session.userId) + " AND s.request_id=" + sqlQuote(requestId),
+      "AND s.goal_hash=" + sqlQuote(goalHash) + " AND s.mission_id=" + sqlQuote(MISSION_ID),
+      "AND s.job_id=" + sqlQuote(JOB_ID) + " AND s.allowed_device_id=" + sqlQuote(DEVICE_ID),
+      "AND s.command=" + sqlQuote(step.input.command) + " AND s.expires_at>clock_timestamp()",
+      "AND s.old_lease_owner_hash IS NOT NULL AND s.old_lease_until IS NOT NULL",
+      "AND m.status='waiting' AND m.current_step=1 AND m.completed_steps=1 AND m.total_steps=1",
+      "AND m.metadata->>'user_id'=" + sqlQuote(session.userId),
+      "AND m.metadata->>'request_id'=" + sqlQuote(requestId),
+      "AND m.metadata->>'mission_wonder_2_a5_goal_hash'=" + sqlQuote(goalHash),
+      "AND j.status='succeeded' AND j.recovery_count=1 AND j.exit_code=0",
+      "AND j.metadata->>'mission_wonder_2_a5_attempt'='2'",
+      "AND j.metadata->>'mission_wonder_2_a5_recovery_ref'=" + sqlQuote(grantRef),
+      "AND j.job_id=" + sqlQuote(JOB_ID) + " AND j.mission_id=" + sqlQuote(MISSION_ID),
+      "AND j.device_id=" + sqlQuote(DEVICE_ID) + " AND j.command=" + sqlQuote(step.input.command),
+      "AND j.cwd=" + sqlQuote(step.input.cwd) + " AND j.timeout_ms=900000",
+      "AND j.lease_owner IS NULL AND j.lease_until IS NULL",
+      "AND position(" + sqlQuote(expectedOutput) + " in j.stdout)>0",
+      "AND (SELECT count(*) FROM aria_internal.execution_jobs x WHERE x.mission_id=" + sqlQuote(MISSION_ID) + ")=1",
+      "AND (SELECT count(*) FROM aria_internal.mission_events e WHERE e.mission_id=" + sqlQuote(MISSION_ID) + " AND e.event_type='mission_verified')=0",
+      "FOR UPDATE OF s,m,j",
+      "), restored_scope AS (",
+      "UPDATE aria_internal.mission_wonder_2_a5_scopes s",
+      "SET status='recovered',revoked_at=NULL,updated_at=clock_timestamp()",
+      "FROM eligible e WHERE s.scope_id=e.scope_id AND s.status='revoked'",
+      "RETURNING s.scope_id",
+      "), queued_mission AS (",
+      "UPDATE aria_internal.mission_state m",
+      "SET status='queued',current_step=0,completed_steps=0,finished_at=NULL,",
+      "lease_owner=NULL,lease_until=NULL,last_stderr=NULL,last_exit_code=0,",
+      "last_stdout=" + sqlQuote(expectedOutput) + ",",
+      "next_action='verify: reconcile existing A5 attempt-2 job result only',updated_at=clock_timestamp(),",
+      "checkpoint=jsonb_set(",
+      "  jsonb_set(",
+      "    jsonb_set(",
+      "      jsonb_set(",
+      "        jsonb_set(",
+      "          jsonb_set(COALESCE(m.checkpoint,'{}'::jsonb),'{completed_steps}','[]'::jsonb,true),",
+      "          '{pending_jobs}',jsonb_build_object(" + sqlQuote(M22_A5_STEP_ID) + ",jsonb_build_object(",
+      "            'job_id'," + sqlQuote(JOB_ID) + ",'status','succeeded','attempt',2,",
+      "            'executor_type','device','device_id'," + sqlQuote(DEVICE_ID) + ",'pending_device_id'," + sqlQuote(DEVICE_ID) + ")),true),",
+      "        '{attempts}',jsonb_build_object(" + sqlQuote(M22_A5_STEP_ID) + ",2),true),",
+      "      '{results}','{}'::jsonb,true),",
+      "    '{active_step}','null'::jsonb,true),",
+      "  '{recovery}',jsonb_build_object('status','waiting_for_async_executor',",
+      "    'kind','a5_verification_replay_only','job_id'," + sqlQuote(JOB_ID) + ",",
+      "    'grant_ref'," + sqlQuote(grantRef) + ",'recovery_used',true,'replan_required',false,'replan_count',0),true)",
+      "FROM eligible e WHERE m.mission_id=e.mission_id AND EXISTS (SELECT 1 FROM restored_scope)",
+      "RETURNING m.mission_id",
+      ") SELECT 'A5_VERIFY_REPLAY_PREPARED=' || mission_id FROM queued_mission;"
+    ].join("\n");
+    scopeCleanupRequired = false;
+    requireMarker(runSql(prepareSql, true), "A5_VERIFY_REPLAY_PREPARED=" + MISSION_ID);
+    report.verification_replay_only = true;
+    report.scope_recovered = true;
+    report.pwa_mission_created = false;
+    report.pwa_mission_resumed = true;
+    report.job_created = false;
+    report.job_reexecuted = false;
+    report.recovery_used_again = false;
+    report.scope_status = "recovered";
+    console.log("MISSION_WONDER_2_STEP5_A5_VERIFICATION_REPLAY_PREPARED=PASS");
+
+    const tick = await runtimeTick();
+    report.runtime_tick = { http_status: tick.status, status: tick.body?.status || null };
+    assert.equal(tick.status, 200, "canonical runtime verification replay tick was not HTTP 200");
+
+    const finalSql = [
+      "SELECT 'A5_VERIFICATION_REPLAY_FINAL=' || CASE WHEN",
+      "(SELECT count(*) FROM aria_internal.mission_state m",
+      "JOIN aria_internal.execution_jobs j ON j.mission_id=m.mission_id",
+      "JOIN aria_internal.mission_wonder_2_a5_scopes s ON s.mission_id=m.mission_id",
+      "WHERE m.mission_id=" + sqlQuote(MISSION_ID) + " AND m.status='succeeded'",
+      "AND m.current_step=1 AND m.completed_steps=1 AND m.total_steps=1",
+      "AND s.scope_id=" + sqlQuote(M22_A5_SCOPE_ID) + " AND s.status='completed'",
+      "AND s.recovery_used=true AND s.recovery_grant_ref=" + sqlQuote(grantRef),
+      "AND j.job_id=" + sqlQuote(JOB_ID) + " AND j.status='succeeded'",
+      "AND j.recovery_count=1 AND j.exit_code=0 AND j.metadata->>'mission_wonder_2_a5_attempt'='2'",
+      "AND position(" + sqlQuote(expectedOutput) + " in j.stdout)>0",
+      "AND (SELECT count(*) FROM aria_internal.execution_jobs x WHERE x.mission_id=m.mission_id)=1",
+      "AND (SELECT count(*) FROM aria_internal.execution_job_events e WHERE e.job_id=j.job_id AND e.event_type='job.succeeded')=1",
+      "AND (SELECT count(*) FROM aria_internal.execution_job_events e WHERE e.job_id=j.job_id AND e.event_type='job.a5_stale_attempt_rejected' AND e.payload->>'expected_http_status'='409')=1",
+      "AND (SELECT count(*) FROM aria_internal.mission_events e WHERE e.mission_id=m.mission_id AND e.event_type='mission_verified')=1",
+      ")=1 THEN 'true' ELSE 'false' END;"
+    ].join("\n");
+    let finalReady = false;
+    for (let poll = 1; poll <= 90; poll += 1) {
+      const output = runSql(finalSql);
+      if (output.includes("A5_VERIFICATION_REPLAY_FINAL=true")) { finalReady = true; break; }
+      await sleep(2000);
+    }
+    if (!finalReady) {
+      console.error("A5_VERIFY_REPLAY_DIAGNOSTIC " + runSql(
+        "SELECT m.status,m.current_step,m.completed_steps,m.total_steps,m.checkpoint->'recovery' recovery,"
+        + "s.status scope_status,j.status job_status,j.recovery_count,j.exit_code,"
+        + "(SELECT count(*) FROM aria_internal.mission_events e WHERE e.mission_id=m.mission_id AND e.event_type='mission_verified') verified_events "
+        + "FROM aria_internal.mission_state m JOIN aria_internal.execution_jobs j ON j.mission_id=m.mission_id "
+        + "JOIN aria_internal.mission_wonder_2_a5_scopes s ON s.mission_id=m.mission_id WHERE m.mission_id=" + sqlQuote(MISSION_ID) + ";"
+      ).slice(-4000));
+      fail("A5 saved attempt-2 evidence did not reach terminal verification");
+    }
+
+    report.final_live_audit = "PASS";
+    report.mission_terminal_status = "succeeded";
+    report.same_job_reclaimed = true;
+    report.old_attempt_http_409 = true;
+    report.duplicate_jobs = 0;
+    report.duplicate_effects = 0;
+    report.recovery_count = 1;
+    report.job_id = JOB_ID;
+    report.attempt = 2;
+    report.artifact_sha256 = expectedSha;
+    report.scope_status = "completed";
+
+    const missionUrl = "/api/missions/" + encodeURIComponent(MISSION_ID);
+    const missionReadback = await pwaApi(page, session.accessToken, missionUrl);
+    report.pwa_mission_readback_http = missionReadback.status;
+    assert.equal(missionReadback.status, 200, "A5 PWA mission readback failed");
+    const mission = missionReadback.body?.mission || null;
+    assert.equal(String(mission?.status || ""), "succeeded", "PWA must display the terminal succeeded mission");
+    assert.equal(Number(mission?.completed_steps), 1);
+    assert.equal(Number(mission?.total_steps), 1);
+
+    const [eventsReadback, notificationReadback] = await Promise.all([
+      pwaApi(page, session.accessToken, missionUrl + "/events"),
+      pwaApi(page, session.accessToken, "/api/meditation/notifications?limit=50"),
+    ]);
+    assert.equal(eventsReadback.status, 200, "A5 PWA events readback failed");
+    assert.equal(notificationReadback.status, 200, "A5 PWA notifications readback failed");
+    const verifiedEvents = (Array.isArray(eventsReadback.body?.events) ? eventsReadback.body.events : [])
+      .filter((event) => event?.event_type === "mission_verified");
+    const verifiedNotifications = (Array.isArray(notificationReadback.body?.notifications) ? notificationReadback.body.notifications : [])
+      .filter((item) => item?.kind === "mission_completed_verified" && String(item?.mission_id || "") === MISSION_ID);
+    report.mission_verified_events = verifiedEvents.length;
+    report.verified_notifications = verifiedNotifications.length;
+    assert.equal(verifiedEvents.length, 1, "A5 requires exactly one mission_verified event");
+    assert.equal(verifiedNotifications.length, 1, "A5 requires exactly one verified PWA notification");
+
+    const deniedAfterVerification = await pwaApi(page, session.accessToken, "/api/missions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-aria-request-id": "a5-denied-after-verification-" + RUN_ID + "-" + RUN_ATTEMPT,
+      },
+      body: JSON.stringify({ goal: "A5 global freeze remains closed after verification replay." }),
+    });
+    report.global_freeze_after_recovery = deniedAfterVerification.status;
+    assert.equal(deniedAfterVerification.status, 423, "global freeze must remain closed after A5 verification");
+    report.status = "PASS";
+    console.log("MISSION_WONDER_2_STEP5_A5_VERIFICATION_REPLAY=PASS");
+    console.log(JSON.stringify(report));
+  } else {
   assert.ok(PROJECT && RUNTIME_SECRET && RUN_ID, "A5 workflow context/secrets missing");
   assert.equal(PROJECT, "icuqsstxfdbvjytkhlog", "unexpected ARIA Supabase project");
   assert.ok(/^https:\/\//.test(BASE), "PWA URL must be HTTPS");
@@ -457,6 +702,7 @@ try {
   report.status = "PASS";
   console.log("MISSION_WONDER_2_STEP5_A5_LIVE_E2E=PASS");
   console.log(JSON.stringify(report));
+  }
 } catch (error) {
   report.status = "FAIL";
   report.failure = String(error?.stack || error).slice(0, 4500);
