@@ -68,11 +68,17 @@ jobs:
             < "$GITHUB_WORKSPACE/.github/scripts/mission-wonder-2-step6-a6-isolated-scope-v1.sql"
           mapfile -t generated < <(find supabase/migrations -maxdepth 1 -type f -name '*_aria_mission_wonder_2_a6_isolated_scope_v1.sql' -print)
           test "${#generated[@]}" -eq 1
-          target="$GITHUB_WORKSPACE/supabase/migrations/$(basename "${generated[0]}")"
           mkdir -p "$GITHUB_WORKSPACE/supabase/migrations"
-          if [[ -e "$target" ]]; then
-            echo "Migration already exists: $target"
+          mapfile -t existing < <(find "$GITHUB_WORKSPACE/supabase/migrations" -maxdepth 1 -type f -name '*_aria_mission_wonder_2_a6_isolated_scope_v1.sql' -print)
+          if [[ "${#existing[@]}" -gt 1 ]]; then
+            echo "Expected at most one A6 migration, found ${#existing[@]}"
             exit 1
+          fi
+          if [[ "${#existing[@]}" -eq 1 ]]; then
+            # Keep the original CLI-created migration identity and refresh its SQL from this exact template.
+            target="${existing[0]}"
+          else
+            target="$GITHUB_WORKSPACE/supabase/migrations/$(basename "${generated[0]}")"
           fi
           cp "${generated[0]}" "$target"
           echo "MIGRATION_FILE=$target" >> "$GITHUB_OUTPUT"
@@ -180,7 +186,9 @@ jobs:
             echo "No generated migration change to commit."
             exit 0
           fi
-          git commit -m "A6: add CLI-generated isolated run migration"
+          git commit -m "A6: update CLI-generated isolated run migration"
+          git fetch origin "$GITHUB_REF_NAME"
+          git rebase "origin/$GITHUB_REF_NAME"
           echo "A6_MIGRATION_COMMIT=$(git rev-parse HEAD)"
           git push origin "HEAD:$GITHUB_REF_NAME"
           echo "A6_MIGRATION_PUSHED=true"
