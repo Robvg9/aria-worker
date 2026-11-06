@@ -19,6 +19,7 @@ import {
   m22A6BuildContinuityProbeStepV1,
   m22A6ContinuityProbeStepMatchesV1,
   m22A6ScopeRowMatchesV1,
+  m22A6MissionPlanMatchesV1,
 } from "../supabase/functions/_shared/mission-wonder-2-a6-scope-v1.mjs";
 
 globalThis.crypto ??= webcrypto;
@@ -148,6 +149,32 @@ for (const change of [
 }
 assert.equal(await m22A6ScopeRowMatchesV1({ ...args, userId: "other-owner" }), false);
 assert.equal(await m22A6ScopeRowMatchesV1({ ...args, projectId: "battlecruiser" }), false);
+
+const missionPlan = {
+  status: "queued",
+  current_step: 0,
+  completed_steps: 0,
+  total_steps: 1,
+  checkpoint: { plan: [step] },
+};
+assert.equal(m22A6MissionPlanMatchesV1({ mission: missionPlan, runId: RUN_ID, ordinal }), true);
+assert.equal(m22A6MissionPlanMatchesV1({
+  mission: { ...missionPlan, checkpoint: { plan: [{ ...step, timeout_ms: 60001 }] } },
+  runId: RUN_ID, ordinal,
+}), false);
+assert.equal(m22A6MissionPlanMatchesV1({
+  mission: { ...missionPlan, total_steps: 2 }, runId: RUN_ID, ordinal,
+}), false);
+assert.equal(m22A6MissionPlanMatchesV1({
+  mission: { ...missionPlan, checkpoint: { plan: [step, step] } }, runId: RUN_ID, ordinal,
+}), false);
+assert.equal(m22A6MissionPlanMatchesV1({
+  mission: { ...missionPlan, status: "blocked" }, runId: RUN_ID, ordinal,
+}), false);
+assert.equal(m22A6MissionPlanMatchesV1({
+  mission: missionPlan, deviceId: "other-device", runId: RUN_ID, ordinal,
+}), false);
+
 
 const supabaseDeployWorkflow = fs.readFileSync(".github/workflows/supabase-canonical-deploy.yml", "utf8");
 const pwaDeployWorkflow = fs.readFileSync(".github/workflows/aria-pwa-fast-deploy.yml", "utf8");
