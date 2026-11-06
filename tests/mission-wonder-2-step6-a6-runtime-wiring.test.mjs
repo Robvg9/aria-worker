@@ -83,6 +83,8 @@ assert.match(cloudflareDeploy, /'supabase\/functions\/\*\*'/);
 assert.match(pwaDeploy, /'tests\\/mission-wonder-2-step6-a6-fault-matrix\\.test\\.mjs'/);
 assert.match(cloudflareDeploy, /'tests\\/mission-wonder-2-step6-a6-fault-matrix\\.test\\.mjs'/);
 assert.match(cloudflareDeploy, /'supabase\/migrations\/\*_aria_mission_wonder_2_a6_isolated_scope_v1\.sql'/);
+assert.ok(pwaDeploy.includes("tests/mission-wonder-2-step6-a6-fault-matrix.test.mjs"));
+assert.ok(cloudflareDeploy.includes("tests/mission-wonder-2-step6-a6-fault-matrix.test.mjs"));
 
 assert.match(migration, /human_gate_ref text not null unique/);
 assert.ok(migration.includes("replace(artifact_path, chr(92), '/')"));
