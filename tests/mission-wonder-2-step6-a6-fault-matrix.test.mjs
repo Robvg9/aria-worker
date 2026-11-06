@@ -3,13 +3,13 @@ import fs from "node:fs";
 import crypto from "node:crypto";
 import {
   M22_A6_ALLOWED_DEVICE_ID,
-  M22_A6_FAULT_SCENARIOS_V1,
   m22A6BuildContinuityProbeStepV1,
   m22A6ExpectedJobIdV1,
   m22A6MissionIdV1,
   m22A6StepIdV1,
   m22A6ArtifactPathV1,
 } from "../supabase/functions/_shared/mission-wonder-2-a6-scope-v1.mjs";
+import { M22_A6_FAULT_SCENARIOS_V1 } from "../autonomy/mission-wonder-2-a6-soak-v1.mjs";
 
 const RUN_ID = "m22-a6-abcdef123456";
 const HUMAN_GATE_REF = "a6-human-gate-1730912400.123";
