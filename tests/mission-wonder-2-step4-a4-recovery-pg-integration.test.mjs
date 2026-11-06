@@ -145,7 +145,6 @@ async function resetState({ missionMetadata = {}, scopeStatus = 'revoked', devic
       mission_wonder_2_a4_scope_id: SCOPE_ID,
       mission_wonder_2_a4_goal_hash: GOAL_HASH,
       mission_wonder_2_a4_readonly: 'true',
-      execution_lane: 'user',
       request_id: REQUEST_ID,
       user_id: USER_ID,
       mission_wonder_2_a4_allowed_device_id: DEVICE_ID,
