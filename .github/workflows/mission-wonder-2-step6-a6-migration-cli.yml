@@ -14,7 +14,7 @@ permissions:
 
 concurrency:
   group: mission-wonder-2-step6-a6-migration-cli
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   generate-and-validate:
