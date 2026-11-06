@@ -9,6 +9,7 @@ import { m22ClassifyModelFallbackFailure, m22QuotaAllowsModelRoute, m22RateLimit
 import { m22Gate3HumanGateActionHash, m22Gate3RouteAllowed, m22MissionWonder2ScopedProbeAllowed } from "../_shared/mission-wonder-2-gate3-scope-v1.mjs";
 import { m22A4ScopeRowMatchesV1, m22A4BuildReadonlyProbeStepV1, m22A4ReadonlyProbeStepMatchesV1 } from "../_shared/mission-wonder-2-a4-scope-v1.mjs";
 import { m22A5ScopeRowMatchesV1, m22A5BuildRecoveryProbeStepV1, m22A5RecoveryProbeStepMatchesV1, M22_A5_SCOPE_ID, M22_A5_MARKER, M22_A5_ARTIFACT_PATH } from "../_shared/mission-wonder-2-a5-scope-v1.mjs";
+import { m22A6ScopeRowMatchesV1, m22A6MissionPlanMatchesV1 } from "../_shared/mission-wonder-2-a6-scope-v1.mjs";
 import { validatePhysicalExecutionPlan, validatePhysicalExecutionEvidence } from "../_shared/physical-execution-contract.mjs";
 
 const V_LOGICAL = "aria-mission-runner-v22-universal";
@@ -3238,6 +3239,7 @@ Deno.serve(async (request) => {
   let gate3ScopedProbeAllowed = false;
   let a4ScopeRow: any = null;
   let a5ScopeRow: any = null;
+  let a6ScopeRow: any = null;
   if (MISSION_EXECUTION_PAUSED) {
     // Global freeze remains true. Gate 3, A4 and A5 are separate exact-ID scopes.
     if (requestedMissionId && body?.action !== "human_gate_decide") {
@@ -3287,7 +3289,41 @@ Deno.serve(async (request) => {
         }
       } catch { a5ScopeRow = null; }
     }
-    if (!gate3ScopedProbeAllowed && !a4ScopeRow && !a5ScopeRow) return out({ ok: false, status: "paused", error: "mission_execution_paused", runtime: V_LOGICAL, execution_enabled: false }, 423);
+    if (requestedMissionId && body?.action !== "human_gate_decide") {
+      try {
+        const { data: a6Mission, error: a6MissionError } = await sb.schema("aria_internal")
+          .from("mission_state")
+          .select("mission_id,goal,status,checkpoint,metadata,current_step,completed_steps,total_steps")
+          .eq("mission_id", requestedMissionId).maybeSingle();
+        const runId = String(a6Mission?.metadata?.mission_wonder_2_a6_run_id || "");
+        const scopeId = String(a6Mission?.metadata?.mission_wonder_2_a6_scope_id || "");
+        if (!a6MissionError && runId && scopeId) {
+          const [
+            { data: run, error: runError },
+            { data: scope, error: scopeError },
+          ] = await Promise.all([
+            sb.schema("aria_internal").from("mission_wonder_2_a6_runs").select("*").eq("run_id", runId).maybeSingle(),
+            sb.schema("aria_internal").from("mission_wonder_2_a6_scopes").select("*").eq("scope_id", scopeId).maybeSingle(),
+          ]);
+          const scopeValid = !runError && !scopeError && await m22A6ScopeRowMatchesV1({
+            run, scope, metadata: a6Mission.metadata, missionId: requestedMissionId,
+            userId: String(a6Mission.metadata?.user_id || ""),
+            requestId: String(a6Mission.metadata?.request_id || ""),
+            goal: String(a6Mission.goal || ""),
+            projectId: a6Mission.metadata?.project_id ?? null,
+            requiredStatuses: ["bound"],
+          });
+          const planValid = m22A6MissionPlanMatchesV1({
+            mission: a6Mission,
+            runId,
+            ordinal: Number(scope?.ordinal),
+            deviceId: String(scope?.allowed_device_id || ""),
+          });
+          if (scopeValid && planValid) a6ScopeRow = scope;
+        }
+      } catch { a6ScopeRow = null; }
+    }
+    if (!gate3ScopedProbeAllowed && !a4ScopeRow && !a5ScopeRow && !a6ScopeRow) return out({ ok: false, status: "paused", error: "mission_execution_paused", runtime: V_LOGICAL, execution_enabled: false }, 423);
   }
   const chainDepth = Math.max(0, Math.min(8, Number(body?.chain_depth || 0)));
   const meditationChain = request.headers.get("x-aria-trigger") === "meditation-ia";
