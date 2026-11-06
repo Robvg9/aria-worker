@@ -47,6 +47,45 @@ function unique(values) {
   return new Set(values).size === values.length;
 }
 
+function validAmbientSnapshot(snapshot) {
+  if (!snapshot || typeof snapshot !== "object") return false;
+  return Number.isSafeInteger(snapshot.legacyNonterminalMissionCount) &&
+    snapshot.legacyNonterminalMissionCount >= 0 &&
+    typeof snapshot.legacyNonterminalMissionFingerprint === "string" &&
+    /^[a-f0-9]{32,64}$/i.test(snapshot.legacyNonterminalMissionFingerprint) &&
+    Number.isSafeInteger(snapshot.nonA6ActiveJobCount) &&
+    snapshot.nonA6ActiveJobCount >= 0 &&
+    typeof snapshot.nonA6ActiveJobFingerprint === "string" &&
+    /^[a-f0-9]{32,64}$/i.test(snapshot.nonA6ActiveJobFingerprint) &&
+    snapshot.cron48Active === false &&
+    snapshot.cron49Active === false &&
+    snapshot.cron50Active === false &&
+    snapshot.missionExecutionPaused === true;
+}
+
+function compareAmbientSnapshots(before, after, blockers) {
+  if (!validAmbientSnapshot(before) || !validAmbientSnapshot(after)) {
+    blockers.push("ambient_baseline_or_final_snapshot_missing_or_invalid");
+    return null;
+  }
+  const keys = [
+    "legacyNonterminalMissionCount",
+    "legacyNonterminalMissionFingerprint",
+    "nonA6ActiveJobCount",
+    "nonA6ActiveJobFingerprint",
+  ];
+  for (const key of keys) {
+    if (before[key] !== after[key]) blockers.push("ambient_snapshot_changed_" + key);
+  }
+  return {
+    legacyNonterminalMissionCount: before.legacyNonterminalMissionCount,
+    nonA6ActiveJobCount: before.nonA6ActiveJobCount,
+    ambientFingerprintUnchanged: keys.every(key => before[key] === after[key]),
+    crons48_49_50RemainDisabled: true,
+    globalMissionFreezeRemainsEnabled: true,
+  };
+}
+
 /**
  * Evaluate an A6 evidence bundle. This function is deliberately pure: it never
  * contacts a provider, creates missions/jobs, mutates runtime state, or changes
@@ -210,6 +249,7 @@ export function m22A6BuildSoakReportV1(input = {}) {
   if (typeof orphanProcesses !== "number" || !Number.isSafeInteger(orphanProcesses) || orphanProcesses !== 0) {
     blockers.push("orphan_processes_present_or_unmeasured");
   }
+  const ambientMetrics = compareAmbientSnapshots(input.ambientBaseline, input.ambientFinal, blockers);
 
   return {
     schemaVersion: "mission-wonder-2-a6-soak-v1",
@@ -234,6 +274,7 @@ export function m22A6BuildSoakReportV1(input = {}) {
       peakPendingJobs: backlogSamples.length ? Math.max(...backlogSamples.map(sample => sample && sample.pendingJobs).filter(value => typeof value === "number" && Number.isSafeInteger(value) && value >= 0)) : null,
       orphanJobs: Number.isSafeInteger(orphanJobs) ? orphanJobs : null,
       orphanProcesses: Number.isSafeInteger(orphanProcesses) ? orphanProcesses : null,
+      ambient: ambientMetrics,
     },
   };
 }
