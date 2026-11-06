@@ -27,6 +27,7 @@ jobs:
           import urllib.error
           import urllib.parse
           import urllib.request
+          import time
 
           BASE = "https://api.cloudflare.com/client/v4"
           ACCOUNT = os.environ["CLOUDFLARE_ACCOUNT_ID"]
@@ -40,20 +41,35 @@ jobs:
               if payload is not None:
                   headers["Content-Type"] = "application/json"
                   data = json.dumps(payload).encode()
-              req = urllib.request.Request(BASE + path, headers=headers, data=data, method=method)
-              try:
-                  with urllib.request.urlopen(req, timeout=25) as response:
-                      return response.status, json.loads(response.read().decode())
-              except urllib.error.HTTPError as exc:
+              last_status, last_body = 0, {"success": False, "error": "Request not attempted"}
+              # Retry transient Cloudflare rate-limit and server errors. A read-only
+              # inventory may encounter brief edge/API 429/5xx responses; never
+              # convert those into "empty" metadata.
+              for attempt in range(3):
+                  req = urllib.request.Request(BASE + path, headers=headers, data=data, method=method)
                   try:
-                      body = json.loads(exc.read().decode())
-                  except Exception:
-                      body = {}
-                  msg = "; ".join(x.get("message", "") for x in body.get("errors", []) if isinstance(x, dict))
-                  codes = [x.get("code") for x in body.get("errors", []) if isinstance(x, dict)]
-                  return exc.code, {"success": False, "error": msg[:400], "error_codes": codes}
-              except Exception as exc:
-                  return 0, {"success": False, "error": type(exc).__name__ + ": " + str(exc)[:250]}
+                      with urllib.request.urlopen(req, timeout=25) as response:
+                          return response.status, json.loads(response.read().decode())
+                  except urllib.error.HTTPError as exc:
+                      try:
+                          body = json.loads(exc.read().decode())
+                      except Exception:
+                          body = {}
+                      msg = "; ".join(x.get("message", "") for x in body.get("errors", []) if isinstance(x, dict))
+                      codes = [x.get("code") for x in body.get("errors", []) if isinstance(x, dict)]
+                      last_status = exc.code
+                      last_body = {"success": False, "error": msg[:400], "error_codes": codes}
+                      if exc.code not in (429, 500, 502, 503, 504) or attempt == 2:
+                          return last_status, last_body
+                      retry_after = exc.headers.get("Retry-After")
+                      try:
+                          pause = min(8, max(1, int(retry_after))) if retry_after else (attempt + 1) * 2
+                      except Exception:
+                          pause = (attempt + 1) * 2
+                      time.sleep(pause)
+                  except Exception as exc:
+                      return 0, {"success": False, "error": type(exc).__name__ + ": " + str(exc)[:250]}
+              return last_status, last_body
 
           def pages(path):
               all_items, status, error = [], 200, None
@@ -81,7 +97,41 @@ jobs:
                       "id", "migrations")
               return {k: binding[k] for k in keep if k in binding and isinstance(binding[k], (str, int, bool, list))}
 
-          scripts, scripts_status, scripts_error = pages(f"/accounts/{ACCOUNT}/workers/scripts")
+          def list_scripts_search():
+              # /workers/scripts is a single-page listing. Supplying page=... to
+              # that endpoint repeats the same page. Use the dedicated
+              # /workers/scripts-search endpoint for true page/per_page paging.
+              collected, status, error = [], 200, None
+              for page in range(1, 101):
+                  st, body = request(
+                      f"/accounts/{ACCOUNT}/workers/scripts-search?per_page=100&page={page}"
+                  )
+                  if st != 200 or not body.get("success", False):
+                      status, error = st, body.get("error") or body.get("errors") or "Worker search failed"
+                      break
+                  batch = body.get("result") or []
+                  if not isinstance(batch, list):
+                      status, error = st, "Unexpected Worker search result format"
+                      break
+                  collected.extend(batch)
+                  info = body.get("result_info") or {}
+                  total_pages = info.get("total_pages")
+                  if total_pages is not None and page >= total_pages:
+                      break
+                  if not batch or len(batch) < 100:
+                      break
+              # Defensive de-duplication by script name before fanning out requests.
+              unique = {}
+              for item in collected:
+                  if not isinstance(item, dict):
+                      continue
+                  name = item.get("script_name") or item.get("id") or item.get("name")
+                  if name:
+                      item["id"] = name
+                      unique[name] = item
+              return list(unique.values()), status, error
+
+          scripts, scripts_status, scripts_error = list_scripts_search()
           domains, domains_status, domains_error = pages(f"/accounts/{ACCOUNT}/workers/domains")
           zones, zones_status, zones_error = pages(f"/zones?account.id={urllib.parse.quote(ACCOUNT)}")
           zone_routes = []
@@ -137,7 +187,7 @@ jobs:
                           "note": "No analytics rows or unexpected response"}
 
           def inspect_script(script):
-              name = script.get("id") or script.get("name")
+              name = script.get("id") or script.get("script_name") or script.get("name")
               if not name:
                   return None
               enc = urllib.parse.quote(name, safe="")
@@ -152,7 +202,11 @@ jobs:
               settings_result = settings.get("result") if isinstance(settings, dict) else {}
               schedule_result = schedule.get("result") if isinstance(schedule, dict) else {}
               tail_result = tail.get("result") if isinstance(tail, dict) else {}
+              # Cloudflare may return {"result": null} when a Worker has no
+              # workers.dev subdomain configuration. Treat this as unavailable
+              # metadata rather than aborting the entire account inventory.
               sub_result = sub.get("result") if isinstance(sub, dict) else {}
+              sub_result = sub_result if isinstance(sub_result, dict) else {}
               bind_list = (settings_result or {}).get("bindings") or []
               latest = sorted(deployments, key=lambda x: x.get("created_on", ""), reverse=True)[:5]
               return {
@@ -185,7 +239,7 @@ jobs:
                   "metrics_30d": metrics_for(name)
               }
 
-          with concurrent.futures.ThreadPoolExecutor(max_workers=6) as pool:
+          with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
               script_rows = [x for x in pool.map(inspect_script, scripts) if x]
 
           report = {
@@ -213,7 +267,7 @@ jobs:
           with open(OUT, "w", encoding="utf-8") as f:
               json.dump(report, f, indent=2)
           print("CLOUDFLARE_WORKERS_READ_ONLY_INVENTORY")
-          print(f"WORKER_SCRIPT_COUNT={len(scripts)} (Cloudflare Free cap reported by deploy: 100)")
+          print(f"WORKER_SCRIPT_COUNT={len(scripts)} (unique names from workers/scripts-search)")
           print(f"DOMAINS_STATUS={domains_status}; DOMAINS_COUNT={len(domains)}")
           print(f"ZONES_STATUS={zones_status}; ZONES_COUNT={len(zones)}")
           print(f"ROUTES_COUNT={len(zone_routes)}; ROUTE_ZONES={len(routes_statuses)}")
