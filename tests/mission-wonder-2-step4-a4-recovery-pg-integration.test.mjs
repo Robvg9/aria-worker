@@ -23,6 +23,7 @@ const MIGRATION = path.join(root, 'supabase/migrations/20261105120000_aria_m22_a
 const RESUME_MIGRATION = path.join(root, 'supabase/migrations/20261105221715_a4_consumed_scope_resume_and_tick_claim_v1.sql');
 const HANDOFF_MIGRATION = path.join(root, 'supabase/migrations/20261105235800_a4_runner_handoff_retry_v1.sql');
 const HANDOFF_SCOPE_RESUME_MIGRATION = path.join(root, 'supabase/migrations/20261106011000_a4_handoff_expired_scope_resume_v1.sql');
+const FROZEN_JOB_GATEWAY_MIGRATION = path.join(root, 'supabase/migrations/20261106014500_a4_frozen_single_job_gateway_claim_v1.sql');
 const LOCKED = 'mission_a4_authorized_once';
 const SCOPE_KEY = 'mission-wonder-2-step4-a4:single-authorized-execution';
 const SCOPE_ID = 'scope_test_recovery_0001';
@@ -59,6 +60,7 @@ await client.query(`
 // ---------------------------------------------------------------- schema mirror
 await client.query(`
   create schema if not exists aria_internal;
+  drop table if exists aria_internal.execution_job_events cascade;
   drop table if exists aria_internal.execution_jobs cascade;
   drop table if exists aria_internal.mission_events cascade;
   drop table if exists aria_internal.mission_wonder_2_a4_scopes cascade;
@@ -72,6 +74,7 @@ await client.query(`
     completed_steps integer not null default 0,
     lease_owner text,
     lease_until timestamptz,
+    checkpoint jsonb not null default '{}'::jsonb,
     metadata jsonb not null default '{}'::jsonb,
     updated_at timestamptz not null default clock_timestamp()
   );
@@ -114,8 +117,38 @@ await client.query(`
   create table aria_internal.execution_jobs (
     job_id text primary key,
     mission_id text not null,
-    status text not null default 'queued'
+    device_id text,
+    operation text not null default 'shell.execute',
+    command text not null default '',
+    cwd text,
+    timeout_ms integer not null default 15000,
+    policy jsonb not null default '{}'::jsonb,
+    status text not null default 'queued',
+    requested_at timestamptz not null default clock_timestamp(),
+    claimed_at timestamptz,
+    started_at timestamptz,
+    completed_at timestamptz,
+    exit_code integer,
+    stdout text,
+    stderr text,
+    result jsonb not null default '{}'::jsonb,
+    metadata jsonb not null default '{}'::jsonb,
+    updated_at timestamptz not null default clock_timestamp(),
+    lease_owner text,
+    lease_until timestamptz,
+    recovery_count integer not null default 0
   );
+  create table aria_internal.execution_job_events (
+    event_id bigint generated always as identity primary key,
+    job_id text not null,
+    device_id text not null,
+    event_type text not null,
+    payload jsonb not null default '{}'::jsonb,
+    created_at timestamptz not null default clock_timestamp()
+  );
+  create or replace function aria_internal.mission_job_authorization_allowed(p_mission_id text,p_job_id text)
+  returns boolean language sql security definer set search_path to 'aria_internal','pg_catalog'
+  as $fn$ select false; $fn$;
 `);
 
 // ------------------------------------------------- real migration, applied verbatim
@@ -127,6 +160,8 @@ const handoffMigrationSql = fs.readFileSync(HANDOFF_MIGRATION, 'utf8');
 await client.query(handoffMigrationSql);
 const handoffScopeResumeMigrationSql = fs.readFileSync(HANDOFF_SCOPE_RESUME_MIGRATION, 'utf8');
 await client.query(handoffScopeResumeMigrationSql);
+const frozenJobGatewayMigrationSql = fs.readFileSync(FROZEN_JOB_GATEWAY_MIGRATION, 'utf8');
+await client.query(frozenJobGatewayMigrationSql);
 
 // ------------------------------------------------------------------- helpers
 const RECOVER = (args) => ({ text: `select aria_internal.aria_m22_a4_recover_mission_v1($1,$2,$3,$4,$5,$6)::jsonb as r`, values: [args.missionId ?? LOCKED, args.scopeId ?? SCOPE_ID, args.userId ?? USER_ID, args.requestId ?? REQUEST_ID, args.goalHash ?? GOAL_HASH, args.grantRef] });
@@ -648,6 +683,103 @@ await start('expired scope outside two-hour continuation window is refused witho
   assert.equal(new Date(after.expires_at).toISOString(), new Date(before.expires_at).toISOString(), 'S14 refusal does not extend expiry');
   assert.equal((await reservation()).runner_handoff_retry_count, 0, 'S14 refusal does not claim handoff');
   assert.equal((await reservation()).runner_handoff_scope_resume_count, 0, 'S14 refusal does not consume scope renewal');
+}
+
+// ===========================================================================
+// S15. The global device-job freeze remains active, but the exact A4 UTC
+//      read-only job may be claimed by its one authorized Windows device.
+//      No other job/device can use this exception; start and completion
+//      revalidate the live mission, scope, tick, job, and agent identity.
+// ===========================================================================
+await start('frozen device gateway claims exactly the authorized A4 read-only job');
+{
+  const missionId = 'mission_a4_authorized_once';
+  const scopeId = 'mission_wonder_2_a4_authorized_once';
+  const deviceId = 'windows-fe722cc6681e4f9c9cc35f5ebbb0a089';
+  const jobId = 'uo_mission_a4_authorized_once_a4_readonly_utc_clock_probe_a1_da6b3354e92efcbb';
+  const grantRef = 'a4-recovery-42110933267.1';
+  const requestId = '5d92b435-c42b-4d8b-9a07-2f73b8ec7a38';
+  const userId = '39a8f5fd-18e6-4bba-bdd3-31691ec18f3e';
+  const goalHash = '6f66a99cf889877617b5d166151ac51e4cc90fafa592309b2aa440b103e7a5ef';
+  const command = "[DateTime]::UtcNow.ToString('o')";
+
+  await q('delete from aria_internal.execution_job_events');
+  await q('delete from aria_internal.execution_jobs');
+  await q('delete from aria_internal.mission_events');
+  await q('delete from aria_internal.mission_wonder_2_a4_scopes');
+  await q('delete from aria_internal.mission_state');
+  await q('delete from aria_internal.device_registry');
+
+  const step = {
+    id: 'a4_readonly_utc_clock_probe', operation: 'shell.execute', executor_type: 'device', risk: 'READ',
+    target: { type: 'device', device_id: deviceId }, input: { command, cwd: null },
+    timeout_ms: 15000, retryable: false, max_attempts: 1, depends_on: [],
+    policy: { read_only: true, read_only_audit: true, mission_wonder_2_a4_readonly: true },
+    authorization: { status: 'approved', risk_class: 'READ', evidence_ref: 'mission-wonder-2-step4-a4-v1' },
+    verify: { expected_exit_code: 0, stdout_contains: 'Z' },
+  };
+  const dispatch = {
+    granted: true, consumed: true, grant_ref: grantRef, tick_claimed: true,
+    tick_claim_ref: grantRef + ':tick', scope_resume_count: 1, scope_resume_grant_ref: grantRef,
+    runner_handoff_retry_count: 1, runner_handoff_retry_ref: grantRef + ':runner-handoff-retry',
+    runner_handoff_retry_source_run: '42131077740', runner_handoff_retry_source_status: 401,
+    runner_handoff_scope_resume_count: 1, runner_handoff_scope_resume_source_run: '42131077740',
+  };
+  await q('insert into aria_internal.mission_state (mission_id,status,current_step,completed_steps,checkpoint,metadata) values ($1,$2,0,0,$3::jsonb,$4::jsonb)', [
+    missionId, 'waiting',
+    JSON.stringify({
+      plan: [step], recovery: { status: 'waiting_for_async_executor' },
+      pending_jobs: { a4_readonly_utc_clock_probe: { job_id: jobId, status: 'queued' } },
+    }),
+    JSON.stringify({
+      execution_lane: 'user', source_application: 'aria-app-v1', goal_source: 'user',
+      mission_wonder_2_a4_readonly: 'true', mission_wonder_2_a4_scope_id: scopeId,
+      mission_wonder_2_a4_goal_hash: goalHash, request_id: requestId, user_id: userId,
+      mission_wonder_2_a4_allowed_device_id: deviceId, project_id: null,
+      a4_recovery_dispatch_v1: dispatch,
+    }),
+  ]);
+  await q('insert into aria_internal.mission_wonder_2_a4_scopes (scope_id,scope_key,owner_user_id,request_id,goal_hash,mission_id,allowed_device_id,status,expires_at,revoked_at) values ($1,$2,$3,$4,$5,$6,$7,$8,clock_timestamp()+interval \'45 minutes\',clock_timestamp()-interval \'12 hours\')',
+    [scopeId, SCOPE_KEY, userId, requestId, goalHash, missionId, deviceId, 'bound']);
+  await q('insert into aria_internal.device_registry (device_id,agent_type,status,token_hash,capabilities,last_seen_at) values ($1,$2,$3,$4,$5::jsonb,clock_timestamp()-interval \'2 seconds\')',
+    [deviceId, 'windows-local', 'online', 'a4-test-token-hash', '[\"shell.execute\"]']);
+  await q('insert into aria_internal.execution_jobs (job_id,mission_id,device_id,operation,command,cwd,timeout_ms,policy,status,metadata) values ($1,$2,$3,$4,$5,null,15000,$6::jsonb,\'queued\',$7::jsonb)',
+    [jobId, missionId, deviceId, 'shell.execute', command,
+      JSON.stringify({ read_only: true, read_only_audit: true, mission_wonder_2_a4_readonly: true }),
+      JSON.stringify({ idempotency_key: jobId })]);
+
+  let authorization = await q('select aria_internal.aria_m22_a4_frozen_job_authorized_v1($1,$2,$3) as ok', [jobId, deviceId, 'queued']);
+  assert.equal(authorization.rows[0].ok, true, 'S15 exact A4 job is eligible under the global freeze');
+  authorization = await q('select aria_internal.aria_m22_a4_frozen_job_authorized_v1($1,$2,$3) as ok', [jobId, deviceId, 'claimed']);
+  assert.equal(authorization.rows[0].ok, false, 'S15 queued job cannot pass the claimed gate');
+  authorization = await q('select aria_internal.aria_m22_a4_frozen_job_authorized_v1($1,$2,$3) as ok', [jobId, DEVICE_ID_ALT, 'queued']);
+  assert.equal(authorization.rows[0].ok, false, 'S15 another device is refused');
+  authorization = await q('select aria_internal.aria_m22_a4_frozen_job_authorized_v1($1,$2,$3) as ok', ['other-job-id', deviceId, 'queued']);
+  assert.equal(authorization.rows[0].ok, false, 'S15 another job is refused');
+
+  let claimed = await q('select aria_internal.aria_m22_a4_claim_frozen_one_shot_job_v1($1)::jsonb as job', [deviceId]);
+  assert.equal(claimed.rows[0].job.job_id, jobId, 'S15 gateway claims the exact A4 job');
+  assert.equal(claimed.rows[0].job.status, 'claimed', 'S15 job transitions to claimed');
+  assert.ok(claimed.rows[0].job.lease_owner, 'S15 physical job lease owner is persisted');
+  assert.ok(new Date(claimed.rows[0].job.lease_until) > new Date(), 'S15 physical job lease is live');
+  assert.equal((await q('select count(*)::int as n from aria_internal.execution_job_events where job_id=$1 and event_type=$2', [jobId, 'job.claimed_a4_one_shot'])).rows[0].n, 1, 'S15 one audit event records the A4 claim');
+  authorization = await q('select aria_internal.aria_m22_a4_frozen_job_authorized_v1($1,$2,$3) as ok', [jobId, deviceId, 'claimed']);
+  assert.equal(authorization.rows[0].ok, true, 'S15 exact claimed job passes the start authorization gate');
+  assert.equal((await q('select aria_internal.mission_job_authorization_allowed($1,$2) as ok', [missionId, jobId])).rows[0].ok, true, 'S15 mission start authorization delegates to the exact A4 guard');
+
+  claimed = await q('select aria_internal.aria_m22_a4_claim_frozen_one_shot_job_v1($1)::jsonb as job', [deviceId]);
+  assert.equal(claimed.rows[0].job, null, 'S15 subsequent polling cannot claim the same job twice');
+  assert.equal((await q('select count(*)::int as n from aria_internal.execution_jobs where mission_id=$1', [missionId])).rows[0].n, 1, 'S15 no second job is created');
+
+  await q('update aria_internal.execution_jobs set status=$1,started_at=clock_timestamp(),updated_at=clock_timestamp() where job_id=$2', ['running', jobId]);
+  authorization = await q('select aria_internal.aria_m22_a4_frozen_job_authorized_v1($1,$2,$3) as ok', [jobId, deviceId, 'running']);
+  assert.equal(authorization.rows[0].ok, true, 'S15 exact running job passes the result authorization gate');
+  assert.equal((await q('select aria_internal.mission_job_authorization_allowed($1,$2) as ok', [missionId, jobId])).rows[0].ok, true, 'S15 mission completion authorization remains exact-scope');
+
+  await q('update aria_internal.mission_wonder_2_a4_scopes set expires_at=clock_timestamp()-interval \'1 second\' where scope_id=$1', [scopeId]);
+  authorization = await q('select aria_internal.aria_m22_a4_frozen_job_authorized_v1($1,$2,$3) as ok', [jobId, deviceId, 'running']);
+  assert.equal(authorization.rows[0].ok, false, 'S15 scope expiry immediately closes the exception');
+  assert.equal((await q('select revoked_at is not null as preserved from aria_internal.mission_wonder_2_a4_scopes where scope_id=$1', [scopeId])).rows[0].preserved, true, 'S15 historical revoked_at remains intact');
 }
 
 await client.end();
