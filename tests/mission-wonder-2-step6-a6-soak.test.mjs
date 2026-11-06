@@ -150,10 +150,17 @@ assert.ok(heartbeatFailure.blockers.includes("heartbeat_gap_0_exceeded_threshold
 
 const outageFailure = m22A6BuildSoakReportV1({
   ...validEvidence,
-  heartbeatGaps: [{ gapMs: 180000, expectedOutage: true, recovered: false }],
+  heartbeatGaps: [{ gapMs: 180000, expectedOutage: true, detected: true, recovered: false }],
 });
 assert.equal(outageFailure.status, "BLOCKED");
-assert.ok(outageFailure.blockers.includes("heartbeat_outage_0_not_recovered_within_threshold"));
+assert.ok(outageFailure.blockers.includes("heartbeat_outage_0_not_detected_and_recovered_within_threshold"));
+
+const undetectedOutage = m22A6BuildSoakReportV1({
+  ...validEvidence,
+  heartbeatGaps: [{ gapMs: 45000, expectedOutage: true, recovered: true }],
+});
+assert.equal(undetectedOutage.status, "BLOCKED");
+assert.ok(undetectedOutage.blockers.includes("heartbeat_outage_0_not_detected_and_recovered_within_threshold"));
 
 const retryFailureMissions = missions.map(item => ({ ...item }));
 retryFailureMissions[0].attemptCount = 4;
@@ -181,7 +188,17 @@ const backlogFailure = m22A6BuildSoakReportV1({
 });
 assert.equal(backlogFailure.status, "BLOCKED");
 assert.ok(backlogFailure.blockers.includes("backlog_not_drained_at_end"));
-assert.ok(backlogFailure.blockers.includes("backlog_oldest_age_exceeded_threshold"));
+assert.ok(backlogFailure.blockers.includes("backlog_sample_0_oldest_age_invalid_or_exceeded"));
+
+const invalidBacklogSample = m22A6BuildSoakReportV1({
+  ...validEvidence,
+  backlogSamples: [
+    { pendingJobs: 1, oldestPendingAgeMs: -1 },
+    { pendingJobs: 0, oldestPendingAgeMs: 0 },
+  ],
+});
+assert.equal(invalidBacklogSample.status, "BLOCKED");
+assert.ok(invalidBacklogSample.blockers.includes("backlog_sample_0_oldest_age_invalid_or_exceeded"));
 
 const orphanFailure = m22A6BuildSoakReportV1({ ...validEvidence, orphanJobs: 1 });
 assert.equal(orphanFailure.status, "BLOCKED");
