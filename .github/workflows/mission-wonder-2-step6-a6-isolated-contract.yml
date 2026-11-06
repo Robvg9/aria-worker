@@ -17,6 +17,7 @@ on:
       - '.github/workflows/aria-cloudflare-deploy.yml'
       - '.github/workflows/aria-pwa-fast-deploy.yml'
       - 'tests/mission-wonder-2-step6-a6-soak.test.mjs'
+      - 'tests/mission-wonder-2-step6-a6-fault-matrix.test.mjs'
       - '.github/workflows/mission-wonder-2-step6-a6-isolated-contract.yml'
   workflow_dispatch:
 
@@ -44,3 +45,12 @@ jobs:
         run: node tests/mission-wonder-2-step6-a6-soak.test.mjs
       - name: Verify A6 runtime wiring and deployment isolation
         run: node tests/mission-wonder-2-step6-a6-runtime-wiring.test.mjs
+      - name: Run deterministic five-scenario pre-soak fault matrix
+        run: node tests/mission-wonder-2-step6-a6-fault-matrix.test.mjs
+      - name: Upload deterministic fault-matrix evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: mission-wonder-2-a6-fault-matrix-${{ github.sha }}
+          path: artifacts/a6-fault-matrix-evidence.json
+          if-no-files-found: error
+          retention-days: 30
