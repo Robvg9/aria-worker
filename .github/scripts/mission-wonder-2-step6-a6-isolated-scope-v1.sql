@@ -1023,7 +1023,7 @@ begin
      or j.command<>s.command or j.timeout_ms<>60000
      or j.metadata->>'idempotency_key'<>p_job_id
      or j.stdout !~ ('^A6_ARTIFACT_VERIFIED;mode=(created|identical);sequence='||lpad(s.ordinal::text,2,'0')||';sha256=[a-f0-9]{64};artifact=')
-     or right(rtrim(coalesce(j.stdout,''),E' \t\r\n'),length(s.artifact_path))<>s.artifact_path
+     or right(rtrim(coalesce(j.stdout,''), chr(32)||chr(9)||chr(10)||chr(13)),length(s.artifact_path))<>s.artifact_path
      or (select count(*) from aria_internal.execution_jobs where mission_id=p_mission_id)<>1
      or (select count(*) from aria_internal.execution_job_events where job_id=p_job_id and event_type='job.succeeded')<>1
      or (select count(*) from aria_internal.mission_events where mission_id=p_mission_id and event_type='mission_verified')<>1 then
