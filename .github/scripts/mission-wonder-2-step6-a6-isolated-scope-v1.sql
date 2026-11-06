@@ -730,7 +730,7 @@ begin
     return aria_internal.aria_m22_a5_frozen_job_authorized_v1(p_job_id,v_device_id,v_job_status);
   end if;
 
-  if p_mission_id ~ '^mission_m22_a6_[a-f0-9]{12}_0[1-5]
+  if left(p_mission_id,15)='mission_m22_a6_' then
     select j.device_id,j.status into v_device_id,v_job_status
       from aria_internal.execution_jobs j where j.job_id=p_job_id and j.mission_id=p_mission_id;
     if not found then return false; end if;
