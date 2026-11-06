@@ -34,7 +34,7 @@ The master roadmap proposes an initial **24-hour** window and an optional reinfo
 - Adds the evaluator to `npm test`.
 - Does not edit the production coordinator, Supabase schema/functions, PWA, Windows agent, secrets, scheduled tasks or cron schedules.
 - Preserves `MISSION_EXECUTION_PAUSED=true`; does not create missions, jobs, leases, scopes or notifications.
-- Evidence labeled SIMULATED by the tests can validate evaluator behavior only; it cannot be promoted to LIVE evidence.
+- The pure evaluator always labels its input UNATTESTED and cannot authenticate a claimed LIVE flag. A separate read-only reconciler must independently query the authoritative mission/job/event rows and hash-addressed artifacts before any LIVE certification.
 
 ## Explicit LIVE gate — not yet authorized or prepared for dispatch
 
