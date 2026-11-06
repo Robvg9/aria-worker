@@ -43,6 +43,9 @@ assert.match(migration, /aria_m22_a6_frozen_job_authorized_v1\(p_job_id,v_device
 assert.match(deviceGateway, /execution_enabled:false[\s\S]{0,100}423/);
 assert.match(runtimeGateway, /MISSION_EXECUTION_PAUSED&&\["vision_sync","self_improve","enqueue_device_job"\]/);
 assert.match(helper, /m22A6MissionPlanMatchesV1/);
+assert.match(helper, /metadata\.mission_wonder_2_a6_human_gate_ref === run\.human_gate_ref/);
+assert.match(migration, /\x27evidence_ref\x27,r\.human_gate_ref/);
+assert.match(runner, /humanGateRef: String\(run\?\.human_gate_ref \|\| \x22\x22\)/);
 
 for (const rpc of [
   "aria_m22_a6_materialize_due_mission_v1",
