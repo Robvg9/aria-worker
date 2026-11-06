@@ -197,6 +197,7 @@ export async function m22A6ScopeRowMatchesV1({
     scope.goal_hash === expectedHash &&
     scope.allowed_device_id === M22_A6_ALLOWED_DEVICE_ID &&
     scope.operation === "shell.execute" &&
+    norm(goal) === expectedGoal &&
     scope.command === expectedStep.input.command &&
     scope.artifact_path === expectedStep.policy.allowed_artifact_path &&
     scope.ordinal === ordinal &&
