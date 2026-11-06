@@ -239,6 +239,23 @@ assert.match(liveWorker, /export const MISSION_EXECUTION_PAUSED = true;/,
 assert.doesNotMatch(liveWorker, /MISSION_EXECUTION_PAUSED\s*=\s*false/,
   "A6 must never silently lift the global freeze");
 
+const a6PreparationPaths = [
+  "autonomy/mission-wonder-2-a6-soak-v1.mjs",
+  "autonomy/MISSION_WONDER_2_STEP6_A6_SOAK.md",
+  "tests/mission-wonder-2-step6-a6-soak.test.mjs",
+];
+const supabaseDeployFilter = read(".github/workflows/supabase-canonical-deploy.yml");
+const cloudflareDeployFilter = read(".github/workflows/aria-cloudflare-deploy.yml");
+const pwaDeployFilter = read(".github/workflows/aria-pwa-fast-deploy.yml");
+for (const path of a6PreparationPaths) {
+  assert.ok(supabaseDeployFilter.includes("!'" + path + "'"),
+    "A6 preparation path must be excluded from Supabase production deploy: " + path);
+  assert.ok(cloudflareDeployFilter.includes("'" + path + "'"),
+    "A6 preparation path must be excluded from Cloudflare production deploy: " + path);
+  assert.ok(pwaDeployFilter.includes("'" + path + "'"),
+    "A6 preparation path must be excluded from PWA production deploy: " + path);
+}
+
 const packageJson = JSON.parse(read("package.json"));
 assert.ok(packageJson.scripts.test.includes("tests/mission-wonder-2-step6-a6-soak.test.mjs"),
   "the A6 soak evaluator contract must run in npm test");
