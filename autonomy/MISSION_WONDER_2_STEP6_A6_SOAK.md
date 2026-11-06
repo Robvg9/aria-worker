@@ -53,3 +53,8 @@ Stop and classify as BLOCKED on any duplicate, unverifiable success, stale lease
 ## Next valid action
 
 Run exact-SHA CI for this preparation slice and review the generated diff. Only after CI is green should the LIVE A6 scope/workflow be designed and separately approved. The first real 24-hour soak window—not this simulated evaluator—is the point at which an extended wait is necessary.
+
+
+### A6-only backlog accounting
+
+The `a6BacklogSamples` evidence field measures only pending jobs belonging to this A6 run (`a6PendingJobs`, `oldestA6PendingAgeMs`). It must be empty at the end. It must never include or drain historical/non-A6 missions or jobs; those remain protected by the before/after count and fingerprint invariance checks.
