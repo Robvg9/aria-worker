@@ -82,6 +82,8 @@ assert.match(pwaDeploy, /'supabase\/migrations\/\*_aria_mission_wonder_2_a6_isol
 assert.match(cloudflareDeploy, /'supabase\/functions\/\*\*'/);
 assert.match(cloudflareDeploy, /'supabase\/migrations\/\*_aria_mission_wonder_2_a6_isolated_scope_v1\.sql'/);
 
+assert.match(migration, /human_gate_ref text not null unique/);
+assert.doesNotMatch(migration, /mission-wonder-2-step6-a6-v1-owner-authorization/);
 console.log("MISSION_WONDER_2_STEP6_A6_RUNTIME_WIRING=PASS");
 console.log("MISSION_WONDER_2_STEP6_A6_GLOBAL_FREEZE=PASS");
 console.log("MISSION_WONDER_2_STEP6_A6_DEPLOY_ISOLATION=PASS");
