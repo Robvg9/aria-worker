@@ -59,6 +59,7 @@ assert.match(migration, /heartbeat_sample_count>=1368/);
 assert.match(migration, /max_heartbeat_age_ms<=r\.max_normal_heartbeat_gap_ms/);
 assert.match(migration, /max_sample_gap_ms<=r\.max_normal_heartbeat_gap_ms/);
 assert.match(migration, /percentile_cont\(0\.95\)/);
+assert.match(migration, /rtrim\(coalesce\(j\.stdout/);
 assert.match(migration, /max_recovery_count=0/);
 assert.match(migration, /max_a6_pending_jobs<=1/);
 assert.match(migration, /max_a6_oldest_pending_age_ms<=300000/);
