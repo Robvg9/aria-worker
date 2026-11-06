@@ -56,8 +56,8 @@ for (let ordinal = 1; ordinal <= M22_A6_MISSION_COUNT; ordinal += 1) {
   assert.equal(step.operation, "shell.execute");
   assert.equal(step.risk, "WRITE");
   assert.equal(step.timeout_ms, 60000);
-  assert.equal(step.retryable, true);
-  assert.equal(step.max_attempts, 3);
+  assert.equal(step.retryable, false);
+  assert.equal(step.max_attempts, 1);
   assert.equal(step.policy.mission_wonder_2_a6_continuity, true);
   assert.equal(step.policy.allowed_artifact_path, m22A6ArtifactPathV1(RUN_ID, ordinal));
   assert.equal(step.policy.max_artifacts, 1);
