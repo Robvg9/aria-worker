@@ -12,6 +12,9 @@ on:
       - '.github/workflows/aria-absorb.yml'
       - '.github/workflows/aria-autonomy-coordinator-deploy.yml'
       - '.github/workflows/aria-npm-test.yml'
+      # Root package.json is CI-only; the A6 shared scope helper does not change PWA assets.
+      - 'package.json'
+      - 'supabase/functions/_shared/mission-wonder-2-a6-scope-v1.mjs'
       - 'tests/aria-no-mission-reactivation.contract.test.js'
       - '.github/workflows/persistent-autonomy-v1-tests.yml'
       # A3 worker presence/recovery workflow and its local-only helper/tests do not change the PWA runtime.
