@@ -1,8 +1,9 @@
 import fs from "node:fs";
 import path from "node:path";
 
-const PROJECT = String(process.env.SUPABASE_PROJECT_REF || "");
-const ACCESS_TOKEN = String(process.env.SUPABASE_ACCESS_TOKEN || "");
+const PROJECT = String(process.env.SUPABASE_PROJECT_REF || "icuqsstxfdbvjytkhlog");
+// Public publishable key already used by the repository's live PWA smoke workflow.
+const API_KEY = String(process.env.SUPABASE_PUBLISHABLE_KEY || "sb_publishable_E2AmZNo2hAbOYlytkVbyBQ_X7JH0HPw");
 const EMAIL = String(process.env.RWHT_EMAIL || "");
 const PASSWORD = String(process.env.RWHT_PASSWORD || "");
 const MISSION_ID = "mission_a4_authorized_once";
@@ -42,29 +43,12 @@ async function jsonRequest(url, options = {}) {
   catch { body = { raw: raw.slice(0, 1000) }; }
   return { response, body };
 }
-async function loadPublishableKey() {
-  const url = "https://api.supabase.com/v1/projects/" + encodeURIComponent(PROJECT) + "/api-keys?reveal=true";
-  const { response, body } = await jsonRequest(url, {
-    headers: { Authorization: "Bearer " + ACCESS_TOKEN, Accept: "application/json" },
-  });
-  if (!response.ok || !Array.isArray(body)) fail("supabase_management_api_key_lookup_failed_http_" + response.status);
-  const matches = body.filter((entry) =>
-    typeof entry?.api_key === "string" &&
-    entry.api_key.length > 10 &&
-    (String(entry.type || "").toLowerCase() === "publishable" || String(entry.name || "").toLowerCase() === "anon")
-  );
-  if (!matches.length) fail("publishable_or_anon_key_not_found");
-  return matches[0].api_key;
-}
-
 async function main() {
   if (PROJECT !== "icuqsstxfdbvjytkhlog") fail("unexpected_supabase_project");
-  if (!ACCESS_TOKEN || !EMAIL || !PASSWORD) fail("required_read_only_pwa_credentials_missing");
-
-  const apiKey = await loadPublishableKey();
+  if (!API_KEY || !EMAIL || !PASSWORD) fail("required_read_only_pwa_credentials_missing");
   const login = await jsonRequest("https://" + PROJECT + ".supabase.co/auth/v1/token?grant_type=password", {
     method: "POST",
-    headers: { apikey: apiKey, "Content-Type": "application/json", Accept: "application/json" },
+    headers: { apikey: API_KEY, "Content-Type": "application/json", Accept: "application/json" },
     body: JSON.stringify({ email: EMAIL, password: PASSWORD }),
   });
   const userId = String(login.body?.user?.id || "");
