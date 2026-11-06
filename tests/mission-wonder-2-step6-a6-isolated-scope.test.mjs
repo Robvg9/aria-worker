@@ -158,6 +158,11 @@ const missionPlan = {
   checkpoint: { plan: [step] },
 };
 assert.equal(m22A6MissionPlanMatchesV1({ mission: missionPlan, runId: RUN_ID, ordinal }), true);
+const databaseOrderedStep = Object.fromEntries(Object.entries(step).reverse());
+assert.equal(m22A6MissionPlanMatchesV1({
+  mission: { ...missionPlan, checkpoint: { plan: [databaseOrderedStep] } },
+  runId: RUN_ID, ordinal,
+}), true);
 assert.equal(m22A6MissionPlanMatchesV1({
   mission: { ...missionPlan, checkpoint: { plan: [{ ...step, timeout_ms: 60001 }] } },
   runId: RUN_ID, ordinal,
