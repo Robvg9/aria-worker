@@ -1610,14 +1610,15 @@ async function a4FrozenJobAuthorizedV1(jobId:string,deviceId:string,requiredStat
 Deno.serve(async(req)=>{
   const u=new URL(req.url);
   const p=u.pathname.replace(/^\/aria-device-gateway/,'').replace(/\/+$/,'')||'/';
-  const b=await body(req);
   let preauthenticatedDevice:any=null;
   if(MISSION_EXECUTION_PAUSED&&(PAUSED_MISSION_ENDPOINTS.has(p)||PAUSED_MISSION_JOB_ROUTES.test(p))){
     const startMatch=p.match(/^\/v1\/jobs\/([^/]+)\/start$/);
     const a4ClaimCandidate=req.method==='POST'&&p==='/v1/jobs/claim';
     const a4StartCandidate=req.method==='POST'&&Boolean(startMatch)&&decodeURIComponent(String(startMatch?.[1]||''))===A4_FROZEN_JOB_ID;
     if(a4ClaimCandidate||a4StartCandidate){
-      const authenticated=await auth(req,b?.device_id);
+      // The physical agent sends x-aria-device-id with its bearer token. Authenticate
+      // that header before touching a request body, preserving the early 423 gate.
+      const authenticated=await auth(req);
       if(authenticated.error)return authenticated.error;
       const deviceId=String(authenticated.device?.device_id||'');
       const jobId=a4ClaimCandidate?A4_FROZEN_JOB_ID:decodeURIComponent(String(startMatch?.[1]||''));
@@ -1629,7 +1630,8 @@ Deno.serve(async(req)=>{
     }else{
       return json({ok:false,status:'paused',error:'mission_execution_paused',runtime:'aria-device-gateway',endpoint:p,execution_enabled:false},423);
     }
-  }if(req.method==='POST'&&p==='/v1/rwht-final-repair'){
+  }
+  const b=await body(req);if(req.method==='POST'&&p==='/v1/rwht-final-repair'){
   if(String(b?.mission_id||'')!=='mission_rwht_final_20260920_02')return json({error:'probe_mission_restricted'},403);
   const dbUrl=Deno.env.get('SUPABASE_DB_URL')||'';
   if(!dbUrl)return json({error:'db_url_unavailable'},503);
