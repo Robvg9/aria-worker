@@ -15,6 +15,8 @@ on:
       # Root package.json is CI-only; the A6 shared scope helper does not change PWA assets.
       - 'package.json'
       - 'supabase/functions/_shared/mission-wonder-2-a6-scope-v1.mjs'
+      - 'supabase/functions/aria-mission-wonder-2-a6-dispatch-v1/**'
+      - 'supabase/migrations/*_aria_mission_wonder_2_a6_isolated_scope_v1.sql'
       - '.github/workflows/mission-wonder-2-step6-a6-isolated-contract.yml'
       - '.github/workflows/mission-wonder-2-step6-a6-migration-cli.yml'
       - '.github/scripts/mission-wonder-2-step6-a6-isolated-scope-v1.sql'
