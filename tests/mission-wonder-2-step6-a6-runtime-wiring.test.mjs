@@ -48,6 +48,14 @@ for (const rpc of [
 ]) assert.ok(migration.includes("create or replace function aria_internal." + rpc + "("), rpc + " migration RPC missing");
 assert.match(migration, /cron\.schedule\([\s\S]*aria-mission-wonder-2-a6-dispatcher-every-minute/);
 assert.match(migration, /update cron\.job set active=false where jobid=v_job_id/);
+assert.match(migration, /heartbeatAgeMs/);
+assert.match(migration, /heartbeat_continuity_threshold_exceeded/);
+assert.match(migration, /heartbeat_sample_count>=1368/);
+assert.match(migration, /max_heartbeat_age_ms<=r\.max_normal_heartbeat_gap_ms/);
+assert.match(migration, /max_sample_gap_ms<=r\.max_normal_heartbeat_gap_ms/);
+assert.match(migration, /percentile_cont\(0\.95\)/);
+assert.match(migration, /max_recovery_count=0/);
+assert.match(migration, /job_count=5/);
 assert.match(deploy, /supabase functions deploy aria-mission-wonder-2-a6-dispatch-v1/);
 assert.match(pwaDeploy, /'supabase\/functions\/aria-mission-wonder-2-a6-dispatch-v1\/\*\*'/);
 assert.match(pwaDeploy, /'supabase\/migrations\/\*_aria_mission_wonder_2_a6_isolated_scope_v1\.sql'/);
