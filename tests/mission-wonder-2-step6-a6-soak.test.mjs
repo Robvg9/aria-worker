@@ -266,7 +266,7 @@ const supabaseDeployFilter = read(".github/workflows/supabase-canonical-deploy.y
 const cloudflareDeployFilter = read(".github/workflows/aria-cloudflare-deploy.yml");
 const pwaDeployFilter = read(".github/workflows/aria-pwa-fast-deploy.yml");
 for (const path of a6PreparationPaths) {
-  assert.ok(supabaseDeployFilter.includes("!'" + path + "'"),
+  assert.ok(supabaseDeployFilter.includes("'!" + path + "'"),
     "A6 preparation path must be excluded from Supabase production deploy: " + path);
   assert.ok(cloudflareDeployFilter.includes("'" + path + "'"),
     "A6 preparation path must be excluded from Cloudflare production deploy: " + path);
