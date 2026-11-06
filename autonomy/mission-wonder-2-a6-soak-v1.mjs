@@ -291,7 +291,7 @@ export function m22A6BuildSoakReportV1(input = {}) {
 
   const a6BacklogSamples = Array.isArray(input.a6BacklogSamples) ? input.a6BacklogSamples : [];
   if (!a6BacklogSamples.length) {
-    blockers.push("backlog_evidence_missing");
+    blockers.push("a6_backlog_evidence_missing");
   } else {
     for (const [index, sample] of a6BacklogSamples.entries()) {
       const a6PendingJobs = sample && sample.a6PendingJobs;
