@@ -16,6 +16,8 @@ on:
       - 'package.json'
       - 'supabase/functions/_shared/mission-wonder-2-a6-scope-v1.mjs'
       - '.github/workflows/mission-wonder-2-step6-a6-isolated-contract.yml'
+      - '.github/workflows/mission-wonder-2-step6-a6-migration-cli.yml'
+      - '.github/scripts/mission-wonder-2-step6-a6-isolated-scope-v1.sql'
       - 'tests/mission-wonder-2-step6-a6-isolated-scope.test.mjs'
       - 'tests/aria-no-mission-reactivation.contract.test.js'
       - '.github/workflows/persistent-autonomy-v1-tests.yml'
