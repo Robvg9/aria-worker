@@ -760,16 +760,17 @@ begin
       end if;
     elsif m.status in ('failed','blocked','cancelled','timeout')
        or r.job_status in ('failed','timeout','cancelled') then
-      perform aria_internal.aria_m22_a6_block_run_v1(
-        r.run_id,r.scope_id,
-        'mission_or_job_terminal_failure:'||coalesce(m.status,r.job_status,'unknown')
-      );
+      update aria_internal.mission_wonder_2_a6_runs
+         set status='blocked',completed_at=clock_timestamp(),updated_at=clock_timestamp()
+       where run_id=r.run_id and status='running';
+      update aria_internal.mission_wonder_2_a6_scopes
+         set status='revoked',revoked_at=coalesce(revoked_at,clock_timestamp()),updated_at=clock_timestamp()
+       where run_id=r.run_id and status in ('armed','claimed','bound');
       insert into aria_internal.mission_wonder_2_a6_telemetry(run_id,event_type,payload)
       values (r.run_id,'fault_observed',jsonb_build_object(
         'event','mission_terminal_failure',
         'mission_id',r.mission_id,
         'mission_status',m.status,
-        'job_status',r.job_status,
         'automatic_retry',false
       ));
       blocked_count:=blocked_count+1;
@@ -1022,7 +1023,7 @@ begin
      or j.command<>s.command or j.timeout_ms<>60000
      or j.metadata->>'idempotency_key'<>p_job_id
      or j.stdout !~ ('^A6_ARTIFACT_VERIFIED;mode=(created|identical);sequence='||lpad(s.ordinal::text,2,'0')||';sha256=[a-f0-9]{64};artifact=')
-     or right(rtrim(coalesce(j.stdout,''),E'\r\n \t'),length(s.artifact_path))<>s.artifact_path
+     or right(coalesce(j.stdout,''),length(s.artifact_path))<>s.artifact_path
      or (select count(*) from aria_internal.execution_jobs where mission_id=p_mission_id)<>1
      or (select count(*) from aria_internal.execution_job_events where job_id=p_job_id and event_type='job.succeeded')<>1
      or (select count(*) from aria_internal.mission_events where mission_id=p_mission_id and event_type='mission_verified')<>1 then
