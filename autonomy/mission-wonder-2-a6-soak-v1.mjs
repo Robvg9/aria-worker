@@ -25,8 +25,8 @@ function numericValues(values, label, blockers, { allowZero = false } = {}) {
     blockers.push(label + "_samples_missing");
     return [];
   }
-  const normalized = values.map(Number);
-  if (normalized.some(value => !Number.isFinite(value) || (allowZero ? value < 0 : value <= 0))) {
+  const normalized = values;
+  if (normalized.some(value => typeof value !== "number" || !Number.isFinite(value) || (allowZero ? value < 0 : value <= 0))) {
     blockers.push(label + "_sample_invalid");
     return [];
   }
@@ -66,16 +66,16 @@ export function m22A6BuildSoakReportV1(input = {}) {
   const elapsedMs = startedAt !== null && finishedAt !== null && finishedAt > startedAt
     ? finishedAt - startedAt : 0;
 
-  const minimumDurationHours = Number(thresholds.minimumDurationHours);
+  const minimumDurationHours = thresholds.minimumDurationHours;
   if (![24, 72].includes(minimumDurationHours)) blockers.push("threshold_minimum_duration_must_be_24_or_72_hours");
   if (elapsedMs < minimumDurationHours * HOUR_MS) blockers.push("soak_duration_below_declared_minimum");
 
-  const minimumMissions = Number(thresholds.minimumMissions);
+  const minimumMissions = thresholds.minimumMissions;
   const proposedMissionFloor = minimumDurationHours === 72 ? 15 : 5;
   if (!Number.isSafeInteger(minimumMissions) || minimumMissions < proposedMissionFloor) blockers.push("threshold_minimum_missions_invalid");
 
-  const heartbeatIntervalMs = Number(thresholds.heartbeatIntervalMs);
-  const maxNormalHeartbeatGapMs = Number(thresholds.maxNormalHeartbeatGapMs);
+  const heartbeatIntervalMs = thresholds.heartbeatIntervalMs;
+  const maxNormalHeartbeatGapMs = thresholds.maxNormalHeartbeatGapMs;
   if (!Number.isFinite(heartbeatIntervalMs) || heartbeatIntervalMs <= 0 ||
       !Number.isFinite(maxNormalHeartbeatGapMs) || maxNormalHeartbeatGapMs < heartbeatIntervalMs) {
     blockers.push("heartbeat_thresholds_invalid");
@@ -83,11 +83,11 @@ export function m22A6BuildSoakReportV1(input = {}) {
     blockers.push("heartbeat_threshold_exceeds_three_intervals");
   }
 
-  const maxRecoveryMs = Number(thresholds.maxRecoveryMs);
-  const maxP95LatencyMs = Number(thresholds.maxP95LatencyMs);
-  const maxTotalCostUsd = Number(thresholds.maxTotalCostUsd);
-  const maxAttemptsPerJob = Number(thresholds.maxAttemptsPerJob);
-  const maxBacklogAgeMs = Number(thresholds.maxBacklogAgeMs);
+  const maxRecoveryMs = thresholds.maxRecoveryMs;
+  const maxP95LatencyMs = thresholds.maxP95LatencyMs;
+  const maxTotalCostUsd = thresholds.maxTotalCostUsd;
+  const maxAttemptsPerJob = thresholds.maxAttemptsPerJob;
+  const maxBacklogAgeMs = thresholds.maxBacklogAgeMs;
   if (!Number.isFinite(maxRecoveryMs) || maxRecoveryMs <= 0) blockers.push("threshold_max_recovery_ms_required");
   if (!Number.isFinite(maxP95LatencyMs) || maxP95LatencyMs <= 0) blockers.push("threshold_max_p95_latency_ms_required");
   if (!Number.isFinite(maxTotalCostUsd) || maxTotalCostUsd < 0) blockers.push("threshold_max_total_cost_usd_required");
@@ -98,9 +98,9 @@ export function m22A6BuildSoakReportV1(input = {}) {
 
   const missions = Array.isArray(input.missions) ? input.missions : [];
   if (missions.length < (Number.isSafeInteger(minimumMissions) ? minimumMissions : 5)) blockers.push("mission_volume_below_declared_minimum");
-  const missionIds = missions.map(item => String(item && item.missionId || ""));
-  const jobIds = missions.map(item => String(item && item.jobId || ""));
-  const verificationEventIds = missions.map(item => String(item && item.verificationEventId || ""));
+  const missionIds = missions.map(item => item && typeof item.missionId === "string" ? item.missionId : "");
+  const jobIds = missions.map(item => item && typeof item.jobId === "string" ? item.jobId : "");
+  const verificationEventIds = missions.map(item => item && typeof item.verificationEventId === "string" ? item.verificationEventId : "");
   const artifactHashes = missions.flatMap(item => Array.isArray(item && item.artifactSha256) ? item.artifactSha256 : []);
   const validArtifactHashes = artifactHashes.filter(value => /^[a-f0-9]{64}$/i.test(String(value)));
   if (missionIds.some(value => !value) || !unique(missionIds)) blockers.push("mission_ids_missing_or_duplicated");
@@ -113,10 +113,10 @@ export function m22A6BuildSoakReportV1(input = {}) {
     if (!mission || mission.status !== "succeeded" || mission.objectiveVerified !== true) {
       blockers.push("mission_" + index + "_not_independently_verified_success");
     }
-    if (Number(mission && mission.verificationEventCount) !== 1) {
+    if (!mission || mission.verificationEventCount !== 1) {
       blockers.push("mission_" + index + "_verification_event_count_not_one");
     }
-    const attempts = Number(mission && mission.attemptCount);
+    const attempts = mission && mission.attemptCount;
     if (!Number.isSafeInteger(attempts) || attempts < 1 ||
         (Number.isSafeInteger(maxAttemptsPerJob) && attempts > maxAttemptsPerJob)) {
       blockers.push("mission_" + index + "_attempt_count_out_of_bounds");
@@ -136,8 +136,8 @@ export function m22A6BuildSoakReportV1(input = {}) {
   const normalGaps = [];
   const outageGaps = [];
   for (const [index, gap] of heartbeatGaps.entries()) {
-    const gapMs = Number(gap && gap.gapMs);
-    if (!Number.isFinite(gapMs) || gapMs < 0) {
+    const gapMs = gap && gap.gapMs;
+    if (typeof gapMs !== "number" || !Number.isFinite(gapMs) || gapMs < 0) {
       blockers.push("heartbeat_gap_" + index + "_invalid");
       continue;
     }
@@ -160,8 +160,8 @@ export function m22A6BuildSoakReportV1(input = {}) {
     const matches = faultScenarios.filter(item => item && item.name === required);
     if (matches.length !== 1 || matches[0].injected !== true || matches[0].detected !== true ||
         matches[0].recovered !== true ||
-        !Number.isFinite(Number(matches[0].recoveryMs)) ||
-        (Number.isFinite(maxRecoveryMs) && Number(matches[0].recoveryMs) > maxRecoveryMs)) {
+        typeof matches[0].recoveryMs !== "number" || !Number.isFinite(matches[0].recoveryMs) ||
+        matches[0].recoveryMs < 0 || (Number.isFinite(maxRecoveryMs) && matches[0].recoveryMs > maxRecoveryMs)) {
       blockers.push("fault_scenario_" + required + "_not_proven");
     }
   }
@@ -185,23 +185,25 @@ export function m22A6BuildSoakReportV1(input = {}) {
     blockers.push("backlog_evidence_missing");
   } else {
     for (const [index, sample] of backlogSamples.entries()) {
-      const pendingJobs = Number(sample && sample.pendingJobs);
-      const oldestPendingAgeMs = Number(sample && sample.oldestPendingAgeMs);
-      if (!Number.isSafeInteger(pendingJobs) || pendingJobs < 0) {
+      const pendingJobs = sample && sample.pendingJobs;
+      const oldestPendingAgeMs = sample && sample.oldestPendingAgeMs;
+      if (typeof pendingJobs !== "number" || !Number.isSafeInteger(pendingJobs) || pendingJobs < 0) {
         blockers.push("backlog_sample_" + index + "_pending_job_count_invalid");
       }
-      if (!Number.isFinite(oldestPendingAgeMs) || oldestPendingAgeMs < 0 ||
+      if (typeof oldestPendingAgeMs !== "number" || !Number.isFinite(oldestPendingAgeMs) || oldestPendingAgeMs < 0 ||
           (Number.isFinite(maxBacklogAgeMs) && oldestPendingAgeMs > maxBacklogAgeMs)) {
         blockers.push("backlog_sample_" + index + "_oldest_age_invalid_or_exceeded");
       }
     }
     const finalBacklog = backlogSamples[backlogSamples.length - 1];
-    const finalPendingJobs = Number(finalBacklog && finalBacklog.pendingJobs);
+    const finalPendingJobs = finalBacklog && finalBacklog.pendingJobs;
     if (finalPendingJobs !== 0) blockers.push("backlog_not_drained_at_end");
   }
 
-  const orphanJobs = Number(input.orphanJobs);
-  if (!Number.isSafeInteger(orphanJobs) || orphanJobs !== 0) blockers.push("orphan_jobs_present_or_unmeasured");
+  const orphanJobs = input.orphanJobs;
+  if (typeof orphanJobs !== "number" || !Number.isSafeInteger(orphanJobs) || orphanJobs !== 0) {
+    blockers.push("orphan_jobs_present_or_unmeasured");
+  }
 
   return {
     schemaVersion: "mission-wonder-2-a6-soak-v1",
