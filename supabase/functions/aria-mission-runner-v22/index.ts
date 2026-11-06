@@ -3391,7 +3391,7 @@ Deno.serve(async (request) => {
   try {
     let staleRecovery: { status: "ok" | "deferred"; reason?: string } = { status: "ok" };
     let hardBlockRecovery = 0;
-    if (!gate3ScopedProbeAllowed && !a4ScopeRow && !a5ScopeRow) {
+    if (!gate3ScopedProbeAllowed && !a4ScopeRow && !a5ScopeRow && !a6ScopeRow) {
       try {
         await rpc("aria_autonomy_recover_stale_missions", { p_stale_after: "00:02:00" });
       } catch (recoveryError) {
