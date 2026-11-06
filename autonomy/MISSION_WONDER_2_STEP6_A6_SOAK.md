@@ -17,6 +17,8 @@ The master roadmap proposes an initial **24-hour** window and an optional reinfo
 5. Bounded execution: each job stays within the declared attempt limit (maximum three); telemetry includes at least one latency and cost sample per mission; independently measured orphan jobs and executor processes are both zero; every backlog sample is valid and the queue returns to zero at the end.
 6. Performance and economics: record p50/p95 latency, total cost and average cost per mission. The LIVE run must declare an explicit p95 latency ceiling and total cost cap before starting; missing thresholds block PASS.
 
+7. Ambient isolation: capture before/after fingerprints for every non-A6 nonterminal mission and non-A6 active job; require exact equality. Preserve the global mission freeze and keep cron jobs 48/49/50 disabled in both snapshots. This prevents the soak from silently draining, resuming or changing the historical backlog.
+
 ## Proposed acceptance baseline
 
 - Duration: 24 hours initial; 72 hours reinforced.
@@ -34,6 +36,7 @@ The master roadmap proposes an initial **24-hour** window and an optional reinfo
 - Adds the evaluator to `npm test`.
 - Does not edit the production coordinator, Supabase schema/functions, PWA, Windows agent, secrets, scheduled tasks or cron schedules.
 - Preserves `MISSION_EXECUTION_PAUSED=true`; does not create missions, jobs, leases, scopes or notifications.
+- The LIVE reconciler must also prove that the pre-existing non-A6 mission/job fingerprints are unchanged and that cron 48/49/50 remain disabled before and after the soak.
 - The pure evaluator always labels its input UNATTESTED and cannot authenticate a claimed LIVE flag. A separate read-only reconciler must independently query the authoritative mission/job/event rows and hash-addressed artifacts before any LIVE certification.
 
 ## Explicit LIVE gate — not yet authorized or prepared for dispatch
