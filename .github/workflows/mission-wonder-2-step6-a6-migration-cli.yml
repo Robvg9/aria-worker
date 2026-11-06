@@ -7,6 +7,7 @@ on:
       - '.github/scripts/mission-wonder-2-step6-a6-isolated-scope-v1.sql'
       - '.github/workflows/mission-wonder-2-step6-a6-migration-cli.yml'
       - 'tests/mission-wonder-2-step6-a6-runtime-wiring.test.mjs'
+      - 'tests/mission-wonder-2-step6-a6-fault-matrix.test.mjs'
   workflow_dispatch:
 
 permissions:
@@ -174,6 +175,7 @@ jobs:
           node tests/mission-wonder-2-step6-a6-isolated-scope.test.mjs
           node tests/mission-wonder-2-step6-a6-soak.test.mjs
           node tests/mission-wonder-2-step6-a6-runtime-wiring.test.mjs
+          node tests/mission-wonder-2-step6-a6-fault-matrix.test.mjs
 
       - name: Run repository test suite
         run: npm test
