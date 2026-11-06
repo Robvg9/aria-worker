@@ -84,6 +84,12 @@ function command(overrides = {}) {
   assert.equal(failedNative.status, 'failed');
   assert.equal(failedNative.errorCode, 'permission_denied');
 
+  const agentSource = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'agents', 'windows', 'aria-agent.js'), 'utf8');
+  assert.match(agentSource, /voiceRetryAt/,
+    'voice queue failures must be isolated from the mission polling backoff');
+  assert.doesNotMatch(agentSource, /state==='error'\|\|voiceState==='error'/,
+    'a missing or failing voice queue must not amplify mission job backoff');
+
   console.log('ARIA Voice V4 device-agent command contract: PASS');
 })().catch(error => {
   console.error(error);
