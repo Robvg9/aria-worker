@@ -69,20 +69,21 @@ jobs:
             < "$GITHUB_WORKSPACE/.github/scripts/mission-wonder-2-step6-a6-isolated-scope-v1.sql"
           mapfile -t generated < <(find supabase/migrations -maxdepth 1 -type f -name '*_aria_mission_wonder_2_a6_isolated_scope_v1.sql' -print)
           test "${#generated[@]}" -eq 1
-          mkdir -p "$GITHUB_WORKSPACE/supabase/migrations"
-          mapfile -t existing < <(find "$GITHUB_WORKSPACE/supabase/migrations" -maxdepth 1 -type f -name '*_aria_mission_wonder_2_a6_isolated_scope_v1.sql' -print)
+
+          mapfile -t existing < <(find "$GITHUB_WORKSPACE/supabase/migrations" -maxdepth 1 -type f -name '*_aria_mission_wonder_2_a6_isolated_scope_v1.sql' -print 2>/dev/null || true)
           if [[ "${#existing[@]}" -gt 1 ]]; then
-            echo "Expected at most one A6 migration, found ${#existing[@]}"
+            echo "More than one A6 migration file exists; refusing to create a duplicate."
+            printf '%s\n' "${existing[@]}"
             exit 1
-          fi
-          if [[ "${#existing[@]}" -eq 1 ]]; then
-            # Keep the original CLI-created migration identity and refresh its SQL from this exact template.
+          elif [[ "${#existing[@]}" -eq 1 ]]; then
             target="${existing[0]}"
           else
             target="$GITHUB_WORKSPACE/supabase/migrations/$(basename "${generated[0]}")"
           fi
+          mkdir -p "$GITHUB_WORKSPACE/supabase/migrations"
           cp "${generated[0]}" "$target"
           echo "MIGRATION_FILE=$target" >> "$GITHUB_OUTPUT"
+          echo "MIGRATION_BASENAME=$(basename "$target")" >> "$GITHUB_OUTPUT"
           sha256sum "$target"
 
       - name: Prepare isolated PostgreSQL migration test
