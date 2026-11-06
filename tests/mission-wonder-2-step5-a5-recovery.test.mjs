@@ -208,6 +208,10 @@ assert.equal(/^\s*push:/m.test(pilotWorkflow), false);
 assert.ok(pilotScript.includes("A5_RESUME_ORPHAN_PASS"));
 assert.ok(pilotScript.includes("A5_SCOPE_REARMED="));
 assert.ok(pilotScript.includes("aria_m22_a5_claim_scope_v1"));
+assert.ok(pilotScript.includes("coalesce(aria_internal.aria_m22_a5_claim_scope_v1("),
+  "A5 scope claim SQL must have balanced parentheses around the JSONB RPC result");
+assert.equal(pilotScript.includes("coalesce((aria_internal.aria_m22_a5_claim_scope_v1("), false,
+  "A5 scope claim SQL must not wrap the RPC call in an unmatched extra parenthesis");
 assert.ok(pilotScript.includes("aria_m22_a5_bind_scope_v1"));
 assert.ok(pilotScript.includes("pwa_mission_resumed"));
 assert.ok(pilotScript.includes("UPDATE aria_internal.mission_wonder_2_a5_scopes"));

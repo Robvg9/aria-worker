@@ -256,7 +256,7 @@ try {
   scopeCleanupRequired = true;
   requireMarker(runSql(rearmSql, true), "A5_SCOPE_REARMED=" + M22_A5_SCOPE_ID);
 
-  const claimScopeSql = "SELECT 'A5_SCOPE_CLAIM=' || coalesce((aria_internal.aria_m22_a5_claim_scope_v1("
+  const claimScopeSql = "SELECT 'A5_SCOPE_CLAIM=' || coalesce(aria_internal.aria_m22_a5_claim_scope_v1("
     + [sqlQuote(session.userId), sqlQuote(requestId), sqlQuote(goalHash), "NULL"].join(",")
     + ")->>'status','null');";
   requireMarker(runSql(claimScopeSql, true), "A5_SCOPE_CLAIM=claimed");
