@@ -1021,6 +1021,8 @@ declare
   heartbeat_sample_count integer;
   max_heartbeat_age_ms bigint;
   max_sample_gap_ms bigint;
+  max_a6_pending_jobs integer;
+  max_a6_oldest_pending_age_ms bigint;
   p95_latency_ms numeric;
   ambient jsonb;
 begin
@@ -1053,6 +1055,11 @@ begin
          where run_id=r.run_id and event_type='heartbeat_sample'
       ) samples
      where sample_gap_ms is not null;
+    select coalesce(max((payload->>'a6PendingJobs')::integer),0),
+           coalesce(max((payload->>'oldestA6PendingAgeMs')::bigint),0)
+      into max_a6_pending_jobs,max_a6_oldest_pending_age_ms
+      from aria_internal.mission_wonder_2_a6_telemetry
+     where run_id=r.run_id and event_type='heartbeat_sample';
     select count(*) into active_count
       from aria_internal.execution_jobs j
       join aria_internal.mission_wonder_2_a6_scopes sc on sc.job_id=j.job_id
@@ -1067,6 +1074,8 @@ begin
       'heartbeat_sample_count',heartbeat_sample_count,
       'max_heartbeat_age_ms',max_heartbeat_age_ms,
       'max_sample_gap_ms',max_sample_gap_ms,
+      'max_a6_pending_jobs',max_a6_pending_jobs,
+      'max_a6_oldest_pending_age_ms',max_a6_oldest_pending_age_ms,
       'p95_latency_ms',p95_latency_ms,
       'max_p95_latency_ms',r.max_p95_latency_ms,
       'ambient_final',ambient,
@@ -1076,6 +1085,7 @@ begin
        max_recovery_count=0 and heartbeat_sample_count>=1368 and
        max_heartbeat_age_ms<=r.max_normal_heartbeat_gap_ms and
        max_sample_gap_ms<=r.max_normal_heartbeat_gap_ms and
+       max_a6_pending_jobs<=1 and max_a6_oldest_pending_age_ms<=300000 and
        p95_latency_ms is not null and p95_latency_ms<=r.max_p95_latency_ms and
        ambient is not distinct from r.ambient_baseline and
        (ambient->>'cron48Active')::boolean=false and
