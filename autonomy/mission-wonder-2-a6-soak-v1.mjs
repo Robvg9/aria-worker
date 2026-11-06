@@ -171,6 +171,8 @@ export function m22A6BuildSoakReportV1(input = {}) {
 
   const latencySamples = numericValues(input.latencySamplesMs, "latency", blockers);
   const costSamples = numericValues(input.costSamplesUsd, "cost", blockers, { allowZero: true });
+  if (latencySamples.length < missions.length) blockers.push("latency_samples_below_mission_count");
+  if (costSamples.length < missions.length) blockers.push("cost_samples_below_mission_count");
   const p95LatencyMs = percentile(latencySamples, 0.95);
   const totalCostUsd = costSamples.reduce((sum, value) => sum + value, 0);
   if (Number.isFinite(maxP95LatencyMs) && p95LatencyMs !== null && p95LatencyMs > maxP95LatencyMs) {
@@ -204,6 +206,10 @@ export function m22A6BuildSoakReportV1(input = {}) {
   if (typeof orphanJobs !== "number" || !Number.isSafeInteger(orphanJobs) || orphanJobs !== 0) {
     blockers.push("orphan_jobs_present_or_unmeasured");
   }
+  const orphanProcesses = input.orphanProcesses;
+  if (typeof orphanProcesses !== "number" || !Number.isSafeInteger(orphanProcesses) || orphanProcesses !== 0) {
+    blockers.push("orphan_processes_present_or_unmeasured");
+  }
 
   return {
     schemaVersion: "mission-wonder-2-a6-soak-v1",
@@ -224,9 +230,10 @@ export function m22A6BuildSoakReportV1(input = {}) {
       totalCostUsd,
       averageCostPerMissionUsd: missions.length ? totalCostUsd / missions.length : null,
       faultScenariosRecovered: faultScenarios.filter(item => item && item.recovered === true).length,
-      finalPendingJobs: backlogSamples.length ? Number(backlogSamples[backlogSamples.length - 1].pendingJobs) : null,
-      peakPendingJobs: backlogSamples.length ? Math.max(...backlogSamples.map(sample => Number(sample && sample.pendingJobs)).filter(Number.isFinite)) : null,
+      finalPendingJobs: backlogSamples.length ? backlogSamples[backlogSamples.length - 1].pendingJobs : null,
+      peakPendingJobs: backlogSamples.length ? Math.max(...backlogSamples.map(sample => sample && sample.pendingJobs).filter(value => typeof value === "number" && Number.isSafeInteger(value) && value >= 0)) : null,
       orphanJobs: Number.isSafeInteger(orphanJobs) ? orphanJobs : null,
+      orphanProcesses: Number.isSafeInteger(orphanProcesses) ? orphanProcesses : null,
     },
   };
 }
