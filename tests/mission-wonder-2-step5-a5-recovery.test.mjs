@@ -181,8 +181,10 @@ const a5HandlerStart = gateway.indexOf('Deno.serve(async(req)=>{', a5HelperStart
 assert.ok(a5HelperStart >= 0 && a5HandlerStart > a5HelperStart,
   'A5 frozen-job RPC helper must be defined before the gateway handler');
 const a5AuthorizationHelper = gateway.slice(a5HelperStart, a5HandlerStart);
-assert.match(a5AuthorizationHelper, /rpc\\('aria_m22_a5_frozen_job_authorized_v1'/);
-assert.match(a5AuthorizationHelper, /p_job_id:jobId,p_device_id:deviceId,p_required_status:requiredStatus/);
+assert.ok(a5AuthorizationHelper.includes("rpc('aria_m22_a5_frozen_job_authorized_v1'"),
+  'A5 helper must call the dedicated frozen-job RPC');
+assert.ok(a5AuthorizationHelper.includes('p_job_id:jobId,p_device_id:deviceId,p_required_status:requiredStatus'),
+  'A5 helper must bind the exact job, device and status arguments');
 assert.match(gateway, /a5FrozenJobAuthorizedV1\(A5_FROZEN_JOB_ID,deviceId,'queued'\)/);
 assert.match(gateway, /aria_m22_a5_claim_frozen_one_shot_job_v1/);
 assert.match(gateway, /a5-one-shot-recovery-only/);
