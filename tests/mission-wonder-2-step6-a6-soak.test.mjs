@@ -47,7 +47,7 @@ const validEvidence = {
   heartbeatGaps: [
     { gapMs: 5000, expectedOutage: false },
     { gapMs: 10000, expectedOutage: false },
-    { gapMs: 45000, expectedOutage: true, recovered: true },
+    { gapMs: 45000, expectedOutage: true, detected: true, recovered: true },
   ],
   faultScenarios,
   latencySamplesMs: [900, 1200, 1500, 2400, 3000, 4200, 5800, 7000, 8500, 12000],
@@ -62,7 +62,8 @@ const validEvidence = {
 const report = m22A6BuildSoakReportV1(validEvidence);
 assert.equal(report.status, "PASS");
 assert.deepEqual(report.blockers, []);
-assert.equal(report.evidenceClassification, "SIMULATED_OR_UNCLASSIFIED");
+assert.equal(report.evidenceClassification, "UNATTESTED_INPUT");
+assert.equal(report.liveAttestation, "NOT_CHECKED_BY_PURE_EVALUATOR");
 assert.equal(report.metrics.elapsedHours, 24);
 assert.equal(report.metrics.missionCount, 5);
 assert.equal(report.metrics.independentlyVerifiedMissionCount, 5);
@@ -91,8 +92,20 @@ const excessiveHeartbeatTolerance = m22A6BuildSoakReportV1({
 assert.equal(excessiveHeartbeatTolerance.status, "BLOCKED");
 assert.ok(excessiveHeartbeatTolerance.blockers.includes("heartbeat_threshold_exceeds_three_intervals"));
 
-const liveReport = m22A6BuildSoakReportV1({ ...validEvidence, evidenceClassification: "LIVE" });
-assert.equal(liveReport.evidenceClassification, "LIVE");
+const selfLabeledLiveReport = m22A6BuildSoakReportV1({ ...validEvidence, evidenceClassification: "LIVE" });
+assert.equal(selfLabeledLiveReport.evidenceClassification, "UNATTESTED_INPUT");
+assert.equal(selfLabeledLiveReport.liveAttestation, "NOT_CHECKED_BY_PURE_EVALUATOR");
+
+const missingArtifact = missions.map(item => ({ ...item, artifactSha256: [] }));
+const missingArtifactReport = m22A6BuildSoakReportV1({ ...validEvidence, missions: missingArtifact });
+assert.equal(missingArtifactReport.status, "BLOCKED");
+assert.ok(missingArtifactReport.blockers.includes("mission_0_must_have_exactly_one_valid_artifact_hash"));
+
+const missingDuplicateCount = missions.map(item => ({ ...item }));
+delete missingDuplicateCount[0].duplicateCount;
+const missingDuplicateCountReport = m22A6BuildSoakReportV1({ ...validEvidence, missions: missingDuplicateCount });
+assert.equal(missingDuplicateCountReport.status, "BLOCKED");
+assert.ok(missingDuplicateCountReport.blockers.includes("mission_0_duplicate_count_missing_or_nonzero"));
 
 const missingCostBudget = m22A6BuildSoakReportV1({
   ...validEvidence,
