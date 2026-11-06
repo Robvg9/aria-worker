@@ -127,6 +127,8 @@ export function m22A6BuildSoakReportV1(input = {}) {
   const maxTotalCostUsd = thresholds.maxTotalCostUsd;
   const maxAttemptsPerJob = thresholds.maxAttemptsPerJob;
   const maxBacklogAgeMs = thresholds.maxBacklogAgeMs;
+  const maxMissionIntermissionMs = thresholds.maxMissionIntermissionMs;
+  const minimumMissionSpanRatio = thresholds.minimumMissionSpanRatio;
   if (!Number.isFinite(maxRecoveryMs) || maxRecoveryMs <= 0) blockers.push("threshold_max_recovery_ms_required");
   if (!Number.isFinite(maxP95LatencyMs) || maxP95LatencyMs <= 0) blockers.push("threshold_max_p95_latency_ms_required");
   if (!Number.isFinite(maxTotalCostUsd) || maxTotalCostUsd < 0) blockers.push("threshold_max_total_cost_usd_required");
@@ -134,6 +136,12 @@ export function m22A6BuildSoakReportV1(input = {}) {
     blockers.push("threshold_max_attempts_must_be_1_to_3");
   }
   if (!Number.isFinite(maxBacklogAgeMs) || maxBacklogAgeMs < 0) blockers.push("threshold_max_backlog_age_ms_required");
+  if (!Number.isFinite(maxMissionIntermissionMs) || maxMissionIntermissionMs <= 0) {
+    blockers.push("threshold_max_mission_intermission_ms_required");
+  }
+  if (!Number.isFinite(minimumMissionSpanRatio) || minimumMissionSpanRatio <= 0 || minimumMissionSpanRatio > 1) {
+    blockers.push("threshold_minimum_mission_span_ratio_invalid");
+  }
 
   const missions = Array.isArray(input.missions) ? input.missions : [];
   if (missions.length < (Number.isSafeInteger(minimumMissions) ? minimumMissions : 5)) blockers.push("mission_volume_below_declared_minimum");
@@ -170,6 +178,38 @@ export function m22A6BuildSoakReportV1(input = {}) {
     }
   }
 
+  const missionCompletionTimes = [];
+  for (const [index, mission] of missions.entries()) {
+    const completedAt = timestampMs(mission && mission.completedAt);
+    if (completedAt === null) {
+      blockers.push("mission_" + index + "_completion_timestamp_missing_or_invalid");
+      continue;
+    }
+    if (startedAt === null || finishedAt === null || completedAt < startedAt || completedAt > finishedAt) {
+      blockers.push("mission_" + index + "_completion_outside_soak_window");
+      continue;
+    }
+    missionCompletionTimes.push(completedAt);
+  }
+  if (!unique(missionCompletionTimes)) blockers.push("mission_completion_timestamps_duplicated");
+  const orderedMissionCompletionTimes = [...missionCompletionTimes].sort((a, b) => a - b);
+  const missionSpanMs = orderedMissionCompletionTimes.length >= 2
+    ? orderedMissionCompletionTimes[orderedMissionCompletionTimes.length - 1] - orderedMissionCompletionTimes[0]
+    : 0;
+  const missionSpanRatio = elapsedMs > 0 ? missionSpanMs / elapsedMs : 0;
+  if (Number.isFinite(minimumMissionSpanRatio) && missionSpanRatio < minimumMissionSpanRatio) {
+    blockers.push("mission_completions_do_not_span_minimum_window_ratio");
+  }
+  const missionIntermissionGaps = orderedMissionCompletionTimes.slice(1).map(
+    (time, index) => time - orderedMissionCompletionTimes[index]
+  );
+  const maxMissionIntermissionObservedMs = missionIntermissionGaps.length
+    ? Math.max(...missionIntermissionGaps) : null;
+  if (Number.isFinite(maxMissionIntermissionMs) && maxMissionIntermissionObservedMs !== null &&
+      maxMissionIntermissionObservedMs > maxMissionIntermissionMs) {
+    blockers.push("mission_intermission_exceeded_threshold");
+  }
+
   const heartbeatGaps = Array.isArray(input.heartbeatGaps) ? input.heartbeatGaps : [];
   if (!heartbeatGaps.length) blockers.push("heartbeat_gap_evidence_missing");
   const normalGaps = [];
@@ -192,6 +232,34 @@ export function m22A6BuildSoakReportV1(input = {}) {
         blockers.push("heartbeat_gap_" + index + "_exceeded_threshold");
       }
     }
+  }
+
+  const heartbeatCoverage = input.heartbeatCoverage;
+  const coverageStartMs = timestampMs(heartbeatCoverage && heartbeatCoverage.observedStartAt);
+  const coverageEndMs = timestampMs(heartbeatCoverage && heartbeatCoverage.observedEndAt);
+  const expectedHeartbeatIntervals = heartbeatCoverage && heartbeatCoverage.expectedIntervals;
+  const observedHeartbeatIntervals = heartbeatCoverage && heartbeatCoverage.observedIntervals;
+  const outageMissingHeartbeatIntervals = heartbeatCoverage && heartbeatCoverage.outageMissingIntervals;
+  const unexplainedMissingHeartbeatIntervals = heartbeatCoverage && heartbeatCoverage.unexplainedMissingIntervals;
+  const expectedHeartbeatFloor = Number.isFinite(heartbeatIntervalMs) && heartbeatIntervalMs > 0 && elapsedMs > 0
+    ? Math.floor(elapsedMs / heartbeatIntervalMs) : null;
+  if (coverageStartMs === null || coverageEndMs === null ||
+      !Number.isSafeInteger(expectedHeartbeatIntervals) || expectedHeartbeatIntervals <= 0 ||
+      !Number.isSafeInteger(observedHeartbeatIntervals) || observedHeartbeatIntervals < 0 ||
+      !Number.isSafeInteger(outageMissingHeartbeatIntervals) || outageMissingHeartbeatIntervals < 0 ||
+      !Number.isSafeInteger(unexplainedMissingHeartbeatIntervals) || unexplainedMissingHeartbeatIntervals < 0) {
+    blockers.push("heartbeat_coverage_summary_missing_or_invalid");
+  } else {
+    if (startedAt === null || finishedAt === null || coverageStartMs > startedAt || coverageEndMs < finishedAt) {
+      blockers.push("heartbeat_coverage_does_not_cover_full_soak_window");
+    }
+    if (expectedHeartbeatFloor !== null && expectedHeartbeatIntervals < expectedHeartbeatFloor) {
+      blockers.push("heartbeat_expected_interval_count_below_window_floor");
+    }
+    if (observedHeartbeatIntervals + outageMissingHeartbeatIntervals + unexplainedMissingHeartbeatIntervals !== expectedHeartbeatIntervals) {
+      blockers.push("heartbeat_interval_accounting_mismatch");
+    }
+    if (unexplainedMissingHeartbeatIntervals !== 0) blockers.push("heartbeat_unexplained_missing_intervals");
   }
 
   const faultScenarios = Array.isArray(input.faultScenarios) ? input.faultScenarios : [];
@@ -265,6 +333,16 @@ export function m22A6BuildSoakReportV1(input = {}) {
       uniqueArtifactHashCount: unique(validArtifactHashes) ? new Set(validArtifactHashes).size : null,
       normalHeartbeatGapMaxMs: normalGaps.length ? Math.max(...normalGaps) : null,
       expectedOutageGapMaxMs: outageGaps.length ? Math.max(...outageGaps) : null,
+      missionCompletionSpanRatio: missionSpanRatio,
+      missionCompletionSpanHours: missionSpanMs / HOUR_MS,
+      maxMissionIntermissionMs: maxMissionIntermissionObservedMs,
+      heartbeatCoverage: coverageStartMs !== null && coverageEndMs !== null ? {
+        observedHours: (coverageEndMs - coverageStartMs) / HOUR_MS,
+        expectedIntervals: Number.isSafeInteger(expectedHeartbeatIntervals) ? expectedHeartbeatIntervals : null,
+        observedIntervals: Number.isSafeInteger(observedHeartbeatIntervals) ? observedHeartbeatIntervals : null,
+        outageMissingIntervals: Number.isSafeInteger(outageMissingHeartbeatIntervals) ? outageMissingHeartbeatIntervals : null,
+        unexplainedMissingIntervals: Number.isSafeInteger(unexplainedMissingHeartbeatIntervals) ? unexplainedMissingHeartbeatIntervals : null,
+      } : null,
       latencyP50Ms: percentile(latencySamples, 0.50),
       latencyP95Ms: p95LatencyMs,
       totalCostUsd,
