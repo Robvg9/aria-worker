@@ -218,3 +218,23 @@ export async function m22A6ScopeRowMatchesV1({
     statuses.includes(String(scope.status || ""))
   );
 }
+
+export function m22A6MissionPlanMatchesV1({ mission, deviceId = M22_A6_ALLOWED_DEVICE_ID, runId, ordinal }) {
+  if (!mission || typeof mission !== "object" || Array.isArray(mission) ||
+      norm(deviceId) !== M22_A6_ALLOWED_DEVICE_ID) return false;
+  try {
+    const expectedStep = m22A6BuildContinuityProbeStepV1(deviceId, runId, ordinal);
+    const plan = mission.checkpoint?.plan;
+    if (!Array.isArray(plan) || plan.length !== 1) return false;
+    if (JSON.stringify(plan[0]) !== JSON.stringify(expectedStep)) return false;
+    if (Number(mission.total_steps) !== 1) return false;
+    if (!Number.isSafeInteger(Number(mission.current_step)) ||
+        !Number.isSafeInteger(Number(mission.completed_steps))) return false;
+    if (Number(mission.current_step) < 0 || Number(mission.current_step) > 1 ||
+        Number(mission.completed_steps) < 0 || Number(mission.completed_steps) > 1) return false;
+    if (Number(mission.completed_steps) > Number(mission.current_step)) return false;
+    return ["queued", "planning", "running", "waiting", "succeeded"].includes(String(mission.status || ""));
+  } catch {
+    return false;
+  }
+}
