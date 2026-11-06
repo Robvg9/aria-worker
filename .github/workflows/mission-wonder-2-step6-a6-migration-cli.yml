@@ -153,11 +153,11 @@ jobs:
             if exists(select 1 from aria_internal.execution_jobs) then raise exception 'JOB_CREATED_BY_MIGRATION'; end if;
           end;
           $verify$;
-          select jobid,jobname,active from cron.job where jobid between 48 and 51 order by jobid;
+          select jobid,jobname,active from cron.job where jobid in (48,49,50) or jobname='aria-mission-wonder-2-a6-dispatcher-every-minute' order by jobid;
           SQL
           echo "A6_MIGRATION_LOCAL_POSTGRES_PASS=true"
           echo "A6_LEGACY_CRONS_48_49_50_PRESERVED_DISABLED=true"
-          echo "A6_NEW_CRON_51_CREATED_INACTIVE=true"
+          echo "A6_DEDICATED_CRON_CREATED_INACTIVE=true"
           echo "A6_NO_RUN_SCOPE_MISSION_JOB_LEASE_CREATED=true"
 
       - name: Verify A6 scope and soak contracts
