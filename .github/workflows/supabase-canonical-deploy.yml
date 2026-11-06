@@ -35,6 +35,10 @@ on:
       - '!autonomy/persistent-worker-bridge-v1.js'
       - '!autonomy/persistent-worker-error-policy-v1.js'
       - '!autonomy/persistent-worker-coordinator-adapter-v1.js'
+      # A6 soak evaluator/docs are CI-only preparation and must not trigger a canonical Supabase redeploy.
+      - '!autonomy/mission-wonder-2-a6-soak-v1.mjs'
+      - '!autonomy/MISSION_WONDER_2_STEP6_A6_SOAK.md'
+      - '!tests/mission-wonder-2-step6-a6-soak.test.mjs'
       # A3 local worker lock is not a Supabase runtime dependency; exclude this and the trigger contract from production deploys.
       - '!autonomy/worker-single-instance-lock-v1.js'
       - '!tests/supabase-canonical-deploy-contract.test.js'
