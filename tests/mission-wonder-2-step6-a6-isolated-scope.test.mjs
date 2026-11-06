@@ -39,7 +39,7 @@ assert.equal(m22A6MissionIdV1(RUN_ID, 1), "mission_m22_a6_abcdef123456_01");
 assert.equal(m22A6StepIdV1(5), "a6_continuity_marker_05");
 assert.equal(m22A6ChildScopeIdV1(RUN_ID, 3), "mission_wonder_2_a6_m22-a6-abcdef123456_03");
 assert.equal(m22A6ArtifactPathV1(RUN_ID, 4),
-  "C:\\Windows\\Temp\\ARIA-MW2-A6\\m22-a6-abcdef123456\\proof-04.txt");
+  "C:\\Windows\\Temp\\ARIA-MW2-A6\\m22-a6-abcdef123456\\mission-04\\proof-04.txt");
 assert.throws(() => m22A6MissionIdV1(RUN_ID, 6), /ordinal_invalid/);
 assert.throws(() => m22A6BuildContinuityProbeStepV1("other-device", RUN_ID, 1), /device_not_allowlisted/);
 assert.throws(() => m22A6ArtifactPathV1("m22-a6-../../evil", 1), /run_id_invalid/);
