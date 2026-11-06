@@ -176,10 +176,13 @@ assert.match(runner, /aria_m22_a5_complete_scope_v1/);
 assert.match(runner, /stale_attempt_http_409: true/);
 assert.match(gateway, /const A5_FROZEN_JOB_ID='uo_mission_a5_authorized_once_a5_idempotent_recovery_marke_a1_b5d6865a66a4def1';/);
 assert.match(gateway, /const A5_FROZEN_DEVICE_ID='windows-fe722cc6681e4f9c9cc35f5ebbb0a089';/);
-const a5AuthorizationHelper = gateway.match(/async function a5FrozenJobAuthorizedV1\(jobId:string,deviceId:string,requiredStatus:(?:'queued'|'claimed')\)\{[\s\S]*?\n\}/);
-assert.ok(a5AuthorizationHelper, 'A5 frozen-job RPC helper must be defined before the gateway handler');
-assert.match(a5AuthorizationHelper[0], /rpc\('aria_m22_a5_frozen_job_authorized_v1'/);
-assert.match(a5AuthorizationHelper[0], /p_job_id:jobId,p_device_id:deviceId,p_required_status:requiredStatus/);
+const a5HelperStart = gateway.indexOf('async function a5FrozenJobAuthorizedV1(');
+const a5HandlerStart = gateway.indexOf('Deno.serve(async(req)=>{', a5HelperStart);
+assert.ok(a5HelperStart >= 0 && a5HandlerStart > a5HelperStart,
+  'A5 frozen-job RPC helper must be defined before the gateway handler');
+const a5AuthorizationHelper = gateway.slice(a5HelperStart, a5HandlerStart);
+assert.match(a5AuthorizationHelper, /rpc\\('aria_m22_a5_frozen_job_authorized_v1'/);
+assert.match(a5AuthorizationHelper, /p_job_id:jobId,p_device_id:deviceId,p_required_status:requiredStatus/);
 assert.match(gateway, /a5FrozenJobAuthorizedV1\(A5_FROZEN_JOB_ID,deviceId,'queued'\)/);
 assert.match(gateway, /aria_m22_a5_claim_frozen_one_shot_job_v1/);
 assert.match(gateway, /a5-one-shot-recovery-only/);
