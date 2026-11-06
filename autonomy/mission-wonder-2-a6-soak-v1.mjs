@@ -289,24 +289,24 @@ export function m22A6BuildSoakReportV1(input = {}) {
     blockers.push("total_cost_exceeded_threshold");
   }
 
-  const backlogSamples = Array.isArray(input.backlogSamples) ? input.backlogSamples : [];
-  if (!backlogSamples.length) {
+  const a6BacklogSamples = Array.isArray(input.a6BacklogSamples) ? input.a6BacklogSamples : [];
+  if (!a6BacklogSamples.length) {
     blockers.push("backlog_evidence_missing");
   } else {
-    for (const [index, sample] of backlogSamples.entries()) {
-      const pendingJobs = sample && sample.pendingJobs;
-      const oldestPendingAgeMs = sample && sample.oldestPendingAgeMs;
-      if (typeof pendingJobs !== "number" || !Number.isSafeInteger(pendingJobs) || pendingJobs < 0) {
-        blockers.push("backlog_sample_" + index + "_pending_job_count_invalid");
+    for (const [index, sample] of a6BacklogSamples.entries()) {
+      const a6PendingJobs = sample && sample.a6PendingJobs;
+      const oldestA6PendingAgeMs = sample && sample.oldestA6PendingAgeMs;
+      if (typeof a6PendingJobs !== "number" || !Number.isSafeInteger(a6PendingJobs) || a6PendingJobs < 0) {
+        blockers.push("a6_backlog_sample_" + index + "_pending_job_count_invalid");
       }
-      if (typeof oldestPendingAgeMs !== "number" || !Number.isFinite(oldestPendingAgeMs) || oldestPendingAgeMs < 0 ||
-          (Number.isFinite(maxBacklogAgeMs) && oldestPendingAgeMs > maxBacklogAgeMs)) {
-        blockers.push("backlog_sample_" + index + "_oldest_age_invalid_or_exceeded");
+      if (typeof oldestA6PendingAgeMs !== "number" || !Number.isFinite(oldestA6PendingAgeMs) || oldestA6PendingAgeMs < 0 ||
+          (Number.isFinite(maxBacklogAgeMs) && oldestA6PendingAgeMs > maxBacklogAgeMs)) {
+        blockers.push("a6_backlog_sample_" + index + "_oldest_age_invalid_or_exceeded");
       }
     }
-    const finalBacklog = backlogSamples[backlogSamples.length - 1];
-    const finalPendingJobs = finalBacklog && finalBacklog.pendingJobs;
-    if (finalPendingJobs !== 0) blockers.push("backlog_not_drained_at_end");
+    const finalBacklog = a6BacklogSamples[a6BacklogSamples.length - 1];
+    const finalA6PendingJobs = finalBacklog && finalBacklog.a6PendingJobs;
+    if (finalA6PendingJobs !== 0) blockers.push("a6_backlog_not_drained_at_end");
   }
 
   const orphanJobs = input.orphanJobs;
@@ -348,8 +348,8 @@ export function m22A6BuildSoakReportV1(input = {}) {
       totalCostUsd,
       averageCostPerMissionUsd: missions.length ? totalCostUsd / missions.length : null,
       faultScenariosRecovered: faultScenarios.filter(item => item && item.recovered === true).length,
-      finalPendingJobs: backlogSamples.length ? backlogSamples[backlogSamples.length - 1].pendingJobs : null,
-      peakPendingJobs: backlogSamples.length ? Math.max(...backlogSamples.map(sample => sample && sample.pendingJobs).filter(value => typeof value === "number" && Number.isSafeInteger(value) && value >= 0)) : null,
+      finalA6PendingJobs: a6BacklogSamples.length ? a6BacklogSamples[a6BacklogSamples.length - 1].a6PendingJobs : null,
+      peakA6PendingJobs: a6BacklogSamples.length ? Math.max(...a6BacklogSamples.map(sample => sample && sample.a6PendingJobs).filter(value => typeof value === "number" && Number.isSafeInteger(value) && value >= 0)) : null,
       orphanJobs: Number.isSafeInteger(orphanJobs) ? orphanJobs : null,
       orphanProcesses: Number.isSafeInteger(orphanProcesses) ? orphanProcesses : null,
       ambient: ambientMetrics,
