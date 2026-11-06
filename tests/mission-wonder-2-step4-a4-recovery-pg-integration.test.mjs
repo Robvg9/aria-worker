@@ -22,6 +22,7 @@ const root = path.resolve(path.dirname(process.argv[1]), '..');
 const MIGRATION = path.join(root, 'supabase/migrations/20261105120000_aria_m22_a4_recover_mission_v1.sql');
 const RESUME_MIGRATION = path.join(root, 'supabase/migrations/20261105221715_a4_consumed_scope_resume_and_tick_claim_v1.sql');
 const HANDOFF_MIGRATION = path.join(root, 'supabase/migrations/20261105235800_a4_runner_handoff_retry_v1.sql');
+const HANDOFF_SCOPE_RESUME_MIGRATION = path.join(root, 'supabase/migrations/20261106011000_a4_handoff_expired_scope_resume_v1.sql');
 const LOCKED = 'mission_a4_authorized_once';
 const SCOPE_KEY = 'mission-wonder-2-step4-a4:single-authorized-execution';
 const SCOPE_ID = 'scope_test_recovery_0001';
@@ -124,6 +125,8 @@ const resumeMigrationSql = fs.readFileSync(RESUME_MIGRATION, 'utf8');
 await client.query(resumeMigrationSql);
 const handoffMigrationSql = fs.readFileSync(HANDOFF_MIGRATION, 'utf8');
 await client.query(handoffMigrationSql);
+const handoffScopeResumeMigrationSql = fs.readFileSync(HANDOFF_SCOPE_RESUME_MIGRATION, 'utf8');
+await client.query(handoffScopeResumeMigrationSql);
 
 // ------------------------------------------------------------------- helpers
 const RECOVER = (args) => ({ text: `select aria_internal.aria_m22_a4_recover_mission_v1($1,$2,$3,$4,$5,$6)::jsonb as r`, values: [args.missionId ?? LOCKED, args.scopeId ?? SCOPE_ID, args.userId ?? USER_ID, args.requestId ?? REQUEST_ID, args.goalHash ?? GOAL_HASH, args.grantRef] });
@@ -585,6 +588,66 @@ await start('runner handoff retry rejects mismatched evidence before mutation');
   res = await q(HANDOFF({ grantRef }).text, HANDOFF({ grantRef }).values);
   assert.equal(res.rows[0].r.reason, 'agent_not_eligible', 'S13 stale agent must reject the one-time retry');
   assert.equal((await reservation()).runner_handoff_retry_count, 0, 'S13 stale agent has no mutation');
+}
+
+// ===========================================================================
+// S14. If the same bound scope expired during investigation, the exact failed
+//      401 continuation may extend that scope once for 45 minutes, but only
+//      within two hours of expiry. Historical revoked_at is preserved.
+// ===========================================================================
+await start('expired bound scope receives one bounded 45-minute continuation');
+{
+  const grantRef = 'a4-recovery-42110933267.1';
+  await resetState({ scopeStatus: 'bound', missionMetadata: { execution_lane: 'user' } });
+  await q(`update aria_internal.mission_state set metadata=jsonb_set(metadata,'{a4_recovery_dispatch_v1}',$1::jsonb,true) where mission_id=$2`, [
+    JSON.stringify({ granted:true, consumed:true, grant_ref:grantRef, tick_claimed:true,
+      tick_claim_ref:grantRef + ':tick', scope_resume_count:1, scope_resume_grant_ref:grantRef,
+      runner_handoff_retry_count:0, runner_handoff_scope_resume_count:0 }), LOCKED]);
+  await q(`update aria_internal.mission_wonder_2_a4_scopes
+             set expires_at=clock_timestamp()-interval '49 minutes',
+                 revoked_at=clock_timestamp()-interval '12 hours'
+           where scope_id=$1`, [SCOPE_ID]);
+  const before = (await q(`select expires_at,revoked_at,status from aria_internal.mission_wonder_2_a4_scopes where scope_id=$1`, [SCOPE_ID])).rows[0];
+  res = await q(HANDOFF({ grantRef }).text, HANDOFF({ grantRef }).values);
+  rec = res.rows[0].r;
+  assert.equal(rec.action, 'runner_handoff_retry_claimed', 'S14 same authorized tick handoff is accepted');
+  assert.equal(rec.scope_window_renewed, true, 'S14 the one scope renewal is explicitly reported');
+  assert.ok(new Date(rec.scope_expires_at) > new Date(), 'S14 fresh expiry returned');
+  assert.equal(new Date(rec.scope_expires_at).getTime() - new Date().getTime() > 44 * 60 * 1000, true, 'S14 at least 44 minutes remain');
+  const after = (await q(`select expires_at,revoked_at,status from aria_internal.mission_wonder_2_a4_scopes where scope_id=$1`, [SCOPE_ID])).rows[0];
+  assert.equal(after.status, 'bound', 'S14 same scope remains bound');
+  assert.ok(new Date(after.expires_at) > new Date(before.expires_at), 'S14 expiry was extended');
+  assert.equal(after.revoked_at.toISOString(), before.revoked_at.toISOString(), 'S14 historical revoked_at is preserved');
+  const dispatch = await reservation();
+  assert.equal(dispatch.grant_ref, grantRef, 'S14 original grant is preserved');
+  assert.equal(dispatch.tick_claim_ref, grantRef + ':tick', 'S14 original tick claim is preserved');
+  assert.equal(dispatch.runner_handoff_retry_count, 1, 'S14 one retry is claimed');
+  assert.equal(dispatch.runner_handoff_scope_resume_count, 1, 'S14 one scope renewal is persisted');
+  assert.equal(dispatch.runner_handoff_scope_resume_source_run, '42131077740', 'S14 renewal binds to the failed run');
+  assert.equal((await q(`select count(*)::int as n from aria_internal.execution_jobs where mission_id=$1`, [LOCKED])).rows[0].n, 0, 'S14 no job is created by the renewal claim');
+
+  const replay = await q(HANDOFF({ grantRef }).text, HANDOFF({ grantRef }).values);
+  assert.equal(replay.rows[0].r.reason, 'runner_handoff_retry_already_used', 'S14 no second renewal or handoff');
+  const dispatchAfter = await reservation();
+  assert.equal(dispatchAfter.runner_handoff_scope_resume_count, 1, 'S14 resume count stays one');
+}
+
+await start('expired scope outside two-hour continuation window is refused without mutation');
+{
+  const grantRef = 'a4-recovery-42110933267.1';
+  await resetState({ scopeStatus: 'bound', missionMetadata: { execution_lane: 'user' } });
+  await q(`update aria_internal.mission_state set metadata=jsonb_set(metadata,'{a4_recovery_dispatch_v1}',$1::jsonb,true) where mission_id=$2`, [
+    JSON.stringify({ granted:true, consumed:true, grant_ref:grantRef, tick_claimed:true,
+      tick_claim_ref:grantRef + ':tick', scope_resume_count:1, scope_resume_grant_ref:grantRef,
+      runner_handoff_retry_count:0, runner_handoff_scope_resume_count:0 }), LOCKED]);
+  await q(`update aria_internal.mission_wonder_2_a4_scopes set expires_at=clock_timestamp()-interval '3 hours' where scope_id=$1`, [SCOPE_ID]);
+  const before = await scopeRow();
+  res = await q(HANDOFF({ grantRef }).text, HANDOFF({ grantRef }).values);
+  assert.equal(res.rows[0].r.reason, 'scope_expired_outside_continuation_window', 'S14 old expired scope is refused');
+  const after = await scopeRow();
+  assert.equal(new Date(after.expires_at).toISOString(), new Date(before.expires_at).toISOString(), 'S14 refusal does not extend expiry');
+  assert.equal((await reservation()).runner_handoff_retry_count, 0, 'S14 refusal does not claim handoff');
+  assert.equal((await reservation()).runner_handoff_scope_resume_count, 0, 'S14 refusal does not consume scope renewal');
 }
 
 await client.end();

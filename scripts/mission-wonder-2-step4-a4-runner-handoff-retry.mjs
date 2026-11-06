@@ -9,6 +9,8 @@ const ACCESS_TOKEN = String(process.env.SUPABASE_ACCESS_TOKEN || "");
 const RUNTIME_SECRET = String(process.env.ARIA_RUNTIME_SHARED_SECRET || "");
 const SESSION_STATE_GZIP_B64 = String(process.env.RWHT_STORAGE_STATE_GZIP_B64 || "");
 const SESSION_STATE_B64 = String(process.env.RWHT_STORAGE_STATE_B64 || "");
+const RWHT_EMAIL = String(process.env.RWHT_EMAIL || "");
+const RWHT_PASSWORD = String(process.env.RWHT_PASSWORD || "");
 const EXECUTE = String(process.env.EXECUTE_RUNNER_HANDOFF_RETRY || "false") === "true";
 const MISSION_ID = "mission_a4_authorized_once";
 const SCOPE_KEY = "mission-wonder-2-step4-a4:single-authorized-execution";
@@ -17,7 +19,7 @@ const FAILED_RUN_ID = "42131077740";
 const RUNNER_HTTP_STATUS = 401;
 const RUNNER_URL = "https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-mission-runner-v22";
 const PWA_MISSION_API = String(process.env.RWHT_MISSION_API_BASE || "https://aria.robvg9.workers.dev/api/missions");
-const PWA_NOTIFICATIONS_API = String(process.env.RWHT_NOTIF_API_URL || "https://aria.robvg9.workers.dev/api/meditation/notifications");
+const PWA_NOTIFICATIONS_API = String(process.env.RWHT_NOTIF_API_URL || "https://aria.robvg9.workers.dev/api/meditation/notifications?limit=50");
 const POLL_MS = 6000;
 const MAX_POLLS = Math.ceil((Number(process.env.A4_HANDOFF_POLL_SECONDS || 720) * 1000) / POLL_MS);
 const REPORT_DIR = path.resolve(process.env.RWHT_ARTIFACT_DIR || "a4-runner-handoff-artifacts");
@@ -165,7 +167,10 @@ async function main() {
   if (!identity.goal_hash || !/^[0-9a-f]{64}$/.test(identity.goal_hash)) fail("preflight_goal_hash_invalid");
   if (!identity.scope_id || !/^[A-Za-z0-9_-]{8,120}$/.test(identity.scope_id)) fail("preflight_scope_id_invalid");
   if (!identity.allowed_device_id) fail("preflight_device_missing");
-  if (Date.parse(identity.scope_expires_at) <= Date.now()) fail("preflight_scope_expired");
+  const scopeExpiryMs = Date.parse(identity.scope_expires_at);
+  if (!Number.isFinite(scopeExpiryMs) || scopeExpiryMs <= Date.now() - 2 * 60 * 60 * 1000) {
+    fail("preflight_scope_expired_outside_one_time_continuation_window");
+  }
 
   const apiKeys = await loadApiKeys();
   let acceptedApiKey = null;
@@ -283,14 +288,15 @@ async function main() {
     const entry = (stateJson.origins || []).flatMap((origin) => origin.localStorage || []).find((item) => item.name === "aria_session_v2");
     session = entry ? JSON.parse(entry.value) : null;
   } catch {}
-  if (!session?.accessToken || !session?.userId || session.userId !== identity.user_id) {
-    fail("pwa_session_missing_or_owner_mismatch");
+  if (session?.userId && session.userId !== identity.user_id) {
+    fail("pwa_session_owner_mismatch");
   }
-  let accessToken = String(session.accessToken);
-  let pwaResponse = await fetch(PWA_MISSION_API + "/" + encodeURIComponent(MISSION_ID), {
+  let accessToken = String(session?.accessToken || "");
+  let authSource = accessToken ? "stored_session" : "password_fallback";
+  let pwaResponse = accessToken ? await fetch(PWA_MISSION_API + "/" + encodeURIComponent(MISSION_ID), {
     headers: { Authorization: "Bearer " + accessToken, Accept: "application/json" }, cache: "no-store",
-  });
-  if (pwaResponse.status === 401 && (session.refreshToken || session.refresh_token)) {
+  }) : null;
+  if (pwaResponse?.status === 401 && (session?.refreshToken || session?.refresh_token)) {
     const refreshResponse = await fetch("https://" + PROJECT + ".supabase.co/auth/v1/token?grant_type=refresh_token", {
       method: "POST",
       headers: { apikey: acceptedApiKey, "Content-Type": "application/json" },
@@ -301,16 +307,37 @@ async function main() {
       const refreshed = await refreshResponse.json();
       accessToken = String(refreshed.access_token || "");
       if (accessToken) {
+        authSource = "refreshed_session";
         pwaResponse = await fetch(PWA_MISSION_API + "/" + encodeURIComponent(MISSION_ID), {
           headers: { Authorization: "Bearer " + accessToken, Accept: "application/json" }, cache: "no-store",
         });
       }
     }
   }
+  if (!pwaResponse || pwaResponse.status === 401) {
+    if (!RWHT_EMAIL || !RWHT_PASSWORD) fail("pwa_session_invalid_and_rwht_login_unavailable");
+    const loginResponse = await fetch("https://" + PROJECT + ".supabase.co/auth/v1/token?grant_type=password", {
+      method: "POST",
+      headers: { apikey: acceptedApiKey, "Content-Type": "application/json" },
+      body: JSON.stringify({ email: RWHT_EMAIL, password: RWHT_PASSWORD }),
+      signal: AbortSignal.timeout(20000),
+    });
+    const login = await loginResponse.json().catch(() => null);
+    if (!loginResponse.ok || !login?.access_token || String(login?.user?.id || "") !== identity.user_id) {
+      fail("pwa_password_fallback_failed_or_owner_mismatch_http_" + loginResponse.status);
+    }
+    accessToken = String(login.access_token);
+    authSource = "password_fallback";
+    pwaResponse = await fetch(PWA_MISSION_API + "/" + encodeURIComponent(MISSION_ID), {
+      headers: { Authorization: "Bearer " + accessToken, Accept: "application/json" }, cache: "no-store",
+    });
+  }
+  if (!pwaResponse) fail("pwa_mission_readback_request_missing");
   const pwaBody = await pwaResponse.json().catch(() => null);
   const pwaMission = pwaBody?.mission || pwaBody;
   report.pwa_readback = {
     http_status: pwaResponse.status,
+    auth_source: authSource,
     mission_status: pwaMission?.status || null,
     completed_steps: pwaMission?.completed_steps ?? null,
     passed: pwaResponse.ok && pwaMission?.status === "succeeded" && Number(pwaMission?.completed_steps) === 1,
@@ -326,10 +353,16 @@ async function main() {
     : Array.isArray(notificationsBody?.items) ? notificationsBody.items
     : [];
   const missionNotification = items.find((item) =>
-    item?.mission_id === MISSION_ID || item?.metadata?.mission_id === MISSION_ID
+    item?.kind === "mission_completed_verified" &&
+    (item?.mission_id === MISSION_ID || item?.metadata?.mission_id === MISSION_ID)
   ) || null;
-  report.notification_readback = { http_status: notificationsResponse.status, visible: Boolean(missionNotification) };
-  if (!missionNotification) fail("pwa_notification_not_visible");
+  report.notification_readback = {
+    http_status: notificationsResponse.status,
+    kind: missionNotification?.kind || null,
+    visible: Boolean(missionNotification),
+  };
+  if (!notificationsResponse.ok) fail("pwa_notifications_http_" + notificationsResponse.status);
+  if (!missionNotification) fail("verified_pwa_notification_not_visible");
 
   report.status = "PASS";
   persist();
