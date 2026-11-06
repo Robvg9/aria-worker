@@ -119,7 +119,7 @@ jobs:
             mission_id text primary key, goal text, status text, checkpoint jsonb default '{}'::jsonb,
             current_step integer default 0, completed_steps integer default 0, total_steps integer,
             lease_owner text, lease_until timestamptz, metadata jsonb default '{}'::jsonb,
-            updated_at timestamptz default clock_timestamp(), next_action text
+            updated_at timestamptz default clock_timestamp(), finished_at timestamptz, next_action text
           );
           create table aria_internal.execution_jobs (
             job_id text primary key, mission_id text, device_id text, operation text, command text, cwd text,
