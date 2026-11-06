@@ -57,6 +57,7 @@ const validEvidence = {
     { pendingJobs: 0, oldestPendingAgeMs: 0 },
   ],
   orphanJobs: 0,
+  orphanProcesses: 0,
 };
 
 const report = m22A6BuildSoakReportV1(validEvidence);
@@ -71,6 +72,7 @@ assert.equal(report.metrics.uniqueJobCount, 5);
 assert.equal(report.metrics.faultScenariosRecovered, 5);
 assert.equal(report.metrics.finalPendingJobs, 0);
 assert.equal(report.metrics.orphanJobs, 0);
+assert.equal(report.metrics.orphanProcesses, 0);
 assert.ok(Math.abs(report.metrics.totalCostUsd - 0.005) < 1e-9);
 assert.equal(M22_A6_SOAK_WINDOWS_V1.initial_hours, 24);
 assert.equal(M22_A6_SOAK_WINDOWS_V1.reinforced_hours, 72);
@@ -203,6 +205,22 @@ assert.ok(invalidBacklogSample.blockers.includes("backlog_sample_0_oldest_age_in
 const orphanFailure = m22A6BuildSoakReportV1({ ...validEvidence, orphanJobs: 1 });
 assert.equal(orphanFailure.status, "BLOCKED");
 assert.ok(orphanFailure.blockers.includes("orphan_jobs_present_or_unmeasured"));
+
+const orphanProcessFailure = m22A6BuildSoakReportV1({ ...validEvidence, orphanProcesses: 1 });
+assert.equal(orphanProcessFailure.status, "BLOCKED");
+assert.ok(orphanProcessFailure.blockers.includes("orphan_processes_present_or_unmeasured"));
+
+const unmeasuredOrphanProcesses = m22A6BuildSoakReportV1({ ...validEvidence, orphanProcesses: null });
+assert.equal(unmeasuredOrphanProcesses.status, "BLOCKED");
+assert.ok(unmeasuredOrphanProcesses.blockers.includes("orphan_processes_present_or_unmeasured"));
+
+const missingCostSample = m22A6BuildSoakReportV1({ ...validEvidence, costSamplesUsd: [0.001] });
+assert.equal(missingCostSample.status, "BLOCKED");
+assert.ok(missingCostSample.blockers.includes("cost_samples_below_mission_count"));
+
+const missingLatencySample = m22A6BuildSoakReportV1({ ...validEvidence, latencySamplesMs: [1000] });
+assert.equal(missingLatencySample.status, "BLOCKED");
+assert.ok(missingLatencySample.blockers.includes("latency_samples_below_mission_count"));
 
 const unmeasuredOrphanCount = m22A6BuildSoakReportV1({ ...validEvidence, orphanJobs: null });
 assert.equal(unmeasuredOrphanCount.status, "BLOCKED");
