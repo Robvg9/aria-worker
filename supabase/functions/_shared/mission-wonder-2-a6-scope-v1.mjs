@@ -219,6 +219,12 @@ export async function m22A6ScopeRowMatchesV1({
   );
 }
 
+function m22A6CanonicalValueV1(value) {
+  if (Array.isArray(value)) return value.map(m22A6CanonicalValueV1);
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(Object.keys(value).sort().map((key) => [key, m22A6CanonicalValueV1(value[key])]));
+}
+
 export function m22A6MissionPlanMatchesV1({ mission, deviceId = M22_A6_ALLOWED_DEVICE_ID, runId, ordinal }) {
   if (!mission || typeof mission !== "object" || Array.isArray(mission) ||
       norm(deviceId) !== M22_A6_ALLOWED_DEVICE_ID) return false;
@@ -226,7 +232,7 @@ export function m22A6MissionPlanMatchesV1({ mission, deviceId = M22_A6_ALLOWED_D
     const expectedStep = m22A6BuildContinuityProbeStepV1(deviceId, runId, ordinal);
     const plan = mission.checkpoint?.plan;
     if (!Array.isArray(plan) || plan.length !== 1) return false;
-    if (JSON.stringify(plan[0]) !== JSON.stringify(expectedStep)) return false;
+    if (JSON.stringify(m22A6CanonicalValueV1(plan[0])) !== JSON.stringify(m22A6CanonicalValueV1(expectedStep))) return false;
     if (Number(mission.total_steps) !== 1) return false;
     if (!Number.isSafeInteger(Number(mission.current_step)) ||
         !Number.isSafeInteger(Number(mission.completed_steps))) return false;
