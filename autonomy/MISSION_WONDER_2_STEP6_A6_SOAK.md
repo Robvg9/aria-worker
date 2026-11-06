@@ -14,7 +14,7 @@ The master roadmap proposes an initial **24-hour** window and an optional reinfo
 2. Artifacts: every mission has exactly one valid SHA-256 hash, all hashes are unique, `duplicateCount` is explicitly zero, and the mission is inactive at close.
 3. Worker continuity: normal heartbeat gaps remain within the declared threshold; expected outage gaps are explicitly recorded and recover within the declared recovery limit.
 4. Fault matrix: one controlled, observed and recovered scenario for each of host restart, provider degradation, executor offline, timeout and rate limiting.
-5. Bounded execution: each job stays within the declared attempt limit (maximum three); no orphan jobs/processes; backlog returns to zero at the end.
+5. Bounded execution: each job stays within the declared attempt limit (maximum three); telemetry includes at least one latency and cost sample per mission; independently measured orphan jobs and executor processes are both zero; every backlog sample is valid and the queue returns to zero at the end.
 6. Performance and economics: record p50/p95 latency, total cost and average cost per mission. The LIVE run must declare an explicit p95 latency ceiling and total cost cap before starting; missing thresholds block PASS.
 
 ## Proposed acceptance baseline
@@ -23,7 +23,7 @@ The master roadmap proposes an initial **24-hour** window and an optional reinfo
 - Volume: at least 5 independently verified missions in 24 hours; 15 in 72 hours.
 - Heartbeat: normal gap no greater than the configured maximum (initial design target: 3 heartbeat intervals); any expected outage must be detected and recovered inside the declared recovery SLA.
 - Correctness: 100% of the soak missions independently verified; exactly one `mission_verified` event per mission.
-- Reliability: zero duplicate mission IDs, job IDs, artifact hashes, and zero orphan jobs.
+- Reliability: zero duplicate mission IDs, job IDs, artifact hashes, zero orphan jobs and zero orphan executor processes.
 - Recovery: all five fault scenarios detected and recovered; no job exceeds three attempts.
 - Queue: zero pending jobs at close; oldest pending age must remain under the declared ceiling.
 - Cost/latency: thresholds declared before the LIVE soak; no guessed or post-hoc thresholds.
