@@ -176,7 +176,7 @@ assert.match(runner, /aria_m22_a5_complete_scope_v1/);
 assert.match(runner, /stale_attempt_http_409: true/);
 assert.match(gateway, /const A5_FROZEN_JOB_ID='uo_mission_a5_authorized_once_a5_idempotent_recovery_marke_a1_b5d6865a66a4def1';/);
 assert.match(gateway, /const A5_FROZEN_DEVICE_ID='windows-fe722cc6681e4f9c9cc35f5ebbb0a089';/);
-const a5AuthorizationHelper = gateway.match(/async function a5FrozenJobAuthorizedV1(jobId:string,deviceId:string,requiredStatus:'queued'|'claimed')\{[\s\S]*?\n\}/);
+const a5AuthorizationHelper = gateway.match(/async function a5FrozenJobAuthorizedV1\(jobId:string,deviceId:string,requiredStatus:(?:'queued'|'claimed')\)\{[\s\S]*?\n\}/);
 assert.ok(a5AuthorizationHelper, 'A5 frozen-job RPC helper must be defined before the gateway handler');
 assert.match(a5AuthorizationHelper[0], /rpc\('aria_m22_a5_frozen_job_authorized_v1'/);
 assert.match(a5AuthorizationHelper[0], /p_job_id:jobId,p_device_id:deviceId,p_required_status:requiredStatus/);
