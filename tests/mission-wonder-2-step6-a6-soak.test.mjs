@@ -70,7 +70,7 @@ assert.equal(report.metrics.uniqueJobCount, 5);
 assert.equal(report.metrics.faultScenariosRecovered, 5);
 assert.equal(report.metrics.finalPendingJobs, 0);
 assert.equal(report.metrics.orphanJobs, 0);
-assert.equal(report.metrics.totalCostUsd, 0.005);
+assert.ok(Math.abs(report.metrics.totalCostUsd - 0.005) < 1e-9);
 assert.equal(M22_A6_SOAK_WINDOWS_V1.initial_hours, 24);
 assert.equal(M22_A6_SOAK_WINDOWS_V1.reinforced_hours, 72);
 assert.equal(M22_A6_SOAK_WINDOWS_V1.proposed_minimum_missions_per_24h, 5);
