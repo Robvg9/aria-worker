@@ -94,9 +94,24 @@ Deno.serve(async (request: Request) => {
     } catch {
       throw new Error("a6_canonical_runtime_invalid_json");
     }
-    if (!response.ok) {
+    if (!response.ok || runtimePayload.ok !== true) {
       throw new Error("a6_canonical_runtime_http_" + response.status + ":" +
-        String(runtimePayload.error || runtimePayload.status || "rejected"));
+        String(runtimePayload.error || runtimePayload.status || "not_accepted"));
+    }
+
+    const { data: queuedJob, error: queuedJobError } = await sb.schema("aria_internal")
+      .from("execution_jobs")
+      .select("job_id,mission_id,device_id,operation,command,status,metadata")
+      .eq("job_id", String(scope.job_id || ""))
+      .maybeSingle();
+    if (queuedJobError || !queuedJob ||
+        queuedJob.mission_id !== missionId ||
+        queuedJob.device_id !== String(scope.allowed_device_id || "") ||
+        queuedJob.operation !== "shell.execute" ||
+        queuedJob.command !== String(scope.command || "") ||
+        !["queued", "claimed", "running", "succeeded"].includes(String(queuedJob.status || "")) ||
+        queuedJob.metadata?.idempotency_key !== queuedJob.job_id) {
+      throw new Error("a6_canonical_runtime_did_not_enqueue_exact_scoped_job");
     }
 
     return out({
@@ -105,13 +120,15 @@ Deno.serve(async (request: Request) => {
       run_id: runId,
       scope_id: scopeId,
       mission_id: missionId,
+      job_id: queuedJob.job_id,
       materialized,
       reconciled,
       heartbeat,
       canonical: {
         http_status: response.status,
         status: runtimePayload.status || null,
-        accepted: runtimePayload.ok === true || response.status === 202,
+        accepted: true,
+        exactJobReadback: true,
       },
     }, 202);
   } catch (error) {
