@@ -20,7 +20,7 @@ test('Cloudflare Worker cannot invoke the canonical runtime from cron or manual 
   assert.ok(scheduled.indexOf('MISSION_EXECUTION_PAUSED') < scheduled.indexOf('fetch(CANONICAL_RUNTIME,'));
 });
 
-test('canonical runtime keeps the global freeze and validates the isolated A4 scope before runner forwarding', () => {
+test('canonical runtime keeps the global freeze and validates isolated A4 and A5 scopes before runner forwarding', () => {
   const source = read('supabase/functions/aria-canonical-runtime-v1/index.ts');
   const handler = source.indexOf('Deno.serve(async r=>{');
   const bodyRead = source.indexOf('const body=await r.text()', handler);
@@ -28,28 +28,33 @@ test('canonical runtime keeps the global freeze and validates the isolated A4 sc
   assert.match(source, /function internalFunctionFetch\(input:RequestInfo\|URL,init:RequestInit=\{\}\)/);
   assert.match(source, /const MISSION_EXECUTION_PAUSED=true/);
   assert.match(source, /m22A4ScopeRowMatchesV1/);
+  assert.match(source, /m22A5ScopeRowMatchesV1/);
+  assert.match(source, /requiredStatuses:\[\"bound\",\"recovered\"\]/);
   assert.ok(handler >= 0 && bodyRead > handler && gate > bodyRead, 'canonical runtime must parse only to identify the exact mission, then validate its scope before forwarding');
-  assert.ok(source.indexOf('internalFunctionFetch(RUNNER', gate) > gate, 'A4 validation must precede runner forwarding');
+  assert.ok(source.indexOf('internalFunctionFetch(RUNNER', gate) > gate, 'A4 and A5 validation must precede runner forwarding');
 });
 
-test('mission runner preserves the global freeze and isolates Gate 3 and A4 from global recovery', () => {
+test('mission runner preserves the global freeze and isolates Gate 3, A4, and A5 from global recovery', () => {
   const source = read('supabase/functions/aria-mission-runner-v22/index.ts');
   const handler = source.indexOf('Deno.serve(async (request) => {');
   const bodyRead = source.indexOf('const body = await request.json()', handler);
   const gate = source.indexOf('if (MISSION_EXECUTION_PAUSED)', handler);
   const gate3Validator = source.indexOf('m22MissionWonder2ScopedProbeAllowed', handler);
   const a4Validator = source.indexOf('m22A4ScopeRowMatchesV1', handler);
-  const denied = source.indexOf('if (!gate3ScopedProbeAllowed && !a4ScopeRow) return out(', handler);
-  const recoveryGuard = source.indexOf('if (!gate3ScopedProbeAllowed && !a4ScopeRow) {', denied);
+  const a5Validator = source.indexOf('m22A5ScopeRowMatchesV1', a4Validator);
+  const denied = source.indexOf('if (!gate3ScopedProbeAllowed && !a4ScopeRow && !a5ScopeRow) return out(', handler);
+  const recoveryGuard = source.indexOf('if (!gate3ScopedProbeAllowed && !a4ScopeRow && !a5ScopeRow) {', denied);
   const recover = source.indexOf('aria_autonomy_recover_stale_missions', handler);
   const reopen = source.indexOf('aria_reopen_recoverable_hard_blocks', handler);
   const claimById = source.indexOf('aria_mission_claim_by_id_lease', handler);
   const chainNext = source.indexOf('meditationChain ? await chainNextMeditationMission', handler);
   assert.ok(handler >= 0 && bodyRead > handler && gate > bodyRead, 'runner must authenticate before parsing, then check the pause');
-  assert.ok(gate3Validator > gate && a4Validator > gate3Validator && denied > a4Validator && recover > denied && reopen > denied && claimById > denied && chainNext > denied,
-    'both exact scopes and fail-closed response must precede recovery and lease claims');
+  assert.ok(gate3Validator > gate && a4Validator > gate3Validator && a5Validator > a4Validator && denied > a5Validator && recover > denied && reopen > denied && claimById > denied && chainNext > denied,
+    'all three exact scopes and fail-closed response must precede recovery and lease claims');
   assert.ok(source.includes('const MISSION_EXECUTION_PAUSED = true;'), 'runner global pause must remain true');
-  assert.ok(recoveryGuard > denied && recoveryGuard < recover, 'A4 and Gate 3 must skip global stale recovery and hard-block reopening');
+  assert.ok(recoveryGuard > denied && recoveryGuard < recover, 'A4, A5, and Gate 3 must skip global stale recovery and hard-block reopening');
+  assert.ok(source.includes('m22A5BuildRecoveryProbeStepV1(String(a5ScopeRow.allowed_device_id))'), 'A5 must force the exact one-step recovery probe for its bound device');
+  assert.ok(source.includes('requiredStatuses: ["bound","recovered"]'), 'A5 must accept only its bound or recovered one-shot scope states');
   assert.ok(source.indexOf('m22A4BuildReadonlyProbeStepV1(String(a4ScopeRow.allowed_device_id))') > a4Validator,
     'A4 must force the exact one-step read-only probe');
 });
@@ -374,11 +379,11 @@ test('authenticated production write E2Es and physical certification are manual-
     assert.ok(!trigger.includes('pull_request:'), file + ' must not run production E2E on PRs');
   }
 
-  const absorb = read('.github/workflows/aria-absorb.yml');
+  const absorb = read('.github/workflows/aria-absorb.yml').replace(/\r\n/g, '\n');
   assert.ok(absorb.includes("live-e2e:\n    if: github.event_name == 'workflow_dispatch'"),
     'ABSORB live E2E must be explicit/manual while its contracts remain automatic');
 
-  const pc = read('.github/workflows/pc-rwht.yml');
+  const pc = read('.github/workflows/pc-rwht.yml').replace(/\r\n/g, '\n');
   assert.ok(pc.includes("live-pwa:\n    if: github.event_name == 'workflow_dispatch'"),
     'PC RWHT full LIVE PWA audit must be explicit/manual while contract job remains automatic');
 });

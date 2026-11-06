@@ -3,6 +3,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { deriveMissionDisplayTitle, MISSION_TITLE_VERSION } from "../_shared/mission-title.mjs";
 import { m22A4ScopeRowMatchesV1 } from "../_shared/mission-wonder-2-a4-scope-v1.mjs";
+import { m22A5ScopeRowMatchesV1, M22_A5_SCOPE_ID } from "../_shared/mission-wonder-2-a5-scope-v1.mjs";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SHARED_SECRET = Deno.env.get("ARIA_RUNTIME_SHARED_SECRET") ?? "";
@@ -180,18 +181,34 @@ Deno.serve(async (request) => {
   const authenticatedUserId = request.headers.get("x-aria-user-id")?.trim() || "";
 
   let a4ScopeRow: any = null;
+  let a5ScopeRow: any = null;
   if (MISSION_EXECUTION_PAUSED) {
-    const scopeId = String(userMetadata.mission_wonder_2_a4_scope_id || "").trim();
-    if (!scopeId || !authenticatedUserId || !missionId || userMetadata.user_id !== authenticatedUserId ||
-        userMetadata.mission_wonder_2_a4_readonly !== true) return out({ error: "mission_execution_paused", execution_enabled: false }, 423);
-    const { data: scope, error: scopeError } = await sb.schema("aria_internal").from("mission_wonder_2_a4_scopes")
-      .select("*").eq("scope_id", scopeId).maybeSingle();
-    const valid = !scopeError && await m22A4ScopeRowMatchesV1({
-      scope, metadata: userMetadata, missionId, userId: authenticatedUserId,
-      requestId, goal, projectId: userMetadata.project_id ?? null, requiredStatuses: ["claimed"],
-    });
-    if (!valid) return out({ error: "mission_execution_paused", execution_enabled: false }, 423);
-    a4ScopeRow = scope;
+    const a5ScopeId = String(userMetadata.mission_wonder_2_a5_scope_id || "").trim();
+    if (a5ScopeId === M22_A5_SCOPE_ID && userMetadata.mission_wonder_2_a5_recovery === true) {
+      if (!authenticatedUserId || !missionId || userMetadata.user_id !== authenticatedUserId) {
+        return out({ error: "mission_execution_paused", execution_enabled: false }, 423);
+      }
+      const { data: scope, error: scopeError } = await sb.schema("aria_internal").from("mission_wonder_2_a5_scopes")
+        .select("*").eq("scope_id", a5ScopeId).maybeSingle();
+      const valid = !scopeError && await m22A5ScopeRowMatchesV1({
+        scope, metadata: userMetadata, missionId, userId: authenticatedUserId,
+        requestId, goal, projectId: userMetadata.project_id ?? null, requiredStatuses: ["claimed"],
+      });
+      if (!valid) return out({ error: "mission_execution_paused", execution_enabled: false }, 423);
+      a5ScopeRow = scope;
+    } else {
+      const scopeId = String(userMetadata.mission_wonder_2_a4_scope_id || "").trim();
+      if (!scopeId || !authenticatedUserId || !missionId || userMetadata.user_id !== authenticatedUserId ||
+          userMetadata.mission_wonder_2_a4_readonly !== true) return out({ error: "mission_execution_paused", execution_enabled: false }, 423);
+      const { data: scope, error: scopeError } = await sb.schema("aria_internal").from("mission_wonder_2_a4_scopes")
+        .select("*").eq("scope_id", scopeId).maybeSingle();
+      const valid = !scopeError && await m22A4ScopeRowMatchesV1({
+        scope, metadata: userMetadata, missionId, userId: authenticatedUserId,
+        requestId, goal, projectId: userMetadata.project_id ?? null, requiredStatuses: ["claimed"],
+      });
+      if (!valid) return out({ error: "mission_execution_paused", execution_enabled: false }, 423);
+      a4ScopeRow = scope;
+    }
   }
 
 
