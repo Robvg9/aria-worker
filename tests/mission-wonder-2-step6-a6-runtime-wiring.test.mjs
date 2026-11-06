@@ -80,8 +80,6 @@ assert.match(deploy, /supabase functions deploy aria-mission-wonder-2-a6-dispatc
 assert.match(pwaDeploy, /'supabase\/functions\/aria-mission-wonder-2-a6-dispatch-v1\/\*\*'/);
 assert.match(pwaDeploy, /'supabase\/migrations\/\*_aria_mission_wonder_2_a6_isolated_scope_v1\.sql'/);
 assert.match(cloudflareDeploy, /'supabase\/functions\/\*\*'/);
-assert.match(pwaDeploy, /'tests\\/mission-wonder-2-step6-a6-fault-matrix\\.test\\.mjs'/);
-assert.match(cloudflareDeploy, /'tests\\/mission-wonder-2-step6-a6-fault-matrix\\.test\\.mjs'/);
 assert.match(cloudflareDeploy, /'supabase\/migrations\/\*_aria_mission_wonder_2_a6_isolated_scope_v1\.sql'/);
 assert.ok(pwaDeploy.includes("tests/mission-wonder-2-step6-a6-fault-matrix.test.mjs"));
 assert.ok(cloudflareDeploy.includes("tests/mission-wonder-2-step6-a6-fault-matrix.test.mjs"));
