@@ -152,7 +152,7 @@ assert.equal(await m22A6ScopeRowMatchesV1({ ...args, projectId: "battlecruiser" 
 const supabaseDeployWorkflow = fs.readFileSync(".github/workflows/supabase-canonical-deploy.yml", "utf8");
 const pwaDeployWorkflow = fs.readFileSync(".github/workflows/aria-pwa-fast-deploy.yml", "utf8");
 const cloudflareDeployWorkflow = fs.readFileSync(".github/workflows/aria-cloudflare-deploy.yml", "utf8");
-assert.match(supabaseDeployWorkflow, /!\s*'supabase\/functions\/_shared\/mission-wonder-2-a6-scope-v1\.mjs'/);
+assert.match(supabaseDeployWorkflow, /'!supabase\/functions\/_shared\/mission-wonder-2-a6-scope-v1\.mjs'/);
 assert.match(pwaDeployWorkflow, /'supabase\/functions\/_shared\/mission-wonder-2-a6-scope-v1\.mjs'/);
 assert.match(pwaDeployWorkflow, /'package\.json'/);
 assert.match(pwaDeployWorkflow, /'.github\/workflows\/mission-wonder-2-step6-a6-isolated-contract\.yml'/);
