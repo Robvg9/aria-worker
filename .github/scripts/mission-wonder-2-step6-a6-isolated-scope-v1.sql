@@ -23,7 +23,7 @@ create table if not exists aria_internal.mission_wonder_2_a6_runs (
   max_total_cost_usd numeric(12,6) not null default 0 check (max_total_cost_usd = 0),
   ambient_baseline jsonb not null,
   ambient_final jsonb,
-  human_gate_ref text not null check (human_gate_ref ~ '^a6-human-gate-[0-9]{10,20}\.[0-9]{1,3}$'),
+  human_gate_ref text not null check (human_gate_ref ~ '^a6-human-gate-[0-9]{10,20}[.][0-9]{1,3}$'),
   started_at timestamptz,
   expires_at timestamptz not null,
   completed_at timestamptz,
@@ -170,7 +170,7 @@ begin
      or nullif(btrim(p_owner_user_id),'') is null
      or nullif(btrim(p_parent_request_id),'') is null
      or length(p_parent_request_id)>200
-     or coalesce(p_human_gate_ref,'') !~ '^a6-human-gate-[0-9]{10,20}\.[0-9]{1,3}$'
+     or coalesce(p_human_gate_ref,'') !~ '^a6-human-gate-[0-9]{10,20}[.][0-9]{1,3}$'
      or p_heartbeat_interval_ms not between 1000 and 180000
      or p_max_normal_heartbeat_gap_ms < p_heartbeat_interval_ms
      or p_max_normal_heartbeat_gap_ms > p_heartbeat_interval_ms*3
@@ -909,7 +909,7 @@ begin
      or step->'policy'->>'external_mutations'<>'false'
      or step->'authorization'->>'status'<>'approved'
      or step->'authorization'->>'risk_class'<>'WRITE'
-     or step->'authorization'->>'evidence_ref'<>'mission-wonder-2-step6-a6-v1-owner-authorization'
+     or step->'authorization'->>'evidence_ref'<>r.human_gate_ref
      or step->'verify'->>'expected_exit_code'<>'0'
      or step->'verify'->>'stdout_contains' is distinct from ('A6_ARTIFACT_VERIFIED;sequence='||lpad(s.ordinal::text,2,'0')) then return false; end if;
 
