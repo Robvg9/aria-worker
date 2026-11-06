@@ -7,7 +7,7 @@ export const M22_A6_ALLOWED_DEVICE_ID = "windows-fe722cc6681e4f9c9cc35f5ebbb0a08
 export const M22_A6_WINDOW_HOURS = 24;
 export const M22_A6_MISSION_COUNT = 5;
 export const M22_A6_MAX_JOBS = 5;
-export const M22_A6_MAX_ATTEMPTS = 3;
+export const M22_A6_MAX_ATTEMPTS = 1;
 export const M22_A6_MISSION_OFFSETS_HOURS = Object.freeze([1, 6, 12, 18, 23]);
 export const M22_A6_RUN_ID_PATTERN = /^m22-a6-[a-f0-9]{12}$/i;
 
@@ -125,7 +125,7 @@ export function m22A6BuildContinuityProbeStepV1(deviceId, runId, ordinal) {
       evidence_ref: "mission-wonder-2-step6-a6-v1-owner-authorization",
     },
     timeout_ms: 60000,
-    retryable: true,
+    retryable: false,
     max_attempts: M22_A6_MAX_ATTEMPTS,
     depends_on: [],
     verify: {
