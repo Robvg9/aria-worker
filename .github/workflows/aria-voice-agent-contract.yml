@@ -322,6 +322,65 @@ jobs:
           END $v4$;
           SQL
 
+      - name: Execute Voice V4 Telegram delivery and Windows pairing migrations
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d voice_contract -v ON_ERROR_STOP=1 -f supabase/migrations/20261103160000_voice_v4_telegram_message_delivery.sql
+          psql -h localhost -U postgres -d voice_contract -v ON_ERROR_STOP=1 -f supabase/migrations/20261103193000_voice_v4_windows_owner_readonly_pairing.sql
+          psql -h localhost -U postgres -d voice_contract -v ON_ERROR_STOP=1 <<'SQL'
+          DO $extra$
+          DECLARE
+            protected_tables integer;
+          BEGIN
+            SELECT count(*) INTO protected_tables
+            FROM pg_class c
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE n.nspname = 'aria_internal'
+              AND c.relname IN ('voice_message_recipients', 'voice_message_dispatches')
+              AND c.relrowsecurity;
+            IF protected_tables <> 2 THEN
+              RAISE EXCEPTION 'voice_v4_message_rls_invalid: %', protected_tables;
+            END IF;
+
+            IF has_function_privilege('anon',
+                 'aria_internal.pair_voice_windows_owner_device(uuid,text,text,text,text)', 'EXECUTE')
+               OR has_function_privilege('authenticated',
+                 'aria_internal.pair_voice_windows_owner_device(uuid,text,text,text,text)', 'EXECUTE')
+               OR has_function_privilege('anon',
+                 'aria_internal.touch_voice_windows_owner_device(uuid,text,text)', 'EXECUTE')
+               OR has_function_privilege('authenticated',
+                 'aria_internal.touch_voice_windows_owner_device(uuid,text,text)', 'EXECUTE') THEN
+              RAISE EXCEPTION 'voice_v4_windows_pairing_exposed_to_client_role';
+            END IF;
+            IF NOT has_function_privilege('service_role',
+                 'aria_internal.pair_voice_windows_owner_device(uuid,text,text,text,text)', 'EXECUTE')
+               OR NOT has_function_privilege('service_role',
+                 'aria_internal.touch_voice_windows_owner_device(uuid,text,text)', 'EXECUTE') THEN
+              RAISE EXCEPTION 'voice_v4_windows_pairing_service_grant_missing';
+            END IF;
+
+            IF has_function_privilege('anon',
+                 'aria_internal.prepare_voice_telegram_message(uuid,uuid,text,text,text,timestamptz)', 'EXECUTE')
+               OR has_function_privilege('authenticated',
+                 'aria_internal.prepare_voice_telegram_message(uuid,uuid,text,text,text,timestamptz)', 'EXECUTE')
+               OR has_function_privilege('anon',
+                 'aria_internal.claim_voice_telegram_message(uuid,uuid,text)', 'EXECUTE')
+               OR has_function_privilege('authenticated',
+                 'aria_internal.complete_voice_telegram_message(uuid,uuid,text,bigint,text,text)', 'EXECUTE') THEN
+              RAISE EXCEPTION 'voice_v4_telegram_functions_exposed_to_client_role';
+            END IF;
+            IF NOT has_function_privilege('service_role',
+                 'aria_internal.prepare_voice_telegram_message(uuid,uuid,text,text,text,timestamptz)', 'EXECUTE')
+               OR NOT has_function_privilege('service_role',
+                 'aria_internal.claim_voice_telegram_message(uuid,uuid,text)', 'EXECUTE')
+               OR NOT has_function_privilege('service_role',
+                 'aria_internal.complete_voice_telegram_message(uuid,uuid,text,bigint,text,text)', 'EXECUTE') THEN
+              RAISE EXCEPTION 'voice_v4_telegram_service_grant_missing';
+            END IF;
+          END $extra$;
+          SQL
+
   windows-owner-session-keystore:
     runs-on: windows-latest
     timeout-minutes: 10
