@@ -121,8 +121,14 @@ export function m22A6BuildSoakReportV1(input = {}) {
         (Number.isSafeInteger(maxAttemptsPerJob) && attempts > maxAttemptsPerJob)) {
       blockers.push("mission_" + index + "_attempt_count_out_of_bounds");
     }
-    if (mission && mission.activeAtEnd === true) blockers.push("mission_" + index + "_still_active_at_end");
-    if (Number(mission && mission.duplicateCount || 0) !== 0) blockers.push("mission_" + index + "_duplicates_detected");
+    if (!mission || mission.activeAtEnd !== false) blockers.push("mission_" + index + "_active_state_missing_or_not_false");
+    if (!mission || !Number.isSafeInteger(mission.duplicateCount) || mission.duplicateCount !== 0) {
+      blockers.push("mission_" + index + "_duplicate_count_missing_or_nonzero");
+    }
+    if (!mission || !Array.isArray(mission.artifactSha256) || mission.artifactSha256.length !== 1 ||
+        !/^[a-f0-9]{64}$/i.test(String(mission.artifactSha256[0] || ""))) {
+      blockers.push("mission_" + index + "_must_have_exactly_one_valid_artifact_hash");
+    }
   }
 
   const heartbeatGaps = Array.isArray(input.heartbeatGaps) ? input.heartbeatGaps : [];
@@ -193,7 +199,8 @@ export function m22A6BuildSoakReportV1(input = {}) {
     schemaVersion: "mission-wonder-2-a6-soak-v1",
     status: blockers.length === 0 ? "PASS" : "BLOCKED",
     blockers: [...new Set(blockers)],
-    evidenceClassification: input.evidenceClassification === "LIVE" ? "LIVE" : "SIMULATED_OR_UNCLASSIFIED",
+    evidenceClassification: "UNATTESTED_INPUT",
+    liveAttestation: "NOT_CHECKED_BY_PURE_EVALUATOR",
     metrics: {
       elapsedHours: elapsedMs / HOUR_MS,
       missionCount: missions.length,
