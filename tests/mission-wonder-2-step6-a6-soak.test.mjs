@@ -76,6 +76,21 @@ assert.equal(M22_A6_SOAK_WINDOWS_V1.reinforced_hours, 72);
 assert.equal(M22_A6_SOAK_WINDOWS_V1.proposed_minimum_missions_per_24h, 5);
 assert.equal(M22_A6_SOAK_WINDOWS_V1.proposed_minimum_missions_per_72h, 15);
 
+const insufficient72HourVolume = m22A6BuildSoakReportV1({
+  ...validEvidence,
+  finishedAt: hours(72),
+  thresholds: { ...thresholds, minimumDurationHours: 72, minimumMissions: 14 },
+});
+assert.equal(insufficient72HourVolume.status, "BLOCKED");
+assert.ok(insufficient72HourVolume.blockers.includes("threshold_minimum_missions_invalid"));
+
+const excessiveHeartbeatTolerance = m22A6BuildSoakReportV1({
+  ...validEvidence,
+  thresholds: { ...thresholds, maxNormalHeartbeatGapMs: 15001 },
+});
+assert.equal(excessiveHeartbeatTolerance.status, "BLOCKED");
+assert.ok(excessiveHeartbeatTolerance.blockers.includes("heartbeat_threshold_exceeds_three_intervals"));
+
 const liveReport = m22A6BuildSoakReportV1({ ...validEvidence, evidenceClassification: "LIVE" });
 assert.equal(liveReport.evidenceClassification, "LIVE");
 
