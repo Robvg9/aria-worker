@@ -634,6 +634,7 @@ declare
   oldest_pending_age_ms bigint;
   heartbeat_gap_ms bigint;
   previous_sample timestamptz;
+  sample_gap_ms bigint;
   age_ms bigint;
   payload jsonb;
 begin
@@ -649,9 +650,11 @@ begin
     from aria_internal.mission_wonder_2_a6_telemetry
    where run_id=r.run_id and event_type='heartbeat_sample';
   heartbeat_gap_ms := age_ms;
+  sample_gap_ms := case when previous_sample is null then 0
+    else greatest(0,(extract(epoch from (clock_timestamp()-previous_sample))*1000)::bigint) end;
 
   select count(*)::integer,
-         coalesce(max((extract(epoch from (clock_timestamp()-j.created_at))*1000)::bigint),0)
+         coalesce(max((extract(epoch from (clock_timestamp()-j.requested_at))*1000)::bigint),0)
     into pending_count,oldest_pending_age_ms
     from aria_internal.execution_jobs j
     join aria_internal.mission_wonder_2_a6_scopes sc on sc.job_id=j.job_id
@@ -660,6 +663,7 @@ begin
   payload := jsonb_build_object(
     'heartbeatIntervalMs',r.heartbeat_interval_ms,
     'heartbeatGapMs',heartbeat_gap_ms,
+    'sampleGapMs',sample_gap_ms,
     'deviceFreshnessMs',age_ms,
     'deviceOnline',coalesce(d.status='online',false),
     'a6PendingJobs',pending_count,
@@ -672,6 +676,31 @@ begin
   ) values (
     r.run_id,'heartbeat_sample',d.last_seen_at,d.status,age_ms,payload
   );
+
+  if coalesce(d.status,'')<>'online' or age_ms is null
+     or age_ms>r.max_normal_heartbeat_gap_ms
+     or (previous_sample is not null and sample_gap_ms>r.max_normal_heartbeat_gap_ms) then
+    update aria_internal.mission_wonder_2_a6_runs
+       set status='blocked',completed_at=clock_timestamp(),updated_at=clock_timestamp()
+     where run_id=r.run_id and status='running';
+    update aria_internal.mission_wonder_2_a6_scopes
+       set status='revoked',revoked_at=coalesce(revoked_at,clock_timestamp()),updated_at=clock_timestamp()
+     where run_id=r.run_id and status='armed';
+    insert into aria_internal.mission_wonder_2_a6_telemetry(run_id,event_type,payload)
+    values (r.run_id,'fault_observed',jsonb_build_object(
+      'event','heartbeat_continuity_threshold_exceeded',
+      'deviceOnline',coalesce(d.status='online',false),
+      'heartbeatAgeMs',age_ms,
+      'sampleGapMs',sample_gap_ms,
+      'maxNormalHeartbeatGapMs',r.max_normal_heartbeat_gap_ms,
+      'automaticRetry',false
+    ));
+    update cron.job set active=false
+     where jobname='aria-mission-wonder-2-a6-dispatcher-every-minute';
+    return jsonb_build_object('status','blocked','run_id',r.run_id,
+      'reason','heartbeat_continuity_threshold_exceeded','payload',payload);
+  end if;
+
   return jsonb_build_object('status','sampled','run_id',r.run_id,'payload',payload);
 end;
 $function$;
@@ -987,6 +1016,12 @@ declare
   n integer := 0;
   completed_count integer;
   active_count integer;
+  job_count integer;
+  max_recovery_count integer;
+  heartbeat_sample_count integer;
+  max_heartbeat_age_ms bigint;
+  max_sample_gap_ms bigint;
+  p95_latency_ms numeric;
   ambient jsonb;
 begin
   for r in
@@ -998,6 +1033,26 @@ begin
     select count(*) into completed_count
       from aria_internal.mission_wonder_2_a6_scopes
      where run_id=r.run_id and status='completed';
+    select count(*),coalesce(max(j.recovery_count),0),
+           percentile_cont(0.95) within group (
+             order by extract(epoch from (j.completed_at-j.started_at))*1000
+           )
+      into job_count,max_recovery_count,p95_latency_ms
+      from aria_internal.execution_jobs j
+      join aria_internal.mission_wonder_2_a6_scopes sc on sc.job_id=j.job_id
+     where sc.run_id=r.run_id and j.status='succeeded'
+       and j.started_at is not null and j.completed_at is not null;
+    select count(*)::integer,coalesce(max(heartbeat_age_ms),0)
+      into heartbeat_sample_count,max_heartbeat_age_ms
+      from aria_internal.mission_wonder_2_a6_telemetry
+     where run_id=r.run_id and event_type='heartbeat_sample';
+    select coalesce(max(sample_gap_ms),0) into max_sample_gap_ms
+      from (
+        select (extract(epoch from (sampled_at-lag(sampled_at) over (order by sampled_at)))*1000)::bigint as sample_gap_ms
+          from aria_internal.mission_wonder_2_a6_telemetry
+         where run_id=r.run_id and event_type='heartbeat_sample'
+      ) samples
+     where sample_gap_ms is not null;
     select count(*) into active_count
       from aria_internal.execution_jobs j
       join aria_internal.mission_wonder_2_a6_scopes sc on sc.job_id=j.job_id
@@ -1006,11 +1061,22 @@ begin
     insert into aria_internal.mission_wonder_2_a6_telemetry(run_id,event_type,payload)
     values (r.run_id,'final_reconciliation',jsonb_build_object(
       'completed_scope_count',completed_count,
+      'total_successful_jobs',job_count,
       'active_a6_job_count',active_count,
+      'max_job_recovery_count',max_recovery_count,
+      'heartbeat_sample_count',heartbeat_sample_count,
+      'max_heartbeat_age_ms',max_heartbeat_age_ms,
+      'max_sample_gap_ms',max_sample_gap_ms,
+      'p95_latency_ms',p95_latency_ms,
+      'max_p95_latency_ms',r.max_p95_latency_ms,
       'ambient_final',ambient,
       'ambient_unchanged',(ambient is not distinct from r.ambient_baseline)
     ));
-    if completed_count=5 and active_count=0 and
+    if completed_count=5 and job_count=5 and active_count=0 and
+       max_recovery_count=0 and heartbeat_sample_count>=1368 and
+       max_heartbeat_age_ms<=r.max_normal_heartbeat_gap_ms and
+       max_sample_gap_ms<=r.max_normal_heartbeat_gap_ms and
+       p95_latency_ms is not null and p95_latency_ms<=r.max_p95_latency_ms and
        ambient is not distinct from r.ambient_baseline and
        (ambient->>'cron48Active')::boolean=false and
        (ambient->>'cron49Active')::boolean=false and
