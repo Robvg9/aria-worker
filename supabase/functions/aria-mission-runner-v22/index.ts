@@ -1097,6 +1097,29 @@ async function enqueueDeviceJob(missionId: string, step: any, jobId: string) {
     ? step
     : { ...step, operation: normalizedOperation };
   const payload = buildDeviceEnqueuePayload(V, missionId, normalizedStep, jobId, resolution.resolved_device_id);
+  if (String(missionId).startsWith("mission_m22_a6_")) {
+    const { data: a6Mission, error: a6MissionError } = await sb.schema("aria_internal")
+      .from("mission_state").select("metadata").eq("mission_id", missionId).maybeSingle();
+    if (a6MissionError || !a6Mission) throw new Error("a6_mission_scope_lookup_failed");
+    const runId = String(a6Mission.metadata?.mission_wonder_2_a6_run_id || "");
+    const scopeId = String(a6Mission.metadata?.mission_wonder_2_a6_scope_id || "");
+    if (!runId || !scopeId) throw new Error("a6_scope_metadata_missing");
+    const a6Job = await rpc("aria_m22_a6_enqueue_frozen_job_v1", {
+      p_run_id: runId,
+      p_scope_id: scopeId,
+      p_job_id: String(payload.job_id),
+      p_mission_id: String(payload.mission_id),
+      p_device_id: String(payload.device_id),
+      p_operation: String(payload.operation),
+      p_command: String(payload.command),
+      p_cwd: typeof payload.cwd === "string" ? payload.cwd : null,
+      p_timeout_ms: Number.isInteger(payload.timeout_ms) ? payload.timeout_ms : 120000,
+      p_policy: payload.policy && typeof payload.policy === "object" ? payload.policy : {},
+      p_metadata: payload.metadata && typeof payload.metadata === "object" ? payload.metadata : {},
+    });
+    if (!a6Job) throw new Error("a6_frozen_enqueue_empty");
+    return a6Job;
+  }
   const data = await rpc("enqueue_execution_job_gateway", {
     p_job_id: String(payload.job_id),
     p_mission_id: String(payload.mission_id),
