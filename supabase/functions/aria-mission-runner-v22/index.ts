@@ -3341,6 +3341,7 @@ Deno.serve(async (request) => {
             runId,
             ordinal: Number(scope?.ordinal),
             deviceId: String(scope?.allowed_device_id || ""),
+            humanGateRef: String(run?.human_gate_ref || ""),
           });
           if (scopeValid && planValid) a6ScopeRow = scope;
         }
