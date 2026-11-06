@@ -1,0 +1,68 @@
+name: Mission Wonder 2 — Step 4 A4 Runner Handoff Recovery (HUMAN-GATED)
+
+on:
+  workflow_dispatch:
+    inputs:
+      execute_runner_handoff_retry:
+        description: 'true executes the single audited handoff retry for the already-claimed A4 tick; false is read-only dry-run'
+        required: true
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mission-wonder-2-step4-a4-runner-handoff-recovery
+  cancel-in-progress: false
+
+jobs:
+  a4-runner-handoff-recovery:
+    runs-on: ubuntu-latest
+    timeout-minutes: 22
+    environment: production
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+      ARIA_RUNTIME_SHARED_SECRET: ${{ secrets.ARIA_RUNTIME_SHARED_SECRET }}
+      RWHT_STORAGE_STATE_B64: ${{ secrets.RWHT_STORAGE_STATE_B64 }}
+      RWHT_STORAGE_STATE_GZIP_B64: ${{ secrets.RWHT_STORAGE_STATE_GZIP_B64 }}
+      EXECUTE_RUNNER_HANDOFF_RETRY: ${{ github.event.inputs.execute_runner_handoff_retry }}
+      A4_HANDOFF_POLL_SECONDS: '720'
+      RWHT_ARTIFACT_DIR: a4-runner-handoff-artifacts
+
+    steps:
+      - name: Checkout exact main HEAD
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Setup Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Install Supabase CLI
+        run: npm install --global supabase
+
+      - name: Link exact production project
+        run: |
+          set -euo pipefail
+          test "$SUPABASE_PROJECT_REF" = "icuqsstxfdbvjytkhlog"
+          test -n "$SUPABASE_ACCESS_TOKEN"
+          test -n "$ARIA_RUNTIME_SHARED_SECRET"
+          supabase link --project-ref "$SUPABASE_PROJECT_REF"
+
+      - name: Validate input and execute protected A4 runner handoff continuation
+        run: node scripts/mission-wonder-2-step4-a4-runner-handoff-retry.mjs
+
+      - name: Upload A4 runner handoff evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: a4-runner-handoff-${{ github.run_id }}-${{ github.run_attempt }}
+          path: a4-runner-handoff-artifacts/
+          if-no-files-found: ignore
