@@ -569,7 +569,8 @@ begin
 
   select * into m from aria_internal.mission_state
    where mission_id=p_mission_id for update;
-  if not found or m.status<>'running' or m.total_steps<>1
+  if not found or m.goal is distinct from ('Mission Wonder 2 A6 bounded continuity marker '||p_run_id||' sequence '||lpad(sc.ordinal::text,2,'0'))
+     or m.status<>'running' or m.total_steps<>1
      or m.current_step<>0 or m.completed_steps<>0 then
     raise exception 'a6_enqueue_mission_not_running';
   end if;
@@ -834,7 +835,8 @@ begin
   if not found or r.status<>'running' or r.expires_at<=clock_timestamp()
      or r.allowed_device_id<>p_device_id then return false; end if;
   select * into m from aria_internal.mission_state where mission_id=s.mission_id;
-  if not found or m.status not in ('waiting','running')
+  if not found or m.goal is distinct from ('Mission Wonder 2 A6 bounded continuity marker '||r.run_id||' sequence '||lpad(s.ordinal::text,2,'0'))
+     or m.status not in ('waiting','running')
      or m.current_step<>0 or m.completed_steps<>0 or m.total_steps<>1 then return false; end if;
   if m.metadata->>'mission_wonder_2_a6_run_id'<>r.run_id
      or m.metadata->>'mission_wonder_2_a6_run_scope_id'<>r.scope_id
@@ -983,7 +985,8 @@ begin
   select * into j from aria_internal.execution_jobs where job_id=p_job_id and mission_id=p_mission_id;
   if not found then return false; end if;
 
-  if m.status<>'succeeded' or m.completed_steps<>1 or m.total_steps<>1
+  if m.goal is distinct from ('Mission Wonder 2 A6 bounded continuity marker '||p_run_id||' sequence '||lpad(s.ordinal::text,2,'0'))
+     or m.status<>'succeeded' or m.completed_steps<>1 or m.total_steps<>1
      or m.lease_owner is not null or m.lease_until is not null
      or j.status<>'succeeded' or j.exit_code<>0 or j.completed_at is null
      or j.lease_owner is not null or j.lease_until is not null
