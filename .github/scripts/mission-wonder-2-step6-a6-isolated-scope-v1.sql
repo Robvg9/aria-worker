@@ -770,7 +770,7 @@ grant execute on function aria_internal.aria_m22_a6_complete_scope_v1(text,text,
 grant execute on function aria_internal.aria_m22_a6_finish_run_if_due_v1() to service_role;
 grant execute on function aria_internal.aria_m22_a6_revoke_run_v1(text) to service_role;
 
--- Dedicated scheduler #51 exists but stays INACTIVE until the separately approved start_run RPC.
+-- Dedicated A6 scheduler is created INACTIVE; pg_cron assigns its job ID. Only the separately approved start_run RPC activates it.
 do $block$
 declare
   v_job_id bigint;
