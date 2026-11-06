@@ -20,6 +20,10 @@ on:
       - '.github/scripts/mission-wonder-2-step3-a3-prepare-deploy-secrets.py'
       - '.github/scripts/mission-wonder-2-step3-a3-deploy-coordinator.sh'
       - '.github/scripts/mission-wonder-2-step3-a3-live-presence.ps1'
+      # A6 soak evaluator/docs/tests are CI-only and do not change the production PWA.
+      - 'autonomy/mission-wonder-2-a6-soak-v1.mjs'
+      - 'autonomy/MISSION_WONDER_2_STEP6_A6_SOAK.md'
+      - 'tests/mission-wonder-2-step6-a6-soak.test.mjs'
       - 'autonomy/worker-single-instance-lock-v1.js'
       - 'tests/mission-wonder-2-step3-a3-presence.test.mjs'
       - 'tests/mission-wonder-2-step3-a3-live-workflow-contract.test.cjs'
