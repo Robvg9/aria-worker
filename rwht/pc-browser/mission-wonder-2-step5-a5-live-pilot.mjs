@@ -5,8 +5,8 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { chromium } from "playwright";
 import {
-  M22_A5_SCOPE_ID, M22_A5_MISSION_ID, M22_A5_SCOPE_KEY,
-  m22A5BuildRecoveryProbeStepV1, m22A5ExpectedJobIdV1, m22A5GoalIdentityHashV1,
+  M22_A5_SCOPE_ID, M22_A5_MISSION_ID, M22_A5_SCOPE_KEY, M22_A5_STEP_ID,
+  M22_A5_ARTIFACT_PATH, m22A5BuildRecoveryProbeStepV1, m22A5ExpectedJobIdV1, m22A5GoalIdentityHashV1,
 } from "../../supabase/functions/_shared/mission-wonder-2-a5-scope-v1.mjs";
 
 const PROJECT = String(process.env.SUPABASE_PROJECT_REF || "");
