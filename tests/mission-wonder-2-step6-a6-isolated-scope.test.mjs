@@ -165,6 +165,7 @@ const missionPlan = {
 assert.equal(m22A6MissionPlanMatchesV1({ mission: missionPlan, runId: RUN_ID, ordinal, humanGateRef: HUMAN_GATE_REF }), true);
 assert.equal(step.authorization.evidence_ref, HUMAN_GATE_REF);
 assert.throws(() => m22A6BuildContinuityProbeStepV1(DEVICE, RUN_ID, ordinal, "not-a-human-gate"), /human_gate_ref_invalid/);
+assert.throws(() => m22A6BuildContinuityProbeStepV1(DEVICE, RUN_ID, ordinal, "a6-human-gate-1730912400x123"), /human_gate_ref_invalid/);
 const databaseOrderedStep = Object.fromEntries(Object.entries(step).reverse());
 assert.equal(m22A6MissionPlanMatchesV1({
   mission: { ...missionPlan, checkpoint: { plan: [databaseOrderedStep] } },
