@@ -9,16 +9,16 @@ assert.ok(pwaDeploy.includes("'scripts/aria-mcp-chatbending-context-contract.cjs
 const deliveryGate=fs.readFileSync('.github/workflows/aria-delivery-deterministic-gate.yml','utf8');
 const workerPwa=fs.readFileSync('worker.js','utf8');
 
-const releaseFunctions=['aria-planner-v11','aria-canonical-runtime-v1','aria-mission-runner-v22','aria-runtime-gateway-v1','aria-execution-runtime-v1','aria-device-gateway','aria-cron-auth-v1','aria-smart-verifier-v1','aria-direct-v1','aria-mission-intake-v1','aria-cron-auth-v1','aria-memory-v2'];
+const releaseFunctions=['aria-planner-v11','aria-canonical-runtime-v1','aria-mission-runner-v22','aria-runtime-gateway-v1','aria-execution-runtime-v1','aria-device-gateway','aria-cron-auth-v1','aria-smart-verifier-v1','aria-direct-v1','aria-mission-intake-v1','aria-memory-v2'];
 for(const fn of releaseFunctions) assert.match(source,new RegExp(`functions deploy ${fn}\\b`),`${fn} must be deployed`);
 const deployCommands=source.split("\n").filter(line=>line.includes("supabase functions deploy "));
 assert.ok(deployCommands.length>0,"canonical deployment commands must exist");
 for(const command of deployCommands) assert.match(command,/--yes(?:\s|$)/,"every canonical Edge Function deployment must be non-interactive");
 
-const protectedFunctions=['aria-planner-v11','aria-mission-runner-v22','aria-runtime-gateway-v1','aria-execution-runtime-v1','aria-device-gateway','aria-smart-verifier-v1','aria-mission-intake-v1'];
+const protectedFunctions=['aria-planner-v11','aria-mission-runner-v22','aria-runtime-gateway-v1','aria-execution-runtime-v1','aria-device-gateway','aria-cron-auth-v1','aria-smart-verifier-v1','aria-mission-intake-v1'];
 for(const fn of protectedFunctions) assert.ok(fs.existsSync(path.join('supabase','functions',fn,'index.ts')),`${fn} source index.ts must be versioned`);
 assert.ok(fs.existsSync(path.join('supabase','functions','aria-cron-auth-v1','index.ts')),'existing cron-auth slot must host the A6 dispatcher');
-assert.doesNotMatch(source,/functions deploy aria-mission-wonder-2-a6-dispatch-v1\\b/,'do not create an additional Edge Function for A6');
+assert.ok(!source.includes('functions deploy aria-mission-wonder-2-a6-dispatch-v1'),'do not create an additional Edge Function for A6');
 assert.ok(fs.existsSync(path.join('supabase','functions','aria-runtime-gateway-v1','deno.json')),'aria-runtime-gateway-v1 deno.json must be versioned');
 
 for(const fn of ['aria-planner-v10','aria-autonomy-supervisor-v10','aria-autonomy-supervisor-v5','aria-mission-runner-v15','aria-mission-runner-v16','aria-mission-runner-v17','aria-mission-runner-v18'])
