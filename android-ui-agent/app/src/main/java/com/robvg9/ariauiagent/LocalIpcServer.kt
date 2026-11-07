@@ -177,7 +177,7 @@ class LocalIpcServer(private val service: AriaAccessibilityService) {
                     offset += count
                 }
 
-                val result = service.handle(String(body, StandardCharsets.UTF_8))
+                val result = service.handle(String(body, StandardCharsets.UTF_8)).put("service_package", service.packageName)
                 writeResponse(socket.getOutputStream(), 200, result.toString())
             } catch (_: Exception) {
                 try {
