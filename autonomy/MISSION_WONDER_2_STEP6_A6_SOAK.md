@@ -71,6 +71,7 @@ Each of the five idempotent marker missions carries one physical execution job a
 - Heartbeat target 30s with a 90s maximum age and maximum sample gap.
 - The dispatcher blocks and disables only the A6 cron if device freshness or sampling continuity exceeds the limit.
 - Final reconciliation requires at least 1,368 heartbeat samples, all five independently verified jobs, zero recoveries/retries, p95 job latency at or below 90s, no more than one pending A6 job, backlog age at or below 5 minutes, and unchanged non-A6 fingerprints with crons 48/49/50 still disabled.
+- The LIVE SQL finalizer also requires five mission completions inside the 24-hour window, a completion span of at least 18 hours (75%), and no consecutive completion gap above 7 hours. Catch-up bursts after a dispatcher outage therefore cannot qualify as a soak PASS.
 - The migration creates the dedicated A6 cron inactive. Only a separately approved start_run call activates it; global MISSION_EXECUTION_PAUSED=true remains unchanged.
 - This is not yet a live soak. CI and local PostgreSQL validation do not count as 24h evidence.
 

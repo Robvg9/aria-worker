@@ -21,6 +21,8 @@ create table if not exists aria_internal.mission_wonder_2_a6_runs (
   max_recovery_ms integer not null default 120000 check (max_recovery_ms = 120000),
   max_p95_latency_ms integer not null default 90000 check (max_p95_latency_ms = 90000),
   max_total_cost_usd numeric(12,6) not null default 0 check (max_total_cost_usd = 0),
+  minimum_mission_span_ms integer not null default 64800000 check (minimum_mission_span_ms = 64800000),
+  max_mission_intermission_ms integer not null default 25200000 check (max_mission_intermission_ms = 25200000),
   ambient_baseline jsonb not null,
   ambient_final jsonb,
   human_gate_ref text not null unique check (human_gate_ref ~ '^a6-human-gate-[0-9]{10,20}[.][0-9]{1,3}$'),
@@ -192,7 +194,8 @@ begin
     run_id,scope_id,owner_user_id,parent_request_id,allowed_device_id,status,
     window_hours,max_missions,max_jobs,max_attempts,heartbeat_interval_ms,
     max_normal_heartbeat_gap_ms,max_recovery_ms,max_p95_latency_ms,
-    max_total_cost_usd,human_gate_ref,ambient_baseline,expires_at
+    max_total_cost_usd,minimum_mission_span_ms,max_mission_intermission_ms,
+    human_gate_ref,ambient_baseline,expires_at
   ) values (
     p_run_id,
     'mission_wonder_2_a6_run_'||p_run_id,
@@ -200,7 +203,7 @@ begin
     btrim(p_parent_request_id),
     'windows-fe722cc6681e4f9c9cc35f5ebbb0a089',
     'armed',24,5,5,1,p_heartbeat_interval_ms,
-    p_max_normal_heartbeat_gap_ms,120000,90000,0,p_human_gate_ref,ambient,
+    p_max_normal_heartbeat_gap_ms,120000,90000,0,64800000,25200000,p_human_gate_ref,ambient,
     clock_timestamp()+interval '25 hours'
   ) returning * into run_row;
 
@@ -246,7 +249,8 @@ begin
   return jsonb_build_object(
     'status','armed','run_id',run_row.run_id,'scope_id',run_row.scope_id,
     'scope_count',inserted_count,'max_missions',5,'max_jobs',5,
-    'window_hours',24,'human_gate_ref',run_row.human_gate_ref
+    'window_hours',24,'minimum_mission_span_ms',64800000,
+    'max_mission_intermission_ms',25200000,'human_gate_ref',run_row.human_gate_ref
   );
 end;
 $function$;
@@ -314,6 +318,8 @@ begin
     'window_ends_at',started+interval '24 hours',
     'expires_at',started+interval '25 hours',
     'first_mission_due_at',started+interval '1 hour',
+    'minimum_mission_span_ms',r.minimum_mission_span_ms,
+    'max_mission_intermission_ms',r.max_mission_intermission_ms,
     'cron_job_id',cron_job_id
   );
 end;
@@ -1062,6 +1068,11 @@ declare
   max_a6_pending_jobs integer;
   max_a6_oldest_pending_age_ms bigint;
   p95_latency_ms numeric;
+  mission_completion_window_count integer;
+  first_mission_completed_at timestamptz;
+  last_mission_completed_at timestamptz;
+  mission_completion_span_ms bigint;
+  max_mission_intermission_observed_ms bigint;
   ambient jsonb;
 begin
   for r in
@@ -1073,6 +1084,31 @@ begin
     select count(*) into completed_count
       from aria_internal.mission_wonder_2_a6_scopes
      where run_id=r.run_id and status='completed';
+
+    -- A delayed dispatcher must not compress overdue missions into a false 24h PASS.
+    select count(*)::integer,min(completed_at),max(completed_at)
+      into mission_completion_window_count,first_mission_completed_at,last_mission_completed_at
+      from aria_internal.mission_wonder_2_a6_scopes
+     where run_id=r.run_id and status='completed'
+       and completed_at is not null
+       and completed_at>=r.started_at
+       and completed_at<=r.started_at+interval '24 hours';
+    mission_completion_span_ms :=
+      case when first_mission_completed_at is null or last_mission_completed_at is null then 0
+        else greatest(0,(extract(epoch from (last_mission_completed_at-first_mission_completed_at))*1000)::bigint)
+      end;
+    select coalesce(max(gap_ms),0) into max_mission_intermission_observed_ms
+      from (
+        select (
+          extract(epoch from (completed_at-lag(completed_at) over (order by completed_at)))*1000
+        )::bigint as gap_ms
+          from aria_internal.mission_wonder_2_a6_scopes
+         where run_id=r.run_id and status='completed'
+           and completed_at is not null
+           and completed_at>=r.started_at
+           and completed_at<=r.started_at+interval '24 hours'
+      ) timeline
+     where gap_ms is not null;
     select count(*),coalesce(max(j.recovery_count),0),
            percentile_cont(0.95) within group (
              order by extract(epoch from (j.completed_at-j.started_at))*1000
@@ -1106,6 +1142,13 @@ begin
     insert into aria_internal.mission_wonder_2_a6_telemetry(run_id,event_type,payload)
     values (r.run_id,'final_reconciliation',jsonb_build_object(
       'completed_scope_count',completed_count,
+      'mission_completion_window_count',mission_completion_window_count,
+      'first_mission_completed_at',first_mission_completed_at,
+      'last_mission_completed_at',last_mission_completed_at,
+      'mission_completion_span_ms',mission_completion_span_ms,
+      'minimum_mission_span_ms',r.minimum_mission_span_ms,
+      'max_mission_intermission_observed_ms',max_mission_intermission_observed_ms,
+      'max_mission_intermission_ms',r.max_mission_intermission_ms,
       'total_successful_jobs',job_count,
       'active_a6_job_count',active_count,
       'max_job_recovery_count',max_recovery_count,
@@ -1119,7 +1162,10 @@ begin
       'ambient_final',ambient,
       'ambient_unchanged',(ambient is not distinct from r.ambient_baseline)
     ));
-    if completed_count=5 and job_count=5 and active_count=0 and
+    if completed_count=5 and mission_completion_window_count=5 and
+       mission_completion_span_ms>=r.minimum_mission_span_ms and
+       max_mission_intermission_observed_ms<=r.max_mission_intermission_ms and
+       job_count=5 and active_count=0 and
        max_recovery_count=0 and heartbeat_sample_count>=1368 and
        max_heartbeat_age_ms<=r.max_normal_heartbeat_gap_ms and
        max_sample_gap_ms<=r.max_normal_heartbeat_gap_ms and

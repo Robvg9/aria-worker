@@ -59,6 +59,13 @@ assert.match(migration, /cron\.schedule\([\s\S]*aria-mission-wonder-2-a6-dispatc
 assert.match(migration, /update cron\.job set active=false where jobid=v_job_id/);
 assert.match(migration, /heartbeatAgeMs/);
 assert.match(migration, /heartbeat_continuity_threshold_exceeded/);
+assert.match(migration, /minimum_mission_span_ms integer not null default 64800000/);
+assert.match(migration, /max_mission_intermission_ms integer not null default 25200000/);
+assert.match(migration, /mission_completion_window_count=5/);
+assert.match(migration, /mission_completion_span_ms>=r\\.minimum_mission_span_ms/);
+assert.match(migration, /max_mission_intermission_observed_ms<=r\\.max_mission_intermission_ms/);
+assert.match(migration, /completed_at>=r\\.started_at/);
+assert.match(migration, /completed_at<=r\\.started_at\\+interval '24 hours'/);
 assert.match(migration, /heartbeat_sample_count>=1368/);
 assert.match(migration, /max_heartbeat_age_ms<=r\.max_normal_heartbeat_gap_ms/);
 assert.match(migration, /max_sample_gap_ms<=r\.max_normal_heartbeat_gap_ms/);
