@@ -64,7 +64,7 @@ for (const rpc of [
   "aria_m22_a6_reconcile_v1",
   "aria_m22_a6_block_run_v1",
 ]) assert.ok(migration.includes("create or replace function aria_internal." + rpc + "("), rpc + " migration RPC missing");
-assert.match(migration, /cron\.schedule\([\s\S]*aria-mission-wonder-2-a6-cronAuth-every-minute/);
+assert.match(migration, /cron\.schedule\([\s\S]*aria-mission-wonder-2-a6-dispatcher-every-minute/);
 assert.equal(slotReuseMigration, slotReuseTemplate);
 assert.ok(slotReuseMigration.includes("cron.alter_job("));
 assert.ok(slotReuseMigration.includes("functions/v1/aria-cron-auth-v1"));
