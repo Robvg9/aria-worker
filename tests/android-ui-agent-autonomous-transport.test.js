@@ -36,6 +36,7 @@ assert.ok(transport.includes('com.robvg9.ariauiagent.MainActivity'), 'Termux rec
 assert.ok(transport.includes("payload.package !== PACKAGE"), 'health probe must reject a legacy APK that owns the old shared port');
 assert.ok(transport.includes("payload.service_package !== PACKAGE"), 'action transport must reject stale service responses before fallback');
 assert.ok(transport.includes('android_local_ipc_package_mismatch'), 'package mismatch must remain diagnosable');
+assert.ok(ipc.includes('service_package'), 'IPC action response must identify the owning application package');
 assert.ok(transport.includes('authorization'), 'executor must authenticate loopback IPC');
 assert.ok(!transport.includes('/system/bin/am broadcast'), 'legacy broadcast transport must not be used');
 assert.ok(ipc.includes('127.0.0.1'), 'local IPC server must bind loopback');
