@@ -30,7 +30,7 @@ assert.ok(agent.includes('heartbeatTimer.unref?.()'), 'heartbeat must not keep a
 assert.ok(agent.includes("log('AGENT LOOP EXIT — supervisor will restart process')"), 'worker loop exit must hand control back to supervisor');
 assert.ok(agent.includes("process.on('SIGTERM',()=>requestStop('SIGTERM'))"), 'SIGTERM must trigger controlled supervisor restart');
 assert.ok(transport.includes('http://127.0.0.1:45874/execute'), 'executor must use loopback IPC');
-assert.ok(transport.includes("const PACKAGE = 'com.robvg9.aria'"), 'Termux must target the unified ARIA application package');
+assert.ok(transport.includes("const PACKAGE = 'com.robvg9.aria.unified'"), 'Termux must target the unified ARIA application package');
 assert.ok(transport.includes('com.robvg9.ariauiagent.CommandReceiver'), 'Termux fallback must target the qualified module receiver class');
 assert.ok(transport.includes('com.robvg9.ariauiagent.MainActivity'), 'Termux recovery must launch the module MainActivity inside the unified app');
 assert.ok(transport.includes("payload.package !== PACKAGE"), 'health probe must reject a legacy APK that owns the old shared port');
