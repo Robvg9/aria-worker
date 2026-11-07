@@ -7,7 +7,9 @@ on:
       - 'supabase/functions/_shared/mission-wonder-2-a6-scope-v1.mjs'
       - 'tests/mission-wonder-2-step6-a6-isolated-scope.test.mjs'
       - 'tests/mission-wonder-2-step6-a6-runtime-wiring.test.mjs'
-      - 'supabase/functions/aria-mission-wonder-2-a6-dispatch-v1/index.ts'
+      - 'supabase/functions/aria-cron-auth-v1/index.ts'
+      - 'supabase/migrations/20261107100000_aria_m22_a6_cron_auth_slot_reuse_v1.sql'
+      - '.github/scripts/mission-wonder-2-step6-a6-cron-auth-slot-reuse-v1.sql'
       - 'supabase/functions/aria-canonical-runtime-v1/index.ts'
       - 'supabase/functions/aria-mission-runner-v22/index.ts'
       - 'supabase/functions/aria-device-gateway/index.ts'
@@ -95,7 +97,10 @@ jobs:
             active boolean default null
           ) returns void language plpgsql as $cron$
           begin
-            update cron.job j set active=coalesce($6,j.active)
+            update cron.job j
+               set schedule=coalesce($2,j.schedule),
+                   command=coalesce($3,j.command),
+                   active=coalesce($6,j.active)
              where j.jobid=$1;
           end;
           $cron$;
@@ -124,6 +129,7 @@ jobs:
         run: |
           set -euo pipefail
           psql -v ON_ERROR_STOP=1 -f supabase/migrations/20261106154808_aria_mission_wonder_2_a6_isolated_scope_v1.sql
+          psql -v ON_ERROR_STOP=1 -f supabase/migrations/20261107100000_aria_m22_a6_cron_auth_slot_reuse_v1.sql
           psql -v ON_ERROR_STOP=1 <<'SQL'
           do $verify$
           declare snap jsonb; a6_total integer; a6_active integer; legacy_active integer;
@@ -137,6 +143,15 @@ jobs:
             if a6_total<>1 then raise exception 'A6_CRON_CREATE_COUNT_INVALID'; end if;
             select count(*) into a6_active from cron.job where jobname='aria-mission-wonder-2-a6-dispatcher-every-minute' and active;
             if a6_active<>0 then raise exception 'A6_CRON_MUST_BE_INACTIVE'; end if;
+            if (select count(*) from cron.job where jobname='aria-mission-wonder-2-a6-dispatcher-every-minute'
+                 and command like '%/functions/v1/aria-cron-auth-v1%'
+                 and command like '%x-aria-dispatcher%'
+                 and command like '%dispatch_due%')<>1 then
+              raise exception 'A6_CRON_MUST_ROUTE_THROUGH_EXISTING_CRON_AUTH_FUNCTION';
+            end if;
+            if (select count(*) from cron.job where jobid in (48,49,50) and not active)<>3 then
+              raise exception 'LEGACY_CRON_ACTIVATION_STATE_CHANGED';
+            end if;
             if exists(select 1 from aria_internal.mission_wonder_2_a6_runs) then raise exception 'RUN_CREATED_BY_MIGRATION'; end if;
             if exists(select 1 from aria_internal.mission_wonder_2_a6_scopes) then raise exception 'SCOPE_CREATED_BY_MIGRATION'; end if;
             if exists(select 1 from aria_internal.mission_state) then raise exception 'MISSION_CREATED_BY_MIGRATION'; end if;
