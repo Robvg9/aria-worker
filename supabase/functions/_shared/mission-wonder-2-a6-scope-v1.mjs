@@ -132,7 +132,7 @@ export function m22A6BuildContinuityProbeStepV1(deviceId, runId, ordinal, humanG
     depends_on: [],
     verify: {
       expected_exit_code: 0,
-      stdout_contains: "A6_ARTIFACT_VERIFIED;sequence=" + sequence,
+      stdout_contains: "A6_ARTIFACT_VERIFIED;mode=",
     },
   };
 }

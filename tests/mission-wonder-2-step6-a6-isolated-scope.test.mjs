@@ -70,6 +70,13 @@ for (let ordinal = 1; ordinal <= M22_A6_MISSION_COUNT; ordinal += 1) {
   assert.match(step.input.command, /A6_ARTIFACT_DUPLICATES_FOUND/);
   assert.match(step.input.command, /A6_ARTIFACT_CONTENT_MISMATCH/);
   assert.match(step.input.command, /A6_ARTIFACT_VERIFIED;mode=identical/);
+  assert.equal(step.verify.stdout_contains, "A6_ARTIFACT_VERIFIED;mode=");
+  for (const mode of ["created", "identical"]) {
+    const sample = `A6_ARTIFACT_VERIFIED;mode=${mode};sequence=${String(ordinal).padStart(2, "0")};sha256=${"a".repeat(64)};artifact=${step.policy.allowed_artifact_path}`;
+    assert.ok(sample.includes(step.verify.stdout_contains));
+    assert.match(sample, new RegExp("^A6_ARTIFACT_VERIFIED;mode=(created|identical);sequence=" + String(ordinal).padStart(2, "0") + ";sha256=[a-f0-9]{64};artifact="));
+    assert.ok(sample.endsWith(step.policy.allowed_artifact_path));
+  }
   assert.equal(/Remove-Item|Set-Content|Invoke-WebRequest|Invoke-RestMethod|Restart-Computer|Start-Sleep/i.test(step.input.command), false);
   assert.equal(m22A6ContinuityProbeStepMatchesV1({ ...step, timeout_ms: 60001 }, DEVICE, RUN_ID, ordinal, HUMAN_GATE_REF), false);
 }

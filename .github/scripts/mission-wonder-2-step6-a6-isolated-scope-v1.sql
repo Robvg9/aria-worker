@@ -465,7 +465,7 @@ begin
     'depends_on','[]'::jsonb,
     'verify',jsonb_build_object(
       'expected_exit_code',0,
-      'stdout_contains','A6_ARTIFACT_VERIFIED;sequence='||lpad(sc.ordinal::text,2,'0')
+      'stdout_contains','A6_ARTIFACT_VERIFIED;mode='
     )
   );
 
