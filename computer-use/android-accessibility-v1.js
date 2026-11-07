@@ -28,7 +28,7 @@ function resolveAndroidAmPath(env = process.env, existsSync = fs.existsSync) {
   return 'am';
 }
 
-const PACKAGE = 'com.robvg9.aria';
+const PACKAGE = 'com.robvg9.aria.unified';
 const RECEIVER_COMPONENT = 'com.robvg9.ariauiagent.CommandReceiver';
 const MAIN_ACTIVITY_COMPONENT = 'com.robvg9.ariauiagent.MainActivity';
 const IPC_TOKEN = '4fa3c34b8093d0ac3633fd58ade90bc224827f2a7b21cf29f26931c637e34d76';
