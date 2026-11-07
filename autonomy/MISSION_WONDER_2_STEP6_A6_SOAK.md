@@ -58,3 +58,26 @@ Run exact-SHA CI for this preparation slice and review the generated diff. Only 
 ### A6-only backlog accounting
 
 The `a6BacklogSamples` evidence field measures only pending jobs belonging to this A6 run (`a6PendingJobs`, `oldestA6PendingAgeMs`). It must be empty at the end. It must never include or drain historical/non-A6 missions or jobs; those remain protected by the before/after count and fingerprint invariance checks.
+
+
+### A6 mission marker execution bound
+
+Each of the five idempotent marker missions carries one physical execution job and exactly one attempt. This keeps the run capped at five jobs total; a retry from the generic runner cannot generate a sixth job. Continuity/recovery is measured at the worker/dispatcher level, and each marker's fixed content makes repeated manual verification non-mutating. Any failed marker blocks the run rather than silently enqueueing another job.
+
+## LIVE 24h gate (prepared, not started)
+
+- Five single-step missions are scheduled at +1h, +6h, +12h, +18h and +23h.
+- One allowlisted Windows device; one job per mission; one attempt; no LLM/provider call; no automatic retry.
+- Heartbeat target 30s with a 90s maximum age and maximum sample gap.
+- The dispatcher blocks and disables only the A6 cron if device freshness or sampling continuity exceeds the limit.
+- Final reconciliation requires at least 1,368 heartbeat samples, all five independently verified jobs, zero recoveries/retries, p95 job latency at or below 90s, no more than one pending A6 job, backlog age at or below 5 minutes, and unchanged non-A6 fingerprints with crons 48/49/50 still disabled.
+- The LIVE SQL finalizer also requires five mission completions inside the 24-hour window, a completion span of at least 18 hours (75%), and no consecutive completion gap above 7 hours. All five completion timestamps must also be distinct. Catch-up bursts after a dispatcher outage therefore cannot qualify as a soak PASS.
+- The migration creates the dedicated A6 cron inactive. Only a separately approved start_run call activates it; global MISSION_EXECUTION_PAUSED=true remains unchanged.
+- This is not yet a live soak. CI and local PostgreSQL validation do not count as 24h evidence.
+
+
+## Five-scenario fault-matrix evidence — pre-soak CI only
+
+The required scenarios are `host_restart`, `provider_degraded`, `executor_offline`, `timeout`, and `rate_limit`. A deterministic contract harness exercises these failure/recovery branches without restarting the user's computer or worker, intentionally taking a real device offline, calling external providers, or sending network traffic. It verifies same-job identity, same-artifact idempotency, zero duplicate jobs/artifacts, and zero provider/network calls. GitHub Actions uploads a hash-addressed JSON evidence artifact pinned to the workflow SHA and retains it for 30 days.
+
+This artifact proves the deterministic control contract only; it is not evidence that a real production host restart/provider incident/rate-limit occurred during the 24-hour soak. The LIVE soak separately proves real heartbeat continuity, five successful physical marker jobs, zero runtime job recovery/retries, latency, backlog and ambient invariance. Final A6 certification must reference both the pre-soak artifact SHA/workflow run and the 24-hour LIVE evidence. It must not label simulated fault fixtures as observed LIVE incidents.
