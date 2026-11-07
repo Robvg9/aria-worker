@@ -9,6 +9,7 @@ on:
       - 'tests/mission-wonder-2-step6-a6-runtime-wiring.test.mjs'
       - 'supabase/functions/aria-cron-auth-v1/index.ts'
       - 'supabase/migrations/20261107100000_aria_m22_a6_cron_auth_slot_reuse_v1.sql'
+      - 'supabase/migrations/20261107133800_aria_m22_a6_stdout_verification_marker_alignment_v1.sql'
       - '.github/scripts/mission-wonder-2-step6-a6-cron-auth-slot-reuse-v1.sql'
       - 'supabase/functions/aria-canonical-runtime-v1/index.ts'
       - 'supabase/functions/aria-mission-runner-v22/index.ts'
@@ -130,9 +131,10 @@ jobs:
           set -euo pipefail
           psql -v ON_ERROR_STOP=1 -f supabase/migrations/20261106154808_aria_mission_wonder_2_a6_isolated_scope_v1.sql
           psql -v ON_ERROR_STOP=1 -f supabase/migrations/20261107100000_aria_m22_a6_cron_auth_slot_reuse_v1.sql
+          psql -v ON_ERROR_STOP=1 -f supabase/migrations/20261107133800_aria_m22_a6_stdout_verification_marker_alignment_v1.sql
           psql -v ON_ERROR_STOP=1 <<'SQL'
           do $verify$
-          declare snap jsonb; a6_total integer; a6_active integer; legacy_active integer;
+          declare snap jsonb; a6_total integer; a6_active integer; legacy_active integer; function_source text;
           begin
             snap := aria_internal.aria_m22_a6_ambient_snapshot_v1();
             if (snap->>'missionExecutionPaused')::boolean is distinct from true then raise exception 'A6_FREEZE_FALSE'; end if;
@@ -151,6 +153,11 @@ jobs:
             end if;
             if (select count(*) from cron.job where jobid in (48,49,50) and not active)<>3 then
               raise exception 'LEGACY_CRON_ACTIVATION_STATE_CHANGED';
+            end if;
+            select pg_get_functiondef('aria_internal.aria_m22_a6_materialize_due_mission_v1(text,text)'::regprocedure) into function_source;
+            if position('A6_ARTIFACT_VERIFIED;mode=' in function_source)=0
+               or position('A6_ARTIFACT_VERIFIED;sequence=' in function_source)>0 then
+              raise exception 'A6_STDOUT_VERIFY_MARKER_ALIGNMENT_FAILED';
             end if;
             if exists(select 1 from aria_internal.mission_wonder_2_a6_runs) then raise exception 'RUN_CREATED_BY_MIGRATION'; end if;
             if exists(select 1 from aria_internal.mission_wonder_2_a6_scopes) then raise exception 'SCOPE_CREATED_BY_MIGRATION'; end if;
