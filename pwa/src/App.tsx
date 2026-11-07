@@ -3069,14 +3069,29 @@ function Chat({
                       <button type='button' className='ghost' disabled={telegramSetupBusy} onClick={() => void discoverTelegramChats()}>
                         {telegramSetupBusy ? 'Consultando…' : 'Buscar chats que enviaron /start'}
                       </button>
+                      <button
+                        type='button'
+                        className='primary'
+                        disabled={telegramSetupBusy || !telegramRecipientId.trim() || !telegramDisplayName.trim() || !/^-?[0-9]{1,20}$/.test(telegramChatId.trim())}
+                        onClick={() => void saveTelegramRecipient()}
+                        title='Selecciona un chat, escribe un alias y guarda'>
+                        {telegramSetupBusy ? 'Verificando…' : 'Guardar destinatario'}
+                      </button>
                     </div>
+                    {telegramChatId.trim() && (
+                      <small className='telegramSetupNotice' style={{ marginTop: -2 }}>
+                        Chat seleccionado: <strong>{telegramChatId.trim()}</strong>
+                        {telegramDisplayName.trim() ? ` · ${telegramDisplayName.trim()}` : ''}
+                      </small>
+                    )}
                     {telegramStartChats.length > 0 && (
-                      <div className='telegramRecipientList'>
+                      <div className='telegramRecipientList telegramStartChatsList'>
                         {telegramStartChats.map((item:any) => (
                           <button type='button' className='telegramStartChat' key={String(item.chat_id)}
                             onClick={() => {
                               setTelegramChatId(String(item.chat_id));
                               setTelegramDisplayName(String(item.display_hint || 'Telegram'));
+                              setTelegramStartChats([]);
                             }}>
                             <span><strong>{String(item.display_hint || 'Telegram')}</strong><small>{String(item.chat_type)} · {String(item.chat_id)}</small></span>
                             <span>Usar</span>
@@ -3085,14 +3100,11 @@ function Chat({
                       </div>
                     )}
                     <div className='telegramSetupFields'>
-                      <label>Alias para ARIA<input value={telegramRecipientId} onChange={e => setTelegramRecipientId(e.target.value)} placeholder='mama' maxLength={64}/></label>
+                      <label>Alias para ARIA<input value={telegramRecipientId} onChange={e => setTelegramRecipientId(e.target.value)} placeholder='mama (letras, números, . - _)' maxLength={64}/></label>
                       <label>Nombre visible<input value={telegramDisplayName} onChange={e => setTelegramDisplayName(e.target.value)} placeholder='Mamá' maxLength={120}/></label>
                       <label>Chat ID<input value={telegramChatId} onChange={e => setTelegramChatId(e.target.value)} placeholder='Se completa al seleccionar un chat' maxLength={20}/></label>
-                      <button type='button' className='primary' disabled={telegramSetupBusy} onClick={() => void saveTelegramRecipient()}>
-                        {telegramSetupBusy ? 'Verificando…' : 'Guardar destinatario'}
-                      </button>
                     </div>
-                    {telegramSetupNotice && <small className='telegramSetupNotice' role='status'>{telegramSetupNotice}</small>}
+                    {telegramSetupNotice && <small className='telegramSetupNotice' role='status' aria-live='polite'>{telegramSetupNotice}</small>}
                   </div>
                 )}
               </section>
