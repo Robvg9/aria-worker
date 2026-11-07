@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { resolveVoiceRecognitionLocale } from './voiceWakeWord';
 
 type VoiceInputButtonProps = {
   onTranscript: (transcript: string) => void | Promise<unknown>;
@@ -216,37 +217,57 @@ export function VoiceInputButton({
     sessionRef.current = session;
 
     try {
-      const recognition = new SpeechRecognitionConstructor() as SpeechRecognitionLike;
-      session.recognition = recognition;
-      recognition.lang = 'es-PR';
-      recognition.continuous = true;
-      recognition.interimResults = true;
-      recognition.maxAlternatives = 1;
-      recognition.onresult = (event: any) => {
-        const finalParts: string[] = [];
-        const startIndex = Math.max(0, Number(event?.resultIndex) || 0);
-        for (let index = startIndex; index < (event?.results?.length || 0); index += 1) {
-          const item = event.results[index];
-          if (!item?.isFinal) continue;
-          const phrase = String(item?.[0]?.transcript || '').trim();
-          if (phrase) finalParts.push(phrase);
-        }
-        if (finalParts.length) {
-          session.transcript = [session.transcript, ...finalParts].filter(Boolean).join(' ').trim();
-          setNotice('Transcribiendo… puedes detener el dictado cuando termines.');
-        }
+      const startRecognition = (locale: string) => {
+        const recognition = new SpeechRecognitionConstructor() as SpeechRecognitionLike;
+        session.recognition = recognition;
+        recognition.lang = locale;
+        recognition.continuous = true;
+        recognition.interimResults = true;
+        recognition.maxAlternatives = 1;
+        recognition.onresult = (event: any) => {
+          const finalParts: string[] = [];
+          const startIndex = Math.max(0, Number(event?.resultIndex) || 0);
+          for (let index = startIndex; index < (event?.results?.length || 0); index += 1) {
+            const item = event.results[index];
+            if (!item?.isFinal) continue;
+            const phrase = String(item?.[0]?.transcript || '').trim();
+            if (phrase) finalParts.push(phrase);
+          }
+          if (finalParts.length) {
+            session.transcript = [session.transcript, ...finalParts].filter(Boolean).join(' ').trim();
+            setNotice('Transcribiendo… puedes detener el dictado cuando termines.');
+          }
+        };
+        recognition.onerror = (event: any) => {
+          const code = String(event?.error || 'unknown');
+          if (code === 'language-not-supported' && locale !== 'es-ES') {
+            session.recognitionError = '';
+            setNotice('El español configurado no está disponible; probando español general…');
+            try {
+              recognition.onend = null;
+              recognition.abort?.();
+              startRecognition('es-ES');
+              return;
+            } catch {
+              session.recognitionError = ERROR_MESSAGES[code] || 'El navegador no admite el idioma seleccionado.';
+              session.recognitionEnded = true;
+              settle(session);
+            }
+          } else {
+            session.recognitionError = ERROR_MESSAGES[code] || 'No se pudo transcribir el audio (' + code + ').';
+          }
+        };
+        recognition.onend = () => {
+          if (session.recognition !== recognition) return;
+          session.recognitionEnded = true;
+          settle(session);
+        };
+        recognitionRef.current = recognition;
+        recognition.start();
       };
-      recognition.onerror = (event: any) => {
-        const code = String(event?.error || 'unknown');
-        session.recognitionError = ERROR_MESSAGES[code] || 'No se pudo transcribir el audio (' + code + ').';
-      };
-      recognition.onend = () => {
-        session.recognitionEnded = true;
-        settle(session);
-      };
+
       activeRef.current = true;
-      recognition.start();
-      recognitionRef.current = recognition;
+      startRecognition(resolveVoiceRecognitionLocale(navigator.language, navigator.languages));
       setListening(true);
       setNotice(captureAudio ? 'Preparando audio y transcripción… habla ahora.' : 'Escuchando… habla ahora.');
       if (captureAudio) void startAudioCapture(session);

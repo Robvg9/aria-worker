@@ -12,6 +12,10 @@ import { m22A5GoalIdentityHashV1, m22A5ScopeRowMatchesV1, M22_A5_SCOPE_ID } from
 import { inspectGithubSource, buildCapabilityIndex, buildAbsorptionPlan, buildAbsorptionIdentity, advanceAbsorptionPlan, evaluateAbsorptionCompletion } from "../_shared/absorb-engine.mjs";
 import { deriveMissionDisplayTitle, MISSION_TITLE_VERSION } from "../_shared/mission-title.mjs";
 import { handlePrivateVaultRequest, isPrivateVaultRoute, privateVaultAuthFailure, privateVaultPreflight } from "./private-vault.ts";
+import { createVoiceCommandRouter } from "../_shared/voice-command-router.mjs";
+import { createOwnerSessionVerifier } from "../_shared/voice-owner-session-verifier.mjs";
+import { createVoiceCommandStores } from "./voice-command-storage.ts";
+import { createTelegramMessageDelivery } from "../_shared/telegram-message-delivery.mjs";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
@@ -816,7 +820,8 @@ async function executeConversationWithFallback(step:any, prompt:string, conversa
 }
 
 
-async function executeVoiceConversation(step:any,prompt:string,conversationId:string,visualContext:any,clientMessageId:string|null) {
+async function executeVoiceConversation(step:any,prompt:string,conversationId:string,visualContext:any,clientMessageId:string|null,traceId:string) {
+  const routeStartedAt=Date.now();
   const routes=await conversationRoutes();
   const primary=step?.target && step.target.provider_id!=="local_windows" ? step.target : null;
   const candidates:any[]=[];
@@ -826,20 +831,67 @@ async function executeVoiceConversation(step:any,prompt:string,conversationId:st
     if(!seen.has(key)){seen.add(key);candidates.push(route);}
     if(candidates.length>=2)break;
   }
-  if(!candidates.length)throw new Error("voice_cloud_route_unavailable");
+  console.info("[ARIA-VOICE-REQUEST-START]",JSON.stringify({
+    trace_id:traceId,
+    provider_candidate_count:candidates.length,
+    request_timeout_ms:12000,
+    provider_timeout_ms:6000,
+    local_fallback:false
+  }));
+  if(!candidates.length){
+    console.warn("[ARIA-VOICE-ROUTE-FAILED]",JSON.stringify({
+      trace_id:traceId,
+      error_code:"voice_cloud_route_unavailable",
+      duration_ms:Date.now()-routeStartedAt
+    }));
+    throw new Error("voice_cloud_route_unavailable");
+  }
   const failures:any[]=[];
-  for(const route of candidates){
+  for(let attempt=0;attempt<candidates.length;attempt++){
+    const route=candidates[attempt];
+    const providerStartedAt=Date.now();
     const candidate={...(step||{}),target:{...(step?.target||{}),type:"model",provider_id:route.provider_id,account_id:route.account_id,model_id:route.model_id}};
+    console.info("[ARIA-VOICE-PROVIDER-ATTEMPT]",JSON.stringify({
+      trace_id:traceId,
+      attempt:attempt+1,
+      provider_id:String(route.provider_id),
+      model_id:String(route.model_id)
+    }));
     try{
       const result=await execute(candidate,prompt,conversationId,visualContext,clientMessageId,true,12000,160,true);
       const content=typeof result?.response?.content==="string"?result.response.content.trim():"";
       if(result?.status!=="succeeded"||!content)throw new Error("voice_empty_response");
+      console.info("[ARIA-VOICE-RESPONSE-RECEIVED]",JSON.stringify({
+        trace_id:traceId,
+        provider_id:String(route.provider_id),
+        model_id:String(route.model_id),
+        duration_ms:Date.now()-providerStartedAt,
+        route_duration_ms:Date.now()-routeStartedAt,
+        response_chars:content.length,
+        status:"succeeded",
+        fallback_count:failures.length
+      }));
       return {result,route,fallback_count:failures.length,failures};
     }catch(error){
-      failures.push({provider_id:String(route.provider_id),model_id:String(route.model_id),error:sanitizeChatFailureDetail(error instanceof Error?error.message:error)});
+      const detail=error instanceof Error?error.message:String(error);
+      const code=detail.match(/^([a-z][a-z0-9_]{2,80})(?::|$)/i)?.[1]?.toLowerCase()||"provider_request_failed";
+      console.warn("[ARIA-VOICE-PROVIDER-FAILED]",JSON.stringify({
+        trace_id:traceId,
+        provider_id:String(route.provider_id),
+        model_id:String(route.model_id),
+        duration_ms:Date.now()-providerStartedAt,
+        error_code:code
+      }));
+      failures.push({provider_id:String(route.provider_id),model_id:String(route.model_id),error:sanitizeChatFailureDetail(detail)});
       if(!shouldRetryPrimaryRouteOnce(error))break;
     }
   }
+  console.error("[ARIA-VOICE-ROUTE-FAILED]",JSON.stringify({
+    trace_id:traceId,
+    total_duration_ms:Date.now()-routeStartedAt,
+    attempted_providers:failures.length,
+    error_code:"voice_response_unavailable"
+  }));
   const error:any=new Error("voice_response_unavailable:"+failures.map((item:any)=>item.provider_id+"_"+item.error).join("|"));
   error.failures=failures;
   throw error;
@@ -1998,6 +2050,134 @@ async function reorderMeditationQueue(userId:string, orderedMissionIds:string[])
   return {ordered_mission_ids:ids,queue_priorities:Object.fromEntries(ids.map((id,i)=>[id,priorityBase-i]))};
 }
 
+
+function readVoiceAllowList(name: string): string[] {
+  const raw = String(Deno.env.get(name) || "").trim();
+  if (!raw) return [];
+  let values: unknown;
+  try { values = JSON.parse(raw); } catch { values = raw.split(",").map(value => value.trim()); }
+  if (!Array.isArray(values)) return [];
+  return [...new Set(values.filter((value): value is string =>
+    typeof value === "string" && value.length > 0 && value.length <= 253
+  ))].slice(0, 100);
+}
+
+async function createVoiceCommandApiRouter(ownerId: string) {
+  const sb = serviceClient();
+  const stores = createVoiceCommandStores(sb, ownerId);
+  const telegramDelivery = createTelegramMessageDelivery({
+    botToken: Deno.env.get("ARIA_TELEGRAM_BOT_TOKEN") ?? "",
+    authorizedOwnerId: Deno.env.get("ARIA_TELEGRAM_OWNER_ID") ?? "",
+    stores
+  });
+  const verifyOwnerSession = createOwnerSessionVerifier({
+    resolveTrustedDeviceKey: (deviceId: string) => stores.resolveTrustedDeviceKey(deviceId),
+    resolveSpeakerPolicy: (input: any) => stores.resolveSpeakerPolicy({
+      ownerId: String(input.ownerId || ""),
+      deviceId: String(input.deviceId || "")
+    }),
+    nonceStore: stores.nonceStore
+  });
+
+  async function resolveDevice(deviceId: string) {
+    const [trusted, lookup] = await Promise.all([
+      stores.resolveTrustedDeviceKey(deviceId),
+      sb.schema("aria_internal").from("device_registry")
+        .select("device_id,display_name,agent_type,status,capabilities,last_seen_at")
+        .eq("device_id", deviceId).maybeSingle()
+    ]);
+    if (lookup.error) throw new Error("voice_device_lookup_failed");
+    const row = lookup.data;
+    if (!trusted || !row || row.device_id !== deviceId) return null;
+    const lastSeen = Date.parse(String(row.last_seen_at || ""));
+    const fresh = Number.isFinite(lastSeen) && Date.now() - lastSeen <= 90_000;
+    return {
+      device_id: String(row.device_id),
+      display_name: typeof row.display_name === "string" ? row.display_name : null,
+      agent_type: String(row.agent_type || "unknown"),
+      status: String(row.status || "unknown"),
+      health: row.status === "online" && fresh ? "healthy" : "degraded",
+      security: trusted.security,
+      capabilities: Array.isArray(row.capabilities) ? row.capabilities : [],
+      last_seen_at: row.last_seen_at
+    };
+  }
+
+  async function readStatus(input: any) {
+    if (input.device) {
+      return {
+        state: String(input.device.status || "unknown"),
+        device_id: String(input.device.device_id)
+      };
+    }
+    const { data: keys, error: keyError } = await sb.schema("aria_internal")
+      .from("voice_trusted_device_keys")
+      .select("device_id")
+      .eq("owner_user_id", ownerId)
+      .eq("enabled", true)
+      .eq("security", "trusted")
+      .is("revoked_at", null);
+    if (keyError) throw new Error("voice_status_device_lookup_failed");
+    const deviceIds = [...new Set((keys || []).map((row: any) => String(row.device_id || "")).filter(Boolean))];
+    if (!deviceIds.length) return { state: "no_trusted_devices" };
+    const { data: devices, error } = await sb.schema("aria_internal").from("device_registry")
+      .select("device_id,status,last_seen_at")
+      .in("device_id", deviceIds);
+    if (error) throw new Error("voice_status_device_lookup_failed");
+    const rows = Array.isArray(devices) ? devices : [];
+    const online = rows.filter((row: any) => {
+      const lastSeen = Date.parse(String(row.last_seen_at || ""));
+      return row.status === "online" && Number.isFinite(lastSeen) && Date.now() - lastSeen <= 90_000;
+    }).length;
+    return { state: String(online) + "/" + String(rows.length) + "_trusted_devices_online" };
+  }
+
+  const authorizeCapability = async (input: any) => {
+    if (input.ownerId !== ownerId) return { allowed: false, reason: "voice_owner_mismatch" };
+    const readCapabilities = new Set(["aria.status.read", "device.telemetry"]);
+    const actionCapabilities = new Set([
+      "display.brightness.write", "app.open", "browser.open_url"
+    ]);
+    if (input.risk === "read" && readCapabilities.has(input.capability)) {
+      return { allowed: true, reason: "trusted_owner_read_only" };
+    }
+    if (input.risk !== "read" && actionCapabilities.has(input.capability)) {
+      return { allowed: true, reason: "signed_owner_session_and_device_policy_required" };
+    }
+    return { allowed: false, reason: "voice_capability_not_allowlisted" };
+  };
+
+  const executeAction = async (input: any) => {
+    const queued = await stores.enqueueDeviceCommand({
+      ownerId,
+      deviceId: String(input.device?.device_id || ""),
+      sourceDeviceId: String(input.sourceDeviceId || ""),
+      requestId: String(input.requestId || ""),
+      idempotencyKey: String(input.idempotencyKey || ""),
+      operation: String(input.operation || ""),
+      params: input.params || {},
+      expiresAt: Number(input.expiresAt || 0)
+    });
+    if (!queued || typeof queued !== "object") throw new Error("voice_device_queue_unavailable");
+    return { ok: true, ...queued };
+  };
+
+  return createVoiceCommandRouter({
+    authenticatedOwnerId: ownerId,
+    verifyOwnerSession,
+    authorizeCapability,
+    resolveDevice,
+    readStatus,
+    executeAction,
+    idempotencyStore: stores.idempotencyStore,
+    prepareMessage: input => telegramDelivery.prepare(input),
+    isMissionExecutionPaused: () => MISSION_EXECUTION_PAUSED,
+    allowedApps: readVoiceAllowList("ARIA_VOICE_ALLOWED_APPS"),
+    allowedUrlHosts: readVoiceAllowList("ARIA_VOICE_ALLOWED_URL_HOSTS"),
+    maxRequestTtlMs: 30_000
+  });
+}
+
 Deno.serve(async (req) => {
   const trace = req.headers.get("x-aria-trace-id") ?? crypto.randomUUID();
   const internalPath = new URL(req.url).pathname.replace(/\/+$/, "");
@@ -2044,6 +2224,389 @@ Deno.serve(async (req) => {
     if (req.method === "GET" && path.endsWith("/session")) return json({ ok: true, service: "aria-app-api-v3", user: { id: user.id, email: user.email ?? null }, trace_id: trace });
     if (req.method === "GET" && path.endsWith("/system")) { const r = await fetch(DIRECT); const b = await r.json().catch(() => null); return json({ ok: r.ok, service: "aria-app-api-v3", user_id: user.id, aria: b, trace_id: trace }, r.ok ? 200 : 502); }
     if (req.method === "GET" && path.endsWith("/capabilities")) return json({ ok: true, capabilities: await capabilityCatalog(user.id), trace_id: trace });
+    if (req.method === "POST" && path.endsWith("/voice/devices/pair")) {
+      const body = await req.json().catch(() => null);
+      const expectedFields = ["device_id", "device_token", "public_key_id", "public_key_ed25519"];
+      if (!body || typeof body !== "object" || Array.isArray(body)
+          || Object.keys(body).sort().join(",") !== [...expectedFields].sort().join(",")
+          || typeof body.device_id !== "string" || !/^android-voice-[a-f0-9]{64}$/.test(body.device_id)
+          || typeof body.device_token !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(body.device_token)
+          || body.public_key_id !== "aria-android-keystore-ed25519-v1"
+          || typeof body.public_key_ed25519 !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(body.public_key_ed25519)) {
+        return json({ ok: false, error: "voice_android_pairing_invalid", trace_id: trace }, 400);
+      }
+      try {
+        const stores = createVoiceCommandStores(serviceClient(), String(user.id));
+        const pairing = await stores.pairOwnerDeviceKey({
+          ownerId: String(user.id),
+          deviceId: body.device_id,
+          deviceToken: body.device_token,
+          publicKeyId: body.public_key_id,
+          publicKeyEd25519: body.public_key_ed25519
+        });
+        return json({
+          ok: true,
+          device: {
+            owner_id: pairing.owner_id,
+            device_id: pairing.device_id,
+            public_key_id: pairing.public_key_id,
+            public_key_fingerprint: pairing.public_key_fingerprint,
+            security: pairing.security,
+            enabled: pairing.enabled,
+            registered_at: pairing.registered_at,
+            capabilities: [],
+            wake_word_enabled: false,
+            mode: "read_only"
+          },
+          trace_id: trace
+        }, 201);
+      } catch {
+        return json({ ok: false, error: "voice_android_pairing_rejected", trace_id: trace }, 409);
+      }
+    }
+    if (req.method === "POST" && path.endsWith("/voice/devices/heartbeat")) {
+      const body = await req.json().catch(() => null);
+      if (!body || typeof body !== "object" || Array.isArray(body)
+          || Object.keys(body).sort().join(",") !== "device_id,device_token"
+          || typeof body.device_id !== "string" || !/^android-voice-[a-f0-9]{64}$/.test(body.device_id)
+          || typeof body.device_token !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(body.device_token)) {
+        return json({ ok: false, error: "voice_android_heartbeat_invalid", trace_id: trace }, 400);
+      }
+      try {
+        const stores = createVoiceCommandStores(serviceClient(), String(user.id));
+        const heartbeat = await stores.heartbeatOwnerDeviceKey({
+          ownerId: String(user.id),
+          deviceId: body.device_id,
+          deviceToken: body.device_token
+        });
+        if (!heartbeat) return json({ ok: false, heartbeat: false, trace_id: trace }, 409);
+        return json({ ok: true, heartbeat: true, device_id: body.device_id, mode: "read_only", trace_id: trace }, 200);
+      } catch {
+        return json({ ok: false, error: "voice_android_heartbeat_rejected", trace_id: trace }, 409);
+      }
+    }
+    if (req.method === "POST" && path.endsWith("/voice/devices/pair-windows")) {
+      const body = await req.json().catch(() => null);
+      const expectedFields = ["device_id", "device_token", "public_key_id", "public_key_ed25519"];
+      if (!body || typeof body !== "object" || Array.isArray(body)
+          || Object.keys(body).sort().join(",") !== [...expectedFields].sort().join(",")
+          || typeof body.device_id !== "string" || !/^windows-[A-Za-z0-9._:-]{1,120}$/.test(body.device_id)
+          || typeof body.device_token !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(body.device_token)
+          || body.public_key_id !== "aria-windows-dpapi-ed25519-v1"
+          || typeof body.public_key_ed25519 !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(body.public_key_ed25519)) {
+        return json({ ok: false, error: "voice_windows_pairing_invalid", trace_id: trace }, 400);
+      }
+      try {
+        const stores = createVoiceCommandStores(serviceClient(), String(user.id));
+        const pairing = await stores.pairWindowsOwnerDeviceKey({
+          ownerId: String(user.id),
+          deviceId: body.device_id,
+          deviceToken: body.device_token,
+          publicKeyId: body.public_key_id,
+          publicKeyEd25519: body.public_key_ed25519
+        });
+        return json({
+          ok: true,
+          device: {
+            owner_id: pairing.owner_id,
+            device_id: pairing.device_id,
+            public_key_id: pairing.public_key_id,
+            public_key_fingerprint: pairing.public_key_fingerprint,
+            security: pairing.security,
+            enabled: pairing.enabled,
+            registered_at: pairing.registered_at,
+            capabilities: [],
+            wake_word_enabled: false,
+            mode: "read_only"
+          },
+          trace_id: trace
+        }, 201);
+      } catch {
+        return json({ ok: false, error: "voice_windows_pairing_rejected", trace_id: trace }, 409);
+      }
+    }
+    if (req.method === "POST" && path.endsWith("/voice/devices/heartbeat-windows")) {
+      const body = await req.json().catch(() => null);
+      if (!body || typeof body !== "object" || Array.isArray(body)
+          || Object.keys(body).sort().join(",") !== "device_id,device_token"
+          || typeof body.device_id !== "string" || !/^windows-[A-Za-z0-9._:-]{1,120}$/.test(body.device_id)
+          || typeof body.device_token !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(body.device_token)) {
+        return json({ ok: false, error: "voice_windows_heartbeat_invalid", trace_id: trace }, 400);
+      }
+      try {
+        const stores = createVoiceCommandStores(serviceClient(), String(user.id));
+        const heartbeat = await stores.heartbeatWindowsOwnerDeviceKey({
+          ownerId: String(user.id),
+          deviceId: body.device_id,
+          deviceToken: body.device_token
+        });
+        if (!heartbeat) return json({ ok: false, heartbeat: false, trace_id: trace }, 409);
+        return json({ ok: true, heartbeat: true, device_id: body.device_id, mode: "read_only", trace_id: trace }, 200);
+      } catch {
+        return json({ ok: false, error: "voice_windows_heartbeat_rejected", trace_id: trace }, 409);
+      }
+    }
+    if (req.method === "POST" && path.endsWith("/voice/devices/register")) {
+      const body = await req.json().catch(() => null);
+      const expectedFields = ["device_id", "device_token", "public_key_id", "public_key_ed25519"];
+      if (!body || typeof body !== "object" || Array.isArray(body)
+          || Object.keys(body).sort().join(",") !== [...expectedFields].sort().join(",")
+          || typeof body.device_id !== "string" || !/^[A-Za-z0-9._:-]{8,160}$/.test(body.device_id)
+          || typeof body.device_token !== "string" || body.device_token.length < 32 || body.device_token.length > 512
+          || typeof body.public_key_id !== "string" || !/^[A-Za-z0-9._:-]{8,128}$/.test(body.public_key_id)
+          || typeof body.public_key_ed25519 !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(body.public_key_ed25519)) {
+        return json({ ok: false, error: "voice_device_key_registration_invalid", trace_id: trace }, 400);
+      }
+      try {
+        const stores = createVoiceCommandStores(serviceClient(), String(user.id));
+        const registration = await stores.registerTrustedDeviceKey({
+          ownerId: String(user.id),
+          deviceId: body.device_id,
+          deviceToken: body.device_token,
+          publicKeyId: body.public_key_id,
+          publicKeyEd25519: body.public_key_ed25519
+        });
+        if (!registration || typeof registration !== "object") {
+          return json({ ok: false, error: "voice_device_key_registration_rejected", trace_id: trace }, 409);
+        }
+        return json({
+          ok: true,
+          device: {
+            owner_id: registration.owner_id,
+            device_id: registration.device_id,
+            public_key_id: registration.public_key_id,
+            public_key_fingerprint: registration.public_key_fingerprint,
+            security: registration.security,
+            enabled: registration.enabled,
+            registered_at: registration.registered_at
+          },
+          trace_id: trace
+        }, 201);
+      } catch {
+        // Deliberately do not disclose device-token validity, device presence, or pairing state.
+        return json({ ok: false, error: "voice_device_key_registration_rejected", trace_id: trace }, 409);
+      }
+    }
+    if (req.method === "POST" && path.endsWith("/voice/devices/revoke")) {
+      const body = await req.json().catch(() => null);
+      if (!body || typeof body !== "object" || Array.isArray(body)
+          || Object.keys(body).length !== 1
+          || typeof body.device_id !== "string" || !/^[A-Za-z0-9._:-]{8,160}$/.test(body.device_id)) {
+        return json({ ok: false, error: "voice_device_key_revocation_invalid", trace_id: trace }, 400);
+      }
+      try {
+        const stores = createVoiceCommandStores(serviceClient(), String(user.id));
+        const revoked = await stores.revokeTrustedDeviceKey({
+          ownerId: String(user.id),
+          deviceId: body.device_id
+        });
+        return json({ ok: true, revoked, trace_id: trace }, 200);
+      } catch {
+        return json({ ok: false, error: "voice_device_key_revocation_rejected", trace_id: trace }, 409);
+      }
+    }
+    if (req.method === "GET" && path.endsWith("/voice/speakers/models")) {
+      try {
+        const { data, error } = await serviceClient().schema("aria_internal")
+          .from("voice_speaker_model_catalog")
+          .select("model_id,model_family,supported_languages,minimum_score_floor")
+          .eq("status", "approved")
+          .not("approved_at", "is", null)
+          .not("evaluation_evidence_ref", "is", null)
+          .contains("supported_languages", ["es-CU"])
+          .order("model_family", { ascending: true });
+        if (error) throw new Error("voice_speaker_model_catalog_unavailable");
+        const models = Array.isArray(data) ? data : [];
+        return json({ ok: true, models, available: models.length > 0, trace_id: trace }, 200);
+      } catch {
+        return json({ ok: false, error: "voice_speaker_model_catalog_unavailable", trace_id: trace }, 503);
+      }
+    }
+    if (req.method === "POST" && path.endsWith("/voice/speakers/policy")) {
+      const body = await req.json().catch(() => null);
+      const expectedFields = ["device_id", "model_id", "consented"];
+      if (!body || typeof body !== "object" || Array.isArray(body)
+          || Object.keys(body).sort().join(",") !== [...expectedFields].sort().join(",")
+          || typeof body.device_id !== "string" || !/^[A-Za-z0-9._:-]{8,160}$/.test(body.device_id)
+          || typeof body.model_id !== "string" || !/^[A-Za-z0-9._:-]{3,160}$/.test(body.model_id)
+          || body.consented !== true) {
+        return json({ ok: false, error: "voice_speaker_policy_invalid", trace_id: trace }, 400);
+      }
+      try {
+        const stores = createVoiceCommandStores(serviceClient(), String(user.id));
+        const policy = await stores.setSpeakerPolicy({
+          ownerId: String(user.id),
+          deviceId: body.device_id,
+          modelId: body.model_id
+        });
+        if (!policy || policy.enabled !== true) {
+          return json({ ok: false, error: "voice_speaker_policy_rejected", trace_id: trace }, 409);
+        }
+        return json({
+          ok: true,
+          policy: {
+            device_id: policy.device_id,
+            model_id: policy.speaker_model_id,
+            minimum_score: policy.minimum_score,
+            enabled: policy.enabled
+          },
+          trace_id: trace
+        }, 201);
+      } catch {
+        return json({ ok: false, error: "voice_speaker_policy_rejected", trace_id: trace }, 409);
+      }
+    }
+    if (req.method === "POST" && path.endsWith("/voice/speakers/revoke")) {
+      const body = await req.json().catch(() => null);
+      if (!body || typeof body !== "object" || Array.isArray(body)
+          || Object.keys(body).length !== 1
+          || typeof body.device_id !== "string" || !/^[A-Za-z0-9._:-]{8,160}$/.test(body.device_id)) {
+        return json({ ok: false, error: "voice_speaker_policy_revocation_invalid", trace_id: trace }, 400);
+      }
+      try {
+        const stores = createVoiceCommandStores(serviceClient(), String(user.id));
+        const revoked = await stores.revokeSpeakerPolicy({
+          ownerId: String(user.id),
+          deviceId: body.device_id
+        });
+        return json({ ok: true, revoked, trace_id: trace }, 200);
+      } catch {
+        return json({ ok: false, error: "voice_speaker_policy_revocation_rejected", trace_id: trace }, 409);
+      }
+    }
+    if (req.method === "GET" && path.endsWith("/voice/messages/telegram/chats")) {
+      try {
+        const delivery = createTelegramMessageDelivery({
+          botToken: Deno.env.get("ARIA_TELEGRAM_BOT_TOKEN") ?? "",
+          authorizedOwnerId: Deno.env.get("ARIA_TELEGRAM_OWNER_ID") ?? "",
+          stores: createVoiceCommandStores(serviceClient(), String(user.id))
+        });
+        const discovered = await delivery.listStartChats({
+          ownerId: String(user.id)
+        });
+        if (discovered.ok !== true) {
+          const status = discovered.reason === "telegram_provider_not_configured" ? 503
+            : discovered.reason === "telegram_owner_mismatch" ? 403 : 502;
+          return json({ ok: false, error: discovered.reason, trace_id: trace }, status);
+        }
+        return json({ ok: true, chats: discovered.chats, trace_id: trace }, 200);
+      } catch {
+        return json({ ok: false, error: "telegram_chat_discovery_unavailable", trace_id: trace }, 503);
+      }
+    }
+    if (req.method === "GET" && path.endsWith("/voice/messages/recipients")) {
+      try {
+        const stores = createVoiceCommandStores(serviceClient(), String(user.id));
+        const recipients = await stores.listTelegramRecipients();
+        return json({ ok: true, recipients, trace_id: trace }, 200);
+      } catch {
+        return json({ ok: false, error: "telegram_recipient_list_unavailable", trace_id: trace }, 503);
+      }
+    }
+    if (req.method === "POST" && path.endsWith("/voice/messages/recipients")) {
+      const body = await req.json().catch(() => null);
+      if (!body || typeof body !== "object" || Array.isArray(body)
+          || Object.keys(body).sort().join(",") !== "display_name,recipient_id,telegram_chat_id"
+          || typeof body.recipient_id !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._-]{2,63}$/.test(body.recipient_id)
+          || typeof body.display_name !== "string" || body.display_name.trim().length < 1 || body.display_name.trim().length > 120
+          || typeof body.telegram_chat_id !== "string" || !/^-?[0-9]{1,20}$/.test(body.telegram_chat_id)) {
+        return json({ ok: false, error: "telegram_recipient_input_invalid", trace_id: trace }, 400);
+      }
+      try {
+        const stores = createVoiceCommandStores(serviceClient(), String(user.id));
+        const delivery = createTelegramMessageDelivery({
+          botToken: Deno.env.get("ARIA_TELEGRAM_BOT_TOKEN") ?? "",
+          authorizedOwnerId: Deno.env.get("ARIA_TELEGRAM_OWNER_ID") ?? "",
+          stores
+        });
+        const verified = await delivery.verifyChat(body.telegram_chat_id, String(user.id));
+        if (verified.ok !== true) {
+          const reason = String(verified.reason || "telegram_chat_not_reachable");
+          const status = reason === "telegram_owner_mismatch" ? 403
+            : reason === "telegram_provider_not_configured" ? 503 : 409;
+          return json({ ok: false, error: reason, trace_id: trace }, status);
+        }
+        const recipient = await stores.upsertTelegramRecipient({
+          recipientId: body.recipient_id,
+          displayName: body.display_name,
+          telegramChatId: body.telegram_chat_id
+        });
+        return json({ ok: true, recipient, verified: true, trace_id: trace }, 201);
+      } catch {
+        return json({ ok: false, error: "telegram_recipient_save_failed", trace_id: trace }, 409);
+      }
+    }
+    if (req.method === "POST" && path.endsWith("/voice/messages/confirm")) {
+      const body = await req.json().catch(() => null);
+      if (!body || typeof body !== "object" || Array.isArray(body)
+          || Object.keys(body).sort().join(",") !== "body,confirmation_id"
+          || typeof body.confirmation_id !== "string"
+          || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(body.confirmation_id)
+          || typeof body.body !== "string" || !body.body.trim() || body.body.length > 4000) {
+        return json({ ok: false, error: "telegram_confirmation_input_invalid", trace_id: trace }, 400);
+      }
+      try {
+        const stores = createVoiceCommandStores(serviceClient(), String(user.id));
+        const delivery = createTelegramMessageDelivery({
+          botToken: Deno.env.get("ARIA_TELEGRAM_BOT_TOKEN") ?? "",
+          authorizedOwnerId: Deno.env.get("ARIA_TELEGRAM_OWNER_ID") ?? "",
+          stores
+        });
+        const result = await delivery.confirm({
+          ownerId: String(user.id),
+          confirmationId: body.confirmation_id,
+          body: body.body
+        });
+        if (result.status === "sent") return json({ ok: true, delivery: result, trace_id: trace }, 200);
+        const status = result.status === "unknown" ? 409
+          : result.reason === "telegram_provider_not_configured" ? 503 : 409;
+        return json({ ok: false, error: String(result.reason || "telegram_delivery_failed"), delivery: result, trace_id: trace }, status);
+      } catch {
+        return json({ ok: false, error: "telegram_delivery_unavailable", trace_id: trace }, 503);
+      }
+    }
+    const voiceCommandStatusPath = path.match(/\/voice\/commands\/([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$/i);
+    if (req.method === "GET" && voiceCommandStatusPath) {
+      try {
+        const stores = createVoiceCommandStores(serviceClient(), String(user.id));
+        const command = await stores.getDeviceCommandStatus({
+          ownerId: String(user.id),
+          commandId: voiceCommandStatusPath[1]
+        });
+        if (!command) return json({ ok: false, error: "voice_command_not_found", trace_id: trace }, 404);
+        return json({
+          ok: true,
+          command,
+          terminal: ["succeeded","failed","expired","cancelled"].includes(command.status),
+          trace_id: trace
+        }, 200);
+      } catch {
+        return json({ ok: false, error: "voice_command_status_unavailable", trace_id: trace }, 503);
+      }
+    }
+    if (req.method === "POST" && path.endsWith("/voice/commands")) {
+      const body = await req.json().catch(() => null);
+      try {
+        const router = await createVoiceCommandApiRouter(String(user.id));
+        const result = await router.route(body);
+        if (result.status === "queued") {
+          return json({ ok: true, command: result, trace_id: trace }, 202);
+        }
+        if (result.status === "confirmation_required") {
+          return json({ ok: true, confirmation_required: true, command: result, trace_id: trace }, 200);
+        }
+        if (result.status === "succeeded") {
+          return json({ ok: true, result, trace_id: trace }, 200);
+        }
+        const status = result.reason === "mission_execution_paused" ? 423
+          : result.status === "duplicate" ? 409
+          : result.status === "failed" ? 502
+          : 403;
+        return json({ ok: false, result, trace_id: trace }, status);
+      } catch {
+        return json({ ok: false, error: "voice_command_router_unavailable", trace_id: trace }, 503);
+      }
+    }
     if (req.method === "GET" && path.endsWith("/absorb")) return json({ ok: true, version:"aria-absorb-v1", absorptions: await absorbRows(user.id), trace_id: trace });
     if (req.method === "POST" && path.endsWith("/absorb/inspect")) { const body=await req.json().catch(()=>({})); return json({ok:true,absorption:presentAbsorption(await absorbInspect(user.id,body)),trace_id:trace}); }
     if (req.method === "POST" && path.endsWith("/absorb/verify")) { const body=await req.json().catch(()=>({})); try { return json({ok:true,absorption:presentAbsorption(await absorbVerify(user.id,String(body?.absorption_id||""))),trace_id:trace}); } catch(e) { return json({error:String(e?.message||e),trace_id:trace},Number(e?.status)||409); } }
@@ -2653,7 +3216,7 @@ Deno.serve(async (req) => {
       if(voiceMode || MISSION_EXECUTION_PAUSED){
         const conversationStartedAt=Date.now();
         const execution=voiceMode
-          ? await executeVoiceConversation(step,prompt,conversationId,visual_context,clientMessageId)
+          ? await executeVoiceConversation(step,prompt,conversationId,visual_context,clientMessageId,trace)
           : await executeConversationOnly(step,prompt,conversationId,visual_context,clientMessageId);
         const answer=String(execution?.result?.response?.content??"").trim();
         if(!answer)throw new Error(voiceMode?"voice_empty_response":"conversation_empty_response");

@@ -137,7 +137,64 @@ assert.doesNotMatch(appApi.slice(appApi.indexOf('const pausedMissionMutation'),a
 assertContains(appApi,'mission_execution_paused: missionPauseActive','mission-intent text must be explained without queuing a mission while frozen');
 assertContains(appApi,'if (missionCandidate && !confirmedMissionGoal && !voiceMode)','spoken mission-like requests must stay on the conversation path even while mission execution is paused');
 assertContains(appApi,'MISSION_EXECUTION_PAUSED ? "LÍMITE DURO DE EJECUCIÓN: la ejecución de misiones está pausada. Esta petición se atiende exclusivamente como conversación de solo lectura','paused conversations must answer without enqueueing missions, jobs, or device actions');
-assertContains(appApi,'? await executeVoiceConversation(step,prompt,conversationId,visual_context,clientMessageId)','voice requests must reach the independent read-only inference path after the mission gate is bypassed');
+assertContains(appApi,'? await executeVoiceConversation(step,prompt,conversationId,visual_context,clientMessageId,trace)','voice requests must reach the independent read-only inference path after the mission gate is bypassed');
+assertContains(appApi,'[ARIA-VOICE-REQUEST-START]','voice backend must log the start of a request without conversation content');
+assertContains(appApi,'[ARIA-VOICE-PROVIDER-ATTEMPT]','voice backend must log each cloud provider attempt');
+assertContains(appApi,'[ARIA-VOICE-RESPONSE-RECEIVED]','voice backend must distinguish a returned response from transcription');
+assertContains(appApi,'[ARIA-VOICE-PROVIDER-FAILED]','voice backend must distinguish provider failure from microphone failure');
+assertContains(appApi,'response_chars:content.length','voice backend diagnostics may retain response length only');
+assertContains(appApi,'error_code:code','voice backend failures must expose a normalized machine error code');
+const voiceExecutionSource=appApi.slice(appApi.indexOf('async function executeVoiceConversation('),appApi.indexOf('async function executeConversationOnly('));
+assert.doesNotMatch(voiceExecutionSource,/console\.(?:info|warn|error)\([^;]{0,500}(?:prompt|transcript|text)\s*:\s*(?:prompt|content)/s,'voice provider logs must never include transcript or generated response text');
+
+assertContains(appApi,'import { createVoiceCommandRouter } from "../_shared/voice-command-router.mjs";','the direct voice lane must import the canonical Deno ESM router');
+assertContains(appApi,'import { createOwnerSessionVerifier } from "../_shared/voice-owner-session-verifier.mjs";','the direct voice lane must use the Ed25519 owner-session verifier');
+assertContains(appApi,'import { createVoiceCommandStores } from "./voice-command-storage.ts";','the direct voice lane must use its isolated data stores');
+assertContains(appApi,'async function createVoiceCommandApiRouter(ownerId: string)','the API must construct a router bound to the authenticated Supabase user');
+assertContains(appApi,'path.endsWith("/voice/commands")','the API must expose the authenticated POST voice command endpoint');
+
+assertContains(appApi,'path.endsWith("/voice/devices/register")','device key registration must be exposed through the authenticated owner API');
+assertContains(appApi,'Object.keys(body).sort().join(",") !== [...expectedFields].sort().join(",")','device key registration must reject extra or missing fields');
+assertContains(appApi,'stores.registerTrustedDeviceKey','device key registration must flow through the service-role RPC adapter');
+assertContains(appApi,'publicKeyEd25519: body.public_key_ed25519','registration may send only the public Ed25519 key to the internal storage adapter');
+assertContains(appApi,'deviceToken: body.device_token','device registration must prove possession of the paired device token via the storage adapter');
+assertContains(appApi,'public_key_fingerprint: registration.public_key_fingerprint','registration response must return a fingerprint, not raw credentials');
+assertContains(appApi,'path.endsWith("/voice/devices/revoke")','owners must have an authenticated voice device key revocation route');
+
+assertContains(appApi,'path.endsWith("/voice/devices/pair-windows")','Windows DPAPI owner pairing must require an authenticated owner route');
+assertContains(appApi,'path.endsWith("/voice/devices/heartbeat-windows")','Windows read-only pairing must have an owner-scoped heartbeat route');
+assertContains(appApi,'stores.pairWindowsOwnerDeviceKey','Windows pairing must use the scoped service-role storage adapter');
+assertContains(appApi,'stores.heartbeatWindowsOwnerDeviceKey','Windows heartbeat must use the scoped service-role storage adapter');
+assertContains(appApi,'aria-windows-dpapi-ed25519-v1','Windows pairing must accept only the dedicated DPAPI Ed25519 key identity');
+assertContains(appApi,'voice_windows_pairing_rejected','Windows pairing must normalize failures without disclosing token or pairing state');
+assertContains(appApi,'voice_windows_heartbeat_rejected','Windows heartbeat must normalize failures');
+
+assertContains(appApi,'stores.revokeTrustedDeviceKey','revocation must use the scoped service-role RPC adapter');
+assertContains(appApi,'voice_device_key_registration_rejected','registration failures must be normalized without disclosing pairing/token state');
+assertContains(appApi,'voice_device_key_revocation_rejected','revocation failures must be normalized');
+assertContains(appApi,'path.endsWith("/voice/speakers/models")','only approved speaker models with evidence may be listed to an authenticated owner');
+assertContains(appApi,'path.endsWith("/voice/speakers/policy")','speaker policy enrollment must be explicitly owner-authorized');
+assertContains(appApi,'body.consented !== true','speaker policy activation must require explicit owner consent');
+assertContains(appApi,'stores.setSpeakerPolicy','speaker policy writes must use the service-role storage adapter');
+assertContains(appApi,'path.endsWith("/voice/speakers/revoke")','the owner must have an authenticated speaker-policy kill switch');
+assertContains(appApi,'stores.revokeSpeakerPolicy','speaker-policy revocation must use the scoped storage adapter');
+assert.equal(appApi.split('!/^[A-Za-z0-9._:-]{8,160}$/.test(body.device_id)').length - 1, 4,
+  'device registration and revocation endpoints must use the same strict 8-160 character ID rule as storage');
+
+assertContains(appApi,'await router.route(body)','all direct commands must pass through the safety router');
+assertContains(appApi,'return json({ ok: true, command: result, trace_id: trace }, 202);','device actions must return queued rather than falsely reporting execution');
+assertContains(appApi,'isMissionExecutionPaused: () => MISSION_EXECUTION_PAUSED','the direct command router must preserve the global mission freeze');
+assertContains(appApi,'allowedApps: readVoiceAllowList("ARIA_VOICE_ALLOWED_APPS")','application launches must use an explicit owner-configured allowlist');
+assertContains(appApi,'allowedUrlHosts: readVoiceAllowList("ARIA_VOICE_ALLOWED_URL_HOSTS")','browser launches must use an explicit HTTPS host allowlist');
+const directVoiceRouterSource = appApi.slice(
+  appApi.indexOf('async function createVoiceCommandApiRouter('),
+  appApi.indexOf('Deno.serve(', appApi.indexOf('async function createVoiceCommandApiRouter('))
+);
+assert.match(directVoiceRouterSource,/display[.]brightness[.]write/);
+assert.match(directVoiceRouterSource,/browser[.]open_url/);
+assert.doesNotMatch(directVoiceRouterSource,/execution_jobs|executionJobGatewayCall|mission_id|job_id|shell[.]execute|raw_audio|transcript/i,
+  'direct voice command API must not route through missions, arbitrary shell, audio, or transcript storage');
+assertContains(appApi,'const MISSION_EXECUTION_PAUSED = true','the global mission freeze must remain enabled while direct voice is implemented');
 assertContains(appApi,'if (MISSION_EXECUTION_PAUSED) {\n          const pausedText','explicit mission confirmation must be refused before canonical DIRECT intake');
 assertContains(executor,'const conversationOnlyAllowed=','runtime must explicitly identify the constrained conversation-only exception');
 assertContains(executor,'body?.task_id==="conversation:"+body?.metadata?.conversation_id','conversation-only runtime access must be bound to the exact conversation task id');
@@ -309,3 +366,10 @@ assertContains(appApi,'.order("event_id",{ascending:false}).limit(200)','mission
 assertContains(appApi,'events:[...(data??[])].reverse()','mission events endpoint must preserve chronological display order within the newest window');
 console.log('MEDITATION STALE VERIFIED NOTIFICATION CONTRACT: PASS');
 
+
+assertContains(appApi,'.contains("supported_languages", ["es-CU"])','the authenticated speaker model list must return only models evaluated for Cuban Spanish');
+
+assertContains(appApi,'voiceCommandStatusPath = path.match','command status lookup must require a UUID path segment');
+assertContains(appApi,'stores.getDeviceCommandStatus','command status lookup must be scoped to the authenticated owner');
+assertContains(appApi,'voice_command_not_found','unknown or other-owner command IDs must not disclose command contents');
+assertContains(appApi,'terminal: ["succeeded","failed","expired","cancelled"].includes(command.status)','the UI must distinguish terminal command states from queued/in-flight states');

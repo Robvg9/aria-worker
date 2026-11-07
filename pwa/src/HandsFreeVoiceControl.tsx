@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { classifyHandsFreeCommand, extractWakeWordRemainder } from './voiceWakeWord';
 import { stopAssistantSpeech } from './voiceOutput';
+import { appendVoiceDiagnostic, readVoiceDiagnostics } from './voiceDiagnostics';
+import { resolveVoiceRecognitionLocale } from './voiceWakeWord';
 
 type RecognitionLike = {
   lang: string;
@@ -9,6 +11,8 @@ type RecognitionLike = {
   maxAlternatives: number;
   onresult: ((event: any) => void) | null;
   onerror: ((event: any) => void) | null;
+  onstart: (() => void) | null;
+  onnomatch: ((event: any) => void) | null;
   onend: (() => void) | null;
   start: () => void;
   stop?: () => void;
@@ -35,6 +39,7 @@ export function HandsFreeVoiceControl({
   disabled = false
 }: HandsFreeVoiceControlProps) {
   const [enabled, setEnabled] = useState(false);
+  const recognitionLocaleRef = useRef(resolveVoiceRecognitionLocale(navigator.language, navigator.languages));
   const [status, setStatus] = useState('Manos libres apagado.');
   const [wakeArmed, setWakeArmed] = useState(false);
   const recognitionRef = useRef<RecognitionLike | null>(null);
@@ -45,6 +50,8 @@ export function HandsFreeVoiceControl({
   const disposedRef = useRef(false);
   const disabledRef = useRef(disabled);
   const cursorRef = useRef(0);
+  const finalResultSeenRef = useRef(false);
+  const interimResultSeenRef = useRef(false);
   const wakeArmedRef = useRef(false);
   const transcriptBufferRef = useRef('');
   const restartTimerRef = useRef<number | null>(null);
@@ -54,6 +61,24 @@ export function HandsFreeVoiceControl({
   const restartDelayRef = useRef(350);
   const onTranscriptRef = useRef(onTranscript);
   const onEnabledChangeRef = useRef(onEnabledChange);
+  const [diagnosticExportStatus, setDiagnosticExportStatus] = useState('');
+  const [diagnosticCount, setDiagnosticCount] = useState(() => readVoiceDiagnostics().length);
+
+  const recordDiagnostic = useCallback((event: string, details: Record<string, unknown> = {}) => {
+    const result = appendVoiceDiagnostic(event, details);
+    if (!disposedRef.current) setDiagnosticCount(result.count);
+  }, []);
+
+  const copyDiagnostics = useCallback(async () => {
+    try {
+      const payload = JSON.stringify(readVoiceDiagnostics(), null, 2);
+      if (!navigator.clipboard?.writeText) throw new Error('clipboard_unavailable');
+      await navigator.clipboard.writeText(payload);
+      setDiagnosticExportStatus('Diagnóstico técnico copiado. No contiene audio ni transcripciones.');
+    } catch {
+      setDiagnosticExportStatus('No se pudo copiar el diagnóstico en este navegador.');
+    }
+  }, []);
 
   useEffect(() => { onTranscriptRef.current = onTranscript; }, [onTranscript]);
   useEffect(() => { onEnabledChangeRef.current = onEnabledChange; }, [onEnabledChange]);
@@ -115,15 +140,17 @@ export function HandsFreeVoiceControl({
   const scheduleRestart = useCallback((delay = restartDelayRef.current) => {
     if (!enabledRef.current || !visibleRef.current || speechActiveRef.current || inFlightRef.current || disabledRef.current || disposedRef.current) return;
     if (restartTimerRef.current != null) window.clearTimeout(restartTimerRef.current);
+    recordDiagnostic('restart_scheduled', { restart_delay_ms: delay });
     restartTimerRef.current = window.setTimeout(() => {
       restartTimerRef.current = null;
       startRecognitionRef.current?.();
     }, delay);
-  }, []);
+  }, [recordDiagnostic]);
 
   const submitWakeTurn = useCallback(async () => {
     const transcript = transcriptBufferRef.current.trim();
     if (!transcript || inFlightRef.current) return;
+    recordDiagnostic('turn_submitted', { chars: transcript.length });
     resetWakeTurn();
     inFlightRef.current = true;
     clearTimer(restartTimerRef);
@@ -141,7 +168,7 @@ export function HandsFreeVoiceControl({
         scheduleRestart(300);
       }
     }
-  }, [resetWakeTurn, scheduleRestart, stopRecognition]);
+  }, [recordDiagnostic, resetWakeTurn, scheduleRestart, stopRecognition]);
 
   const appendWakeText = useCallback((phrase: string) => {
     transcriptBufferRef.current = [transcriptBufferRef.current, phrase].filter(Boolean).join(' ').trim().slice(0, 1600);
@@ -158,9 +185,14 @@ export function HandsFreeVoiceControl({
   const handleFinalPhrase = useCallback((phrase: string) => {
     const clean = String(phrase || '').trim();
     if (!clean) return;
+    recordDiagnostic('final_result', { chars: clean.length });
     if (!wakeArmedRef.current) {
       const remainder = extractWakeWordRemainder(clean);
-      if (remainder === null) return;
+      if (remainder === null) {
+        recordDiagnostic('wake_rejected', { phrase_chars: clean.length, wake_matched: false });
+        return;
+      }
+      recordDiagnostic('wake_match', { phrase_chars: clean.length, command_chars: remainder.length, wake_matched: true });
       wakeArmedRef.current = true;
       setWakeArmed(true);
       setStatus('Palabra «ARIA» detectada. Te escucho…');
@@ -197,13 +229,14 @@ export function HandsFreeVoiceControl({
       return;
     }
     appendWakeText(clean);
-  }, [appendWakeText, clearTurnTimers, releaseWakeLock, resetWakeTurn, stopRecognition]);
+  }, [appendWakeText, clearTurnTimers, recordDiagnostic, releaseWakeLock, resetWakeTurn, stopRecognition]);
 
   const startRecognitionRef = useRef<(() => void) | null>(null);
   const startRecognition = useCallback(() => {
     if (!enabledRef.current || !visibleRef.current || speechActiveRef.current || inFlightRef.current || disabledRef.current || recognitionRef.current || disposedRef.current) return;
     const Constructor = getRecognitionConstructor();
     if (!Constructor) {
+      recordDiagnostic('api_missing', { reason: 'speech_recognition_unsupported' });
       setStatus('Este navegador no ofrece reconocimiento de voz continuo. Usa Chrome actualizado.');
       enabledRef.current = false;
       setEnabled(false);
@@ -212,26 +245,51 @@ export function HandsFreeVoiceControl({
       return;
     }
     try {
+      recordDiagnostic('recognition_start_attempt', { language: recognitionLocaleRef.current });
       const recognition = new Constructor();
-      recognition.lang = 'es-PR';
+      recognition.lang = recognitionLocaleRef.current;
       recognition.continuous = true;
       recognition.interimResults = true;
       recognition.maxAlternatives = 1;
       cursorRef.current = 0;
+      finalResultSeenRef.current = false;
+      interimResultSeenRef.current = false;
+      recognition.onstart = () => {
+        recordDiagnostic('recognition_started', { language: recognitionLocaleRef.current });
+      };
+      recognition.onnomatch = () => {
+        recordDiagnostic('no_match');
+      };
       recognition.onresult = (event: any) => {
         const results = event?.results;
         if (!results) return;
         const start = Math.max(cursorRef.current, Math.max(0, Number(event?.resultIndex) || 0));
         for (let index = start; index < results.length; index += 1) {
           const item = results[index];
-          if (!item?.isFinal) continue;
+          const phrase = String(item?.[0]?.transcript || '');
+          if (!item?.isFinal) {
+            if (phrase && !interimResultSeenRef.current) {
+              interimResultSeenRef.current = true;
+              recordDiagnostic('interim_result', { chars: phrase.length });
+            }
+            continue;
+          }
           cursorRef.current = index + 1;
+          if (phrase.trim()) finalResultSeenRef.current = true;
           restartDelayRef.current = 350;
-          handleFinalPhrase(String(item?.[0]?.transcript || ''));
+          handleFinalPhrase(phrase);
         }
       };
       recognition.onerror = (event: any) => {
         const code = String(event?.error || 'unknown');
+        recordDiagnostic('recognition_error', { error: code });
+        if (code === 'language-not-supported' && recognitionLocaleRef.current !== 'es-ES') {
+          recognitionLocaleRef.current = 'es-ES';
+          recordDiagnostic('language_fallback', { language: 'es-ES' });
+          setStatus('El navegador no admite el español configurado; pruebo español general…');
+          try { recognition.abort?.(); } catch {}
+          return;
+        }
         if (code === 'not-allowed' || code === 'service-not-allowed' || code === 'audio-capture') {
           enabledRef.current = false;
           setEnabled(false);
@@ -247,6 +305,8 @@ export function HandsFreeVoiceControl({
         if (code === 'network') setStatus('El servicio de reconocimiento perdió la conexión; intentaré recuperarlo.');
       };
       recognition.onend = () => {
+        if (!finalResultSeenRef.current) recordDiagnostic('no_final_result');
+        recordDiagnostic('recognition_end');
         if (recognitionRef.current === recognition) recognitionRef.current = null;
         restartDelayRef.current = Math.min(2600, Math.max(350, restartDelayRef.current * 1.6));
         scheduleRestart(restartDelayRef.current);
@@ -254,16 +314,18 @@ export function HandsFreeVoiceControl({
       recognitionRef.current = recognition;
       recognition.start();
       setStatus(wakeArmedRef.current ? 'Te escucho…' : 'Escuchando. Di «ARIA» para hablar conmigo.');
-    } catch {
+    } catch (error: any) {
+      recordDiagnostic('recognition_start_failed', { error: String(error?.name || 'unknown') });
       recognitionRef.current = null;
       setStatus('No se pudo iniciar el reconocimiento. Comprueba el permiso del micrófono.');
       scheduleRestart(1600);
     }
-  }, [clearTurnTimers, handleFinalPhrase, releaseWakeLock, scheduleRestart]);
+  }, [clearTurnTimers, handleFinalPhrase, recordDiagnostic, releaseWakeLock, scheduleRestart]);
 
   startRecognitionRef.current = startRecognition;
 
   const disable = useCallback((message = 'Manos libres apagado.') => {
+    recordDiagnostic('voice_disabled');
     enabledRef.current = false;
     setEnabled(false);
     onEnabledChangeRef.current?.(false);
@@ -273,7 +335,7 @@ export function HandsFreeVoiceControl({
     stopRecognition();
     releaseWakeLock();
     setStatus(message);
-  }, [clearTurnTimers, releaseWakeLock, resetWakeTurn, stopRecognition]);
+  }, [clearTurnTimers, recordDiagnostic, releaseWakeLock, resetWakeTurn, stopRecognition]);
 
   const toggle = useCallback(() => {
     if (enabledRef.current) {
@@ -281,33 +343,50 @@ export function HandsFreeVoiceControl({
       return;
     }
     if (!getRecognitionConstructor()) {
+      recordDiagnostic('api_missing', { reason: 'speech_recognition_unsupported' });
       setStatus('Este navegador no admite escucha continua. Abre ARIA en Chrome actualizado.');
       return;
     }
     disposedRef.current = false;
+    recordDiagnostic('voice_enabled', { language: 'es-PR' });
+    const permissionsApi = (navigator as any).permissions;
+    if (typeof permissionsApi?.query === 'function') {
+      void permissionsApi.query({ name: 'microphone' })
+        .then((permission: any) => recordDiagnostic('permission_snapshot', {
+          permission_state: String(permission?.state || 'unknown')
+        }))
+        .catch(() => recordDiagnostic('permission_snapshot', { permission_state: 'unavailable' }));
+    } else {
+      recordDiagnostic('permission_snapshot', { permission_state: 'unsupported' });
+    }
     enabledRef.current = true;
     setEnabled(true);
     onEnabledChangeRef.current?.(true);
     setStatus('Activando escucha continua…');
     void acquireWakeLock();
     startRecognition();
-  }, [acquireWakeLock, disable, startRecognition]);
+  }, [acquireWakeLock, disable, recordDiagnostic, startRecognition]);
 
   useEffect(() => {
     const handleVisibility = () => {
       visibleRef.current = !document.hidden;
       if (document.hidden) {
+        recordDiagnostic('page_hidden');
         clearTimer(restartTimerRef);
         stopRecognition();
         releaseWakeLock();
         setStatus('Escucha pausada porque ARIA está en segundo plano.');
       } else if (enabledRef.current) {
+        recordDiagnostic('page_visible');
         void acquireWakeLock();
         setStatus('Reanudando escucha… di «ARIA».');
         scheduleRestart(250);
       }
     };
-    const handlePageHide = () => disable('Escucha detenida al salir de ARIA.');
+    const handlePageHide = () => {
+      recordDiagnostic('page_hide');
+      disable('Escucha detenida al salir de ARIA.');
+    };
     const handleSpeechStart = () => {
       speechActiveRef.current = true;
       clearTimer(restartTimerRef);
@@ -338,7 +417,7 @@ export function HandsFreeVoiceControl({
       releaseWakeLock();
       onEnabledChangeRef.current?.(false);
     };
-  }, [acquireWakeLock, clearTurnTimers, disable, releaseWakeLock, scheduleRestart, stopRecognition]);
+  }, [acquireWakeLock, clearTurnTimers, disable, recordDiagnostic, releaseWakeLock, scheduleRestart, stopRecognition]);
 
   useEffect(() => {
     if (disabled) {
@@ -376,9 +455,15 @@ export function HandsFreeVoiceControl({
       <span className='handsFreeVoiceStatus' role='status' aria-live='polite'>
         {status}{wakeArmed ? ' · frase activada' : ''}
       </span>
+      <details className='handsFreeVoiceDiagnostics'>
+        <summary>Diagnóstico técnico ({diagnosticCount})</summary>
+        <p>Registra únicamente eventos, errores y capacidades del navegador. No guarda audio, palabras reconocidas, mensajes ni conversaciones.</p>
+        <button type='button' onClick={copyDiagnostics}>Copiar diagnóstico</button>
+        {diagnosticExportStatus && <span role='status' aria-live='polite'>{diagnosticExportStatus}</span>}
+      </details>
       {enabled && (
         <small className='handsFreeVoicePrivacy'>
-          El reconocimiento escucha continuamente mientras esta pestaña está visible; el navegador o su servicio puede procesar el audio. ARIA recibe el texto solo después de detectar «ARIA». Se pausa al cambiar de pestaña y no funciona con la app cerrada o la pantalla bloqueada.
+          El reconocimiento escucha mientras esta pestaña está visible; el navegador o su servicio puede procesar el audio. El diagnóstico local no guarda audio ni transcripciones. Esta PWA se pausa al ir a segundo plano y no funciona con la app cerrada o la pantalla bloqueada.
         </small>
       )}
     </div>

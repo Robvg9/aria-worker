@@ -10,6 +10,7 @@ on:
   pull_request:
     branches:
       - main
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -19,6 +20,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Audit stale PWA catalog literals
+        shell: bash
+        run: |
+          if git grep -n -E "2026-10-30-mission-freeze-v1|content='336'" -- tests scripts pwa; then
+            echo "STALE_PWA_TEST_CATALOG_LITERAL_FOUND"
+            exit 1
+          fi
+          echo "PWA_TEST_CATALOG_NO_STALE_LITERALS=PASS"
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -49,12 +58,16 @@ jobs:
           cp dist/manifest.json "dist/manifest-$GITHUB_SHA.json"
           sed "s/__BUILD__/$GITHUB_SHA/g" public/sw.js > "dist/sw-$GITHUB_SHA.js"
           grep -q "aria-pwa-$GITHUB_SHA" "dist/sw-$GITHUB_SHA.js"
-          grep -q "2026-11-05-windows-agent-notepad-fallback-v1" "dist/index-$GITHUB_SHA.html"
-          grep -q "content='338'" "dist/index-$GITHUB_SHA.html"
+          expected_catalog_version="$(sed -n "s/^export const TEST_CATALOG_VERSION = '\\([^']*\\)';/\\1/p" src/testCatalog.ts)"
+          expected_catalog_total="$(grep -c '"file": "tests/' src/testCatalog.ts)"
+          test -n "$expected_catalog_version"
+          test "$expected_catalog_total" -gt 0
+          grep -q "content='$expected_catalog_version'" "dist/index-$GITHUB_SHA.html"
+          grep -q "content='$expected_catalog_total'" "dist/index-$GITHUB_SHA.html"
           rm -f dist/index.html
           echo "PWA_BUILD_EXACT_SHA=$GITHUB_SHA"
-          echo "PWA_TEST_CATALOG_VERSION=2026-11-05-windows-agent-notepad-fallback-v1"
-          echo "PWA_TEST_CATALOG_TOTAL=338"
+          echo "PWA_TEST_CATALOG_VERSION=$expected_catalog_version"
+          echo "PWA_TEST_CATALOG_TOTAL=$expected_catalog_total"
 
   omniroute-final-live:
     runs-on: windows-latest

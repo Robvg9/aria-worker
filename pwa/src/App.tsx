@@ -3,8 +3,10 @@ import { ProjectWorkspace } from './ProjectWorkspace';
 import { PrivateVault } from './PrivateVault';
 import { VoiceInputButton } from './VoiceInputButton';
 import { HandsFreeVoiceControl } from './HandsFreeVoiceControl';
+import { appendVoiceDiagnostic } from './voiceDiagnostics';
 import { isVoiceMissionAffirmative, isVoiceMissionNegative, speakAssistantText, stopAssistantSpeech } from './voiceOutput';
 import { mergeRestoredChatMessages } from './chatHistory';
+import { parseExplicitVoiceAction, dispatchVoiceAction, getVoiceCommandStatus } from './voiceCommandClient';
 import { missionActivityLabel, missionGoalPreview, missionHumanTitle, missionListLabel } from './missionPresentation';
 import { artifactKindLabel, missionArtifacts, type MissionArtifact } from './missionArtifacts';
 import { TEST_CATALOG, TEST_CATALOG_STATS, TEST_CATALOG_VERSION, filterTestCatalog } from './testCatalog';
@@ -68,6 +70,8 @@ type Session = {
 };
 
 type Message = { id: string; role: 'user' | 'aria'; text: string; processingMs?: number };
+type VoiceCommandUiState = { commandId: string; deviceId: string; operation: string; status: string; terminal: boolean; result?: Record<string, unknown>; errorCode?: string | null; pollingExpired?: boolean; statusError?: string };
+type PendingVoiceMessage = { confirmationId: string; recipientId: string; recipientName: string; body: string; };
 type CapabilityCatalog = {
   summary: Record<string, number>;
   executors: any[];
@@ -759,7 +763,7 @@ async function api(path: string, token: string, init: RequestInit = {}) {
       }
 
       if (!response.ok) {
-        const code = String(data?.error ?? 'aria_api_error');
+        const code = String(data?.error ?? data?.result?.reason ?? 'aria_api_error');
         const detail = HUMAN_API_ERRORS[code];
         throw new Error(detail ?? code);
       }
@@ -2167,6 +2171,17 @@ function Chat({
   const voiceModeRef = useRef(voiceMode);
   voiceModeRef.current = voiceMode;
   const [sending, setSending] = useState(false);
+  const [voiceCommandStatus, setVoiceCommandStatus] = useState<VoiceCommandUiState | null>(null);
+  const [pendingVoiceMessage, setPendingVoiceMessage] = useState<PendingVoiceMessage | null>(null);
+  const [showTelegramSetup, setShowTelegramSetup] = useState(false);
+  const [telegramRecipients, setTelegramRecipients] = useState<any[]>([]);
+  const [telegramStartChats, setTelegramStartChats] = useState<any[]>([]);
+  const [telegramRecipientId, setTelegramRecipientId] = useState('');
+  const [telegramDisplayName, setTelegramDisplayName] = useState('');
+  const [telegramChatId, setTelegramChatId] = useState('');
+  const [telegramSetupBusy, setTelegramSetupBusy] = useState(false);
+  const [telegramSetupNotice, setTelegramSetupNotice] = useState('');
+
   const [missionCreatedNotice, setMissionCreatedNotice] = useState('');
   const [system, setSystem] = useState<any>(() => readCached('system', session.userId));
   const [caps, setCaps] = useState<CapabilityCatalog | null>(() => readCached('capabilities', session.userId));
@@ -2203,6 +2218,46 @@ function Chat({
   }, [voiceMode]);
 
   useEffect(() => () => stopAssistantSpeech(), []);
+
+  useEffect(() => {
+    const commandId = voiceCommandStatus?.commandId;
+    if (!commandId || voiceCommandStatus?.terminal || voiceCommandStatus?.pollingExpired) return;
+    let cancelled = false;
+    let timer: number | undefined;
+    const startedAt = Date.now();
+    const poll = async () => {
+      try {
+        const status = await getVoiceCommandStatus(
+          (path, init = {}) => api(path, session.accessToken, init),
+          commandId
+        );
+        if (cancelled) return;
+        setVoiceCommandStatus(current => current?.commandId === commandId
+          ? { ...current, ...status, statusError: undefined }
+          : current);
+        if (status.terminal) return;
+      } catch {
+        if (!cancelled) {
+          setVoiceCommandStatus(current => current?.commandId === commandId
+            ? { ...current, statusError: 'No se pudo consultar el estado del dispositivo; no se asumirá que la orden terminó.' }
+            : current);
+        }
+      }
+      if (cancelled) return;
+      if (Date.now() - startedAt >= 45000) {
+        setVoiceCommandStatus(current => current?.commandId === commandId
+          ? { ...current, pollingExpired: true }
+          : current);
+        return;
+      }
+      timer = window.setTimeout(poll, 1500);
+    };
+    void poll();
+    return () => {
+      cancelled = true;
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
+  }, [voiceCommandStatus?.commandId, voiceCommandStatus?.terminal, voiceCommandStatus?.pollingExpired, session.accessToken]);
 
   const syncSystemAndMission = async () => {
     let fresh = false;
@@ -2366,6 +2421,10 @@ function Chat({
     setConversationId(activeConversationId);
     setMessages(m => [...m, userMessage]);
     setText('');
+    const voiceRequestStartedAt = voiceModeRef.current ? Date.now() : null;
+    if (voiceRequestStartedAt !== null) {
+      appendVoiceDiagnostic('conversation_request_started', { voice_mode: true, chars: messageText.length });
+    }
     try {
       const parts: any[] = [];
       if (messageText) parts.push({ type: 'text', text: messageText });
@@ -2383,6 +2442,14 @@ function Chat({
       setAudioFile(null);
       const clientMessageId = crypto.randomUUID();
       const d = await api('/conversation', session.accessToken, { method: 'POST', body: JSON.stringify({ parts, clientMessageId, conversationId: activeConversationId, voice_mode: voiceModeRef.current }) });
+      if (voiceRequestStartedAt !== null) {
+        const firstText = Array.isArray(d?.parts) ? d.parts.find((item: any) => item?.type === 'text')?.text : '';
+        appendVoiceDiagnostic('conversation_response_received', {
+          duration_ms: Date.now() - voiceRequestStartedAt,
+          response_chars: typeof firstText === 'string' ? firstText.length : 0,
+          processing: Boolean(d?.processing)
+        });
+      }
       if (voiceModeRef.current && d?.processing) {
         throw new Error('La respuesta rápida de voz no está activa; se evitó esperar la cola lenta.');
       }
@@ -2439,6 +2506,14 @@ function Chat({
       }
       return Boolean(p?.text);
     } catch (x) {
+      if (voiceRequestStartedAt !== null) {
+        const detail = x instanceof Error ? x.message : '';
+        const knownCode = detail.match(/^([a-z][a-z0-9_]{2,47})(?::|$)/i)?.[1];
+        appendVoiceDiagnostic('conversation_request_failed', {
+          duration_ms: Date.now() - voiceRequestStartedAt,
+          error_code: knownCode ? knownCode.toLowerCase() : 'request_failed'
+        });
+      }
       setError(x instanceof Error ? x.message : 'Error comunicando con ARIA.');
       return false;
     } finally {
@@ -2503,6 +2578,236 @@ function Chat({
     return true;
   }
 
+  async function loadTelegramRecipients(): Promise<void> {
+    setTelegramSetupBusy(true);
+    setTelegramSetupNotice('');
+    try {
+      const response = await api('/voice/messages/recipients', session.accessToken);
+      if (response?.ok !== true || !Array.isArray(response.recipients)) {
+        throw new Error(String(response?.error || 'telegram_recipient_list_unavailable'));
+      }
+      setTelegramRecipients(response.recipients);
+      setTelegramSetupNotice(response.recipients.length
+        ? 'Destinatarios Telegram cargados.'
+        : 'Todavía no hay destinatarios guardados.');
+    } catch (cause) {
+      setTelegramSetupNotice(cause instanceof Error ? cause.message : 'No se pudieron cargar los destinatarios.');
+    } finally {
+      setTelegramSetupBusy(false);
+    }
+  }
+
+  async function discoverTelegramChats(): Promise<void> {
+    setTelegramSetupBusy(true);
+    setTelegramSetupNotice('');
+    try {
+      const response = await api('/voice/messages/telegram/chats', session.accessToken);
+      if (response?.ok !== true || !Array.isArray(response.chats)) {
+        throw new Error(String(response?.error || 'telegram_chat_discovery_unavailable'));
+      }
+      setTelegramStartChats(response.chats);
+      setTelegramSetupNotice(response.chats.length
+        ? 'Chats que han iniciado el bot encontrados. Selecciona uno para crear su alias.'
+        : 'No hay chats nuevos. Abre el bot en Telegram, pulsa Iniciar o envía /start y vuelve a actualizar.');
+    } catch (cause) {
+      const code = cause instanceof Error ? cause.message : 'telegram_chat_discovery_unavailable';
+      const friendly: Record<string, string> = {
+        telegram_provider_not_configured: 'Falta configurar ARIA_TELEGRAM_BOT_TOKEN en los secretos de Supabase.',
+        telegram_owner_mismatch: 'Esta cuenta no coincide con ARIA_TELEGRAM_OWNER_ID o el propietario del bot no está configurado.',
+        telegram_updates_unavailable: 'No se pudieron leer los chats. Comprueba el bot, su token y que no tenga un webhook activo.'
+      };
+      setTelegramSetupNotice(friendly[code] || code);
+    } finally {
+      setTelegramSetupBusy(false);
+    }
+  }
+
+  async function saveTelegramRecipient(): Promise<void> {
+    if (telegramSetupBusy) return;
+    const recipientId = telegramRecipientId.trim();
+    const displayName = telegramDisplayName.trim();
+    const chatId = telegramChatId.trim();
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]{2,63}$/.test(recipientId)) {
+      setTelegramSetupNotice('El alias debe tener entre 3 y 64 caracteres: letras, números, punto, guion o guion bajo.');
+      return;
+    }
+    if (!displayName || displayName.length > 120 || !/^-?[0-9]{1,20}$/.test(chatId)) {
+      setTelegramSetupNotice('Revisa el nombre y el chat_id seleccionado.');
+      return;
+    }
+    setTelegramSetupBusy(true);
+    setTelegramSetupNotice('');
+    try {
+      const response = await api('/voice/messages/recipients', session.accessToken, {
+        method: 'POST',
+        body: JSON.stringify({
+          recipient_id: recipientId,
+          display_name: displayName,
+          telegram_chat_id: chatId
+        })
+      });
+      if (response?.ok !== true || response?.verified !== true || !response?.recipient) {
+        throw new Error(String(response?.error || 'telegram_recipient_save_failed'));
+      }
+      setTelegramRecipients(current => [
+        ...current.filter(item => item.recipient_id !== recipientId),
+        response.recipient
+      ].sort((a, b) => String(a.display_name).localeCompare(String(b.display_name))));
+      setTelegramSetupNotice('Destinatario guardado y verificado por Telegram.');
+      setTelegramRecipientId('');
+      setTelegramDisplayName('');
+      setTelegramChatId('');
+    } catch (cause) {
+      const code = cause instanceof Error ? cause.message : 'telegram_recipient_save_failed';
+      const friendly: Record<string, string> = {
+        telegram_provider_not_configured: 'Falta configurar ARIA_TELEGRAM_BOT_TOKEN en los secretos de Supabase.',
+        telegram_chat_not_reachable: 'Telegram no encuentra ese chat. La persona debe abrir primero el bot y pulsar Iniciar.',
+        telegram_recipient_save_failed: 'No se pudo guardar el destinatario.'
+      };
+      setTelegramSetupNotice(friendly[code] || code);
+    } finally {
+      setTelegramSetupBusy(false);
+    }
+  }
+
+  async function confirmPendingVoiceMessage(): Promise<boolean> {
+    const pending = pendingVoiceMessage;
+    if (!pending || sending) return false;
+    setSending(true);
+    setError('');
+    try {
+      const response = await api('/voice/messages/confirm', session.accessToken, {
+        method: 'POST',
+        body: JSON.stringify({
+          confirmation_id: pending.confirmationId,
+          body: pending.body
+        })
+      });
+      const delivery = response?.delivery;
+      if (response?.ok !== true || delivery?.status !== 'sent' || delivery?.executed !== true) {
+        throw new Error(String(delivery?.reason || response?.error || 'telegram_delivery_not_confirmed'));
+      }
+      const notice = 'Telegram confirmó la entrega al destinatario ' + pending.recipientName
+        + '. ID del mensaje: ' + String(delivery.provider_message_id || 'no disponible') + '.';
+      setPendingVoiceMessage(null);
+      setMessages(current => [...current, { id: crypto.randomUUID(), role: 'aria', text: notice }]);
+      if (voiceModeRef.current) speakAssistantText(notice);
+      return true;
+    } catch (cause) {
+      const detail = cause instanceof Error ? cause.message : 'telegram_delivery_failed';
+      const uncertain = /uncertain|unknown|ack_not_persisted/i.test(detail);
+      const notice = uncertain
+        ? 'Telegram pudo haber aceptado el mensaje, pero no llegó un acuse verificable. No lo reenviaré automáticamente para evitar duplicados. Comprueba el chat antes de crear otro envío.'
+        : 'No pude confirmar el envío por Telegram. El mensaje no se marcará como entregado.';
+      setError(notice);
+      setMessages(current => [...current, { id: crypto.randomUUID(), role: 'aria', text: notice }]);
+      if (voiceModeRef.current) speakAssistantText(notice);
+      return false;
+    } finally {
+      setSending(false);
+    }
+  }
+
+  function cancelPendingVoiceMessage(): boolean {
+    if (!pendingVoiceMessage) return false;
+    const notice = 'Envío por Telegram cancelado. No se envió ningún mensaje.';
+    setPendingVoiceMessage(null);
+    setMessages(current => [...current, { id: crypto.randomUUID(), role: 'aria', text: notice }]);
+    if (voiceModeRef.current) speakAssistantText(notice);
+    return true;
+  }
+
+  async function runVoiceV4Intent(intent: any): Promise<boolean> {
+    chatMutationVersionRef.current += 1;
+    setSending(true);
+    setError('');
+    try {
+      const response = await dispatchVoiceAction({
+        api: (path, init = {}) => api(path, session.accessToken, init),
+        bridge: (window as any).ariaVoiceV4,
+        intent,
+        ownerId: session.userId
+      });
+      if (response?.confirmation_required === true || response?.command?.status === 'confirmation_required') {
+        const preview = response?.command?.preview;
+        if (intent.operation === 'message.send'
+            && typeof preview?.confirmation_id === 'string'
+            && typeof preview?.recipient_id === 'string'
+            && typeof preview?.recipient_name === 'string'
+            && typeof preview?.body === 'string') {
+          setPendingVoiceMessage({
+            confirmationId: preview.confirmation_id,
+            recipientId: preview.recipient_id,
+            recipientName: preview.recipient_name,
+            body: preview.body
+          });
+          const notice = 'Revisa el destinatario y el texto en la vista previa. No se enviará nada hasta que pulses «Enviar por Telegram».';
+          setMessages(current => [...current, { id: crypto.randomUUID(), role: 'aria', text: notice }]);
+          if (voiceModeRef.current) speakAssistantText(notice);
+          return true;
+        }
+        // Any other confirmation-required result remains non-mutating.
+        const notice = 'ARIA requiere una confirmación visible. Todavía no se ha enviado ningún mensaje.';
+        setMessages(current => [...current, { id: crypto.randomUUID(), role: 'aria', text: notice }]);
+        if (voiceModeRef.current) speakAssistantText(notice);
+        return true;
+      }
+      if (response?.command?.status === 'queued' && response?.command?.command_id) {
+        const command = response.command;
+        setVoiceCommandStatus({
+          commandId: String(command.command_id),
+          deviceId: String(command.device_id || intent.device_id || ''),
+          operation: String(command.operation || intent.operation),
+          status: 'queued',
+          terminal: false
+        });
+        const notice = 'Orden recibida y en cola. Estoy esperando la confirmación real del dispositivo; todavía no la marco como completada.';
+        setMessages(current => [...current, { id: crypto.randomUUID(), role: 'aria', text: notice }]);
+        if (voiceModeRef.current) speakAssistantText(notice);
+        return true;
+      }
+      if (response?.result?.status === 'succeeded') {
+        const result = response.result.result && typeof response.result.result === 'object'
+          ? response.result.result : {};
+        const detail = Object.entries(result).map(([key, value]) => key + ': ' + String(value)).join(' · ');
+        const notice = intent.operation === 'aria.status'
+          ? 'Estado de ARIA consultado.' + (detail ? ' ' + detail : '')
+          : 'Estado del dispositivo consultado.' + (detail ? ' ' + detail : '');
+        setMessages(current => [...current, { id: crypto.randomUUID(), role: 'aria', text: notice }]);
+        if (voiceModeRef.current) speakAssistantText(notice);
+        return true;
+      }
+      const reason = String(response?.result?.reason || response?.error || 'voice_command_not_confirmed');
+      throw new Error(reason);
+    } catch (cause) {
+      const code = cause instanceof Error ? cause.message : 'voice_command_failed';
+      const messages: Record<string, string> = {
+        voice_v4_native_signer_unavailable: 'Este navegador no tiene un firmador nativo seguro conectado. No envié la orden. Para habilitar acciones directas hace falta el puente nativo con clave protegida por Keystore/DPAPI.',
+        voice_v4_native_signer_invalid: 'El puente nativo no entregó una sesión firmada válida. La orden fue bloqueada.',
+        voice_v4_native_signer_context_mismatch: 'La sesión firmada no coincide con este usuario, dispositivo o vencimiento. La orden fue bloqueada.',
+        voice_v4_speaker_verification_unavailable: 'No existe una verificación de hablante aprobada para esta acción. No envié la orden.',
+        voice_v4_authenticated_owner_required: 'No pude vincular la orden con la sesión autenticada. No se envió.',
+        voice_device_target_not_found: 'No encontré ese dispositivo en el inventario de ARIA. Di el nombre exacto de un dispositivo registrado.',
+        voice_device_target_ambiguous: 'Hay más de un dispositivo con ese nombre. No elegí uno automáticamente.',
+        voice_brightness_value_invalid: 'El brillo debe estar entre 0 y 100.',
+        voice_url_not_allowlisted: 'El enlace no cumple las reglas de seguridad. Solo se aceptan URLs HTTPS aprobadas.',
+        owner_speaker_verification_required: 'El servidor rechazó la acción porque la verificación del hablante no está aprobada.',
+        speaker_policy_rejected: 'La política de hablante del dispositivo no permite esta acción.',
+        device_not_trusted_and_healthy: 'El dispositivo no está emparejado y saludable para recibir órdenes.',
+        device_capability_missing: 'El dispositivo no tiene autorización para esa acción.',
+        voice_command_router_unavailable: 'El router de voz no está disponible.',
+        voice_command_status_unavailable: 'No se pudo recuperar el estado seguro del comando.'
+      };
+      const notice = messages[code] || ('La orden directa fue bloqueada: ' + code + '. No se asumió ejecución.');
+      setError(notice);
+      setMessages(current => [...current, { id: crypto.randomUUID(), role: 'aria', text: notice }]);
+      if (voiceModeRef.current) speakAssistantText(notice);
+      return true;
+    } finally {
+      setSending(false);
+    }
+  }
+
   function handleVoiceTranscript(transcript: string): Promise<boolean> | boolean | void {
     if (voiceModeRef.current) {
       if (pendingMissionConfirmation) {
@@ -2513,6 +2818,8 @@ function Chat({
         speakAssistantText(clarification);
         return true;
       }
+      const directIntent = parseExplicitVoiceAction(transcript, caps?.devices ?? []);
+      if (directIntent) return runVoiceV4Intent(directIntent);
       return send(transcript);
     }
     setText(previous => previous.trim() ? previous.replace(/\s+$/, '') + ' ' + transcript : transcript);
@@ -2676,7 +2983,7 @@ function Chat({
               <div className='homeQuickActions'>
                 <button className='primary' onClick={() => setShowNewMission(true)}>＋ Nueva misión</button>
                 <button className='ghost' onClick={onMeditation}>◌ Ver ejecución</button>
-                <button className='ghost' onClick={() => setScreen(1)}>💬 Hablar con ARIA</button>
+                <button className='primary' onClick={() => { setVoiceMode(true); setScreen(1); }}>🎙️ Abrir modo voz</button>
               </div>
             </section>
           </section>
@@ -2704,6 +3011,103 @@ function Chat({
                   ? messages.map(m => <div key={m.id} className={'bubble ' + m.role}><div className='markdownBody'>{renderMarkdown(m.text)}</div>{m.role === 'aria' && m.processingMs != null && <small className='messageMeta'>Procesado en {formatProcessingTime(m.processingMs)}</small>}</div>)
                   : <div className='emptyState'>Habla con ARIA. Ella decide si conversa, recuerda, planifica o ejecuta una misión.</div>}
               </div>
+              {voiceCommandStatus && (
+                <section className='voiceCommandStatus' role='status' aria-live='polite'>
+                  <div className='voiceCommandStatusHeader'>
+                    <div>
+                      <strong>Comando directo</strong>
+                      <small>{voiceCommandStatus.operation} · {voiceCommandStatus.deviceId || 'ARIA'}</small>
+                    </div>
+                    <span className={'voiceCommandState voiceCommandState-' + voiceCommandStatus.status}>
+                      {voiceCommandStatus.status === 'queued' ? 'En cola'
+                        : voiceCommandStatus.status === 'claimed' ? 'Recibido por dispositivo'
+                        : voiceCommandStatus.status === 'running' ? 'Ejecutándose'
+                        : voiceCommandStatus.status === 'succeeded' ? 'Completado por dispositivo'
+                        : voiceCommandStatus.status === 'failed' ? 'Fallido'
+                        : voiceCommandStatus.status === 'expired' ? 'Expirado'
+                        : voiceCommandStatus.status === 'cancelled' ? 'Cancelado' : voiceCommandStatus.status}
+                    </span>
+                  </div>
+                  <small>{voiceCommandStatus.terminal
+                    ? 'Estado terminal informado por el agente y consultado en el servidor.'
+                    : voiceCommandStatus.pollingExpired
+                      ? 'No llegó una confirmación terminal dentro de la ventana de consulta. El resultado queda sin confirmar.'
+                      : 'Esperando el acuse real del agente. En cola o recibido no significa completado.'}</small>
+                  {voiceCommandStatus.result && Object.keys(voiceCommandStatus.result).length > 0 && (
+                    <small>{Object.entries(voiceCommandStatus.result).map(([key, value]) => key + ': ' + String(value)).join(' · ')}</small>
+                  )}
+                  {voiceCommandStatus.errorCode && <small>Código informado: {voiceCommandStatus.errorCode}</small>}
+                  {voiceCommandStatus.statusError && <small>{voiceCommandStatus.statusError}</small>}
+                  <button type='button' className='ghost' onClick={() => setVoiceCommandStatus(null)}>Cerrar estado</button>
+                </section>
+              )}
+              <section className='telegramSetupPanel'>
+                <button type='button' className='ghost telegramSetupToggle'
+                  aria-expanded={showTelegramSetup}
+                  onClick={() => {
+                    const next = !showTelegramSetup;
+                    setShowTelegramSetup(next);
+                    if (next) void loadTelegramRecipients();
+                  }}>
+                  {showTelegramSetup ? 'Ocultar Telegram' : '⚙ Configurar destinatarios Telegram'}
+                </button>
+                {showTelegramSetup && (
+                  <div className='telegramSetupContent'>
+                    <div className='panelTitle'>DESTINATARIOS TELEGRAM</div>
+                    <small className='muted'>El token del bot no se introduce aquí. Permanece como secreto del servidor.</small>
+                    <small className='muted'>UUID del propietario autorizado para configurar ARIA_TELEGRAM_OWNER_ID: <code>{session.userId}</code></small>
+                    <div className='telegramRecipientList'>
+                      {telegramRecipients.map(item => (
+                        <div className='telegramRecipientRow' key={String(item.recipient_id)}>
+                          <strong>{String(item.display_name || item.recipient_id)}</strong>
+                          <small>{String(item.recipient_id)} · {String(item.channel || 'telegram')}</small>
+                        </div>
+                      ))}
+                      {!telegramRecipients.length && <small className='muted'>No hay destinatarios configurados.</small>}
+                    </div>
+                    <div className='telegramSetupActions'>
+                      <button type='button' className='ghost' disabled={telegramSetupBusy} onClick={() => void discoverTelegramChats()}>
+                        {telegramSetupBusy ? 'Consultando…' : 'Buscar chats que enviaron /start'}
+                      </button>
+                    </div>
+                    {telegramStartChats.length > 0 && (
+                      <div className='telegramRecipientList'>
+                        {telegramStartChats.map((item:any) => (
+                          <button type='button' className='telegramStartChat' key={String(item.chat_id)}
+                            onClick={() => {
+                              setTelegramChatId(String(item.chat_id));
+                              setTelegramDisplayName(String(item.display_hint || 'Telegram'));
+                            }}>
+                            <span><strong>{String(item.display_hint || 'Telegram')}</strong><small>{String(item.chat_type)} · {String(item.chat_id)}</small></span>
+                            <span>Usar</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    <div className='telegramSetupFields'>
+                      <label>Alias para ARIA<input value={telegramRecipientId} onChange={e => setTelegramRecipientId(e.target.value)} placeholder='mama' maxLength={64}/></label>
+                      <label>Nombre visible<input value={telegramDisplayName} onChange={e => setTelegramDisplayName(e.target.value)} placeholder='Mamá' maxLength={120}/></label>
+                      <label>Chat ID<input value={telegramChatId} onChange={e => setTelegramChatId(e.target.value)} placeholder='Se completa al seleccionar un chat' maxLength={20}/></label>
+                      <button type='button' className='primary' disabled={telegramSetupBusy} onClick={() => void saveTelegramRecipient()}>
+                        {telegramSetupBusy ? 'Verificando…' : 'Guardar destinatario'}
+                      </button>
+                    </div>
+                    {telegramSetupNotice && <small className='telegramSetupNotice' role='status'>{telegramSetupNotice}</small>}
+                  </div>
+                )}
+              </section>
+              {pendingVoiceMessage && (
+                <section className='voiceMessageConfirmation' role='dialog' aria-label='Confirmar mensaje por Telegram'>
+                  <div className='panelTitle'>CONFIRMAR ENVÍO POR TELEGRAM</div>
+                  <div className='voiceMessageRecipient'><strong>Destinatario:</strong> {pendingVoiceMessage.recipientName}</div>
+                  <div className='voiceMessageBody' aria-label='Contenido exacto del mensaje'>{pendingVoiceMessage.body}</div>
+                  <small>El mensaje anterior se enviará exactamente como aparece. El reconocimiento de voz por sí solo nunca lo envía.</small>
+                  <div className='missionConfirmationActions'>
+                    <button type='button' className='ghost' disabled={sending} onClick={cancelPendingVoiceMessage}>Cancelar</button>
+                    <button type='button' className='primary' disabled={sending} onClick={() => void confirmPendingVoiceMessage()}>{sending ? 'Enviando…' : 'Enviar por Telegram'}</button>
+                  </div>
+                </section>
+              )}
               {pendingMissionConfirmation && (
                 <div className='missionConfirmation' role='dialog' aria-label='Confirmar inicio de misión'>
                   <div>

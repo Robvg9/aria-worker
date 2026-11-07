@@ -1,0 +1,125 @@
+name: ARIA Voice V4 Heed Spanish KWS training benchmark
+
+on:
+  push:
+    branches:
+      - feat/aria-voice-v4-diagnostics-20261102
+    paths:
+      - voice-v4/heed-kws/**
+      - .github/workflows/aria-voice-v4-heed-kws.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  heed-spanish-train:
+    name: Train ARIA / Oye ARIA with synthetic Spanish TTS and held-out evaluation
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout exact branch SHA
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Spanish TTS and audio utilities
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends espeak-ng ffmpeg
+
+      - name: Install pinned Heed training and export runtime
+        run: python -m pip install --disable-pip-version-check "heed-wakeword[export]==0.1.4"
+
+      - name: Validate Python benchmark scripts
+        run: |
+          python -m py_compile voice-v4/heed-kws/heed_spanish_training_smoke.py
+          python -m py_compile voice-v4/heed-kws/onnx_runtime_bench.py
+
+      - name: Train and evaluate both Spanish activation phrases
+        run: |
+          python voice-v4/heed-kws/heed_spanish_training_smoke.py \
+            --workdir "$RUNNER_TEMP/aria-heed" \
+            --report "$RUNNER_TEMP/aria-heed-report.json"
+
+      - name: Verify shortlisted model bundle integrity
+        env:
+          REPORT_PATH: ${{ runner.temp }}/aria-heed-report.json
+          MODEL_DIR: ${{ runner.temp }}/aria-heed/shortlisted-models
+        run: |
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+
+          report_path = Path(os.environ["REPORT_PATH"])
+          model_dir = Path(os.environ["MODEL_DIR"])
+          report = json.loads(report_path.read_text(encoding="utf-8"))
+          model_dir.mkdir(parents=True, exist_ok=True)
+          files = sorted(p for p in model_dir.iterdir() if p.is_file())
+          if any(p.suffix.lower() not in {".onnx", ".json"} for p in files):
+              raise SystemExit("model_bundle_contains_unapproved_file_type")
+
+          candidates = {row.get("candidate"): row for row in report.get("candidate_results", [])}
+          expected_files = set()
+          checked = 0
+          for name in report.get("shortlisted_candidates", []):
+              candidate = candidates.get(name)
+              if not candidate or candidate.get("status") != "synthetic_shortlist_candidate":
+                  raise SystemExit("shortlist_report_candidate_mismatch")
+              bundle = candidate.get("model_artifact") or {}
+              if bundle.get("release_approved") is not False or bundle.get("approval_reason") != "synthetic-only-shortlist":
+                  raise SystemExit("synthetic_candidate_must_remain_unapproved")
+              model_name = bundle.get("file")
+              metadata_name = bundle.get("metadata_file")
+              if not model_name or Path(model_name).name != model_name or not model_name.endswith(".onnx"):
+                  raise SystemExit("shortlist_onnx_file_missing_or_invalid")
+              if not metadata_name or Path(metadata_name).name != metadata_name or not metadata_name.endswith(".json"):
+                  raise SystemExit("shortlist_metadata_file_missing_or_invalid")
+              model_path = model_dir / model_name
+              metadata_path = model_dir / metadata_name
+              if not model_path.is_file() or not metadata_path.is_file():
+                  raise SystemExit("shortlist_model_sidecar_pair_incomplete")
+              model_sha = hashlib.sha256(model_path.read_bytes()).hexdigest()
+              metadata_sha = hashlib.sha256(metadata_path.read_bytes()).hexdigest()
+              if model_sha != bundle.get("sha256") or metadata_sha != bundle.get("metadata_sha256"):
+                  raise SystemExit("shortlist_bundle_sha256_mismatch")
+              if model_path.stat().st_size != int(bundle.get("bytes", -1)):
+                  raise SystemExit("shortlist_model_size_mismatch")
+              metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+              if metadata.get("phrase", "").strip().lower() != candidate.get("phrase", "").strip().lower():
+                  raise SystemExit("shortlist_phrase_mismatch")
+              if abs(float(metadata.get("threshold", -1)) - float(candidate["onnx_runtime_eval"]["threshold"])) > 1e-6:
+                  raise SystemExit("shortlist_threshold_mismatch")
+              operations = [item.get("op") if isinstance(item, dict) else None for item in metadata.get("preprocessing", [])]
+              if operations != ["highpass_filter", "peak_normalize", "log_mel", "cmn"]:
+                  raise SystemExit("shortlist_preprocessing_contract_mismatch")
+              if int(metadata.get("sample_rate", 0)) != 16000 or int(metadata.get("n_mels", 0)) != 40:
+                  raise SystemExit("shortlist_audio_shape_contract_mismatch")
+              expected_files.update((model_name, metadata_name))
+              checked += 1
+
+          if set(p.name for p in files) != expected_files:
+              raise SystemExit("model_bundle_contains_unreferenced_or_missing_files")
+          print(json.dumps({
+              "integrity": "PASS",
+              "synthetic_candidates_checked": checked,
+              "artifact_files": len(expected_files),
+              "production_approved": False,
+          }))
+          PY
+      - name: Upload aggregate report and verified synthetic-only model bundle
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aria-heed-spanish-kws-aggregate
+          path: |
+            ${{ runner.temp }}/aria-heed-report.json
+            ${{ runner.temp }}/aria-heed/shortlisted-models/*.onnx
+            ${{ runner.temp }}/aria-heed/shortlisted-models/*.json
+          if-no-files-found: ignore
+          retention-days: 7

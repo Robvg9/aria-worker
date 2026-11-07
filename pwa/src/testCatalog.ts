@@ -8,8 +8,26 @@ export type TestCatalogItem = {
   capabilities: string;
 };
 
-export const TEST_CATALOG_VERSION = '2026-11-05-windows-agent-notepad-fallback-v1';
+export const TEST_CATALOG_VERSION = '2026-11-06-voice-v4-merged-v1';
 export const TEST_CATALOG: TestCatalogItem[] = [
+  {
+    "id": "voice-v4-telegram-delivery",
+    "file": "tests/voice-v4-telegram-delivery.test.js",
+    "title": "Voice V4 Telegram Delivery",
+    "category": "Voz / mensajería / seguridad",
+    "includedInNpmTest": true,
+    "how": "Comprueba el adaptador Telegram, la previsualización, la confirmación autenticada, la idempotencia, el acuse del proveedor y el bloqueo de reintentos ante resultados inciertos.",
+    "capabilities": "Evita envíos desde voz sin confirmación visible, duplicados por doble clic y repetición automática cuando el proveedor pudo haber aceptado el mensaje."
+  },
+  {
+    "id": "voice-v4-telegram-migration",
+    "file": "tests/voice-v4-telegram-migration.test.js",
+    "title": "Voice V4 Telegram Migration and API",
+    "category": "Voz / mensajería / seguridad",
+    "includedInNpmTest": true,
+    "how": "Comprueba RLS, privilegios mínimos, idempotencia, almacenamiento exclusivo del hash del texto, configuración de bot solo en servidor y confirmación explícita en la PWA.",
+    "capabilities": "Detecta regresiones que permitan acceso directo de clientes, persistencia del cuerpo del mensaje o envío sin una confirmación visible y autenticada."
+  },
   {
     "id": "mission-job-authorization-fence",
     "file": "tests/mission-job-authorization-fence-contract.test.js",
@@ -2967,6 +2985,61 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "how": "Comprueba que las superficies de chat, crear misión, analizar ideas y Proyectos expongan dictado por micrófono con transcripción.",
     "capabilities": "Detecta regresiones de SpeechRecognition, idioma español, permisos del micrófono, inserción de transcripción y controles responsive."
   },
+  {
+    "id": "voice-v4-command-router",
+    "file": "tests/voice-v4-command-router.test.js",
+    "title": "ARIA Voice V4 Command Lanes + Safety",
+    "category": "Seguridad / voz / dispositivos",
+    "includedInNpmTest": true,
+    "how": "Comprueba que voz se divide en consultas, acciones locales allowlisted y misiones, sin mezclar dispatch ni reabrir el freeze.",
+    "capabilities": "Detecta comandos shell arbitrarios, destinos ambiguos, equipos no confiables, capacidades ausentes, repetición entre dispositivos y envíos de mensajes sin confirmación."
+  },
+  {
+    "id": "voice-v4-owner-session",
+    "file": "tests/voice-v4-owner-session.test.js",
+    "title": "ARIA Voice V4 Signed Owner Session",
+    "category": "Seguridad / voz / identidad",
+    "includedInNpmTest": true,
+    "how": "Comprueba la sesión firmada de propietario, caducidad breve, vinculación al dispositivo y consumo de nonce de un solo uso.",
+    "capabilities": "Detecta replay, sesión vencida, identidad o dispositivo discordante, firma inválida y verificación de voz ausente."
+  },
+  {
+    "id": "voice-v4-owner-session-migration",
+    "file": "tests/voice-v4-owner-session-migration.test.js",
+    "title": "ARIA Voice V4 Owner Session Storage Boundary",
+    "category": "Seguridad / voz / datos",
+    "includedInNpmTest": true,
+    "how": "Comprueba permisos de almacenamiento, adaptadores de sesión y límites de separación entre acciones directas y el motor de misiones.",
+    "capabilities": "Impide persistir audio o plantillas biométricas, introducir datos de voz en jobs de misión o exponer RPC privados."
+  },
+  {
+    "id": "voice-v4-heed-model-package",
+    "file": "tests/voice-v4-heed-model-package.test.js",
+    "title": "ARIA Voice V4 Heed ONNX + Metadata Package Contract",
+    "category": "Voz / modelos / seguridad",
+    "includedInNpmTest": true,
+    "how": "Comprueba que un modelo KWS exportado incluya su metadata de preprocesamiento, umbral y activación, y que el gate ONNX pase antes de conservarlo.",
+    "capabilities": "Detecta paquetes ONNX incompletos, sidecars incompatibles, hashes ausentes y candidatos sintéticos presentados incorrectamente como aprobados."
+  },
+  {
+    "id": "voice-v4-device-agent",
+    "file": "tests/voice-v4-device-agent.test.js",
+    "title": "ARIA Voice V4 Device Command Agent",
+    "category": "Voz / dispositivos / seguridad",
+    "includedInNpmTest": true,
+    "how": "Verifica la validación y el despacho de comandos directos desde la cola Voice V4 para agentes Windows y Android, sin usar la cola de misiones.",
+    "capabilities": "Bloquea dispositivos discordantes, comandos expirados, operaciones no permitidas, aplicaciones fuera de allowlist y URLs que no estén autorizadas; exige confirmación real del adaptador antes de reportar éxito."
+  },
+  {
+    "id": "voice-v4-windows-dpapi-signer",
+    "file": "tests/voice-v4-windows-dpapi-signer.test.js",
+    "title": "ARIA Windows DPAPI Ed25519 Owner Key",
+    "category": "Seguridad / Windows / identidad",
+    "includedInNpmTest": false,
+    "how": "Prueba el almacenamiento cifrado de una clave Ed25519 con DPAPI CurrentUser, su vinculación a propietario/dispositivo, firma canónica y revocación local.",
+    "capabilities": "Detecta claves privadas en claro, firmas inválidas, identidad cruzada, payload no canónico y afirmaciones de hablante no aprobadas. La prueba DPAPI real corre en el job Windows dedicado."
+  },
+
   {
     "id": "aria-autonomy-supabase-boundary",
     "file": "tests/aria-autonomy-supabase-boundary.test.js",

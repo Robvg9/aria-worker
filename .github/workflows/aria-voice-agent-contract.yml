@@ -1,0 +1,397 @@
+name: ARIA Voice V4 Device Agent Contract
+
+on:
+  push:
+    branches:
+      - feat/aria-voice-v4-diagnostics-20261102
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'agents/shared/voice-command-executor.cjs'
+      - 'agents/windows/aria-agent.js'
+      - 'agents/termux/aria-agent.js'
+      - 'tests/voice-v4-device-agent.test.js'
+      - 'agents/windows/voice-owner-session-keystore.cjs'
+      - 'tests/voice-v4-windows-dpapi-signer.test.js'
+      - 'supabase/migrations/20261106170000_voice_v4_owner_nonce_and_command_idempotency.sql'
+      - 'tests/voice-v4-owner-session-migration.test.js'
+      - 'tests/fixtures/voice-v4-migration-prerequisites.sql'
+      - '.github/workflows/aria-voice-agent-contract.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  device-agent-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Check agent syntax
+        run: |
+          node --check agents/windows/aria-agent.js
+          node --check agents/termux/aria-agent.js
+          node --check agents/shared/voice-command-executor.cjs
+
+      - name: Verify command validation and mocked execution
+        run: node tests/voice-v4-device-agent.test.js
+
+      - name: Verify command authorization and mission freeze contract
+        run: |
+          node tests/voice-v4-command-router.test.js
+          node tests/voice-v4-owner-session.test.js
+          node tests/voice-v4-owner-session-migration.test.js
+          node tests/voice-v4-windows-dpapi-signer.test.js
+
+  migration-sql-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: voice_contract
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d voice_contract"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Execute the Voice V4 migration on real PostgreSQL
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d voice_contract -v ON_ERROR_STOP=1 -f tests/fixtures/voice-v4-migration-prerequisites.sql
+          psql -h localhost -U postgres -d voice_contract -v ON_ERROR_STOP=1 -f supabase/migrations/20261106170000_voice_v4_owner_nonce_and_command_idempotency.sql
+          psql -h localhost -U postgres -d voice_contract -v ON_ERROR_STOP=1 <<'SQL'
+          DO $v4$
+          DECLARE
+            protected_tables integer;
+            public_policies integer;
+            model_rows integer;
+            v_public_key_bytes bytea;
+            v_public_key text;
+            v_fingerprint text;
+            v_device_id text;
+            v_pair_result jsonb;
+            v_resolved_key jsonb;
+            v_device_capabilities jsonb;
+            v_pair_rejected boolean;
+          BEGIN
+            SELECT count(*) INTO protected_tables
+            FROM pg_class c
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE n.nspname = 'aria_internal'
+              AND c.relname IN (
+                'voice_owner_session_nonces',
+                'voice_command_idempotency',
+                'voice_trusted_device_keys',
+                'voice_speaker_policies',
+                'voice_speaker_model_catalog',
+                'voice_device_commands'
+              )
+              AND c.relrowsecurity;
+            IF protected_tables <> 6 THEN
+              RAISE EXCEPTION 'voice_v4_rls_table_count_invalid: %', protected_tables;
+            END IF;
+
+            SELECT count(*) INTO public_policies
+            FROM pg_policies
+            WHERE schemaname = 'aria_internal'
+              AND tablename IN (
+                'voice_owner_session_nonces',
+                'voice_command_idempotency',
+                'voice_trusted_device_keys',
+                'voice_speaker_policies',
+                'voice_speaker_model_catalog',
+                'voice_device_commands'
+              );
+            IF public_policies <> 0 THEN
+              RAISE EXCEPTION 'voice_v4_unexpected_client_policy_count: %', public_policies;
+            END IF;
+
+            IF has_function_privilege('anon',
+                 'aria_internal.register_voice_trusted_device_key(uuid,text,text,text,text)', 'EXECUTE')
+               OR has_function_privilege('authenticated',
+                 'aria_internal.register_voice_trusted_device_key(uuid,text,text,text,text)', 'EXECUTE') THEN
+              RAISE EXCEPTION 'voice_v4_pairing_rpc_exposed_to_client_role';
+            END IF;
+            IF NOT has_function_privilege('service_role',
+                 'aria_internal.register_voice_trusted_device_key(uuid,text,text,text,text)', 'EXECUTE') THEN
+              RAISE EXCEPTION 'voice_v4_service_role_registration_grant_missing';
+            END IF;
+
+            SELECT count(*) INTO model_rows FROM aria_internal.voice_speaker_model_catalog;
+            IF model_rows <> 0 THEN
+              RAISE EXCEPTION 'voice_v4_speaker_catalog_must_start_empty';
+            END IF;
+
+            IF has_function_privilege('anon',
+                 'aria_internal.pair_voice_owner_device(uuid,text,text,text,text)', 'EXECUTE')
+               OR has_function_privilege('authenticated',
+                 'aria_internal.pair_voice_owner_device(uuid,text,text,text,text)', 'EXECUTE')
+               OR has_function_privilege('anon',
+                 'aria_internal.touch_voice_owner_device(uuid,text,text)', 'EXECUTE')
+               OR has_function_privilege('authenticated',
+                 'aria_internal.touch_voice_owner_device(uuid,text,text)', 'EXECUTE') THEN
+              RAISE EXCEPTION 'voice_v4_android_pairing_rpc_exposed_to_client_role';
+            END IF;
+            IF NOT has_function_privilege('service_role',
+                 'aria_internal.pair_voice_owner_device(uuid,text,text,text,text)', 'EXECUTE')
+               OR NOT has_function_privilege('service_role',
+                 'aria_internal.touch_voice_owner_device(uuid,text,text)', 'EXECUTE') THEN
+              RAISE EXCEPTION 'voice_v4_android_pairing_service_role_grant_missing';
+            END IF;
+
+            v_public_key_bytes := decode(
+              'd75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a',
+              'hex'
+            );
+            v_public_key := rtrim(translate(encode(v_public_key_bytes, 'base64'), '+/', '-_'), '=');
+            v_fingerprint := encode(extensions.digest(v_public_key_bytes, 'sha256'), 'hex');
+            v_device_id := 'android-voice-' || v_fingerprint;
+
+            v_pair_result := aria_internal.pair_voice_owner_device(
+              '123e4567-e89b-12d3-a456-426614174000'::uuid,
+              v_device_id,
+              repeat('A', 43),
+              'aria-android-keystore-ed25519-v1',
+              v_public_key
+            );
+            IF v_pair_result->>'device_id' <> v_device_id
+               OR v_pair_result->>'wake_word_enabled' <> 'false'
+               OR v_pair_result->'capabilities' <> '[]'::jsonb THEN
+              RAISE EXCEPTION 'voice_v4_android_pairing_result_not_readonly: %', v_pair_result;
+            END IF;
+
+            IF aria_internal.touch_voice_owner_device(
+              '123e4567-e89b-12d3-a456-426614174000'::uuid,
+              v_device_id,
+              repeat('A', 43)
+            ) IS DISTINCT FROM true THEN
+              RAISE EXCEPTION 'voice_v4_android_owner_heartbeat_failed';
+            END IF;
+
+            SELECT capabilities INTO v_device_capabilities
+            FROM aria_internal.device_registry
+            WHERE device_id = v_device_id;
+            IF v_device_capabilities <> '[]'::jsonb
+               OR v_device_capabilities @> '["audio.wake_word"]'::jsonb THEN
+              RAISE EXCEPTION 'voice_v4_android_pairing_granted_audio_capability';
+            END IF;
+
+            v_resolved_key := aria_internal.resolve_voice_trusted_device_key(
+              '123e4567-e89b-12d3-a456-426614174000'::uuid,
+              v_device_id
+            );
+            IF v_resolved_key IS NULL
+               OR v_resolved_key->>'device_id' <> v_device_id THEN
+              RAISE EXCEPTION 'voice_v4_android_readonly_owner_key_not_resolvable';
+            END IF;
+
+            -- A different owner cannot claim this public-key-derived device ID.
+            v_pair_rejected := false;
+            BEGIN
+              PERFORM aria_internal.pair_voice_owner_device(
+                '123e4567-e89b-12d3-a456-426614174001'::uuid,
+                v_device_id,
+                repeat('B', 43),
+                'aria-android-keystore-ed25519-v1',
+                v_public_key
+              );
+            EXCEPTION WHEN OTHERS THEN
+              v_pair_rejected := true;
+            END;
+            IF NOT v_pair_rejected THEN
+              RAISE EXCEPTION 'voice_v4_android_pairing_owner_hijack_was_allowed';
+            END IF;
+
+            -- An active owner can rotate its bearer token; the old token stops working.
+            v_pair_result := aria_internal.pair_voice_owner_device(
+              '123e4567-e89b-12d3-a456-426614174000'::uuid,
+              v_device_id,
+              repeat('B', 43),
+              'aria-android-keystore-ed25519-v1',
+              v_public_key
+            );
+            IF aria_internal.touch_voice_owner_device(
+              '123e4567-e89b-12d3-a456-426614174000'::uuid,
+              v_device_id,
+              repeat('A', 43)
+            ) IS DISTINCT FROM false THEN
+              RAISE EXCEPTION 'voice_v4_android_old_pairing_token_still_valid';
+            END IF;
+            IF aria_internal.touch_voice_owner_device(
+              '123e4567-e89b-12d3-a456-426614174000'::uuid,
+              v_device_id,
+              repeat('B', 43)
+            ) IS DISTINCT FROM true THEN
+              RAISE EXCEPTION 'voice_v4_android_rotated_pairing_token_rejected';
+            END IF;
+
+            -- Administrative disablement is also terminal: the same key/token cannot revive it.
+            UPDATE aria_internal.device_registry
+            SET status = 'disabled'
+            WHERE device_id = v_device_id;
+
+            IF aria_internal.touch_voice_owner_device(
+              '123e4567-e89b-12d3-a456-426614174000'::uuid,
+              v_device_id,
+              repeat('B', 43)
+            ) IS DISTINCT FROM false THEN
+              RAISE EXCEPTION 'voice_v4_android_disabled_device_heartbeat_allowed';
+            END IF;
+            IF NOT EXISTS (
+              SELECT 1 FROM aria_internal.device_registry
+              WHERE device_id = v_device_id AND status = 'disabled'
+            ) THEN
+              RAISE EXCEPTION 'voice_v4_android_disabled_device_status_was_reactivated';
+            END IF;
+
+            v_pair_rejected := false;
+            BEGIN
+              PERFORM aria_internal.pair_voice_owner_device(
+                '123e4567-e89b-12d3-a456-426614174000'::uuid,
+                v_device_id,
+                repeat('C', 43),
+                'aria-android-keystore-ed25519-v1',
+                v_public_key
+              );
+            EXCEPTION WHEN OTHERS THEN
+              v_pair_rejected := true;
+            END;
+            IF NOT v_pair_rejected THEN
+              RAISE EXCEPTION 'voice_v4_android_disabled_device_pairing_allowed';
+            END IF;
+
+            -- Reset the isolated SQL fixture so the separate revocation assertions can run.
+            UPDATE aria_internal.device_registry
+            SET status = 'online'
+            WHERE device_id = v_device_id;
+
+            -- Revocation is terminal: heartbeat and pairing cannot silently revive it.
+            IF aria_internal.revoke_voice_trusted_device_key(
+              '123e4567-e89b-12d3-a456-426614174000'::uuid,
+              v_device_id
+            ) IS DISTINCT FROM true THEN
+              RAISE EXCEPTION 'voice_v4_android_owner_key_revocation_failed';
+            END IF;
+            IF aria_internal.touch_voice_owner_device(
+              '123e4567-e89b-12d3-a456-426614174000'::uuid,
+              v_device_id,
+              repeat('B', 43)
+            ) IS DISTINCT FROM false THEN
+              RAISE EXCEPTION 'voice_v4_android_revoked_key_heartbeat_allowed';
+            END IF;
+            v_pair_rejected := false;
+            BEGIN
+              PERFORM aria_internal.pair_voice_owner_device(
+                '123e4567-e89b-12d3-a456-426614174000'::uuid,
+                v_device_id,
+                repeat('C', 43),
+                'aria-android-keystore-ed25519-v1',
+                v_public_key
+              );
+            EXCEPTION WHEN OTHERS THEN
+              v_pair_rejected := true;
+            END;
+            IF NOT v_pair_rejected THEN
+              RAISE EXCEPTION 'voice_v4_android_revoked_key_reactivated';
+            END IF;
+            IF aria_internal.resolve_voice_trusted_device_key(
+              '123e4567-e89b-12d3-a456-426614174000'::uuid,
+              v_device_id
+            ) IS NOT NULL THEN
+              RAISE EXCEPTION 'voice_v4_android_revoked_key_still_resolves';
+            END IF;
+          END $v4$;
+          SQL
+
+      - name: Execute Voice V4 Telegram delivery and Windows pairing migrations
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d voice_contract -v ON_ERROR_STOP=1 -f supabase/migrations/20261106170100_voice_v4_telegram_message_delivery.sql
+          psql -h localhost -U postgres -d voice_contract -v ON_ERROR_STOP=1 -f supabase/migrations/20261106170200_voice_v4_windows_owner_readonly_pairing.sql
+          psql -h localhost -U postgres -d voice_contract -v ON_ERROR_STOP=1 <<'SQL'
+          DO $extra$
+          DECLARE
+            protected_tables integer;
+          BEGIN
+            SELECT count(*) INTO protected_tables
+            FROM pg_class c
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE n.nspname = 'aria_internal'
+              AND c.relname IN ('voice_message_recipients', 'voice_message_dispatches')
+              AND c.relrowsecurity;
+            IF protected_tables <> 2 THEN
+              RAISE EXCEPTION 'voice_v4_message_rls_invalid: %', protected_tables;
+            END IF;
+
+            IF has_function_privilege('anon',
+                 'aria_internal.pair_voice_windows_owner_device(uuid,text,text,text,text)', 'EXECUTE')
+               OR has_function_privilege('authenticated',
+                 'aria_internal.pair_voice_windows_owner_device(uuid,text,text,text,text)', 'EXECUTE')
+               OR has_function_privilege('anon',
+                 'aria_internal.touch_voice_windows_owner_device(uuid,text,text)', 'EXECUTE')
+               OR has_function_privilege('authenticated',
+                 'aria_internal.touch_voice_windows_owner_device(uuid,text,text)', 'EXECUTE') THEN
+              RAISE EXCEPTION 'voice_v4_windows_pairing_exposed_to_client_role';
+            END IF;
+            IF NOT has_function_privilege('service_role',
+                 'aria_internal.pair_voice_windows_owner_device(uuid,text,text,text,text)', 'EXECUTE')
+               OR NOT has_function_privilege('service_role',
+                 'aria_internal.touch_voice_windows_owner_device(uuid,text,text)', 'EXECUTE') THEN
+              RAISE EXCEPTION 'voice_v4_windows_pairing_service_grant_missing';
+            END IF;
+
+            IF has_function_privilege('anon',
+                 'aria_internal.prepare_voice_telegram_message(uuid,uuid,text,text,text,timestamptz)', 'EXECUTE')
+               OR has_function_privilege('authenticated',
+                 'aria_internal.prepare_voice_telegram_message(uuid,uuid,text,text,text,timestamptz)', 'EXECUTE')
+               OR has_function_privilege('anon',
+                 'aria_internal.claim_voice_telegram_message(uuid,uuid,text)', 'EXECUTE')
+               OR has_function_privilege('authenticated',
+                 'aria_internal.complete_voice_telegram_message(uuid,uuid,text,bigint,text,text)', 'EXECUTE') THEN
+              RAISE EXCEPTION 'voice_v4_telegram_functions_exposed_to_client_role';
+            END IF;
+            IF NOT has_function_privilege('service_role',
+                 'aria_internal.prepare_voice_telegram_message(uuid,uuid,text,text,text,timestamptz)', 'EXECUTE')
+               OR NOT has_function_privilege('service_role',
+                 'aria_internal.claim_voice_telegram_message(uuid,uuid,text)', 'EXECUTE')
+               OR NOT has_function_privilege('service_role',
+                 'aria_internal.complete_voice_telegram_message(uuid,uuid,text,bigint,text,text)', 'EXECUTE') THEN
+              RAISE EXCEPTION 'voice_v4_telegram_service_grant_missing';
+            END IF;
+          END $extra$;
+          SQL
+
+  windows-owner-session-keystore:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Validate DPAPI Ed25519 owner-key storage and signing
+        run: node tests/voice-v4-windows-dpapi-signer.test.js

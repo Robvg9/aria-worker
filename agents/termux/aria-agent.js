@@ -7,6 +7,7 @@ const crypto = require('crypto');
 const { executeAndroidAccessibilityJob, probeLocalIpcHealth, probeAndroidCommandReceiver } = require('../../computer-use/android-accessibility-v1');
 const { executeAutonomousAndroidMission } = require('./android-autonomous-runner-v1');
 const { resolveAndroidUiHealth, markAndroidUiExecutionSuccess } = require('./android-ui-health-state');
+const { executeVoiceDeviceCommand, parseAllowlist, UUID_RE } = require('../shared/voice-command-executor.cjs');
 
 const GATEWAY_URL = process.env.ARIA_DEVICE_GATEWAY_URL;
 const DEVICE_TOKEN = process.env.ARIA_DEVICE_TOKEN;
@@ -20,6 +21,78 @@ const HEARTBEAT_MS = Math.max(30_000, Number(process.env.ARIA_HEARTBEAT_MS || 60
 const POLL_MS = Math.max(5_000, Number(process.env.ARIA_POLL_MS || 12_000));
 const MAX_OUTPUT = 256 * 1024;
 const DISPLAY_OUTPUT = 4096;
+
+const VOICE_ALLOWED_APPS = parseAllowlist(process.env.ARIA_VOICE_ALLOWED_APPS || '');
+const VOICE_ALLOWED_URL_HOSTS = parseAllowlist(process.env.ARIA_VOICE_ALLOWED_URL_HOSTS || '');
+const VOICE_BRIGHTNESS_ENABLED = process.env.ARIA_VOICE_ENABLE_BRIGHTNESS === 'true';
+
+function runNativeVoiceCommand(binary, args, timeoutMs = 8000) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(binary, args.map(String), { stdio: ['ignore', 'pipe', 'pipe'] });
+    let stdout = ''; let stderr = ''; let finished = false;
+    const append = (current, chunk) => (current + chunk.toString()).slice(-4096);
+    const timer = setTimeout(() => {
+      if (finished) return;
+      finished = true; child.kill('SIGTERM');
+      const error = new Error('native_api_failed'); error.code = 'native_api_failed'; reject(error);
+    }, timeoutMs);
+    child.stdout.on('data', chunk => { stdout = append(stdout, chunk); });
+    child.stderr.on('data', chunk => { stderr = append(stderr, chunk); });
+    child.once('error', () => {
+      if (finished) return;
+      finished = true; clearTimeout(timer);
+      const error = new Error('native_api_failed'); error.code = 'native_api_failed'; reject(error);
+    });
+    child.once('close', code => {
+      if (finished) return;
+      finished = true; clearTimeout(timer);
+      if (code !== 0) { const error = new Error('native_api_failed'); error.code = 'native_api_failed'; reject(error); }
+      else resolve({ stdout: stdout.trim(), stderr: stderr.trim() });
+    });
+  });
+}
+async function setAndroidVoiceBrightness(percent) {
+  if (!VOICE_BRIGHTNESS_ENABLED) { const error = new Error('operation_unsupported'); error.code = 'operation_unsupported'; throw error; }
+  const nativeValue = Math.round(percent * 255 / 100);
+  await runNativeVoiceCommand('/system/bin/settings', ['put', 'system', 'screen_brightness', nativeValue]);
+  const current = await runNativeVoiceCommand('/system/bin/settings', ['get', 'system', 'screen_brightness']);
+  if (Number(current.stdout) !== nativeValue) { const error = new Error('native_api_failed'); error.code = 'native_api_failed'; throw error; }
+}
+async function openAndroidVoiceApp(appId) {
+  if (!/^[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)+$/.test(appId)) { const error = new Error('app_not_allowlisted'); error.code = 'app_not_allowlisted'; throw error; }
+  await runNativeVoiceCommand('/system/bin/monkey', ['-p', appId, '1']);
+}
+async function openAndroidVoiceUrl(url) {
+  await runNativeVoiceCommand('/system/bin/am', ['start', '-a', 'android.intent.action.VIEW', '-d', url]);
+}
+async function runAndroidVoiceCommand(command) {
+  return executeVoiceDeviceCommand(command, {
+    deviceId: DEVICE_ID,
+    allowedApps: VOICE_ALLOWED_APPS,
+    allowedUrlHosts: VOICE_ALLOWED_URL_HOSTS,
+    adapters: { setBrightness: setAndroidVoiceBrightness, openApp: openAndroidVoiceApp, openUrl: openAndroidVoiceUrl }
+  });
+}
+async function claimAndExecuteVoiceCommand() {
+  try {
+    const body = await api('/v1/voice/commands/claim', { method: 'POST', body: JSON.stringify({ device_id: DEVICE_ID }), timeoutMs: 8000 });
+    if (!body?.command) return 'idle';
+    const command = body.command;
+    if (!UUID_RE.test(String(command.command_id || ''))) throw new Error('voice_command_id_invalid');
+    const outcome = await runAndroidVoiceCommand(command);
+    await api('/v1/voice/commands/' + encodeURIComponent(command.command_id) + '/complete', {
+      method: 'POST',
+      body: JSON.stringify({ status: outcome.status, result: outcome.result, error_code: outcome.errorCode }),
+      timeoutMs: 8000
+    });
+    log('VOICE COMMAND ACK id=' + command.command_id + ' operation=' + String(command.operation) + ' status=' + outcome.status);
+    return 'worked';
+  } catch (error) {
+    console.error('[voice-command] ' + error.message);
+    return 'error';
+  }
+}
+
 let computerUseInFlight = false;
 let lastAndroidUiHealth = { ok: false, reason: 'probe_not_run' };
 let androidUiHealthState = { health: lastAndroidUiHealth, failureStreak: 0, lastGoodAt: 0 };
@@ -191,7 +264,8 @@ async function heartbeat() {
     androidUiHealth = androidUiHealthState.health;
     lastAndroidUiHealth = androidUiHealth;
   }
-  const capabilities = ['shell.execute','notifications.push'];
+  const capabilities = ['shell.execute','notifications.push','app.open','browser.open_url'];
+  if (VOICE_BRIGHTNESS_ENABLED) capabilities.push('display.brightness.write');
   if (androidUiHealth.ok) capabilities.push('computer.use.android');
   try {
     await api('/v1/devices/heartbeat',{
@@ -276,7 +350,10 @@ let heartbeatTimer=null;
 async function loop(){
   let consecutivePollFailures=0;
   while(!stopping){
-    const state=await claimAndExecute();
+    const voiceState = await claimAndExecuteVoiceCommand();
+    const jobState = voiceState === 'worked' ? 'idle' : await claimAndExecute();
+    const state = voiceState === 'worked' || jobState === 'worked' ? 'worked'
+      : voiceState === 'error' || jobState === 'error' ? 'error' : 'idle';
     if(state==='error'){
       consecutivePollFailures=Math.min(consecutivePollFailures+1,6);
     }else{

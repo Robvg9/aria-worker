@@ -1,5 +1,18 @@
 const WAKE_PREFIX = /^(?:(?:oye|hey|hola|ok|okay)\s+)?aria(?:\s*[,;:]\s*|\s+|$)/;
 
+// Prefer the device's configured Spanish dialect. Some browser speech engines
+// reject es-CU/es-PR; callers may then retry with the broadly supported es-ES.
+export function resolveVoiceRecognitionLocale(primaryLanguage, preferredLanguages = []) {
+  const candidates = [primaryLanguage, ...(Array.isArray(preferredLanguages) ? preferredLanguages : [])];
+  for (const candidate of candidates) {
+    if (typeof candidate !== 'string') continue;
+    const locale = candidate.trim().replace(/_/g, '-');
+    if (/^es(?:-[A-Za-z0-9]{2,8})*$/i.test(locale)) return locale;
+  }
+  return 'es-ES';
+}
+
+
 export function normalizeWakeSpeech(value) {
   return String(value ?? '')
     .normalize('NFD')
