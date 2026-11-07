@@ -56,7 +56,10 @@ for (const rpc of [
   "aria_m22_a6_block_run_v1",
 ]) assert.ok(migration.includes("create or replace function aria_internal." + rpc + "("), rpc + " migration RPC missing");
 assert.match(migration, /cron\.schedule\([\s\S]*aria-mission-wonder-2-a6-dispatcher-every-minute/);
-assert.match(migration, /update cron\.job set active=false where jobid=v_job_id/);
+assert.match(migration, /create or replace function aria_internal\.aria_m22_a6_set_dispatcher_active_v1\(p_active boolean\)/);
+assert.match(migration, /cron\.alter_job\(job_id := v_job_id, active := p_active\)/);
+assert.match(migration, /perform aria_internal\.aria_m22_a6_set_dispatcher_active_v1\(false\)/);
+assert.doesNotMatch(migration, /update\s+cron\.job\s+set\s+active/i);
 assert.match(migration, /heartbeatAgeMs/);
 assert.match(migration, /heartbeat_continuity_threshold_exceeded/);
 assert.match(migration, /minimum_mission_span_ms integer not null default 64800000/);

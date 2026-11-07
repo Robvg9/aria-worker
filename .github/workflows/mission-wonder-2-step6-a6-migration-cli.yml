@@ -117,6 +117,19 @@ jobs:
             return id;
           end;
           $cron$;
+          create function cron.alter_job(
+            job_id bigint,
+            schedule text default null,
+            command text default null,
+            database text default null,
+            username text default null,
+            active boolean default null
+          ) returns void language plpgsql as $cron$
+          begin
+            update cron.job j set active=coalesce($6,j.active)
+             where j.jobid=$1;
+          end;
+          $cron$;
           create table vault.decrypted_secrets(name text,decrypted_secret text);
           create table aria_internal.mission_state (
             mission_id text primary key, goal text, status text, checkpoint jsonb default '{}'::jsonb,

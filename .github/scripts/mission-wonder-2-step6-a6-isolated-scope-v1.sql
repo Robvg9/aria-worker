@@ -144,6 +144,26 @@ begin
 end;
 $function$;
 
+create or replace function aria_internal.aria_m22_a6_set_dispatcher_active_v1(p_active boolean)
+returns boolean
+language plpgsql security definer
+set search_path to 'pg_catalog','aria_internal'
+as $function$
+declare
+  v_job_id bigint;
+begin
+  select jobid into v_job_id
+    from cron.job
+   where jobname='aria-mission-wonder-2-a6-dispatcher-every-minute';
+  if v_job_id is null then
+    if p_active then raise exception 'a6_dedicated_cron_missing'; end if;
+    return false;
+  end if;
+  perform cron.alter_job(job_id := v_job_id, active := p_active);
+  return true;
+end;
+$function$;
+
 create or replace function aria_internal.aria_m22_a6_arm_run_v1(
   p_run_id text,
   p_owner_user_id text,
@@ -311,7 +331,7 @@ begin
      set scheduled_at=started+(scheduled_offset_hours*interval '1 hour'),
          expires_at=started+interval '25 hours',updated_at=started
    where run_id=p_run_id and status='armed';
-  update cron.job set active=true where jobid=cron_job_id;
+  perform aria_internal.aria_m22_a6_set_dispatcher_active_v1(true);
 
   return jsonb_build_object(
     'status','running','run_id',p_run_id,'started_at',started,
@@ -720,8 +740,7 @@ begin
       update aria_internal.mission_wonder_2_a6_scopes
          set status='revoked',revoked_at=coalesce(revoked_at,clock_timestamp()),updated_at=clock_timestamp()
        where run_id=r.run_id and status in ('armed','claimed','bound');
-      update cron.job set active=false
-       where jobname='aria-mission-wonder-2-a6-dispatcher-every-minute';
+      perform aria_internal.aria_m22_a6_set_dispatcher_active_v1(false);
     end if;
     insert into aria_internal.mission_wonder_2_a6_telemetry(run_id,event_type,payload)
     values (r.run_id,'fault_observed',jsonb_build_object(
@@ -789,8 +808,7 @@ begin
   if exists(select 1 from aria_internal.mission_wonder_2_a6_runs where status<>'running')
      or not exists(select 1 from aria_internal.mission_wonder_2_a6_runs where status='running') then
     if not exists(select 1 from aria_internal.mission_wonder_2_a6_runs where status='running') then
-      update cron.job set active=false
-       where jobname='aria-mission-wonder-2-a6-dispatcher-every-minute';
+      perform aria_internal.aria_m22_a6_set_dispatcher_active_v1(false);
     end if;
   end if;
   return jsonb_build_object('completed',completed_count,'blocked',blocked_count);
@@ -1191,8 +1209,7 @@ begin
     n:=n+1;
   end loop;
   if not exists(select 1 from aria_internal.mission_wonder_2_a6_runs where status='running') then
-    update cron.job set active=false
-     where jobname='aria-mission-wonder-2-a6-dispatcher-every-minute';
+    perform aria_internal.aria_m22_a6_set_dispatcher_active_v1(false);
   end if;
   return n;
 end;
@@ -1225,8 +1242,7 @@ begin
    where run_id=p_run_id and status in ('armed','running','blocked');
   get diagnostics n=row_count;
   if not exists(select 1 from aria_internal.mission_wonder_2_a6_runs where status='running') then
-    update cron.job set active=false
-     where jobname='aria-mission-wonder-2-a6-dispatcher-every-minute';
+    perform aria_internal.aria_m22_a6_set_dispatcher_active_v1(false);
   end if;
   return n=1 or exists(select 1 from aria_internal.mission_wonder_2_a6_runs where run_id=p_run_id and status='revoked');
 end;
@@ -1326,13 +1342,13 @@ begin
     'automaticRetry',false
   ));
   if not exists(select 1 from aria_internal.mission_wonder_2_a6_runs where status='running') then
-    update cron.job set active=false
-     where jobname='aria-mission-wonder-2-a6-dispatcher-every-minute';
+    perform aria_internal.aria_m22_a6_set_dispatcher_active_v1(false);
   end if;
   return true;
 end;
 $function$;
 
+revoke all on function aria_internal.aria_m22_a6_set_dispatcher_active_v1(boolean) from public,anon,authenticated;
 revoke all on function aria_internal.aria_m22_a6_ambient_snapshot_v1() from public,anon,authenticated;
 revoke all on function aria_internal.aria_m22_a6_arm_run_v1(text,text,text,text,integer,integer,jsonb) from public,anon,authenticated;
 revoke all on function aria_internal.aria_m22_a6_start_run_v1(text,text) from public,anon,authenticated;
@@ -1392,7 +1408,7 @@ begin
       $job$
     );
   end if;
-  update cron.job set active=false where jobid=v_job_id;
+  perform aria_internal.aria_m22_a6_set_dispatcher_active_v1(false);
 end;
 $block$;
 
