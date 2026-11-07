@@ -15,7 +15,9 @@ const { resolveAndroidUiHealth, markAndroidUiExecutionSuccess } = require('../ag
 const healthState = fs.readFileSync(path.join(__dirname, '..', 'agents', 'termux', 'android-ui-health-state.js'), 'utf8');
 const accessibilityService = fs.readFileSync(path.join(__dirname, '..', 'android-ui-agent', 'app', 'src', 'main', 'java', 'com', 'robvg9', 'ariauiagent', 'AriaAccessibilityService.kt'), 'utf8');
 
-assert.equal(PACKAGE, 'com.robvg9.ariauiagent.debug');
+assert.equal(PACKAGE, 'com.robvg9.aria');
+assert.ok(transport.includes('com.robvg9.ariauiagent.CommandReceiver'));
+assert.ok(transport.includes('com.robvg9.ariauiagent.MainActivity'));
 assert.equal(LOCAL_IPC_URL, 'http://127.0.0.1:45874/execute');
 assert.equal(LOCAL_IPC_HEALTH_URL, 'http://127.0.0.1:45874/health');
 
@@ -108,7 +110,7 @@ assert.ok(!manifest.includes('ARIA Browser Bridge'));
       return {
         ok: true,
         status: 200,
-        text: async () => JSON.stringify({ ok: true, service: 'aria-accessibility', port: 45874, protocol: 'aria-android-ui-agent-ipc-v2', uid: 10722, user_id: Math.floor(process.getuid() / 100000), version_name: '1.1.17', version_code: 23 })
+        text: async () => JSON.stringify({ ok: true, service: 'aria-accessibility', package: PACKAGE, port: 45874, protocol: 'aria-android-ui-agent-ipc-v2', uid: 10722, user_id: Math.floor(process.getuid() / 100000), version_name: '1.1.17', version_code: 23 })
       };
     };
     const health = await probeLocalIpcHealth({ timeoutMs: 1000 });
@@ -117,6 +119,21 @@ assert.ok(!manifest.includes('ARIA Browser Bridge'));
     assert.equal(health.payload.protocol, 'aria-android-ui-agent-ipc-v2');
     assert.equal(calls, 1);
 
+    global.fetch = async () => ({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({
+        ok: true,
+        service: 'aria-accessibility',
+        package: 'com.robvg9.ariauiagent.debug',
+        port: 45874,
+        protocol: 'aria-android-ui-agent-ipc-v2'
+      })
+    });
+    const legacyPackage = await probeLocalIpcHealth({ timeoutMs: 1000 });
+    assert.equal(legacyPackage.ok, false);
+    assert.equal(legacyPackage.reason, 'android_local_ipc_package_mismatch');
+
     calls = 0;
     global.fetch = async () => ({
       ok: true,
@@ -124,6 +141,7 @@ assert.ok(!manifest.includes('ARIA Browser Bridge'));
       text: async () => JSON.stringify({
         ok: true,
         service: 'aria-accessibility',
+        package: PACKAGE,
         port: 45874,
         protocol: 'wrong-protocol',
         uid: 10722,
@@ -142,6 +160,7 @@ assert.ok(!manifest.includes('ARIA Browser Bridge'));
       text: async () => JSON.stringify({
         ok: true,
         service: 'aria-accessibility',
+        package: PACKAGE,
         port: 45874,
         protocol: 'aria-android-ui-agent-ipc-v2',
         uid: 15010722,
@@ -162,7 +181,7 @@ assert.ok(!manifest.includes('ARIA Browser Bridge'));
       return {
         ok: true,
         status: 200,
-        text: async () => JSON.stringify({ ok: true, evidence_hash: 'retry-pass' })
+        text: async () => JSON.stringify({ ok: true, evidence_hash: 'retry-pass', service_package: PACKAGE })
       };
     };
     const retried = await executeAndroidAccessibilityJob({
