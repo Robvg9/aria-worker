@@ -9,7 +9,7 @@ assert.ok(pwaDeploy.includes("'scripts/aria-mcp-chatbending-context-contract.cjs
 const deliveryGate=fs.readFileSync('.github/workflows/aria-delivery-deterministic-gate.yml','utf8');
 const workerPwa=fs.readFileSync('worker.js','utf8');
 
-const releaseFunctions=['aria-planner-v11','aria-canonical-runtime-v1','aria-mission-runner-v22','aria-runtime-gateway-v1','aria-execution-runtime-v1','aria-device-gateway','aria-smart-verifier-v1','aria-direct-v1','aria-mission-intake-v1','aria-memory-v2'];
+const releaseFunctions=['aria-planner-v11','aria-canonical-runtime-v1','aria-mission-runner-v22','aria-runtime-gateway-v1','aria-execution-runtime-v1','aria-device-gateway','aria-smart-verifier-v1','aria-direct-v1','aria-mission-intake-v1','aria-mission-wonder-2-a6-dispatch-v1','aria-memory-v2'];
 for(const fn of releaseFunctions) assert.match(source,new RegExp(`functions deploy ${fn}\\b`),`${fn} must be deployed`);
 const deployCommands=source.split("\n").filter(line=>line.includes("supabase functions deploy "));
 assert.ok(deployCommands.length>0,"canonical deployment commands must exist");

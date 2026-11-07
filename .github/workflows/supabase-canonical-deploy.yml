@@ -37,6 +37,8 @@ on:
       - '!autonomy/persistent-worker-coordinator-adapter-v1.js'
       # A6 soak evaluator/docs are CI-only preparation and must not trigger a canonical Supabase redeploy.
       - '!autonomy/mission-wonder-2-a6-soak-v1.mjs'
+      # The A6 shared scope helper is exercised by CI until the separately gated runtime-wiring PR.
+      - '!supabase/functions/_shared/mission-wonder-2-a6-scope-v1.mjs'
       - '!autonomy/MISSION_WONDER_2_STEP6_A6_SOAK.md'
       - '!tests/mission-wonder-2-step6-a6-soak.test.mjs'
       # A3 local worker lock is not a Supabase runtime dependency; exclude this and the trigger contract from production deploys.
@@ -242,6 +244,7 @@ jobs:
           supabase functions deploy aria-gemini-direct-live-check-v1 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt --yes
           supabase functions deploy aria-direct-v1 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt --yes
           supabase functions deploy aria-mission-intake-v1 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt --yes
+          supabase functions deploy aria-mission-wonder-2-a6-dispatch-v1 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt --yes
           supabase functions deploy aria-app-api-v3 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt --yes
           supabase functions deploy aria-github-app-runtime-v1 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt --yes
           supabase functions deploy aria-memory-v2 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt --yes
