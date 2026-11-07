@@ -15,7 +15,7 @@ const { resolveAndroidUiHealth, markAndroidUiExecutionSuccess } = require('../ag
 const healthState = fs.readFileSync(path.join(__dirname, '..', 'agents', 'termux', 'android-ui-health-state.js'), 'utf8');
 const accessibilityService = fs.readFileSync(path.join(__dirname, '..', 'android-ui-agent', 'app', 'src', 'main', 'java', 'com', 'robvg9', 'ariauiagent', 'AriaAccessibilityService.kt'), 'utf8');
 
-assert.equal(PACKAGE, 'com.robvg9.aria');
+assert.equal(PACKAGE, 'com.robvg9.aria.unified');
 assert.equal(LOCAL_IPC_URL, 'http://127.0.0.1:45874/execute');
 assert.equal(LOCAL_IPC_HEALTH_URL, 'http://127.0.0.1:45874/health');
 
@@ -125,7 +125,7 @@ assert.ok(!manifest.includes('ARIA Browser Bridge'));
       text: async () => JSON.stringify({
         ok: true,
         service: 'aria-accessibility',
-        package: 'com.robvg9.ariauiagent.debug',
+        package: 'com.robvg9.aria',
         port: 45874,
         protocol: 'aria-android-ui-agent-ipc-v2'
       })
