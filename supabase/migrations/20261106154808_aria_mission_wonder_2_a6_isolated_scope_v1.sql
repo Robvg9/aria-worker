@@ -1069,6 +1069,7 @@ declare
   max_a6_oldest_pending_age_ms bigint;
   p95_latency_ms numeric;
   mission_completion_window_count integer;
+  distinct_mission_completion_count integer;
   first_mission_completed_at timestamptz;
   last_mission_completed_at timestamptz;
   mission_completion_span_ms bigint;
@@ -1086,8 +1087,9 @@ begin
      where run_id=r.run_id and status='completed';
 
     -- A delayed dispatcher must not compress overdue missions into a false 24h PASS.
-    select count(*)::integer,min(completed_at),max(completed_at)
-      into mission_completion_window_count,first_mission_completed_at,last_mission_completed_at
+    select count(*)::integer,count(distinct completed_at)::integer,min(completed_at),max(completed_at)
+      into mission_completion_window_count,distinct_mission_completion_count,
+           first_mission_completed_at,last_mission_completed_at
       from aria_internal.mission_wonder_2_a6_scopes
      where run_id=r.run_id and status='completed'
        and completed_at is not null
@@ -1143,6 +1145,7 @@ begin
     values (r.run_id,'final_reconciliation',jsonb_build_object(
       'completed_scope_count',completed_count,
       'mission_completion_window_count',mission_completion_window_count,
+      'distinct_mission_completion_count',distinct_mission_completion_count,
       'first_mission_completed_at',first_mission_completed_at,
       'last_mission_completed_at',last_mission_completed_at,
       'mission_completion_span_ms',mission_completion_span_ms,
@@ -1163,6 +1166,7 @@ begin
       'ambient_unchanged',(ambient is not distinct from r.ambient_baseline)
     ));
     if completed_count=5 and mission_completion_window_count=5 and
+       distinct_mission_completion_count=5 and
        mission_completion_span_ms>=r.minimum_mission_span_ms and
        max_mission_intermission_observed_ms<=r.max_mission_intermission_ms and
        job_count=5 and active_count=0 and
