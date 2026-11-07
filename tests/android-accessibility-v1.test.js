@@ -87,7 +87,7 @@ assert.ok(ipcAuth.includes('HEALTH_PROTOCOL = "aria-android-ui-agent-ipc-v2"'));
 assert.ok(ipc.includes('android.os.Process.myUid()'));
 assert.ok(ipc.includes('service.packageManager.getPackageInfo'));
 assert.ok(ipc.includes('packageInfo?.versionName'));
-assert.ok(ipc.includes('packageInfo?.longVersionCode'));
+assert.ok(ipc.includes('packageInfo?.versionCode?.toLong()'), 'IPC version reporting must support minSdk 26');
 assert.ok(ipc.includes('service.packageName'));
 assert.ok(ipc.includes('server.bind'));
 assert.ok(ipc.includes('fun isHealthy'));
