@@ -16,12 +16,12 @@ const healthState = fs.readFileSync(path.join(__dirname, '..', 'agents', 'termux
 const accessibilityService = fs.readFileSync(path.join(__dirname, '..', 'android-ui-agent', 'app', 'src', 'main', 'java', 'com', 'robvg9', 'ariauiagent', 'AriaAccessibilityService.kt'), 'utf8');
 
 assert.equal(PACKAGE, 'com.robvg9.aria');
-assert.ok(transport.includes('com.robvg9.ariauiagent.CommandReceiver'));
-assert.ok(transport.includes('com.robvg9.ariauiagent.MainActivity'));
 assert.equal(LOCAL_IPC_URL, 'http://127.0.0.1:45874/execute');
 assert.equal(LOCAL_IPC_HEALTH_URL, 'http://127.0.0.1:45874/health');
 
 const transport = fs.readFileSync(path.join(__dirname, '..', 'computer-use', 'android-accessibility-v1.js'), 'utf8');
+assert.ok(transport.includes('com.robvg9.ariauiagent.CommandReceiver'));
+assert.ok(transport.includes('com.robvg9.ariauiagent.MainActivity'));
 const agent = fs.readFileSync(path.join(__dirname, '..', 'agents', 'termux', 'aria-agent.js'), 'utf8');
 const manifest = fs.readFileSync(path.join(__dirname, '..', 'android-ui-agent', 'app', 'src', 'main', 'AndroidManifest.xml'), 'utf8');
 const receiver = fs.readFileSync(path.join(__dirname, '..', 'android-ui-agent', 'app', 'src', 'main', 'java', 'com', 'robvg9', 'ariauiagent', 'CommandReceiver.kt'), 'utf8');
