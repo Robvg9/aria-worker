@@ -28,7 +28,9 @@ function resolveAndroidAmPath(env = process.env, existsSync = fs.existsSync) {
   return 'am';
 }
 
-const PACKAGE = 'com.robvg9.ariauiagent.debug'; // Backward-compatible export; local HTTP does not depend on APK package id.
+const PACKAGE = 'com.robvg9.aria';
+const RECEIVER_COMPONENT = 'com.robvg9.ariauiagent.CommandReceiver';
+const MAIN_ACTIVITY_COMPONENT = 'com.robvg9.ariauiagent.MainActivity';
 const IPC_TOKEN = '4fa3c34b8093d0ac3633fd58ade90bc224827f2a7b21cf29f26931c637e34d76';
 const LOCAL_IPC_URL = 'http://127.0.0.1:45874/execute';
 const LOCAL_IPC_HEALTH_URL = 'http://127.0.0.1:45874/health';
@@ -65,7 +67,7 @@ function executeAndroidCommandReceiver({ request, timeoutMs = 8000 } = {}) {
     const child = spawn(resolveAndroidAmPath(), [
       'broadcast', '--user', String(userId),
       '-a', 'com.robvg9.ariauiagent.ACTION_EXECUTE',
-      '-n', `${PACKAGE}/.CommandReceiver`,
+      '-n', `${PACKAGE}/${RECEIVER_COMPONENT}`,
       '--es', 'payload_b64', encoded,
       '--es', 'ipc_token', IPC_TOKEN
     ], { stdio: ['ignore', 'pipe', 'pipe'], env: process.env });
@@ -164,6 +166,22 @@ async function probeLocalIpcHealth({ timeoutMs = 1500 } = {}) {
         metadata: { transport: 'android-local-http', url: LOCAL_IPC_HEALTH_URL }
       };
     }
+    if (payload.package !== PACKAGE) {
+      return {
+        ok: false,
+        reason: 'android_local_ipc_package_mismatch',
+        status: response.status,
+        metadata: {
+          transport: 'android-local-http',
+          url: LOCAL_IPC_HEALTH_URL,
+          expected_package: PACKAGE,
+          actual_package: payload.package || null,
+          version_name: payload.version_name || null,
+          version_code: payload.version_code || null,
+          build_id: payload.build_id || null
+        }
+      };
+    }
     if (payload.protocol !== REQUIRED_IPC_PROTOCOL) {
       return {
         ok: false,
@@ -241,6 +259,33 @@ async function executeLocalIpcJob({ request, timeoutMs = 12000 } = {}) {
     if (payload.ok !== true) {
       return { status: 'failed', reason: payload.reason || 'android_action_failed', payload, metadata: { transport: 'android-local-http', url: LOCAL_IPC_URL } };
     }
+    if (payload.service_package !== PACKAGE) {
+      const fallback = await executeAndroidCommandReceiver({ request, timeoutMs: Math.min(effectiveTimeout, 8000) });
+      if (fallback.status === 'succeeded') {
+        return {
+          ...fallback,
+          metadata: {
+            ...(fallback.metadata || {}),
+            fallback_from: 'android-local-http-package-mismatch',
+            expected_package: PACKAGE,
+            actual_package: payload.service_package || null
+          }
+        };
+      }
+      return {
+        status: 'failed',
+        reason: 'android_local_ipc_package_mismatch',
+        payload,
+        metadata: {
+          transport: 'android-local-http',
+          url: LOCAL_IPC_URL,
+          expected_package: PACKAGE,
+          actual_package: payload.service_package || null,
+          fallback_transport: 'android-command-receiver',
+          fallback_reason: fallback.reason || null
+        }
+      };
+    }
     return {
       status: 'succeeded',
       payload,
@@ -273,7 +318,7 @@ function recoverAndroidUiAgentProcess({ timeoutMs = 8000 } = {}) {
     const child = spawn(resolveAndroidAmPath(), [
       'start',
       '-n',
-      `${PACKAGE}/.MainActivity`,
+      `${PACKAGE}/${MAIN_ACTIVITY_COMPONENT}`,
       '-f',
       '0x10200000'
     ], { stdio: ['ignore', 'pipe', 'pipe'], env: process.env });
