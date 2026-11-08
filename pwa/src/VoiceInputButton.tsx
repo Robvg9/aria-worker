@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { resolveVoiceRecognitionLocale } from './voiceWakeWord';
+import { captureNativeUtterance, hasNativeVoiceCapture } from './nativeVoiceCapture';
 
 type VoiceInputButtonProps = {
   onTranscript: (transcript: string) => void | Promise<unknown>;
@@ -171,8 +172,30 @@ export function VoiceInputButton({
     }
   }
 
+  async function startNativeCapture() {
+    if (!hasNativeVoiceCapture()) {
+      setNotice('Este navegador no admite transcripción automática por voz ni captura nativa.');
+      return;
+    }
+    setListening(true);
+    setNotice('Grabando con el micrófono nativo de ARIA (máx. 5 s)…');
+    try {
+      const file = await captureNativeUtterance(5000);
+      if (!onAudioRef.current) {
+        setNotice('Este campo no admite audio adjunto. La captura se descartó y no se guardó.');
+        return;
+      }
+      onAudioRef.current(file);
+      setNotice('Audio nativo adjuntado. Añade contexto y envíalo; en este modo no hay transcripción automática.');
+    } catch {
+      setNotice('No se pudo capturar audio nativo. Revisa el permiso de micrófono e inténtalo de nuevo.');
+    } finally {
+      setListening(false);
+    }
+  }
+
   function toggleDictation() {
-    if (listening) {
+    if (listening && !sessionRef.current) return;
       activeRef.current = false;
       const session = sessionRef.current;
       if (session?.recorder?.state === 'recording') {
@@ -197,6 +220,10 @@ export function VoiceInputButton({
     const speechWindow = window as any;
     const SpeechRecognitionConstructor = speechWindow.SpeechRecognition || speechWindow.webkitSpeechRecognition;
     if (!SpeechRecognitionConstructor) {
+      if (hasNativeVoiceCapture()) {
+        void startNativeCapture();
+        return;
+      }
       setNotice('Este navegador no admite transcripción automática por voz. Abre ARIA en Chrome actualizado y permite el micrófono.');
       return;
     }

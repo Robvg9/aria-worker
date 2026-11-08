@@ -45,6 +45,8 @@ jobs:
         run: npm install --ignore-scripts --no-audit --no-fund
       - name: Verify ARIA ONE 100 PWA parity catalog
         run: node --test pwa/tests/aria-one-100-parity.test.mjs
+      - name: Verify native Voice PCM bridge helpers
+        run: node --test pwa/tests/native-voice-capture.test.mjs
       - name: Build and verify exact PWA + catalogue SHA
         working-directory: pwa
         env:
