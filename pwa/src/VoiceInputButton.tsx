@@ -196,6 +196,7 @@ export function VoiceInputButton({
 
   function toggleDictation() {
     if (listening && !sessionRef.current) return;
+    if (listening) {
       activeRef.current = false;
       const session = sessionRef.current;
       if (session?.recorder?.state === 'recording') {
