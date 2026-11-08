@@ -1,0 +1,239 @@
+{
+  "mission": "ARIA-ONE-100",
+  "phase": "F4",
+  "catalog_version": "2026-11-08-f4-v1",
+  "catalog_digest": "ea097adcecb3eabf9edcb95b9316ffa59837df04f4e4b7d5c113387ab9dca678",
+  "primary_experience": "pwa",
+  "routes": [
+    "Inicio",
+    "Chat",
+    "Nueva misión",
+    "Proyectos",
+    "Meditación IA",
+    "Capacidades",
+    "Configuración"
+  ],
+  "entries": [
+    {
+      "id": "home.dashboard",
+      "route": "Inicio",
+      "capability": "Dashboard operativo, salud y telemetría cloud",
+      "anchors": [
+        ["pwa/src/App.tsx", "'#home'"],
+        ["pwa/src/App.tsx", "OperationalHealthPanel"]
+      ],
+      "tests": ["tests/pwa-global-navigation-settings-v1.test.js"]
+    },
+    {
+      "id": "chat.conversation",
+      "route": "Chat",
+      "capability": "Conversación, historial, persistencia y envío",
+      "anchors": [
+        ["pwa/src/App.tsx", "function Chat("],
+        ["pwa/src/App.tsx", "aria-label={sending ? 'Enviando mensaje' : 'Enviar mensaje'}"]
+      ],
+      "tests": ["rwht/pc-browser/rwht-chat-e2e.mjs", "tests/pwa-persistence-recovery-v1.test.js"]
+    },
+    {
+      "id": "chat.attachments",
+      "route": "Chat",
+      "capability": "Adjuntos de foto, archivo y audio",
+      "anchors": [
+        ["pwa/src/App.tsx", "audioFile"],
+        ["pwa/src/App.tsx", "fileChip"]
+      ],
+      "tests": ["tests/pwa-persistence-recovery-v1.test.js", "rwht/pc-browser/rwht-chat-e2e.mjs"]
+    },
+    {
+      "id": "voice.browser",
+      "route": "Chat",
+      "capability": "Voz de navegador: entrada, salida y manos libres opcional",
+      "anchors": [
+        ["pwa/src/VoiceInputButton.tsx", "webkitSpeechRecognition"],
+        ["pwa/src/HandsFreeVoiceControl.tsx", "SpeechRecognition"],
+        ["pwa/src/voiceOutput.js", "speechSynthesis"]
+      ],
+      "tests": ["tests/voice-v4-device-agent.test.js"]
+    },
+    {
+      "id": "mission.intake",
+      "route": "Nueva misión",
+      "capability": "Nueva misión, adjuntos y confirmación explícita de intake",
+      "anchors": [
+        ["pwa/src/App.tsx", "'#mission'"],
+        ["pwa/src/App.tsx", "setShowNewMission"]
+      ],
+      "tests": ["tests/pwa-global-navigation-settings-v1.test.js"]
+    },
+    {
+      "id": "mission.detail",
+      "route": "Nueva misión",
+      "capability": "Detalle, plan, pasos, timeline, resultados y artefactos",
+      "anchors": [
+        ["pwa/src/App.tsx", "function MissionDetail("],
+        ["pwa/src/App.tsx", "MissionArtifactActions"]
+      ],
+      "tests": ["rwht/pc-browser/rwht-chat-e2e.mjs"]
+    },
+    {
+      "id": "mission.states",
+      "route": "Nueva misión",
+      "capability": "Estados: cola, pendiente, ejecución, bloqueada, verificación, fallo e historial",
+      "anchors": [
+        ["pwa/src/App.tsx", "verification_pending"],
+        ["pwa/src/App.tsx", "waiting_for_alternative_strategy"]
+      ],
+      "tests": ["tests/pwa-persistence-recovery-v1.test.js"]
+    },
+    {
+      "id": "mission.human-gate",
+      "route": "Nueva misión",
+      "capability": "Human Gates: aprobar, rechazar, cancelar, reintentar y reverificar",
+      "anchors": [
+        ["pwa/src/App.tsx", "onHumanGateApprove"],
+        ["pwa/src/App.tsx", "Human Gate"]
+      ],
+      "tests": ["tests/pwa-global-navigation-settings-v1.test.js"]
+    },
+    {
+      "id": "meditation.overview",
+      "route": "Meditación IA",
+      "capability": "Vista en tiempo real, cola, historial y telemetría de Meditación IA",
+      "anchors": [
+        ["pwa/src/App.tsx", "function Meditation("],
+        ["pwa/src/App.tsx", "MeditationLiveExecution"]
+      ],
+      "tests": ["rwht/pc-browser/rwht-meditation-pwa-e2e.mjs"]
+    },
+    {
+      "id": "meditation.ideas",
+      "route": "Meditación IA",
+      "capability": "Analizador de ideas: analizar, decidir y convertir en misión",
+      "anchors": [
+        ["pwa/src/App.tsx", "analyzeIdea"],
+        ["pwa/src/App.tsx", "'/meditation/idea-to-mission'"]
+      ],
+      "tests": ["rwht/pc-browser/rwht-meditation-pwa-e2e.mjs"]
+    },
+    {
+      "id": "projects.previews",
+      "route": "Proyectos",
+      "capability": "Previews reales de ARIA, BattleCruiser y CuevaCoin",
+      "anchors": [
+        ["pwa/src/ProjectWorkspace.tsx", "preview"],
+        ["pwa/src/ProjectWorkspace.tsx", "iframe"]
+      ],
+      "tests": ["rwht/pc-browser/rwht-projects-e2e.mjs", "tests/pwa-project-workspace.test.js"]
+    },
+    {
+      "id": "projects.chat",
+      "route": "Proyectos",
+      "capability": "Chat y contexto específico por proyecto",
+      "anchors": [
+        ["pwa/src/ProjectWorkspace.tsx", "instruction"],
+        ["pwa/src/ProjectWorkspace.tsx", "project"]
+      ],
+      "tests": ["tests/pwa-project-workspace.test.js"]
+    },
+    {
+      "id": "projects.canvas",
+      "route": "Proyectos",
+      "capability": "Canvas: lápiz, marcador, línea, rectángulo, círculo, flecha, texto y borrador",
+      "anchors": [
+        ["pwa/src/ProjectWorkspace.tsx", "type Tool ="],
+        ["pwa/src/ProjectWorkspace.tsx", "'eraser'"]
+      ],
+      "tests": ["tests/pwa-project-workspace.test.js", "rwht/pc-browser/rwht-projects-e2e.mjs"]
+    },
+    {
+      "id": "capabilities.catalog",
+      "route": "Capacidades",
+      "capability": "Catálogo de modelos, agentes, dispositivos, ejecutores y conexiones",
+      "anchors": [
+        ["pwa/src/App.tsx", "CapabilityCenter"],
+        ["pwa/src/App.tsx", "'overview'"]
+      ],
+      "tests": ["tests/pwa-global-navigation-settings-v1.test.js"]
+    },
+    {
+      "id": "capabilities.tests",
+      "route": "Capacidades",
+      "capability": "Catálogo de pruebas gobernado",
+      "anchors": [
+        ["pwa/src/App.tsx", "CapabilityCenter"],
+        ["pwa/src/testCatalog.ts", "TEST_CATALOG_VERSION"]
+      ],
+      "tests": ["tests/pwa-global-navigation-settings-v1.test.js"]
+    },
+    {
+      "id": "capabilities.absorb",
+      "route": "Capacidades",
+      "capability": "ARIA ABSORB bajo inspección y gobernanza",
+      "anchors": [
+        ["pwa/src/App.tsx", "AbsorbCenter"],
+        ["pwa/src/App.tsx", "'absorb'"]
+      ],
+      "tests": ["tests/pwa-global-navigation-settings-v1.test.js"]
+    },
+    {
+      "id": "settings.preferences",
+      "route": "Configuración",
+      "capability": "Ajustes visuales, animaciones y preferencias",
+      "anchors": [
+        ["pwa/src/App.tsx", "function Settings("],
+        ["pwa/src/App.tsx", "togglePref"]
+      ],
+      "tests": ["rwht/pc-browser/rwht-settings-e2e.mjs"]
+    },
+    {
+      "id": "settings.notifications",
+      "route": "Configuración",
+      "capability": "Centro de avisos y permiso de notificaciones",
+      "anchors": [
+        ["pwa/src/App.tsx", "PwaNotificationCenter"],
+        ["pwa/src/App.tsx", "enableNotifications"]
+      ],
+      "tests": ["rwht/pc-browser/rwht-settings-e2e.mjs"]
+    },
+    {
+      "id": "settings.update-cache",
+      "route": "Configuración",
+      "capability": "Comprobación de versión LIVE y limpieza de caché",
+      "anchors": [
+        ["pwa/src/App.tsx", "updateApp"],
+        ["pwa/src/App.tsx", "clearCache"]
+      ],
+      "tests": ["tests/pwa-persistence-recovery-v1.test.js"]
+    },
+    {
+      "id": "vault.private",
+      "route": "Configuración",
+      "capability": "PrivateVault: AES-GCM, recovery y bloqueo",
+      "anchors": [
+        ["pwa/src/PrivateVault.tsx", "AES-GCM"],
+        ["pwa/src/App.tsx", "<PrivateVault"]
+      ],
+      "tests": ["pwa/tests/private-vault-crypto.test.mjs", "pwa/tests/private-vault-browser.e2e.mjs"]
+    },
+    {
+      "id": "telegram.recipient",
+      "route": "Chat",
+      "capability": "Destinatario Telegram y confirmación explícita de envío",
+      "anchors": [
+        ["pwa/src/App.tsx", "saveTelegramRecipient"],
+        ["pwa/src/App.tsx", "pendingVoiceMessage"]
+      ],
+      "tests": ["tests/voice-v4-device-agent.test.js"]
+    },
+    {
+      "id": "auth.session",
+      "route": "Inicio",
+      "capability": "Login, sesión, refresco y cierre de sesión",
+      "anchors": [
+        ["pwa/src/App.tsx", "SESSION_KEY"],
+        ["pwa/src/App.tsx", "refreshSessionOnce"]
+      ],
+      "tests": ["tests/pwa-persistence-recovery-v1.test.js"]
+    }
+  ]
+}
