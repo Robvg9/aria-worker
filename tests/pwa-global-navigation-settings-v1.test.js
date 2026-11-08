@@ -58,8 +58,11 @@ assert.match(app,/function Meditation\(\{ session \}: \{ session: Session \}\)/)
 assert.match(app,/<small>Medita<\/small>/);
 assert.match(app,/<small>Cap\.<\/small>/);
 assert.match(app,/<small>Config\.<\/small>/);
-assert.match(css,/grid-template-columns:repeat\(7,minmax\(0,1fr\)\)/);
-assert.match(css,/\.bottomNav button\{width:100%;min-width:0;/);
+assert.match(css,/grid-template-columns:repeat\(7,minmax\(48px,1fr\)\)/);
+assert.match(css,/\.bottomNav\{[^}]*overflow-x:auto;overflow-y:hidden/);
+assert.match(css,/\.bottomNav button\{width:100%;min-width:48px;/);
+assert.match(app,/scrollIntoView\(\{ block: 'nearest', inline: 'nearest', behavior: 'auto' \}\)/);
+assert.match(app,/\.noSwipe,\.bottomNav/);
 console.log('PWA UI CLEANUP CONTRACT: PASS');
 
 const presentation=fs.readFileSync(path.join(root,'pwa/src/missionPresentation.ts'),'utf8');

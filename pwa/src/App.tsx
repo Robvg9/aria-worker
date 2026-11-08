@@ -1209,9 +1209,14 @@ function GlobalBottomNav({ navigation, onProjects, onMeditation, onCapabilities 
   onMeditation: () => void;
   onCapabilities: () => void;
 }) {
+  const navRef = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    const active = navRef.current?.querySelector<HTMLButtonElement>('button.active');
+    active?.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'auto' });
+  }, [navigation.page, navigation.screen]);
   const go = (hash:string) => { window.location.hash = hash; };
   return (
-    <nav className='bottomNav' aria-label='Navegación principal'>
+    <nav ref={navRef} className='bottomNav' aria-label='Navegación principal'>
       <button title='Inicio' type='button' className={navigation.page === 'aria' && navigation.screen === 0 ? 'active' : ''} aria-label='Inicio' onClick={() => go('#home')}><span>⌂</span><small>Inicio</small></button>
       <button title='Chat' type='button' className={navigation.page === 'aria' && navigation.screen === 1 ? 'active' : ''} aria-label='Chat' onClick={() => go('#chat')}><span>💬</span><small>Chat</small></button>
       <button title='Nueva misión' type='button' className='bottomNavPrimary' aria-label='Nueva misión' onClick={() => go('#mission')}><span>＋</span><small>Misión</small></button>
@@ -4563,7 +4568,7 @@ export default function App() {
   function beginGlobalSwipe(x: number, y: number, target: EventTarget | null) {
     if (!uiPrefs.swipeNavigation) return;
     const element = target as Element | null;
-    if (element?.closest?.('input,textarea,[contenteditable="true"],canvas,.noSwipe')) return;
+    if (element?.closest?.('input,textarea,[contenteditable="true"],canvas,.noSwipe,.bottomNav')) return;
     globalSwipeStartRef.current = { x, y };
   }
 

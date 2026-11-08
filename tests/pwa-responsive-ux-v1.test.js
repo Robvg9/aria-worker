@@ -13,8 +13,12 @@ assert.match(css,/\.appShell\{height:100dvh;min-height:0;max-height:100dvh;overf
 assert.match(css,/\.pageBodyViewport\{[^}]*overflow:auto;/);
 assert.match(css,/\.chatPanel \.chatWindow[^}]*overflow:auto;/);
 assert.match(css,/\.projectBodyViewport\{[^}]*overflow:auto;/);
-assert.match(css,/\.bottomNav\{[^}]*grid-template-columns:repeat\(7,minmax\(0,1fr\)/);
-assert.match(css,/\.bottomNav button\{width:100%;min-width:0;min-height:52px/);
+assert.match(css,/\.bottomNav\{[^}]*grid-template-columns:repeat\(7,minmax\(48px,1fr\)/);
+assert.match(css,/\.bottomNav\{[^}]*overflow-x:auto;overflow-y:hidden/);
+assert.match(css,/\.bottomNav\{[^}]*touch-action:pan-x/);
+assert.match(css,/\.bottomNav button\{width:100%;min-width:48px;min-height:52px/);
+assert.match(app,/scrollIntoView\(\{ block: 'nearest', inline: 'nearest', behavior: 'auto' \}\)/);
+assert.match(app,/\.noSwipe,\.bottomNav/);
 assert.match(css,/\.tabButton\{min-height:40px;box-sizing:border-box;/);
 assert.match(css,/\.ideaProposalList\{display:grid;grid-template-columns:minmax\(0,1fr\)/);
 assert.match(css,/\.ideaProposalCard\{width:100%;min-width:0;max-width:100%;box-sizing:border-box/);
