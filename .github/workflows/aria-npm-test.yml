@@ -43,6 +43,9 @@ jobs:
       - name: Install PWA dependencies
         working-directory: pwa
         run: npm install --ignore-scripts --no-audit --no-fund
+      - name: Verify responsive mobile navigation contract
+        working-directory: pwa
+        run: node --test tests/mobile-navigation-layout.test.mjs
       - name: Build and verify exact PWA + catalogue SHA
         working-directory: pwa
         env:
