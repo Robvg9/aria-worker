@@ -43,6 +43,7 @@ assert.doesNotMatch(cronAuth, /functions\/v1\/aria-mission-wonder-2-a6-dispatch-
 assert.match(runner, /m22A6ScopeRowMatchesV1/);
 assert.match(runner, /m22A6MissionPlanMatchesV1/);
 assert.match(runner, /aria_m22_a6_enqueue_frozen_job_v1/);
+assert.match(runner, /sb\.schema\("aria_internal"\)\s*\.rpc\("aria_m22_a6_enqueue_frozen_job_v1"/, "A6 enqueue must call its private aria_internal schema RPC explicitly");
 assert.match(runner, /!a6ScopeRow/);
 assert.match(canonical, /m22A6ScopeRowMatchesV1/);
 assert.match(deviceGateway, /aria_m22_a6_has_claimable_job_v1/);

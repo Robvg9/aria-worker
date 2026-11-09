@@ -1104,19 +1104,21 @@ async function enqueueDeviceJob(missionId: string, step: any, jobId: string) {
     const runId = String(a6Mission.metadata?.mission_wonder_2_a6_run_id || "");
     const scopeId = String(a6Mission.metadata?.mission_wonder_2_a6_scope_id || "");
     if (!runId || !scopeId) throw new Error("a6_scope_metadata_missing");
-    const a6Job = await rpc("aria_m22_a6_enqueue_frozen_job_v1", {
-      p_run_id: runId,
-      p_scope_id: scopeId,
-      p_job_id: String(payload.job_id),
-      p_mission_id: String(payload.mission_id),
-      p_device_id: String(payload.device_id),
-      p_operation: String(payload.operation),
-      p_command: String(payload.command),
-      p_cwd: typeof payload.cwd === "string" ? payload.cwd : null,
-      p_timeout_ms: Number.isInteger(payload.timeout_ms) ? payload.timeout_ms : 120000,
-      p_policy: payload.policy && typeof payload.policy === "object" ? payload.policy : {},
-      p_metadata: payload.metadata && typeof payload.metadata === "object" ? payload.metadata : {},
-    });
+    const { data: a6Job, error: a6EnqueueError } = await sb.schema("aria_internal")
+      .rpc("aria_m22_a6_enqueue_frozen_job_v1", {
+        p_run_id: runId,
+        p_scope_id: scopeId,
+        p_job_id: String(payload.job_id),
+        p_mission_id: String(payload.mission_id),
+        p_device_id: String(payload.device_id),
+        p_operation: String(payload.operation),
+        p_command: String(payload.command),
+        p_cwd: typeof payload.cwd === "string" ? payload.cwd : null,
+        p_timeout_ms: Number.isInteger(payload.timeout_ms) ? payload.timeout_ms : 120000,
+        p_policy: payload.policy && typeof payload.policy === "object" ? payload.policy : {},
+        p_metadata: payload.metadata && typeof payload.metadata === "object" ? payload.metadata : {},
+      });
+    if (a6EnqueueError) throw new Error(`aria_m22_a6_enqueue_frozen_job_v1:${a6EnqueueError.message}`);
     if (!a6Job) throw new Error("a6_frozen_enqueue_empty");
     return a6Job;
   }
