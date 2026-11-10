@@ -114,7 +114,7 @@ export function m22A6BuildSoakReportV1(input = {}) {
   if (!Number.isSafeInteger(minimumMissions) || minimumMissions < proposedMissionFloor) blockers.push("threshold_minimum_missions_invalid");
 
   const heartbeatIntervalMs = thresholds.heartbeatIntervalMs;
-  const heartbeatSampleIntervalMs = thresholds.heartbeatSampleIntervalMs ?? heartbeatIntervalMs;
+  const heartbeatSampleIntervalMs = thresholds.heartbeatSampleIntervalMs;
   const minimumHeartbeatCoverageRatio = thresholds.minimumHeartbeatCoverageRatio;
   const maxNormalHeartbeatGapMs = thresholds.maxNormalHeartbeatGapMs;
   if (!Number.isFinite(heartbeatIntervalMs) || heartbeatIntervalMs <= 0 ||
