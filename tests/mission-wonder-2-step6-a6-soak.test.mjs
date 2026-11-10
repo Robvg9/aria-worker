@@ -209,6 +209,13 @@ const insufficientHeartbeatCoverage = m22A6BuildSoakReportV1({
 assert.equal(insufficientHeartbeatCoverage.status, "BLOCKED");
 assert.ok(insufficientHeartbeatCoverage.blockers.includes("heartbeat_coverage_below_minimum_ratio"));
 
+const missingSampleCadence = m22A6BuildSoakReportV1({
+  ...validEvidence,
+  thresholds: Object.fromEntries(Object.entries(thresholds).filter(([key]) => key !== "heartbeatSampleIntervalMs")),
+});
+assert.equal(missingSampleCadence.status, "BLOCKED");
+assert.ok(missingSampleCadence.blockers.includes("heartbeat_sample_interval_invalid"));
+
 const wrongSampleCadence = m22A6BuildSoakReportV1({
   ...validEvidence,
   thresholds: { ...thresholds, heartbeatSampleIntervalMs: 30000 },
