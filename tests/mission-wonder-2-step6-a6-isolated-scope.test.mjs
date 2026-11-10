@@ -235,3 +235,6 @@ for (const source of [a6ScopeTemplate, a6IdentityMigration]) {
   assert.ok(source.includes("item->>'goal_hash' is distinct from expected_goal_hash"));
   assert.ok(source.includes("item->>'job_id' is distinct from expected_job_id"));
 }
+const a6ContractWorkflow = fs.readFileSync(".github/workflows/mission-wonder-2-step6-a6-isolated-contract.yml", "utf8");
+assert.ok(a6ContractWorkflow.includes("psql -v ON_ERROR_STOP=1 -f supabase/migrations/20261110120000_aria_mission_wonder_2_a6_isolated_scope_v1.sql"));
+assert.ok(a6ContractWorkflow.includes("create extension if not exists pgcrypto with schema extensions"));
