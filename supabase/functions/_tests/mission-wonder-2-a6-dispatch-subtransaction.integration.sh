@@ -141,6 +141,36 @@ begin
 end;
 $$;
 
+-- A pending HTTP 2xx must be resolved before evaluating an older failure streak.
+insert into aria_internal.mission_wonder_2_a6_runs(run_id,status)
+values ('pending-success-run','running');
+insert into aria_internal.mission_wonder_2_a6_scopes(scope_id,run_id,status,ordinal)
+values ('pending-success-scope','pending-success-run','armed',1);
+insert into aria_internal.mission_wonder_2_a6_telemetry(run_id,event_type,payload)
+select 'pending-success-run','dispatcher_event',
+       jsonb_build_object('event','dispatch_http_result','outcome','edge_5xx')
+from generate_series(1,5);
+insert into aria_internal.mission_wonder_2_a6_telemetry(run_id,event_type,payload)
+values ('pending-success-run','dispatcher_event',
+        jsonb_build_object('event','dispatch_http_request','request_id',9100));
+insert into net._http_response(id,status_code,timed_out,error_msg,headers)
+values (9100,200,false,null,'{"cf-ray":"test-success"}'::jsonb);
+select aria_internal.aria_m22_a6_monitor_dispatch_http_v1();
+do $
+begin
+  if (select status from aria_internal.mission_wonder_2_a6_runs where run_id='pending-success-run') <> 'running' then
+    raise exception 'pending 2xx did not reset prior failure streak';
+  end if;
+  if not exists (
+    select 1 from aria_internal.mission_wonder_2_a6_telemetry
+     where run_id='pending-success-run' and payload->>'event'='dispatch_http_result'
+       and payload->>'outcome'='edge_2xx'
+  ) then
+    raise exception 'pending 2xx response was not recorded';
+  end if;
+end;
+$;
+
 -- Five consecutive enqueue failures must trip the A6 circuit breaker.
 insert into aria_internal.mission_wonder_2_a6_runs(run_id,status)
 values ('failure-streak-run','running');
