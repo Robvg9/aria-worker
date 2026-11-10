@@ -230,8 +230,8 @@ console.log("MISSION_WONDER_2_STEP6_A6_ISOLATED_SCOPE_CONTRACT=PASS");
 const a6ScopeTemplate = fs.readFileSync(".github/scripts/mission-wonder-2-step6-a6-isolated-scope-v1.sql", "utf8");
 const a6IdentityMigration = fs.readFileSync("supabase/migrations/20261110120000_aria_mission_wonder_2_a6_isolated_scope_v1.sql", "utf8");
 for (const source of [a6ScopeTemplate, a6IdentityMigration]) {
-  assert.match(source, /expected_goal_hash := encode\\(extensions\\.digest/);
-  assert.match(source, /expected_job_id := 'uo_'\\|\\|left\\(expected_mission,28\\)/);
-  assert.match(source, /item->>'goal_hash' is distinct from expected_goal_hash/);
-  assert.match(source, /item->>'job_id' is distinct from expected_job_id/);
+  assert.ok(source.includes("expected_goal_hash := encode(extensions.digest"));
+  assert.ok(source.includes("expected_job_id := 'uo_'||left(expected_mission,28)"));
+  assert.ok(source.includes("item->>'goal_hash' is distinct from expected_goal_hash"));
+  assert.ok(source.includes("item->>'job_id' is distinct from expected_job_id"));
 }
