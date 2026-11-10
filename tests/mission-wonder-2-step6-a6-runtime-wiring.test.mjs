@@ -8,6 +8,7 @@ const runtimeGateway = read("supabase/functions/aria-runtime-gateway-v1/index.ts
 const deviceGateway = read("supabase/functions/aria-device-gateway/index.ts");
 const intake = read("supabase/functions/aria-mission-intake-v1/index.ts");
 const cronAuth = read("supabase/functions/aria-cron-auth-v1/index.ts");
+const edgeOutageResilienceMigration = read("supabase/migrations/20261110213000_aria_m22_a6_edge_outage_resilient_heartbeat_v1.sql");
 const helper = read("supabase/functions/_shared/mission-wonder-2-a6-scope-v1.mjs");
 const migration = read(".github/scripts/mission-wonder-2-step6-a6-isolated-scope-v1.sql");
 const stdoutAlignmentMigration = read("supabase/migrations/20261107133800_aria_m22_a6_stdout_verification_marker_alignment_v1.sql");
@@ -24,7 +25,11 @@ for (const [name, source] of Object.entries({ runner, canonical, runtimeGateway,
 assert.match(cronAuth, /aria_autonomy_cron_authorize/);
 assert.match(cronAuth, /x-aria-autonomy-token/);
 assert.match(cronAuth, /aria_m22_a6_reconcile_v1/);
-assert.match(cronAuth, /aria_m22_a6_sample_runtime_v1/);
+assert.doesNotMatch(cronAuth, /aria_m22_a6_sample_runtime_v1/);
+assert.match(edgeOutageResilienceMigration, /aria_m22_a6_sample_runtime_v1\(\)/);
+assert.match(edgeOutageResilienceMigration, /net\._http_response/);
+assert.match(edgeOutageResilienceMigration, /dispatch_http_result/);
+assert.match(edgeOutageResilienceMigration, /a6_cron_must_remain_inactive_during_migration/);
 assert.match(cronAuth, /aria_m22_a6_claim_due_scope_v1/);
 assert.match(cronAuth, /aria_m22_a6_materialize_due_mission_v1/);
 assert.match(cronAuth, /aria-canonical-runtime-v1/);

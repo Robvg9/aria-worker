@@ -114,6 +114,8 @@ export function m22A6BuildSoakReportV1(input = {}) {
   if (!Number.isSafeInteger(minimumMissions) || minimumMissions < proposedMissionFloor) blockers.push("threshold_minimum_missions_invalid");
 
   const heartbeatIntervalMs = thresholds.heartbeatIntervalMs;
+  const heartbeatSampleIntervalMs = thresholds.heartbeatSampleIntervalMs;
+  const minimumHeartbeatCoverageRatio = thresholds.minimumHeartbeatCoverageRatio;
   const maxNormalHeartbeatGapMs = thresholds.maxNormalHeartbeatGapMs;
   if (!Number.isFinite(heartbeatIntervalMs) || heartbeatIntervalMs <= 0 ||
       !Number.isFinite(maxNormalHeartbeatGapMs) || maxNormalHeartbeatGapMs < heartbeatIntervalMs) {
@@ -241,8 +243,16 @@ export function m22A6BuildSoakReportV1(input = {}) {
   const observedHeartbeatIntervals = heartbeatCoverage && heartbeatCoverage.observedIntervals;
   const outageMissingHeartbeatIntervals = heartbeatCoverage && heartbeatCoverage.outageMissingIntervals;
   const unexplainedMissingHeartbeatIntervals = heartbeatCoverage && heartbeatCoverage.unexplainedMissingIntervals;
-  const expectedHeartbeatFloor = Number.isFinite(heartbeatIntervalMs) && heartbeatIntervalMs > 0 && elapsedMs > 0
-    ? Math.floor(elapsedMs / heartbeatIntervalMs) : null;
+  if (!Number.isFinite(heartbeatSampleIntervalMs) || heartbeatSampleIntervalMs <= 0) {
+    blockers.push("heartbeat_sample_interval_invalid");
+  }
+  if (!Number.isFinite(minimumHeartbeatCoverageRatio) ||
+      minimumHeartbeatCoverageRatio < 0.95 || minimumHeartbeatCoverageRatio > 1) {
+    blockers.push("threshold_minimum_heartbeat_coverage_ratio_invalid");
+  }
+  const expectedHeartbeatFloor = Number.isFinite(heartbeatSampleIntervalMs) &&
+      heartbeatSampleIntervalMs > 0 && elapsedMs > 0
+    ? Math.floor(elapsedMs / heartbeatSampleIntervalMs) : null;
   if (coverageStartMs === null || coverageEndMs === null ||
       !Number.isSafeInteger(expectedHeartbeatIntervals) || expectedHeartbeatIntervals <= 0 ||
       !Number.isSafeInteger(observedHeartbeatIntervals) || observedHeartbeatIntervals < 0 ||
@@ -260,6 +270,11 @@ export function m22A6BuildSoakReportV1(input = {}) {
       blockers.push("heartbeat_interval_accounting_mismatch");
     }
     if (unexplainedMissingHeartbeatIntervals !== 0) blockers.push("heartbeat_unexplained_missing_intervals");
+    if (Number.isFinite(minimumHeartbeatCoverageRatio) && minimumHeartbeatCoverageRatio > 0 &&
+        expectedHeartbeatIntervals > 0 &&
+        observedHeartbeatIntervals / expectedHeartbeatIntervals < minimumHeartbeatCoverageRatio) {
+      blockers.push("heartbeat_coverage_below_minimum_ratio");
+    }
   }
 
   const faultScenarios = Array.isArray(input.faultScenarios) ? input.faultScenarios : [];
@@ -340,6 +355,8 @@ export function m22A6BuildSoakReportV1(input = {}) {
         observedHours: (coverageEndMs - coverageStartMs) / HOUR_MS,
         expectedIntervals: Number.isSafeInteger(expectedHeartbeatIntervals) ? expectedHeartbeatIntervals : null,
         observedIntervals: Number.isSafeInteger(observedHeartbeatIntervals) ? observedHeartbeatIntervals : null,
+        observedCoverageRatio: Number.isSafeInteger(expectedHeartbeatIntervals) && expectedHeartbeatIntervals > 0 &&
+          Number.isSafeInteger(observedHeartbeatIntervals) ? observedHeartbeatIntervals / expectedHeartbeatIntervals : null,
         outageMissingIntervals: Number.isSafeInteger(outageMissingHeartbeatIntervals) ? outageMissingHeartbeatIntervals : null,
         unexplainedMissingIntervals: Number.isSafeInteger(unexplainedMissingHeartbeatIntervals) ? unexplainedMissingHeartbeatIntervals : null,
       } : null,

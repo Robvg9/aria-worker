@@ -55,10 +55,9 @@ async function dispatchA6(request: Request) {
   let scopeId = "";
   try {
     const reconciled = await rpc("aria_m22_a6_reconcile_v1");
-    const heartbeat = await rpc("aria_m22_a6_sample_runtime_v1");
     const claimed = await rpc("aria_m22_a6_claim_due_scope_v1");
     if (!claimed || typeof claimed !== "object") {
-      return json({ ok: true, status: "idle", reconciled, heartbeat });
+      return json({ ok: true, status: "idle", reconciled, heartbeat_sampled_by_database_cron: true });
     }
 
     const claim = claimed as Record<string, unknown>;
@@ -121,7 +120,7 @@ async function dispatchA6(request: Request) {
       job_id: queuedJob.job_id,
       materialized,
       reconciled,
-      heartbeat,
+      heartbeat_sampled_by_database_cron: true,
       canonical: {
         http_status: response.status,
         status: runtimePayload.status || null,
