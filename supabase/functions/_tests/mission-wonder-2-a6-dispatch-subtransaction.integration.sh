@@ -51,7 +51,7 @@ begin
   update aria_internal.test_dispatcher_state set active=false;
   return jsonb_build_object('status','blocked','reason',p_reason);
 end;
-$;
+$$;
 
 create or replace function aria_internal.aria_m22_a6_set_dispatcher_active_v1(p_active boolean)
 returns jsonb language plpgsql as $
@@ -59,7 +59,7 @@ begin
   update aria_internal.test_dispatcher_state set active=p_active;
   return '{}'::jsonb;
 end;
-$;
+$$;
 
 create or replace function aria_internal.aria_m22_a6_sample_runtime_v1()
 returns jsonb language plpgsql as $$
@@ -135,7 +135,7 @@ begin
     raise exception 'enqueue-failure case unexpectedly touched jobs or scopes';
   end if;
 end;
-$;
+$$;
 
 -- Five consecutive enqueue failures must trip the A6 circuit breaker.
 insert into aria_internal.mission_wonder_2_a6_runs(run_id,status)
@@ -147,7 +147,7 @@ select 'failure-streak-run','dispatcher_event',
        jsonb_build_object('event','dispatch_http_result','outcome','enqueue_failed')
 from generate_series(1,5);
 select aria_internal.aria_m22_a6_monitor_dispatch_http_v1();
-do $
+do $$
 begin
   if (select status from aria_internal.mission_wonder_2_a6_runs where run_id='failure-streak-run') <> 'blocked' then
     raise exception 'five enqueue failures did not block the run';
@@ -163,7 +163,7 @@ begin
     raise exception 'circuit-breaker fault telemetry missing';
   end if;
 end;
-$;
+$$;
 select 'A6_DISPATCH_SUBTRANSACTION_POSTGRES_INTEGRATION=PASS';
 SQL
 
