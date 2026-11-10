@@ -15,17 +15,51 @@ create schema if not exists vault;
 create table aria_internal.mission_wonder_2_a6_telemetry (
   sample_id bigint generated always as identity primary key,
   run_id text not null,
+  sampled_at timestamptz not null default now(),
   event_type text not null,
   payload jsonb not null default '{}'::jsonb
 );
 create table aria_internal.execution_jobs (job_id text primary key);
-create table aria_internal.mission_wonder_2_a6_scopes (scope_id text primary key);
+create table aria_internal.mission_wonder_2_a6_scopes (
+  scope_id text primary key, run_id text, status text, ordinal integer
+);
+create table aria_internal.mission_wonder_2_a6_runs (
+  run_id text primary key, status text, completed_at timestamptz, updated_at timestamptz
+);
+create table aria_internal.test_dispatcher_state (active boolean not null);
+insert into aria_internal.test_dispatcher_state values (true);
+create table net._http_response (
+  id bigint primary key, status_code integer, timed_out boolean, error_msg text, headers jsonb
+);
 create table vault.decrypted_secrets (name text primary key, decrypted_secret text);
 create table net.test_mode (mode text not null);
 insert into net.test_mode values ('ok');
 
 create or replace function aria_internal.aria_m22_a6_monitor_dispatch_http_v1()
 returns jsonb language sql as $$ select '{}'::jsonb $$;
+
+create or replace function aria_internal.aria_m22_a6_block_run_v1(
+  p_run_id text,p_scope_id text,p_reason text
+) returns jsonb language plpgsql as $
+begin
+  update aria_internal.mission_wonder_2_a6_runs
+     set status='blocked',completed_at=now(),updated_at=now()
+   where run_id=p_run_id;
+  update aria_internal.mission_wonder_2_a6_scopes
+     set status='revoked'
+   where run_id=p_run_id and status in ('armed','claimed','bound');
+  update aria_internal.test_dispatcher_state set active=false;
+  return jsonb_build_object('status','blocked','reason',p_reason);
+end;
+$;
+
+create or replace function aria_internal.aria_m22_a6_set_dispatcher_active_v1(p_active boolean)
+returns jsonb language plpgsql as $
+begin
+  update aria_internal.test_dispatcher_state set active=p_active;
+  return '{}'::jsonb;
+end;
+$;
 
 create or replace function aria_internal.aria_m22_a6_sample_runtime_v1()
 returns jsonb language plpgsql as $$
@@ -48,6 +82,11 @@ end;
 $$;
 SQL
 
+awk '
+  /^create or replace function aria_internal\.aria_m22_a6_monitor_dispatch_http_v1\(\)/ { copying=1 }
+  copying { print }
+  copying && /^\$function\$;$/ { exit }
+' "$MIGRATION" >> "$TMP_SQL"
 awk '
   /^create or replace function aria_internal\.aria_m22_a6_dispatch_tick_v1\(\)/ { copying=1 }
   copying { print }
@@ -96,7 +135,35 @@ begin
     raise exception 'enqueue-failure case unexpectedly touched jobs or scopes';
   end if;
 end;
-$$;
+$;
+
+-- Five consecutive enqueue failures must trip the A6 circuit breaker.
+insert into aria_internal.mission_wonder_2_a6_runs(run_id,status)
+values ('failure-streak-run','running');
+insert into aria_internal.mission_wonder_2_a6_scopes(scope_id,run_id,status,ordinal)
+values ('failure-streak-scope','failure-streak-run','armed',1);
+insert into aria_internal.mission_wonder_2_a6_telemetry(run_id,event_type,payload)
+select 'failure-streak-run','dispatcher_event',
+       jsonb_build_object('event','dispatch_http_result','outcome','enqueue_failed')
+from generate_series(1,5);
+select aria_internal.aria_m22_a6_monitor_dispatch_http_v1();
+do $
+begin
+  if (select status from aria_internal.mission_wonder_2_a6_runs where run_id='failure-streak-run') <> 'blocked' then
+    raise exception 'five enqueue failures did not block the run';
+  end if;
+  if (select status from aria_internal.mission_wonder_2_a6_scopes where scope_id='failure-streak-scope') <> 'revoked' then
+    raise exception 'blocked run did not revoke armed scope';
+  end if;
+  if (select active from aria_internal.test_dispatcher_state) is distinct from false then
+    raise exception 'blocked run did not deactivate dispatcher';
+  end if;
+  if (select count(*) from aria_internal.mission_wonder_2_a6_telemetry
+      where run_id='failure-streak-run' and event_type='fault_observed') <> 1 then
+    raise exception 'circuit-breaker fault telemetry missing';
+  end if;
+end;
+$;
 select 'A6_DISPATCH_SUBTRANSACTION_POSTGRES_INTEGRATION=PASS';
 SQL
 
