@@ -248,7 +248,7 @@ assert.ok(missingFaultReport.blockers.includes("fault_scenario_provider_degraded
 
 const heartbeatFailure = m22A6BuildSoakReportV1({
   ...validEvidence,
-  heartbeatGaps: [{ gapMs: 20000, expectedOutage: false }],
+  heartbeatGaps: [{ gapMs: 90001, expectedOutage: false }],
 });
 assert.equal(heartbeatFailure.status, "BLOCKED");
 assert.ok(heartbeatFailure.blockers.includes("heartbeat_gap_0_exceeded_threshold"));
