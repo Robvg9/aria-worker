@@ -18,6 +18,7 @@ on:
       - 'supabase/functions/aria-cron-auth-v1/**'
       - 'supabase/migrations/*_aria_mission_wonder_2_a6_isolated_scope_v1.sql'
       - 'supabase/migrations/*_aria_m22_a6_stdout_verification_marker_alignment_v1.sql'
+      - 'supabase/migrations/*_aria_m22_a6_frozen_job_marker_authorization_alignment_v1.sql'
       - '.github/workflows/mission-wonder-2-step6-a6-isolated-contract.yml'
       - '.github/workflows/mission-wonder-2-step6-a6-migration-cli.yml'
       - '.github/scripts/mission-wonder-2-step6-a6-isolated-scope-v1.sql'
