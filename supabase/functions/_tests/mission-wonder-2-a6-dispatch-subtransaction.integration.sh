@@ -130,6 +130,10 @@ begin
   if (select count(*) from aria_internal.mission_wonder_2_a6_telemetry where payload->>'event'='dispatch_enqueue_failed') <> 1 then
     raise exception 'enqueue-failure telemetry absent';
   end if;
+  if (select count(*) from aria_internal.mission_wonder_2_a6_telemetry
+      where payload->>'event'='dispatch_http_result' and payload->>'outcome'='enqueue_failed') <> 1 then
+    raise exception 'enqueue failure result missing from circuit-breaker stream';
+  end if;
   if (select count(*) from aria_internal.execution_jobs) <> 0
      or (select count(*) from aria_internal.mission_wonder_2_a6_scopes) <> 0 then
     raise exception 'enqueue-failure case unexpectedly touched jobs or scopes';
