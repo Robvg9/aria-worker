@@ -950,7 +950,7 @@ begin
      or step->'authorization'->>'risk_class'<>'WRITE'
      or step->'authorization'->>'evidence_ref'<>r.human_gate_ref
      or step->'verify'->>'expected_exit_code'<>'0'
-     or step->'verify'->>'stdout_contains' is distinct from ('A6_ARTIFACT_VERIFIED;sequence='||lpad(s.ordinal::text,2,'0')) then return false; end if;
+     or step->'verify'->>'stdout_contains' is distinct from ('A6_ARTIFACT_VERIFIED;mode=') then return false; end if;
 
   -- The pending job is stored under the exact fixed step ID.
   pending:=m.checkpoint->'pending_jobs'->(step->>'id');
