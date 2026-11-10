@@ -40,7 +40,7 @@ returns jsonb language sql as $$ select '{}'::jsonb $$;
 
 create or replace function aria_internal.aria_m22_a6_block_run_v1(
   p_run_id text,p_scope_id text,p_reason text
-) returns jsonb language plpgsql as $
+) returns jsonb language plpgsql as $$
 begin
   update aria_internal.mission_wonder_2_a6_runs
      set status='blocked',completed_at=now(),updated_at=now()
@@ -54,7 +54,7 @@ end;
 $$;
 
 create or replace function aria_internal.aria_m22_a6_set_dispatcher_active_v1(p_active boolean)
-returns jsonb language plpgsql as $
+returns jsonb language plpgsql as $$
 begin
   update aria_internal.test_dispatcher_state set active=p_active;
   return '{}'::jsonb;
