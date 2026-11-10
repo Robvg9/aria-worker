@@ -25,10 +25,14 @@ assert.doesNotMatch(edge, /aria_m22_a6_sample_runtime_v1/);
 assert.match(edge, /heartbeat_sampled_by_database_cron/);
 assert.match(edge, /automatic_retry: false/);
 
-console.log("A6_EDGE_OUTAGE_RESILIENCE_CONTRACT=PASS");
-assert.match(migration, /exception when others then[\\s\\S]*v_dispatch_error := sqlstate/);
 assert.match(migration, /'event','dispatch_enqueue_failed'/);
 assert.match(migration, /'heartbeat_preserved',true/);
 assert.match(migration, /'status','sampled_dispatch_failed'/);
 assert.ok(migration.indexOf('v_sample := aria_internal.aria_m22_a6_sample_runtime_v1()') < migration.indexOf('exception when others then'));
 assert.ok(migration.indexOf('exception when others then') < migration.indexOf("'event','dispatch_enqueue_failed'"));
+
+assert.ok(migration.includes('exception when others then'));
+assert.ok(migration.includes('v_dispatch_error := sqlstate'));
+assert.ok(migration.indexOf("v_sample := aria_internal.aria_m22_a6_sample_runtime_v1()") < migration.indexOf("exception when others then"));
+assert.ok(migration.indexOf("exception when others then") < migration.indexOf("dispatch_enqueue_failed"));
+console.log("A6_EDGE_OUTAGE_RESILIENCE_CONTRACT=PASS");
