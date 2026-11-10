@@ -184,6 +184,11 @@ declare
   expected_scope text;
   expected_request text;
   expected_path text;
+  expected_goal text;
+  expected_step text;
+  expected_goal_hash text;
+  expected_job_id text;
+  goal_identity_payload text;
   run_row aria_internal.mission_wonder_2_a6_runs;
   inserted_count integer := 0;
   ambient jsonb;
@@ -234,6 +239,16 @@ begin
     expected_scope := 'mission_wonder_2_a6_'||p_run_id||'_'||lpad(ordinal::text,2,'0');
     expected_request := p_run_id||'.'||ordinal::text;
     expected_path := 'C:\Windows\Temp\ARIA-MW2-A6\'||p_run_id||'\mission-'||lpad(ordinal::text,2,'0')||'\proof-'||lpad(ordinal::text,2,'0')||'.txt';
+    expected_goal := 'Mission Wonder 2 A6 bounded continuity marker '||p_run_id||
+      ' sequence '||lpad(ordinal::text,2,'0');
+    expected_step := 'a6_continuity_marker_'||lpad(ordinal::text,2,'0');
+    goal_identity_payload := '{"version":1,"user_id":'||to_json(btrim(p_owner_user_id))::text||
+      ',"goal":'||to_json(expected_goal)::text||',"project_id":null}';
+    expected_goal_hash := encode(extensions.digest(convert_to(goal_identity_payload,'UTF8'),'sha256'),'hex');
+    expected_job_id := 'uo_'||left(expected_mission,28)||'_'||left(expected_step,28)||'_a1_'||
+      substr(encode(extensions.digest(convert_to(
+        expected_mission||chr(92)||'0'||expected_step||chr(92)||'0'||'1','UTF8'
+      ),'sha256'),'hex'),1,16);
 
     if ordinal not between 1 and 5
        or item->>'mission_id' is distinct from expected_mission
@@ -243,8 +258,8 @@ begin
        or item->>'operation' is distinct from 'shell.execute'
        or item->>'scheduled_offset_hours' is distinct from expected_offset::text
        or item->>'artifact_path' is distinct from expected_path
-       or coalesce(item->>'goal_hash','') !~ '^[a-f0-9]{64}$'
-       or coalesce(item->>'job_id','') !~ '^uo_[a-zA-Z0-9_-]+_a1_[a-f0-9]{16}$'
+       or item->>'goal_hash' is distinct from expected_goal_hash
+       or item->>'job_id' is distinct from expected_job_id
        or length(coalesce(item->>'command','')) not between 100 and 12000
        or position(expected_path in coalesce(item->>'command',''))=0
        or position('A6_ARTIFACT_VERIFIED' in coalesce(item->>'command',''))=0

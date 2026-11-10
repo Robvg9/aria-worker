@@ -23,6 +23,14 @@ import {
 } from "../supabase/functions/_shared/mission-wonder-2-a6-scope-v1.mjs";
 
 globalThis.crypto ??= webcrypto;
+const identityFixtureRun = "m22-a6-abcdef123456";
+const identityFixtureMission = m22A6MissionIdV1(identityFixtureRun, 1);
+const identityFixtureGoal = m22A6GoalV1(identityFixtureRun, 1);
+assert.equal(await m22A6ExpectedJobIdV1(identityFixtureMission, m22A6StepIdV1(1)),
+  "uo_mission_m22_a6_abcdef123456__a6_continuity_marker_01_a1_1bba4d59ea4995e2");
+assert.equal(await m22A6GoalIdentityHashV1("a6-owner-user", identityFixtureGoal, null),
+  "064a6a41f05d10bfa3b2bc5e25a1471534dee6c773f2722d98ce3aa048591f40");
+
 const RUN_ID = "m22-a6-abcdef123456";
 const OWNER = "a6-owner-user";
 const REQUEST = "a6-request-0001";
@@ -218,3 +226,15 @@ assert.match(cloudflareDeployWorkflow, /'.github\/workflows\/mission-wonder-2-st
 assert.match(cloudflareDeployWorkflow, /'.github\/scripts\/mission-wonder-2-step6-a6-isolated-scope-v1\.sql'/);
 
 console.log("MISSION_WONDER_2_STEP6_A6_ISOLATED_SCOPE_CONTRACT=PASS");
+
+const a6ScopeTemplate = fs.readFileSync(".github/scripts/mission-wonder-2-step6-a6-isolated-scope-v1.sql", "utf8");
+const a6IdentityMigration = fs.readFileSync("supabase/migrations/20261110120000_aria_mission_wonder_2_a6_isolated_scope_v1.sql", "utf8");
+for (const source of [a6ScopeTemplate, a6IdentityMigration]) {
+  assert.ok(source.includes("expected_goal_hash := encode(extensions.digest"));
+  assert.ok(source.includes("expected_job_id := 'uo_'||left(expected_mission,28)"));
+  assert.ok(source.includes("item->>'goal_hash' is distinct from expected_goal_hash"));
+  assert.ok(source.includes("item->>'job_id' is distinct from expected_job_id"));
+}
+const a6ContractWorkflow = fs.readFileSync(".github/workflows/mission-wonder-2-step6-a6-isolated-contract.yml", "utf8");
+assert.ok(a6ContractWorkflow.includes("psql -v ON_ERROR_STOP=1 -f supabase/migrations/20261110120000_aria_mission_wonder_2_a6_isolated_scope_v1.sql"));
+assert.ok(a6ContractWorkflow.includes("create extension if not exists pgcrypto with schema extensions"));
