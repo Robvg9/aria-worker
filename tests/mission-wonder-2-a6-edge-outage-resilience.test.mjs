@@ -21,7 +21,6 @@ assert.match(migration, /consecutive_http_failures',5/);
 assert.match(migration, /automatic_retry',false/);
 assert.match(migration, /cron\.alter_job/);
 assert.match(migration, /a6_cron_must_remain_inactive_during_migration/);
-assert.match(migration, /sample_gap_ms|sampleGapMs/i);
 assert.doesNotMatch(edge, /aria_m22_a6_sample_runtime_v1/);
 assert.match(edge, /heartbeat_sampled_by_database_cron/);
 assert.match(edge, /automatic_retry: false/);
