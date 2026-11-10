@@ -137,6 +137,7 @@ declare
   v_run_id text;
   v_token text;
   v_request_id bigint;
+  v_dispatch_error text;
 begin
   perform aria_internal.aria_m22_a6_monitor_dispatch_http_v1();
   v_sample := aria_internal.aria_m22_a6_sample_runtime_v1();
@@ -146,27 +147,52 @@ begin
   end if;
 
   v_run_id := v_sample->>'run_id';
-  select decrypted_secret into v_token
-    from vault.decrypted_secrets
-   where name='aria_autonomy_cron_token'
-   limit 1;
-  if coalesce(v_token,'')='' then
-    raise exception 'a6_dispatch_cron_token_missing';
-  end if;
+  -- Isolate fallible dispatcher work in a PL/pgSQL subtransaction.
+  -- Failures here must not roll back the heartbeat sample above.
+  begin
+    select decrypted_secret into v_token
+      from vault.decrypted_secrets
+     where name='aria_autonomy_cron_token'
+     limit 1;
+    if coalesce(v_token,'')='' then
+      raise exception 'a6_dispatch_cron_token_missing';
+    end if;
 
-  select net.http_post(
-    url := 'https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-cron-auth-v1',
-    headers := jsonb_build_object(
-      'x-aria-autonomy-token',v_token,
-      'x-aria-dispatcher','mission-wonder-2-a6',
-      'Content-Type','application/json'
-    ),
-    body := '{"action":"dispatch_due"}'::jsonb,
-    timeout_milliseconds := 60000
-  ) into v_request_id;
+    select net.http_post(
+      url := 'https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-cron-auth-v1',
+      headers := jsonb_build_object(
+        'x-aria-autonomy-token',v_token,
+        'x-aria-dispatcher','mission-wonder-2-a6',
+        'Content-Type','application/json'
+      ),
+      body := '{"action":"dispatch_due"}'::jsonb,
+      timeout_milliseconds := 60000
+    ) into v_request_id;
 
-  if v_request_id is null then
-    raise exception 'a6_dispatch_http_request_not_enqueued';
+    if v_request_id is null then
+      raise exception 'a6_dispatch_http_request_not_enqueued';
+    end if;
+  exception when others then
+    v_dispatch_error := sqlstate||':'||left(sqlerrm,400);
+  end;
+
+  if v_dispatch_error is not null then
+    insert into aria_internal.mission_wonder_2_a6_telemetry(run_id,event_type,payload)
+    values(v_run_id,'dispatcher_event',jsonb_build_object(
+      'event','dispatch_enqueue_failed',
+      'error',v_dispatch_error,
+      'endpoint','aria-cron-auth-v1',
+      'heartbeat_preserved',true,
+      'automatic_retry',false
+    ));
+    return jsonb_build_object(
+      'status','sampled_dispatch_failed',
+      'run_id',v_run_id,
+      'dispatch_enqueued',false,
+      'dispatch_error',v_dispatch_error,
+      'heartbeat',v_sample,
+      'automatic_retry',false
+    );
   end if;
 
   insert into aria_internal.mission_wonder_2_a6_telemetry(run_id,event_type,payload)
