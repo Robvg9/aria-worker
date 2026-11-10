@@ -16,6 +16,7 @@ on:
       - 'supabase/functions/aria-device-gateway/index.ts'
       - '.github/scripts/mission-wonder-2-step6-a6-isolated-scope-v1.sql'
       - 'supabase/migrations/*_aria_mission_wonder_2_a6_isolated_scope_v1.sql'
+      - 'supabase/migrations/*_aria_m22_a6_frozen_job_marker_authorization_alignment_v1.sql'
       - '.github/workflows/supabase-canonical-deploy.yml'
       - '.github/workflows/aria-cloudflare-deploy.yml'
       - '.github/workflows/aria-pwa-fast-deploy.yml'
@@ -135,9 +136,10 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f supabase/migrations/20261107100000_aria_m22_a6_cron_auth_slot_reuse_v1.sql
           psql -v ON_ERROR_STOP=1 -f supabase/migrations/20261107133800_aria_m22_a6_stdout_verification_marker_alignment_v1.sql
           psql -v ON_ERROR_STOP=1 -f supabase/migrations/20261110120000_aria_mission_wonder_2_a6_isolated_scope_v1.sql
+          psql -v ON_ERROR_STOP=1 -f supabase/migrations/20261110135000_aria_m22_a6_frozen_job_marker_authorization_alignment_v1.sql
           psql -v ON_ERROR_STOP=1 <<'SQL'
           do $verify$
-          declare snap jsonb; a6_total integer; a6_active integer; legacy_active integer; function_source text;
+          declare snap jsonb; a6_total integer; a6_active integer; legacy_active integer; function_source text; auth_source text;
           begin
             snap := aria_internal.aria_m22_a6_ambient_snapshot_v1();
             if (snap->>'missionExecutionPaused')::boolean is distinct from true then raise exception 'A6_FREEZE_FALSE'; end if;
@@ -161,6 +163,11 @@ jobs:
             if position('A6_ARTIFACT_VERIFIED;mode=' in function_source)=0
                or position('A6_ARTIFACT_VERIFIED;sequence=' in function_source)>0 then
               raise exception 'A6_STDOUT_VERIFY_MARKER_ALIGNMENT_FAILED';
+            end if;
+            select pg_get_functiondef('aria_internal.aria_m22_a6_frozen_job_authorized_v1(text,text,text)'::regprocedure) into auth_source;
+            if position('A6_ARTIFACT_VERIFIED;mode=' in auth_source)=0
+               or position('A6_ARTIFACT_VERIFIED;sequence=' in auth_source)>0 then
+              raise exception 'A6_DEVICE_AUTH_MARKER_ALIGNMENT_FAILED';
             end if;
             if exists(select 1 from aria_internal.mission_wonder_2_a6_runs) then raise exception 'RUN_CREATED_BY_MIGRATION'; end if;
             if exists(select 1 from aria_internal.mission_wonder_2_a6_scopes) then raise exception 'SCOPE_CREATED_BY_MIGRATION'; end if;
