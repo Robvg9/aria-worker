@@ -17,7 +17,7 @@ assert.match(migration, /dispatch_http_request/);
 assert.match(migration, /dispatch_http_result/);
 assert.match(migration, /response_missing_timeout/);
 assert.match(migration, /edge_5xx/);
-assert.match(migration, /consecutive_http_failures',5/);
+assert.match(migration, /consecutive_dispatch_failures',5/);
 assert.match(migration, /automatic_retry',false/);
 assert.match(migration, /cron\.alter_job/);
 assert.match(migration, /a6_cron_must_remain_inactive_during_migration/);
