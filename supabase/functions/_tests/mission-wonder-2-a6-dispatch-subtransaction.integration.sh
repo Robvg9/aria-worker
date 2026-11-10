@@ -156,7 +156,7 @@ values ('pending-success-run','dispatcher_event',
 insert into net._http_response(id,status_code,timed_out,error_msg,headers)
 values (9100,200,false,null,'{"cf-ray":"test-success"}'::jsonb);
 select aria_internal.aria_m22_a6_monitor_dispatch_http_v1();
-do $
+do $$
 begin
   if (select status from aria_internal.mission_wonder_2_a6_runs where run_id='pending-success-run') <> 'running' then
     raise exception 'pending 2xx did not reset prior failure streak';
@@ -211,7 +211,7 @@ insert into net._http_response(id,status_code,timed_out,error_msg,headers)
 select 9200+n,520,false,'Cloudflare origin error','{"cf-ray":"test-520"}'::jsonb
 from generate_series(1,5) n;
 select aria_internal.aria_m22_a6_monitor_dispatch_http_v1();
-do $
+do $$
 begin
   if (select status from aria_internal.mission_wonder_2_a6_runs where run_id='edge-failure-run') <> 'blocked' then
     raise exception 'five HTTP 520 responses did not block the run';
