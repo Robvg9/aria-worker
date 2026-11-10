@@ -169,7 +169,7 @@ begin
     raise exception 'pending 2xx response was not recorded';
   end if;
 end;
-$;
+$$;
 
 -- Five consecutive enqueue failures must trip the A6 circuit breaker.
 insert into aria_internal.mission_wonder_2_a6_runs(run_id,status)
@@ -225,7 +225,7 @@ begin
     raise exception 'HTTP 520 responses were not recorded as five edge failures';
   end if;
 end;
-$;
+$$;
 select 'A6_DISPATCH_SUBTRANSACTION_POSTGRES_INTEGRATION=PASS';
 SQL
 
