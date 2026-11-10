@@ -39,3 +39,8 @@ console.log("A6_EDGE_OUTAGE_RESILIENCE_CONTRACT=PASS");
 assert.match(migration, /'outcome','enqueue_failed'/);
 assert.match(migration, /consecutive_dispatch_failures',5/);
 assert.ok(migration.includes("where status='running'"));
+
+const pendingResolution = migration.indexOf("-- Evaluate the last five outcomes only after resolving all available HTTP responses.");
+const pendingLoop = migration.indexOf("for v_pending in");
+const circuitBreaker = migration.indexOf("consecutive_dispatch_failures',5");
+assert.ok(pendingResolution > pendingLoop && circuitBreaker > pendingResolution, "circuit breaker must evaluate after pending HTTP responses");
