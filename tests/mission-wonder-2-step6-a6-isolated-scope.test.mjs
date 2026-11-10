@@ -28,7 +28,7 @@ const identityFixtureMission = m22A6MissionIdV1(identityFixtureRun, 1);
 const identityFixtureGoal = m22A6GoalV1(identityFixtureRun, 1);
 assert.equal(await m22A6ExpectedJobIdV1(identityFixtureMission, m22A6StepIdV1(1)),
   "uo_mission_m22_a6_abcdef123456__a6_continuity_marker_01_a1_1bba4d59ea4995e2");
-assert.equal(await m22A6GoalIdentityHashV1(OWNER, identityFixtureGoal, null),
+assert.equal(await m22A6GoalIdentityHashV1("a6-owner-user", identityFixtureGoal, null),
   "064a6a41f05d10bfa3b2bc5e25a1471534dee6c773f2722d98ce3aa048591f40");
 
 const RUN_ID = "m22-a6-abcdef123456";
