@@ -16,7 +16,51 @@ declare
   v_updated integer := 0;
   v_failed_streak integer;
   v_scope_id text;
+  v_active_run_id text;
+  v_has_recent_success boolean;
 begin
+  -- Count enqueue failures as dispatcher failures; five consecutive failures block A6.
+  for v_active_run_id in
+    select run_id from aria_internal.mission_wonder_2_a6_runs where status='running'
+  loop
+    select count(*)::integer, coalesce(bool_or(recent.outcome='edge_2xx'),false)
+      into v_failed_streak,v_has_recent_success
+      from (
+        select payload->>'outcome' as outcome
+          from aria_internal.mission_wonder_2_a6_telemetry
+         where run_id=v_active_run_id
+           and event_type='dispatcher_event'
+           and payload->>'event'='dispatch_http_result'
+         order by sample_id desc
+         limit 5
+      ) recent
+     where recent.outcome is not null;
+    if v_failed_streak=5 and not v_has_recent_success then
+      select scope_id into v_scope_id
+        from aria_internal.mission_wonder_2_a6_scopes
+       where run_id=v_active_run_id and status in ('armed','claimed','bound')
+       order by ordinal limit 1;
+      if v_scope_id is not null then
+        perform aria_internal.aria_m22_a6_block_run_v1(
+          v_active_run_id,v_scope_id,'a6_dispatch_endpoint_unavailable'
+        );
+      else
+        update aria_internal.mission_wonder_2_a6_runs
+           set status='blocked',completed_at=coalesce(completed_at,clock_timestamp()),
+               updated_at=clock_timestamp()
+         where run_id=v_active_run_id and status='running';
+        perform aria_internal.aria_m22_a6_set_dispatcher_active_v1(false);
+      end if;
+      insert into aria_internal.mission_wonder_2_a6_telemetry(run_id,event_type,payload)
+      values(v_active_run_id,'fault_observed',jsonb_build_object(
+        'event','a6_dispatch_endpoint_unavailable',
+        'consecutive_dispatch_failures',5,
+        'automatic_retry',false
+      ));
+      exit;
+    end if;
+  end loop;
+
   for v_pending in
     select t.sample_id, t.run_id, t.sampled_at,
            (t.payload->>'request_id')::bigint as request_id
@@ -183,6 +227,13 @@ begin
       'error',v_dispatch_error,
       'endpoint','aria-cron-auth-v1',
       'heartbeat_preserved',true,
+      'automatic_retry',false
+    ));
+    insert into aria_internal.mission_wonder_2_a6_telemetry(run_id,event_type,payload)
+    values(v_run_id,'dispatcher_event',jsonb_build_object(
+      'event','dispatch_http_result',
+      'outcome','enqueue_failed',
+      'request_id',null,
       'automatic_retry',false
     ));
     return jsonb_build_object(
