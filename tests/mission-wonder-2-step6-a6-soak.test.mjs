@@ -282,6 +282,7 @@ assert.ok(p95Failure.blockers.includes("p95_latency_exceeded_threshold"));
 
 const costFailure = m22A6BuildSoakReportV1({
   ...validEvidence,
+  costSamplesUsd: [0.001, 0.001, 0.001, 0.001, 0.001],
   thresholds: { ...thresholds, maxTotalCostUsd: 0.001 },
 });
 assert.equal(costFailure.status, "BLOCKED");
