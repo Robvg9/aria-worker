@@ -198,6 +198,34 @@ begin
   end if;
 end;
 $$;
+-- Five real Cloudflare 520 responses must also trip the circuit breaker.
+insert into aria_internal.mission_wonder_2_a6_runs(run_id,status)
+values ('edge-failure-run','running');
+insert into aria_internal.mission_wonder_2_a6_scopes(scope_id,run_id,status,ordinal)
+values ('edge-failure-scope','edge-failure-run','armed',1);
+insert into aria_internal.mission_wonder_2_a6_telemetry(run_id,event_type,payload)
+select 'edge-failure-run','dispatcher_event',
+       jsonb_build_object('event','dispatch_http_request','request_id',9200+n)
+from generate_series(1,5) n;
+insert into net._http_response(id,status_code,timed_out,error_msg,headers)
+select 9200+n,520,false,'Cloudflare origin error','{"cf-ray":"test-520"}'::jsonb
+from generate_series(1,5) n;
+select aria_internal.aria_m22_a6_monitor_dispatch_http_v1();
+do $
+begin
+  if (select status from aria_internal.mission_wonder_2_a6_runs where run_id='edge-failure-run') <> 'blocked' then
+    raise exception 'five HTTP 520 responses did not block the run';
+  end if;
+  if (select status from aria_internal.mission_wonder_2_a6_scopes where scope_id='edge-failure-scope') <> 'revoked' then
+    raise exception 'HTTP 520 circuit breaker did not revoke scope';
+  end if;
+  if (select count(*) from aria_internal.mission_wonder_2_a6_telemetry
+      where run_id='edge-failure-run' and event_type='dispatcher_event'
+        and payload->>'event'='dispatch_http_result' and payload->>'outcome'='edge_5xx') <> 5 then
+    raise exception 'HTTP 520 responses were not recorded as five edge failures';
+  end if;
+end;
+$;
 select 'A6_DISPATCH_SUBTRANSACTION_POSTGRES_INTEGRATION=PASS';
 SQL
 
