@@ -1,0 +1,38 @@
+name: A6 Windows Agent PID Identity Read-Only
+
+on:
+  push:
+    branches:
+      - ops/a6-windows-agent-v2-heartbeat-preflight-v1
+    paths:
+      - '.github/workflows/a6-windows-agent-pid-identity.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    name: Inspect known PIDs without changing them
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 3
+    defaults:
+      run:
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+    steps:
+      - name: Read process start times, paths and parent relationships
+        run: |
+          $ErrorActionPreference = 'Continue'
+          foreach ($id in @(3988,1244,15904,7088,8212,8288,5052)) {
+            $p = Get-Process -Id $id -ErrorAction SilentlyContinue
+            if (-not $p) { Write-Host "PID=$id STATE=NOT_RUNNING"; continue }
+            $path = ''
+            $started = ''
+            try { $path = $p.Path } catch {}
+            try { $started = $p.StartTime.ToUniversalTime().ToString('o') } catch {}
+            Write-Host "PID=$id NAME=$($p.ProcessName) SESSION=$($p.SessionId) START_UTC=$started PATH=$path"
+            $cim = Get-CimInstance Win32_Process -Filter "ProcessId=$id" -ErrorAction SilentlyContinue
+            if ($cim) {
+              Write-Host "PID=$id PARENT=$($cim.ParentProcessId) EXECUTABLE=$($cim.ExecutablePath) COMMAND_LINE_AVAILABLE=$(-not [string]::IsNullOrWhiteSpace([string]$cim.CommandLine))"
+            }
+          }
+          Write-Host 'A6_PID_IDENTITY_READONLY=PASS'
