@@ -27,7 +27,6 @@ jobs:
     timeout-minutes: 8
     steps:
       - name: Capture local power, watchdog and heartbeat evidence
-        shell: powershell
         run: |
           $ErrorActionPreference = 'Continue'
           $now = Get-Date
