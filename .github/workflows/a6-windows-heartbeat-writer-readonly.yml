@@ -36,6 +36,32 @@ jobs:
           $scriptCandidates = [System.Collections.Generic.List[object]]::new()
           $started = [DateTimeOffset]::UtcNow
 
+          if (-not ('A6NativeProcessInfo' -as [type])) {
+            Add-Type -TypeDefinition @'
+          using System;
+          using System.Text;
+          using System.Runtime.InteropServices;
+          public static class A6NativeProcessInfo {
+            [DllImport("kernel32.dll", SetLastError=true)]
+            private static extern IntPtr OpenProcess(uint access, bool inherit, int processId);
+            [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
+            private static extern bool QueryFullProcessImageName(IntPtr process, int flags, StringBuilder path, ref int size);
+            [DllImport("kernel32.dll")]
+            private static extern bool CloseHandle(IntPtr handle);
+            public static string ImagePath(int processId) {
+              IntPtr handle = OpenProcess(0x1000, false, processId);
+              if (handle == IntPtr.Zero) return "";
+              try {
+                StringBuilder path = new StringBuilder(2048);
+                int size = path.Capacity;
+                if (!QueryFullProcessImageName(handle, 0, path, ref size)) return "";
+                return path.ToString();
+              } finally { CloseHandle(handle); }
+            }
+          }
+'@
+          }
+
           function Get-ProcessSnapshot {
             $all = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue)
             $byId = @{}
@@ -56,6 +82,9 @@ jobs:
               $proc = Get-Process -Id ([int]$p.ProcessId) -ErrorAction SilentlyContinue
               $start = ''
               $exe = [string]$p.ExecutablePath
+              if ([string]::IsNullOrWhiteSpace($exe)) {
+                $exe = [A6NativeProcessInfo]::ImagePath([int]$p.ProcessId)
+              }
               if ($proc) {
                 if ([string]::IsNullOrWhiteSpace($exe)) { try { $exe = [string]$proc.Path } catch {} }
                 try { $start = $proc.StartTime.ToUniversalTime().ToString('o') } catch {}
@@ -129,21 +158,250 @@ jobs:
             } catch { Write-Host "SCRIPT_REFERENCE_ERROR path=$($file.FullName) type=$($_.Exception.GetType().Name)" }
           }
 
-          # Check only the two known ARIA task names; do not dump command arguments.
+          # Query only the two known task names through Task Scheduler COM.
+          # Emit task identity, executable and script path only; never arguments.
+          $taskFindings = [System.Collections.Generic.List[object]]::new()
+          $scheduler = $null
+          $taskFolder = $null
+          try {
+            $scheduler = New-Object -ComObject 'Schedule.Service'
+            $scheduler.Connect()
+            $taskFolder = $scheduler.GetFolder('\')
+          } catch {
+            Write-Host "TASK_SCHEDULER_COM_UNAVAILABLE=$($_.Exception.GetType().Name)"
+          }
+
           foreach ($taskName in @('ARIA-Windows-Local-Agent','ARIA-Desktop-Commander-Remote')) {
+            $finding = [ordered]@{
+              name=$taskName
+              source='none'
+              state=$null
+              user=$null
+              logon_type=$null
+              actions=@()
+              instances=@()
+              error=$null
+            }
+            $task = $null
+            if ($taskFolder) {
+              try {
+                $task = $taskFolder.GetTask($taskName)
+                $finding.source='TaskSchedulerCOM'
+                $finding.state=[int]$task.State
+                $definition=$task.Definition
+                $finding.user=[string]$definition.Principal.UserId
+                $finding.logon_type=[int]$definition.Principal.LogonType
+                $actions = [System.Collections.Generic.List[object]]::new()
+                for ($i=1; $i -le [int]$definition.Actions.Count; $i++) {
+                  $action=$definition.Actions.Item($i)
+                  $actionPath=[string]$action.Path
+                  $arguments=[string]$action.Arguments
+                  $scriptPath=$null
+                  if ($arguments -match '(?i)([A-Z]:\\[^"]+\.(?:js|ps1))') { $scriptPath=$Matches[1] }
+                  elseif ($actionPath -match '(?i)\.(?:js|ps1)
+
+          $before = @(Get-ProcessSnapshot)
+          foreach ($p in $before) {
+            Write-Host "PROCESS pid=$($p.pid) name=$($p.name) session=$($p.session_id) parent=$($p.parent_pid)/$($p.parent_name) exe=$($p.executable_path) start=$($p.start_utc) cmd_available=$($p.command_line_available) tags=$($p.command_tags -join ',') script=$($p.script_path)"
+          }
+
+          foreach ($path in @(
+            (Join-Path $windowsRuntime 'aria-agent.js'),
+            (Join-Path $windowsRuntime 'run-agent.ps1'),
+            (Join-Path $sourceRoot 'agents\windows\aria-agent.js'),
+            (Join-Path $sourceRoot 'agents\windows\run-agent.ps1'),
+            (Join-Path $logs 'ARIA-Windows-Local-Agent.xml'),
+            (Join-Path $logs 'ARIA-Desktop-Commander-Remote.xml')
+          )) {
+            if (Test-Path -LiteralPath $path -PathType Leaf) {
+              $item=Get-Item -LiteralPath $path
+              $hash=if ($item.Extension -in @('.js','.ps1')) { (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash } else { $null }
+              Write-Host "KNOWN_FILE path=$path size=$($item.Length) modified_utc=$($item.LastWriteTimeUtc.ToString('o')) sha256=$hash"
+            }
+          }
+
+          # Observe heartbeat schema for 60 seconds, without writing to or deleting it.
+          $lastSignature = ''
+          for ($i=0; $i -lt 12; $i++) {
+            $now=[DateTimeOffset]::UtcNow
+            $entry=[ordered]@{ sampled_at_utc=$now.ToString('o'); exists=$false; version=$null; timestamp=$null; ack=$null; last_write_utc=$null; read_error=$null }
             try {
-              $task = Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
-              $actions = @($task.Actions | ForEach-Object {
-                $arg = [string]$_.Arguments
-                $matchedPath = $null
-                if ($arg -match '(?i)([A-Z]:\\[^"]+\.(?:js|ps1))') { $matchedPath = $Matches[1] }
-                [pscustomobject]@{ execute=[string]$_.Execute; script_path=$matchedPath }
-              })
-              Write-Host "TASK name=$taskName state=$($task.State) user=$($task.Principal.UserId) logon=$($task.Principal.LogonType) actions=$($actions.Count)"
-              foreach ($action in $actions) {
-                Write-Host "TASK_ACTION task=$taskName executable=$($action.execute) script_path=$($action.script_path)"
+              if (Test-Path -LiteralPath $heartbeat -PathType Leaf) {
+                $hbFile=Get-Item -LiteralPath $heartbeat
+                $hb=Get-Content -Raw -LiteralPath $heartbeat | ConvertFrom-Json
+                $entry.exists=$true
+                $entry.version=[string]$hb.version
+                $entry.timestamp=[string]$hb.timestamp
+                $entry.ack=[string]$hb.last_gateway_heartbeat_at
+                $entry.last_write_utc=$hbFile.LastWriteTimeUtc.ToString('o')
               }
-            } catch { Write-Host "TASK_UNAVAILABLE name=$taskName error=$($_.Exception.GetType().Name)" }
+            } catch { $entry.read_error=$_.Exception.GetType().Name }
+            $signature="$($entry.version)|$($entry.read_error)|$($entry.exists)"
+            if ($signature -ne $lastSignature) {
+              Write-Host "HEARTBEAT_SCHEMA_EVENT time=$($entry.sampled_at_utc) exists=$($entry.exists) version=$($entry.version) read_error=$($entry.read_error)"
+              $lastSignature=$signature
+            }
+            $samples.Add([pscustomobject]$entry)
+            if ($i -lt 11) { Start-Sleep -Seconds 5 }
+          }
+
+          $after=@(Get-ProcessSnapshot)
+          foreach ($p in $after) {
+            Write-Host "PROCESS_END pid=$($p.pid) name=$($p.name) session=$($p.session_id) parent=$($p.parent_pid)/$($p.parent_name) cmd_available=$($p.command_line_available) tags=$($p.command_tags -join ',') script=$($p.script_path)"
+          }
+
+          $result=[ordered]@{
+            status='OBSERVED_READ_ONLY'
+            host=$env:COMPUTERNAME
+            runner_identity=[Security.Principal.WindowsIdentity]::GetCurrent().Name
+            started_at_utc=$started.ToString('o')
+            captured_at_utc=[DateTimeOffset]::UtcNow.ToString('o')
+            samples=@($samples.ToArray())
+            runtime_files=@($scriptCandidates.ToArray())
+            task_findings=@($taskFindings.ToArray())
+            processes_start=@($before)
+            processes_end=@($after)
+          }
+          $result | ConvertTo-Json -Depth 9 | Set-Content -LiteralPath $resultPath -Encoding UTF8
+          Write-Host "A6_READONLY_WRITER_DIAGNOSTIC=PASS samples=$($samples.Count) processes_start=$($before.Count) processes_end=$($after.Count)"
+
+      - name: Upload sanitized read-only diagnostic
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: a6-windows-heartbeat-writer-diagnostic-${{ github.sha }}
+          path: a6-windows-heartbeat-writer-diagnostic.json
+          if-no-files-found: warn
+          retention-days: 14
+) { $scriptPath=$actionPath }
+                  $actions.Add([pscustomobject]@{ executable=$actionPath; script_path=$scriptPath })
+                }
+                $finding.actions=@($actions.ToArray())
+                $instances=$task.GetInstances(0)
+                $instanceDetails=[System.Collections.Generic.List[object]]::new()
+                for ($i=1; $i -le [int]$instances.Count; $i++) {
+                  $instance=$instances.Item($i)
+                  $enginePid=$null
+                  try { $enginePid=[int]$instance.EnginePID } catch {}
+                  $instanceDetails.Add([pscustomobject]@{
+                    name=[string]$instance.Name
+                    state=[int]$instance.State
+                    engine_pid=$enginePid
+                  })
+                }
+                $finding.instances=@($instanceDetails.ToArray())
+              } catch {
+                $finding.error=$_.Exception.GetType().Name
+              }
+            }
+
+            # Fallback to schtasks XML when COM cannot read the task.
+            if ($finding.source -eq 'none' -or $finding.error) {
+              try {
+                $xmlText = & "$env:SystemRoot\System32\schtasks.exe" /query /tn $taskName /xml 2>$null
+                if ($LASTEXITCODE -eq 0 -and $xmlText) {
+                  [xml]$taskXml = ($xmlText -join [Environment]::NewLine)
+                  $finding.source='schtasks-xml'
+                  $userNode=$taskXml.SelectSingleNode("//*[local-name()='UserId']")
+                  $logonNode=$taskXml.SelectSingleNode("//*[local-name()='LogonType']")
+                  $commandNode=$taskXml.SelectSingleNode("//*[local-name()='Command']")
+                  $argumentsNode=$taskXml.SelectSingleNode("//*[local-name()='Arguments']")
+                  if ($userNode) { $finding.user=[string]$userNode.InnerText }
+                  if ($logonNode) { $finding.logon_type=[string]$logonNode.InnerText }
+                  $actionPath=if ($commandNode) { [string]$commandNode.InnerText } else { $null }
+                  $arguments=if ($argumentsNode) { [string]$argumentsNode.InnerText } else { '' }
+                  $scriptPath=$null
+                  if ($arguments -match '(?i)([A-Z]:\\[^"]+\.(?:js|ps1))') { $scriptPath=$Matches[1] }
+                  elseif ($actionPath -match '(?i)\.(?:js|ps1)
+
+          $before = @(Get-ProcessSnapshot)
+          foreach ($p in $before) {
+            Write-Host "PROCESS pid=$($p.pid) name=$($p.name) session=$($p.session_id) parent=$($p.parent_pid)/$($p.parent_name) exe=$($p.executable_path) start=$($p.start_utc) cmd_available=$($p.command_line_available) tags=$($p.command_tags -join ',') script=$($p.script_path)"
+          }
+
+          foreach ($path in @(
+            (Join-Path $windowsRuntime 'aria-agent.js'),
+            (Join-Path $windowsRuntime 'run-agent.ps1'),
+            (Join-Path $sourceRoot 'agents\windows\aria-agent.js'),
+            (Join-Path $sourceRoot 'agents\windows\run-agent.ps1'),
+            (Join-Path $logs 'ARIA-Windows-Local-Agent.xml'),
+            (Join-Path $logs 'ARIA-Desktop-Commander-Remote.xml')
+          )) {
+            if (Test-Path -LiteralPath $path -PathType Leaf) {
+              $item=Get-Item -LiteralPath $path
+              $hash=if ($item.Extension -in @('.js','.ps1')) { (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash } else { $null }
+              Write-Host "KNOWN_FILE path=$path size=$($item.Length) modified_utc=$($item.LastWriteTimeUtc.ToString('o')) sha256=$hash"
+            }
+          }
+
+          # Observe heartbeat schema for 60 seconds, without writing to or deleting it.
+          $lastSignature = ''
+          for ($i=0; $i -lt 12; $i++) {
+            $now=[DateTimeOffset]::UtcNow
+            $entry=[ordered]@{ sampled_at_utc=$now.ToString('o'); exists=$false; version=$null; timestamp=$null; ack=$null; last_write_utc=$null; read_error=$null }
+            try {
+              if (Test-Path -LiteralPath $heartbeat -PathType Leaf) {
+                $hbFile=Get-Item -LiteralPath $heartbeat
+                $hb=Get-Content -Raw -LiteralPath $heartbeat | ConvertFrom-Json
+                $entry.exists=$true
+                $entry.version=[string]$hb.version
+                $entry.timestamp=[string]$hb.timestamp
+                $entry.ack=[string]$hb.last_gateway_heartbeat_at
+                $entry.last_write_utc=$hbFile.LastWriteTimeUtc.ToString('o')
+              }
+            } catch { $entry.read_error=$_.Exception.GetType().Name }
+            $signature="$($entry.version)|$($entry.read_error)|$($entry.exists)"
+            if ($signature -ne $lastSignature) {
+              Write-Host "HEARTBEAT_SCHEMA_EVENT time=$($entry.sampled_at_utc) exists=$($entry.exists) version=$($entry.version) read_error=$($entry.read_error)"
+              $lastSignature=$signature
+            }
+            $samples.Add([pscustomobject]$entry)
+            if ($i -lt 11) { Start-Sleep -Seconds 5 }
+          }
+
+          $after=@(Get-ProcessSnapshot)
+          foreach ($p in $after) {
+            Write-Host "PROCESS_END pid=$($p.pid) name=$($p.name) session=$($p.session_id) parent=$($p.parent_pid)/$($p.parent_name) cmd_available=$($p.command_line_available) tags=$($p.command_tags -join ',') script=$($p.script_path)"
+          }
+
+          $result=[ordered]@{
+            status='OBSERVED_READ_ONLY'
+            host=$env:COMPUTERNAME
+            runner_identity=[Security.Principal.WindowsIdentity]::GetCurrent().Name
+            started_at_utc=$started.ToString('o')
+            captured_at_utc=[DateTimeOffset]::UtcNow.ToString('o')
+            samples=@($samples.ToArray())
+            runtime_files=@($scriptCandidates.ToArray())
+            processes_start=@($before)
+            processes_end=@($after)
+          }
+          $result | ConvertTo-Json -Depth 9 | Set-Content -LiteralPath $resultPath -Encoding UTF8
+          Write-Host "A6_READONLY_WRITER_DIAGNOSTIC=PASS samples=$($samples.Count) processes_start=$($before.Count) processes_end=$($after.Count)"
+
+      - name: Upload sanitized read-only diagnostic
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: a6-windows-heartbeat-writer-diagnostic-${{ github.sha }}
+          path: a6-windows-heartbeat-writer-diagnostic.json
+          if-no-files-found: warn
+          retention-days: 14
+) { $scriptPath=$actionPath }
+                  $finding.actions=@([pscustomobject]@{ executable=$actionPath; script_path=$scriptPath })
+                  $finding.error=$null
+                }
+              } catch {
+                if (-not $finding.error) { $finding.error=$_.Exception.GetType().Name }
+              }
+            }
+            $taskFindings.Add([pscustomobject]$finding)
+            Write-Host "TASK name=$taskName source=$($finding.source) state=$($finding.state) user=$($finding.user) logon=$($finding.logon_type) actions=$(@($finding.actions).Count) instances=$(@($finding.instances).Count) error=$($finding.error)"
+            foreach ($action in @($finding.actions)) {
+              Write-Host "TASK_ACTION task=$taskName executable=$($action.executable) script_path=$($action.script_path)"
+            }
+            foreach ($instance in @($finding.instances)) {
+              Write-Host "TASK_INSTANCE task=$taskName name=$($instance.name) state=$($instance.state) engine_pid=$($instance.engine_pid)"
+            }
           }
 
           $before = @(Get-ProcessSnapshot)
