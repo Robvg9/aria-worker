@@ -152,36 +152,26 @@ jobs:
             Write-Host 'A6_HEARTBEAT_INTERVAL_MS=30000'
             Write-Host 'A6_LOCAL_OLLAMA_ENABLED=false'
 
-            $existingTask = & schtasks.exe /Query /TN $taskName 2>&1
-            $taskExists = ($LASTEXITCODE -eq 0)
+            $existingTaskOutput = @()
+            $taskQueryError = $null
+            $taskQueryExit = 1
+            try {
+              $existingTaskOutput = & schtasks.exe /Query /TN $taskName 2>$null
+              $taskQueryExit = $LASTEXITCODE
+            } catch {
+              $taskQueryError = [string]$_.Exception.Message
+            }
+            if ($taskQueryError -and $taskQueryError -notmatch '(?i)cannot find|no se puede encontrar|ruta especificada|path specified') {
+              throw "TASK_QUERY_FAILED=$taskQueryError"
+            }
+            $taskExists = ($taskQueryExit -eq 0)
+            Write-Host "A6_TASK_EXISTS=$taskExists"
             if ($taskExists) {
-              & schtasks.exe /End /TN $taskName 2>&1 | Out-Null
+              try { & schtasks.exe /End /TN $taskName 2>$null | Out-Null } catch {}
               Start-Sleep -Seconds 2
             }
 
-            # Stop only processes whose command line points to ARIA's exact runtime scripts.
-            $runtimeWatchdogFull = [IO.Path]::GetFullPath($watchdogTarget)
-            $runtimeAgentFull = [IO.Path]::GetFullPath($agentTarget)
-            $processes = @(Get-CimInstance Win32_Process -ErrorAction Stop)
-            $watchdogs = @($processes | Where-Object {
-              $_.Name -match '^(powershell|pwsh)(\.exe)?$' -and
-              $_.CommandLine -and $_.CommandLine.IndexOf($runtimeWatchdogFull,[StringComparison]::OrdinalIgnoreCase) -ge 0
-            })
-            foreach ($p in $watchdogs) {
-              Write-Host "STOP_EXACT_ARIA_WATCHDOG_PID=$($p.ProcessId)"
-              Stop-Process -Id ([int]$p.ProcessId) -Force -ErrorAction Stop
-            }
-            $processes = @(Get-CimInstance Win32_Process -ErrorAction Stop)
-            $agents = @($processes | Where-Object {
-              $_.Name -match '^node(\.exe)?$' -and
-              $_.CommandLine -and $_.CommandLine.IndexOf($runtimeAgentFull,[StringComparison]::OrdinalIgnoreCase) -ge 0
-            })
-            foreach ($p in $agents) {
-              Write-Host "STOP_EXACT_ARIA_AGENT_PID=$($p.ProcessId)"
-              Stop-Process -Id ([int]$p.ProcessId) -Force -ErrorAction Stop
-            }
-            Start-Sleep -Seconds 2
-
+            # Register/read back the correct interactive task before stopping the live Session 0 process.
             $xmlUser = [Security.SecurityElement]::Escape($interactiveUser)
             $taskScript = [Security.SecurityElement]::Escape($watchdogTarget)
             $taskXmlPath = Join-Path $backupDir 'ARIA-Windows-Local-Agent.xml'
@@ -205,10 +195,6 @@ jobs:
           "@
             Set-Content -LiteralPath $taskXmlPath -Value $taskXml -Encoding Unicode
 
-            if ($taskExists) {
-              & schtasks.exe /Delete /TN $taskName /F 2>&1 | Out-Null
-              if ($LASTEXITCODE -ne 0) { throw "TASK_DELETE_FAILED=$LASTEXITCODE" }
-            }
             $createOutput = & schtasks.exe /Create /TN $taskName /XML $taskXmlPath /F 2>&1
             if ($LASTEXITCODE -ne 0) { throw "INTERACTIVE_TASK_CREATE_FAILED=$($createOutput -join ' ')" }
 
@@ -220,6 +206,35 @@ jobs:
               throw 'INTERACTIVE_TASK_PRINCIPAL_READBACK_FAILED'
             }
             Write-Host 'A6_INTERACTIVE_TASK_REGISTERED=PASS'
+
+            # Only now stop exact old ARIA processes; unrelated Node/PowerShell processes are untouched.
+            $runtimeWatchdogFull = [IO.Path]::GetFullPath($watchdogTarget)
+            $runtimeAgentFull = [IO.Path]::GetFullPath($agentTarget)
+            $processes = @(Get-CimInstance Win32_Process -ErrorAction Stop)
+            $watchdogs = @($processes | Where-Object {
+              $_.Name -match '^(powershell|pwsh)(\.exe)?$' -and
+              $_.CommandLine -and $_.CommandLine.IndexOf($runtimeWatchdogFull,[StringComparison]::OrdinalIgnoreCase) -ge 0
+            })
+            foreach ($p in $watchdogs) {
+              Write-Host "STOP_EXACT_ARIA_WATCHDOG_PID=$($p.ProcessId)"
+              Stop-Process -Id ([int]$p.ProcessId) -Force -ErrorAction Stop
+            }
+            $processes = @(Get-CimInstance Win32_Process -ErrorAction Stop)
+            $agents = @($processes | Where-Object {
+              $_.Name -match '^node(\.exe)?$' -and
+              $_.CommandLine -and $_.CommandLine.IndexOf($runtimeAgentFull,[StringComparison]::OrdinalIgnoreCase) -ge 0
+            })
+            foreach ($p in $agents) {
+              Write-Host "STOP_EXACT_ARIA_AGENT_PID=$($p.ProcessId)"
+              Stop-Process -Id ([int]$p.ProcessId) -Force -ErrorAction Stop
+            }
+            Start-Sleep -Seconds 2
+
+            $remaining = @(Get-CimInstance Win32_Process -ErrorAction Stop | Where-Object {
+              ($_.Name -match '^(powershell|pwsh)(\.exe)?$' -and $_.CommandLine -and $_.CommandLine.IndexOf($runtimeWatchdogFull,[StringComparison]::OrdinalIgnoreCase) -ge 0) -or
+              ($_.Name -match '^node(\.exe)?$' -and $_.CommandLine -and $_.CommandLine.IndexOf($runtimeAgentFull,[StringComparison]::OrdinalIgnoreCase) -ge 0)
+            })
+            if ($remaining.Count -gt 0) { throw "OLD_ARIA_RUNTIME_STILL_RUNNING_COUNT=$($remaining.Count)" }
 
             & schtasks.exe /Run /TN $taskName 2>&1 | Out-Null
             if ($LASTEXITCODE -ne 0) { throw "INTERACTIVE_TASK_START_FAILED=$LASTEXITCODE" }
