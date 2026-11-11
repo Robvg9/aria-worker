@@ -114,14 +114,32 @@ jobs:
           Write-Host "POWER_EVENT_FILE_BYTES=$((Get-Item -LiteralPath $out -ErrorAction SilentlyContinue).Length)"
           Write-Host 'A6DIAG_POWER_EVENTS_CAPTURE=FINISHED'
 
+      - name: Stage diagnostics inside workspace for artifact upload
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $source = Join-Path $env:RUNNER_TEMP 'a6-windows-power-diagnostics'
+          $target = Join-Path $env:GITHUB_WORKSPACE 'a6-windows-power-diagnostics'
+          New-Item -ItemType Directory -Force -Path $target | Out-Null
+          foreach ($name in @('a6-windows-runtime-snapshot.json','a6-windows-power-events.txt','a6-windows-power-events.err.txt')) {
+            $file = Join-Path $source $name
+            if (Test-Path -LiteralPath $file) {
+              Copy-Item -LiteralPath $file -Destination (Join-Path $target $name) -Force
+            }
+          }
+          $logs = 'D:\ARIA-Windows-Agent\Logs'
+          foreach ($name in @('agent-heartbeat.json','status.json','watchdog.log')) {
+            $file = Join-Path $logs $name
+            if (Test-Path -LiteralPath $file) {
+              Copy-Item -LiteralPath $file -Destination (Join-Path $target $name) -Force
+            }
+          }
+          Write-Host "STAGED_FILES=$((Get-ChildItem -LiteralPath $target -File | Measure-Object).Count)"
+          Write-Host "STAGED_WATCHDOG_BYTES=$((Get-Item -LiteralPath (Join-Path $target 'watchdog.log') -ErrorAction SilentlyContinue).Length)"
+
       - name: Upload direct Windows evidence
         uses: actions/upload-artifact@v4
         with:
           name: mission-wonder-2-a6-windows-power-diagnostics-${{ github.sha }}
-          path: |
-            ${{ runner.temp }}/a6-windows-power-diagnostics/**
-            D:/ARIA-Windows-Agent/Logs/agent-heartbeat.json
-            D:/ARIA-Windows-Agent/Logs/status.json
-            D:/ARIA-Windows-Agent/Logs/watchdog.log
+          path: a6-windows-power-diagnostics/**
           if-no-files-found: error
           retention-days: 14
