@@ -22,6 +22,7 @@ on:
       - '.github/workflows/aria-pwa-fast-deploy.yml'
       - 'tests/mission-wonder-2-step6-a6-soak.test.mjs'
       - 'tests/mission-wonder-2-step6-a6-fault-matrix.test.mjs'
+      - '.github/scripts/mission-wonder-2-a6-frozen-claim-postgres-v1.sql'
       - '.github/workflows/mission-wonder-2-step6-a6-isolated-contract.yml'
   workflow_dispatch:
 
@@ -180,6 +181,9 @@ jobs:
           echo "A6_CRON_CREATED_INACTIVE=true"
           echo "A6_LEGACY_CRONS_48_49_50_STAY_DISABLED=true"
           echo "A6_NO_RUN_SCOPE_MISSION_JOB_OR_LEASE=true"
+
+      - name: Exercise frozen A6 claim through PostgreSQL with the global freeze active
+        run: psql -v ON_ERROR_STOP=1 -f .github/scripts/mission-wonder-2-a6-frozen-claim-postgres-v1.sql
 
       - name: Check A6 scope helper syntax
         run: node --check supabase/functions/_shared/mission-wonder-2-a6-scope-v1.mjs
