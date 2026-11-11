@@ -1,0 +1,52 @@
+name: A6 Windows Diagnostics Queue Guard
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'agents/windows/aria-agent.js'
+      - 'agents/windows/run-agent.ps1'
+      - 'agents/windows/install-v2.ps1'
+      - 'tests/mission-wonder-2-a6-windows-heartbeat.test.mjs'
+      - '.github/workflows/mission-wonder-2-a6-windows-power-diagnostics.yml'
+      - '.github/workflows/mission-wonder-2-a6-windows-diagnostics-queue-guard.yml'
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  cancel-stale-diagnostics:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Cancel only stale A6 diagnostics from this PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          repo="$GITHUB_REPOSITORY"
+          runs=$(curl -fsSL \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$repo/actions/runs?per_page=100")
+          echo "$runs" | jq -r --arg pr "$PR_NUMBER" --arg head "$PR_HEAD_SHA" '
+            .workflow_runs[] |
+            select(.name == "Mission Wonder 2 A6 Windows Power Diagnostics") |
+            select(.status == "queued" or .status == "in_progress") |
+            select(any(.pull_requests[]?; (.number|tostring) == $pr)) |
+            select(.head_sha != $head) |
+            [.id, .status, .head_sha] | @tsv' |
+          while IFS=$'\t' read -r run_id status old_sha; do
+            [ -z "$run_id" ] && continue
+            echo "CANCEL_STALE_A6_DIAGNOSTICS id=$run_id status=$status old_sha=$old_sha"
+            curl -fsS -X POST \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/$repo/actions/runs/$run_id/cancel" >/dev/null
+          done
+          echo "KEEP_A6_DIAGNOSTICS_HEAD=$PR_HEAD_SHA"
+          echo "A6_WINDOWS_DIAGNOSTICS_QUEUE_GUARD=PASS"
