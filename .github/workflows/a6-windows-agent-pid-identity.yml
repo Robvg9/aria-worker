@@ -35,4 +35,21 @@ jobs:
               Write-Host "PID=$id PARENT=$($cim.ParentProcessId) EXECUTABLE=$($cim.ExecutablePath) COMMAND_LINE_AVAILABLE=$(-not [string]::IsNullOrWhiteSpace([string]$cim.CommandLine))"
             }
           }
-          Write-Host 'A6_PID_IDENTITY_READONLY=PASS'
+          foreach ($p in @('D:\ARIA-Windows-Agent\Logs\agent.pid','D:\ARIA-Windows-Agent\Logs\watchdog.pid')) {
+            if (Test-Path -LiteralPath $p) {
+              $value = (Get-Content -Raw -LiteralPath $p).Trim()
+              Write-Host "PID_FILE=$p VALUE=$value"
+            } else { Write-Host "PID_FILE_MISSING=$p" }
+          }
+          foreach ($p in @('D:\ARIA-Windows-Agent\Logs\status.json','D:\ARIA-Windows-Agent\Logs\agent-heartbeat.json')) {
+            if (Test-Path -LiteralPath $p) {
+              $value = Get-Content -Raw -LiteralPath $p | ConvertFrom-Json
+              Write-Host "STATE_FILE=$([IO.Path]::GetFileName($p)) LASTWRITE_UTC=$((Get-Item -LiteralPath $p).LastWriteTimeUtc.ToString('o'))"
+              if ($p.EndsWith('status.json')) {
+                Write-Host "STATUS_DEVICE_AGENT_PID=$($value.agent_pid) STATUS_WATCHDOG_PID=$($value.watchdog_pid)"
+              } else {
+                Write-Host "HEARTBEAT_SCHEMA=$($value.version) HEARTBEAT_TIME=$($value.timestamp) REMOTE_ACK=$($value.last_gateway_heartbeat_at)"
+              }
+            }
+          }
+                    Write-Host 'A6_PID_IDENTITY_READONLY=PASS'
