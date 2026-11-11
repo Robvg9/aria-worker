@@ -79,7 +79,7 @@ jobs:
           }
 
           Write-Host 'A6DIAG_STEP=SCHEDULED_TASK_START'
-          $taskInfo = Invoke-BoundedNativeCommand -FilePath (Join-Path $env:WINDIR 'System32\schtasks.exe') -Arguments @('/query','/TN','ARIA-Windows-Local-Agent','/FO','LIST') -TimeoutMs 5000
+          $taskInfo = Invoke-BoundedNativeCommand -FilePath (Join-Path $env:WINDIR 'System32\schtasks.exe') -Arguments @('/query','/TN','\\ARIA-Windows-Local-Agent','/FO','LIST') -TimeoutMs 5000
 
           Write-Host 'A6DIAG_STEP=POWER_EVENTS_START'
           $powerEvents = 'NOT_COLLECTED'
@@ -87,7 +87,7 @@ jobs:
             $eventOut = Join-Path $env:RUNNER_TEMP 'a6-power-events.txt'
             $eventErr = Join-Path $env:RUNNER_TEMP 'a6-power-events.err.txt'
             $xpath = "*[System[(EventID=41 or EventID=42 or EventID=107 or EventID=506 or EventID=507 or (Provider[@Name='Microsoft-Windows-Power-Troubleshooter'] and EventID=1)) and TimeCreated[timediff(@SystemTime) <= 86400000]]]"
-            $eventArgs = 'qe System /q:"' + $xpath + '" /c:120 /rd:true /f:RenderedText'
+            $eventArgs = 'qe System /q:"' + $xpath + '" /c:120 /rd:true /f:Text'
             $eventProcess = Start-Process -FilePath (Join-Path $env:WINDIR 'System32\wevtutil.exe') -ArgumentList $eventArgs -PassThru -WindowStyle Hidden -RedirectStandardOutput $eventOut -RedirectStandardError $eventErr
             if ($eventProcess.WaitForExit(10000)) {
               $powerEvents = if (Test-Path -LiteralPath $eventOut) { Get-Content -Raw -LiteralPath $eventOut } else { 'NO_POWER_EVENTS_RETURNED' }
@@ -120,12 +120,22 @@ jobs:
 
           Write-Host 'A6DIAG_STEP=WATCHDOG_LOG_START'
           $watchdogTail = @()
+          $watchdogLogBytes = 0
           if (Test-Path -LiteralPath $watchdogPath) {
             $watchdogLogBytes = (Get-Item -LiteralPath $watchdogPath).Length
-            if ($watchdogLogBytes -le 10485760) {
-              $watchdogTail = @(Get-Content -LiteralPath $watchdogPath -Tail 100 -ErrorAction SilentlyContinue)
-            } else {
-              $watchdogTail = @("WATCHDOG_LOG_SKIPPED_TOO_LARGE_BYTES=$watchdogLogBytes")
+            try {
+              $stream = [System.IO.File]::OpenRead($watchdogPath)
+              try {
+                $tailBytes = [Math]::Min(131072,$stream.Length)
+                [void]$stream.Seek(-$tailBytes,[System.IO.SeekOrigin]::End)
+                $reader = New-Object System.IO.StreamReader($stream,[System.Text.Encoding]::UTF8,$true,4096,$true)
+                try {
+                  $tailText = $reader.ReadToEnd()
+                  $watchdogTail = @($tailText -split "\r?\n" | Select-Object -Last 160)
+                } finally { $reader.Dispose() }
+              } finally { $stream.Dispose() }
+            } catch {
+              $watchdogTail = @("WATCHDOG_TAIL_READ_ERROR=$($_.Exception.Message)")
             }
           }
 
@@ -141,6 +151,7 @@ jobs:
             active_processes = $processes
             powercfg_requests = $powerRequests
             active_sleep_plan = $sleepPlan
+            watchdog_log_bytes = $watchdogLogBytes
             watchdog_log_tail = $watchdogTail
           }
 
