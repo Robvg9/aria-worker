@@ -1,8 +1,9 @@
 name: A6 Windows Diagnostics Queue Guard
 
 on:
-  pull_request:
-    types: [opened, synchronize, reopened]
+  push:
+    branches:
+      - fix/mission-wonder-2-a6-windows-heartbeat-continuity-v1
     paths:
       - 'agents/windows/aria-agent.js'
       - 'agents/windows/run-agent.ps1'
