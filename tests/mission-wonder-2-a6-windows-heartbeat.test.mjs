@@ -7,7 +7,7 @@ const watchdog = fs.readFileSync("agents/windows/run-agent.ps1", "utf8");
 
 // The 90-second A6 freshness threshold needs a 30-second producer cadence,
 // leaving room for one delayed/failed request without consuming the full budget.
-assert.match(agent, /ARIA_HEARTBEAT_MS\|\|30_000/);
+assert.match(agent, /const HEARTBEAT_MS=30_000/);
 assert.match(installer, /heartbeat_ms = 30000/);
 assert.match(agent, /gatewayHeartbeatInFlight/);
 assert.match(agent, /if\(gatewayHeartbeatInFlight\)/);
