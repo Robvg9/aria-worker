@@ -69,25 +69,24 @@ jobs:
             }
           } catch { $taskInfo = @{ read_error = $_.Exception.Message } }
 
-          $powerEvents = @()
+          $powerEvents = 'NOT_COLLECTED'
           try {
-            $powerEvents = @(Get-WinEvent -FilterHashtable @{ LogName='System'; StartTime=$start; ProviderName=@('Microsoft-Windows-Kernel-Power','Microsoft-Windows-Power-Troubleshooter','User32','EventLog'); Id=@(1,12,13,41,42,107,506,507,6005,6006,6008) } -MaxEvents 200 -ErrorAction Stop |
-              Where-Object {
-                ($_.ProviderName -match 'Kernel-Power|Power-Troubleshooter|User32|EventLog') -and
-                ($_.Id -in 1,12,13,41,42,107,506,507,6005,6006,6008)
-              } |
-              Sort-Object TimeCreated -Descending |
-              Select-Object -First 120 |
-              ForEach-Object {
-                [ordered]@{
-                  time = $_.TimeCreated.ToUniversalTime().ToString('o')
-                  provider = $_.ProviderName
-                  id = $_.Id
-                  level = $_.LevelDisplayName
-                  message = ([string]$_.Message).Substring(0,[Math]::Min(1200,([string]$_.Message).Length))
-                }
-              })
-          } catch { $powerEvents = @(@{ read_error = $_.Exception.Message }) }
+            $eventOut = Join-Path $env:RUNNER_TEMP 'a6-power-events.txt'
+            $eventErr = Join-Path $env:RUNNER_TEMP 'a6-power-events.err.txt'
+            $xpath = "*[System[(EventID=41 or EventID=42 or EventID=107 or EventID=506 or EventID=507 or (Provider[@Name='Microsoft-Windows-Power-Troubleshooter'] and EventID=1)) and TimeCreated[timediff(@SystemTime) <= 86400000]]]"
+            $eventArgs = 'qe System /q:"' + $xpath + '" /c:120 /rd:true /f:RenderedText'
+            $eventProcess = Start-Process -FilePath (Join-Path $env:WINDIR 'System32\wevtutil.exe') -ArgumentList $eventArgs -PassThru -WindowStyle Hidden -RedirectStandardOutput $eventOut -RedirectStandardError $eventErr
+            if ($eventProcess.WaitForExit(10000)) {
+              $powerEvents = if (Test-Path -LiteralPath $eventOut) { Get-Content -Raw -LiteralPath $eventOut } else { 'NO_POWER_EVENTS_RETURNED' }
+              if (Test-Path -LiteralPath $eventErr) {
+                $eventErrorText = Get-Content -Raw -LiteralPath $eventErr
+                if (-not [string]::IsNullOrWhiteSpace($eventErrorText)) { $powerEvents += "\nWEVTUTIL_STDERR=" + $eventErrorText }
+              }
+            } else {
+              Stop-Process -Id $eventProcess.Id -Force -ErrorAction SilentlyContinue
+              $powerEvents = 'WEVTUTIL_TIMED_OUT_AFTER_10_SECONDS'
+            }
+          } catch { $powerEvents = 'WEVTUTIL_ERROR=' + $_.Exception.Message }
 
           $powerRequests = (& powercfg.exe /requests 2>&1 | Out-String)
           $sleepPlan = (& powercfg.exe /query SCHEME_CURRENT SUB_SLEEP 2>&1 | Out-String)
