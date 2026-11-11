@@ -130,10 +130,14 @@ function nativeGatewayRequest(url, options = {}) {
       res.on('data', chunk => { text += chunk; });
       res.on('end', () => resolve({ status: Number(res.statusCode || 0), text }));
     });
-    req.setTimeout(Math.max(1000,Number(options.timeoutMs)||GATEWAY_TIMEOUT_MS), () => {
-      req.destroy(new Error('gateway_timeout'));
-    });
-    req.on('error', reject);
+    const requestDeadlineMs=Math.max(1000,Number(options.timeoutMs)||GATEWAY_TIMEOUT_MS);
+    // Socket inactivity timeouts alone can be extended indefinitely by a
+    // trickling response. Enforce a hard wall-clock deadline for every request.
+    const deadline=setTimeout(()=>req.destroy(new Error('gateway_timeout')),requestDeadlineMs);
+    if(typeof deadline.unref==='function')deadline.unref();
+    req.setTimeout(requestDeadlineMs, () => req.destroy(new Error('gateway_timeout')));
+    req.on('error', error => { clearTimeout(deadline); reject(error); });
+    req.on('close',()=>clearTimeout(deadline));
     if (requestBody) req.write(requestBody);
     req.end();
   });
