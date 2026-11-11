@@ -1,0 +1,336 @@
+name: A6 Windows Agent v2 Update and 15m Heartbeat Preflight
+
+on:
+  push:
+    branches:
+      - ops/a6-windows-agent-v2-heartbeat-preflight-v1
+    paths:
+      - '.github/workflows/a6-windows-agent-v2-heartbeat-preflight.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: a6-windows-agent-v2-heartbeat-preflight
+  cancel-in-progress: false
+
+jobs:
+  update-and-observe:
+    name: Update only ARIA Windows agent and observe gateway ACKs
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 24
+    defaults:
+      run:
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+    steps:
+      - name: Checkout exact source
+        uses: actions/checkout@v4
+
+      - name: Replace Session 0 agent with interactive v2 and observe 15 minutes
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $ProgressPreference = 'SilentlyContinue'
+          $expectedDevice = 'windows-fe722cc6681e4f9c9cc35f5ebbb0a089'
+          $runtimeRoot = 'D:\ARIA-Windows-Agent'
+          $runtimeDir = Join-Path $runtimeRoot 'Runtime\windows'
+          $logDir = Join-Path $runtimeRoot 'Logs'
+          $dataDir = Join-Path $runtimeRoot 'Data'
+          $configPath = Join-Path $dataDir 'config.json'
+          $agentSource = Join-Path $env:GITHUB_WORKSPACE 'agents\windows\aria-agent.js'
+          $watchdogSource = Join-Path $env:GITHUB_WORKSPACE 'agents\windows\run-agent.ps1'
+          $agentTarget = Join-Path $runtimeDir 'aria-agent.js'
+          $watchdogTarget = Join-Path $runtimeDir 'run-agent.ps1'
+          $heartbeatPath = Join-Path $logDir 'agent-heartbeat.json'
+          $agentPidPath = Join-Path $logDir 'agent.pid'
+          $taskName = 'ARIA-Windows-Local-Agent'
+          $startedAt = [DateTimeOffset]::UtcNow
+          $samples = [System.Collections.Generic.List[object]]::new()
+          $ackTimes = [System.Collections.Generic.List[DateTimeOffset]]::new()
+          $transportErrors = 0
+          $maxAckAgeMs = 0
+          $maxProcessHeartbeatAgeMs = 0
+          $maxAckGapMs = 0
+          $resultPath = Join-Path $env:GITHUB_WORKSPACE 'a6-windows-heartbeat-preflight.json'
+          $backupDir = Join-Path $runtimeRoot ('Backups\a6-heartbeat-v2-' + (Get-Date).ToUniversalTime().ToString('yyyyMMdd-HHmmss'))
+
+          function Write-Result([string]$Status, [string]$Reason) {
+            $payload = [ordered]@{
+              status = $Status
+              reason = $Reason
+              device_id = $expectedDevice
+              source_sha = $env:GITHUB_SHA
+              captured_at_utc = [DateTimeOffset]::UtcNow.ToString('o')
+              operation_started_at_utc = $startedAt.ToString('o')
+              measured_window_minutes = 15
+              sample_count = $samples.Count
+              distinct_gateway_ack_count = $ackTimes.Count
+              max_consecutive_gateway_ack_gap_ms = $maxAckGapMs
+              max_gateway_ack_age_ms = $maxAckAgeMs
+              max_process_heartbeat_age_ms = $maxProcessHeartbeatAgeMs
+              transport_error_samples = $transportErrors
+              samples = @($samples.ToArray())
+            }
+            $payload | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $resultPath -Encoding UTF8
+          }
+
+          try {
+            foreach ($p in @($agentSource,$watchdogSource,$configPath)) {
+              if (-not (Test-Path -LiteralPath $p -PathType Leaf)) { throw "REQUIRED_SOURCE_OR_CONFIG_MISSING=$p" }
+            }
+            foreach ($d in @($runtimeRoot,$runtimeDir,$logDir,$dataDir,$backupDir)) {
+              New-Item -ItemType Directory -Force -Path $d | Out-Null
+            }
+
+            $config = Get-Content -Raw -LiteralPath $configPath | ConvertFrom-Json
+            if ([string]$config.device_id -ne $expectedDevice) { throw 'DEVICE_ID_MISMATCH' }
+
+            $computer = Get-CimInstance Win32_ComputerSystem -ErrorAction Stop
+            $interactiveUser = [string]$computer.UserName
+            if ([string]::IsNullOrWhiteSpace($interactiveUser) -or $interactiveUser -match '^(NT AUTHORITY|NT SERVICE)\\') {
+              throw 'HUMAN_GATE_NO_INTERACTIVE_USER_SESSION'
+            }
+
+            $nodePath = [string]$config.node_path
+            if (-not (Test-Path -LiteralPath $nodePath -PathType Leaf)) { throw 'CONFIGURED_NODE_PATH_MISSING' }
+            $nodeVersion = (& $nodePath --version 2>&1 | Out-String).Trim()
+            if ($LASTEXITCODE -ne 0 -or $nodeVersion -notmatch '^v(20|2[1-9]|[3-9][0-9])\.') {
+              throw "NODE_VERSION_UNSUPPORTED=$nodeVersion"
+            }
+
+            # Back up only the two runtime scripts and non-secret config. Never copy token material.
+            foreach ($path in @($agentTarget,$watchdogTarget,$configPath)) {
+              if (Test-Path -LiteralPath $path -PathType Leaf) {
+                Copy-Item -LiteralPath $path -Destination (Join-Path $backupDir ([IO.Path]::GetFileName($path))) -Force
+              }
+            }
+
+            Copy-Item -LiteralPath $agentSource -Destination $agentTarget -Force
+            Copy-Item -LiteralPath $watchdogSource -Destination $watchdogTarget -Force
+            $agentHash = (Get-FileHash -LiteralPath $agentTarget -Algorithm SHA256).Hash
+            $watchdogHash = (Get-FileHash -LiteralPath $watchdogTarget -Algorithm SHA256).Hash
+            if ($agentHash -ne (Get-FileHash -LiteralPath $agentSource -Algorithm SHA256).Hash -or
+                $watchdogHash -ne (Get-FileHash -LiteralPath $watchdogSource -Algorithm SHA256).Hash) {
+              throw 'RUNTIME_FILE_SHA256_MISMATCH'
+            }
+
+            # Heartbeat-only preflight must never enable or invoke local Ollama.
+            $config.heartbeat_ms = 30000
+            $config.ollama_enabled = $false
+            if ($null -ne $config.capabilities) {
+              $config.capabilities = @($config.capabilities | Where-Object { [string]$_ -ne 'ollama.qwen3' })
+            }
+            $config | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $configPath -Encoding UTF8
+            $configReadback = Get-Content -Raw -LiteralPath $configPath | ConvertFrom-Json
+            if ([int]$configReadback.heartbeat_ms -ne 30000 -or $configReadback.ollama_enabled -ne $false) {
+              throw 'HEARTBEAT_OR_OLLAMA_CONFIG_READBACK_FAILED'
+            }
+
+            Write-Host "A6_DEVICE=$expectedDevice"
+            Write-Host "A6_INTERACTIVE_USER=$interactiveUser"
+            Write-Host "A6_NODE_VERSION=$nodeVersion"
+            Write-Host "A6_AGENT_SHA256=$agentHash"
+            Write-Host "A6_WATCHDOG_SHA256=$watchdogHash"
+            Write-Host 'A6_HEARTBEAT_INTERVAL_MS=30000'
+            Write-Host 'A6_LOCAL_OLLAMA_ENABLED=false'
+
+            $existingTask = & schtasks.exe /Query /TN $taskName 2>&1
+            $taskExists = ($LASTEXITCODE -eq 0)
+            if ($taskExists) {
+              & schtasks.exe /End /TN $taskName 2>&1 | Out-Null
+              Start-Sleep -Seconds 2
+            }
+
+            # Stop only processes whose command line points to ARIA's exact runtime scripts.
+            $runtimeWatchdogFull = [IO.Path]::GetFullPath($watchdogTarget)
+            $runtimeAgentFull = [IO.Path]::GetFullPath($agentTarget)
+            $processes = @(Get-CimInstance Win32_Process -ErrorAction Stop)
+            $watchdogs = @($processes | Where-Object {
+              $_.Name -match '^(powershell|pwsh)(\.exe)?$' -and
+              $_.CommandLine -and $_.CommandLine.IndexOf($runtimeWatchdogFull,[StringComparison]::OrdinalIgnoreCase) -ge 0
+            })
+            foreach ($p in $watchdogs) {
+              Write-Host "STOP_EXACT_ARIA_WATCHDOG_PID=$($p.ProcessId)"
+              Stop-Process -Id ([int]$p.ProcessId) -Force -ErrorAction Stop
+            }
+            $processes = @(Get-CimInstance Win32_Process -ErrorAction Stop)
+            $agents = @($processes | Where-Object {
+              $_.Name -match '^node(\.exe)?$' -and
+              $_.CommandLine -and $_.CommandLine.IndexOf($runtimeAgentFull,[StringComparison]::OrdinalIgnoreCase) -ge 0
+            })
+            foreach ($p in $agents) {
+              Write-Host "STOP_EXACT_ARIA_AGENT_PID=$($p.ProcessId)"
+              Stop-Process -Id ([int]$p.ProcessId) -Force -ErrorAction Stop
+            }
+            Start-Sleep -Seconds 2
+
+            $xmlUser = [Security.SecurityElement]::Escape($interactiveUser)
+            $taskScript = [Security.SecurityElement]::Escape($watchdogTarget)
+            $taskXmlPath = Join-Path $backupDir 'ARIA-Windows-Local-Agent.xml'
+            $taskXml = @"
+          <?xml version="1.0" encoding="UTF-16"?>
+          <Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+            <RegistrationInfo><Author>$xmlUser</Author><Description>ARIA Windows Local Agent — interactive heartbeat v2</Description></RegistrationInfo>
+            <Triggers><LogonTrigger><Enabled>true</Enabled><UserId>$xmlUser</UserId></LogonTrigger></Triggers>
+            <Principals><Principal id="Author"><UserId>$xmlUser</UserId><LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals>
+            <Settings>
+              <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+              <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+              <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+              <AllowHardTerminate>true</AllowHardTerminate>
+              <StartWhenAvailable>true</StartWhenAvailable>
+              <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
+              <RestartOnFailure><Interval>PT1M</Interval><Count>999</Count></RestartOnFailure>
+            </Settings>
+            <Actions Context="Author"><Exec><Command>powershell.exe</Command><Arguments>-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File &quot;$taskScript&quot;</Arguments><WorkingDirectory>$runtimeDir</WorkingDirectory></Exec></Actions>
+          </Task>
+          "@
+            Set-Content -LiteralPath $taskXmlPath -Value $taskXml -Encoding Unicode
+
+            if ($taskExists) {
+              & schtasks.exe /Delete /TN $taskName /F 2>&1 | Out-Null
+              if ($LASTEXITCODE -ne 0) { throw "TASK_DELETE_FAILED=$LASTEXITCODE" }
+            }
+            $createOutput = & schtasks.exe /Create /TN $taskName /XML $taskXmlPath /F 2>&1
+            if ($LASTEXITCODE -ne 0) { throw "INTERACTIVE_TASK_CREATE_FAILED=$($createOutput -join ' ')" }
+
+            $taskReadback = & schtasks.exe /Query /TN $taskName /XML 2>&1
+            if ($LASTEXITCODE -ne 0) { throw 'INTERACTIVE_TASK_READBACK_FAILED' }
+            $taskReadbackText = $taskReadback -join [Environment]::NewLine
+            if ($taskReadbackText -notmatch '<LogonType>InteractiveToken</LogonType>' -or
+                $taskReadbackText -notmatch [regex]::Escape($interactiveUser)) {
+              throw 'INTERACTIVE_TASK_PRINCIPAL_READBACK_FAILED'
+            }
+            Write-Host 'A6_INTERACTIVE_TASK_REGISTERED=PASS'
+
+            & schtasks.exe /Run /TN $taskName 2>&1 | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw "INTERACTIVE_TASK_START_FAILED=$LASTEXITCODE" }
+
+            $agentProcess = $null
+            $startupDeadline = (Get-Date).AddSeconds(60)
+            while ((Get-Date) -lt $startupDeadline) {
+              if (Test-Path -LiteralPath $agentPidPath) {
+                $pidValue = 0
+                if ([int]::TryParse((Get-Content -Raw -LiteralPath $agentPidPath).Trim(),[ref]$pidValue) -and $pidValue -gt 0) {
+                  $candidate = Get-Process -Id $pidValue -ErrorAction SilentlyContinue
+                  if ($candidate -and $candidate.ProcessName -match '^node' -and [int]$candidate.SessionId -gt 0) {
+                    $agentProcess = $candidate
+                    break
+                  }
+                }
+              }
+              Start-Sleep -Seconds 2
+            }
+            if (-not $agentProcess) { throw 'INTERACTIVE_AGENT_NOT_STARTED_IN_USER_SESSION' }
+
+            $agentCim = Get-CimInstance Win32_Process -Filter "ProcessId=$($agentProcess.Id)" -ErrorAction Stop
+            $owner = Invoke-CimMethod -InputObject $agentCim -MethodName GetOwner -ErrorAction Stop
+            $actualOwner = "$($owner.Domain)\$($owner.User)"
+            if ($owner.ReturnValue -ne 0 -or $actualOwner -ine $interactiveUser) {
+              throw "AGENT_OWNER_MISMATCH expected=$interactiveUser actual=$actualOwner"
+            }
+            Write-Host "A6_AGENT_SESSION_ID=$($agentProcess.SessionId)"
+            Write-Host "A6_AGENT_PID=$($agentProcess.Id)"
+            Write-Host 'A6_AGENT_CONTEXT=INTERACTIVE=PASS'
+
+            # Start the measured window only after the first v2 remote gateway ACK.
+            $firstAck = $null
+            $ackDeadline = (Get-Date).AddMinutes(2)
+            while ((Get-Date) -lt $ackDeadline) {
+              if (Test-Path -LiteralPath $heartbeatPath) {
+                $state = Get-Content -Raw -LiteralPath $heartbeatPath | ConvertFrom-Json
+                if ($state.version -eq 'aria-windows-agent-heartbeat-v2' -and
+                    $state.device_id -eq $expectedDevice -and
+                    -not [string]::IsNullOrWhiteSpace([string]$state.last_gateway_heartbeat_at)) {
+                  $firstAck = [DateTimeOffset]::Parse([string]$state.last_gateway_heartbeat_at).ToUniversalTime()
+                  break
+                }
+              }
+              Start-Sleep -Seconds 5
+            }
+            if (-not $firstAck) { throw 'FIRST_V2_GATEWAY_ACK_NOT_OBSERVED' }
+            Write-Host "A6_FIRST_GATEWAY_ACK_UTC=$($firstAck.ToString('o'))"
+
+            $observedStart = [DateTimeOffset]::UtcNow
+            $observedEnd = $observedStart.AddMinutes(15)
+            $lastAck = $firstAck
+            $ackTimes.Add($firstAck)
+
+            while ([DateTimeOffset]::UtcNow -lt $observedEnd) {
+              $now = [DateTimeOffset]::UtcNow
+              if (-not (Test-Path -LiteralPath $heartbeatPath)) { throw 'HEARTBEAT_FILE_DISAPPEARED' }
+              $state = Get-Content -Raw -LiteralPath $heartbeatPath | ConvertFrom-Json
+              if ($state.version -ne 'aria-windows-agent-heartbeat-v2') { throw 'HEARTBEAT_SCHEMA_NOT_V2' }
+              if ($state.device_id -ne $expectedDevice) { throw 'HEARTBEAT_DEVICE_ID_CHANGED' }
+
+              $localTimestamp = [DateTimeOffset]::Parse([string]$state.timestamp).ToUniversalTime()
+              $localAge = [long]($now - $localTimestamp).TotalMilliseconds
+              if ($localAge -lt 0 -or $localAge -gt 45000) { throw "LOCAL_PROCESS_HEARTBEAT_STALE_MS=$localAge" }
+              if ($localAge -gt $maxProcessHeartbeatAgeMs) { $maxProcessHeartbeatAgeMs = $localAge }
+
+              $ackTimestamp = [DateTimeOffset]::Parse([string]$state.last_gateway_heartbeat_at).ToUniversalTime()
+              $ackAge = [long]($now - $ackTimestamp).TotalMilliseconds
+              if ($ackAge -lt 0 -or $ackAge -gt 90000) { throw "REMOTE_GATEWAY_ACK_STALE_MS=$ackAge" }
+              if ($ackAge -gt $maxAckAgeMs) { $maxAckAgeMs = $ackAge }
+
+              if ($null -ne $state.last_gateway_heartbeat_error) {
+                $transportErrors++
+                throw 'GATEWAY_TRANSPORT_ERROR_OBSERVED'
+              }
+
+              $currentAgent = Get-Process -Id $agentProcess.Id -ErrorAction SilentlyContinue
+              if (-not $currentAgent -or $currentAgent.ProcessName -notmatch '^node' -or [int]$currentAgent.SessionId -eq 0) {
+                throw 'INTERACTIVE_AGENT_PROCESS_STOPPED_OR_MOVED'
+              }
+
+              if ($ackTimestamp -gt $lastAck) {
+                $gap = [long]($ackTimestamp - $lastAck).TotalMilliseconds
+                if ($gap -gt $maxAckGapMs) { $maxAckGapMs = $gap }
+                if ($gap -gt 90000) { throw "REMOTE_GATEWAY_ACK_GAP_MS=$gap" }
+                $ackTimes.Add($ackTimestamp)
+                $lastAck = $ackTimestamp
+              }
+
+              $samples.Add([ordered]@{
+                sampled_at_utc = $now.ToString('o')
+                process_heartbeat_at_utc = $localTimestamp.ToString('o')
+                gateway_ack_at_utc = $ackTimestamp.ToString('o')
+                process_heartbeat_age_ms = $localAge
+                gateway_ack_age_ms = $ackAge
+                session_id = [int]$currentAgent.SessionId
+              })
+              Start-Sleep -Seconds 5
+            }
+
+            $measuredDurationMs = [long]([DateTimeOffset]::UtcNow - $observedStart).TotalMilliseconds
+            if ($measuredDurationMs -lt 870000) { throw "MEASURED_WINDOW_TOO_SHORT_MS=$measuredDurationMs" }
+            if ($samples.Count -lt 150) { throw "INSUFFICIENT_PREFLIGHT_SAMPLES=$($samples.Count)" }
+            if ($ackTimes.Count -lt 26) { throw "INSUFFICIENT_DISTINCT_GATEWAY_ACKS=$($ackTimes.Count)" }
+            if ($maxAckGapMs -gt 90000) { throw "MAX_GATEWAY_ACK_GAP_MS=$maxAckGapMs" }
+            if ($transportErrors -ne 0) { throw "TRANSPORT_ERRORS=$transportErrors" }
+
+            Write-Result 'PASS' ''
+            Write-Host 'A6_WINDOWS_AGENT_V2=INSTALLED'
+            Write-Host 'A6_WINDOWS_INTERACTIVE_SESSION=PASS'
+            Write-Host 'A6_WINDOWS_HEARTBEAT_V2=PASS'
+            Write-Host "A6_PREFLIGHT_DURATION_MS=$measuredDurationMs"
+            Write-Host "A6_PREFLIGHT_SAMPLES=$($samples.Count)"
+            Write-Host "A6_GATEWAY_ACK_COUNT=$($ackTimes.Count)"
+            Write-Host "A6_MAX_CONSECUTIVE_GATEWAY_ACK_GAP_MS=$maxAckGapMs"
+            Write-Host "A6_MAX_GATEWAY_ACK_AGE_MS=$maxAckAgeMs"
+            Write-Host 'A6_TRANSPORT_ERRORS=0'
+          }
+          catch {
+            $reason = [string]$_.Exception.Message
+            Write-Result 'BLOCKED' $reason
+            Write-Host "A6_WINDOWS_HEARTBEAT_PREFLIGHT=BLOCKED reason=$reason"
+            throw
+          }
+
+      - name: Upload sanitized heartbeat evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: a6-windows-heartbeat-preflight-${{ github.sha }}
+          path: a6-windows-heartbeat-preflight.json
+          if-no-files-found: warn
+          retention-days: 14
