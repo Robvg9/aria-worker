@@ -36,32 +36,6 @@ jobs:
           $scriptCandidates = [System.Collections.Generic.List[object]]::new()
           $started = [DateTimeOffset]::UtcNow
 
-          if (-not ('A6NativeProcessInfo' -as [type])) {
-            Add-Type -TypeDefinition @'
-          using System;
-          using System.Text;
-          using System.Runtime.InteropServices;
-          public static class A6NativeProcessInfo {
-            [DllImport("kernel32.dll", SetLastError=true)]
-            private static extern IntPtr OpenProcess(uint access, bool inherit, int processId);
-            [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
-            private static extern bool QueryFullProcessImageName(IntPtr process, int flags, StringBuilder path, ref int size);
-            [DllImport("kernel32.dll")]
-            private static extern bool CloseHandle(IntPtr handle);
-            public static string ImagePath(int processId) {
-              IntPtr handle = OpenProcess(0x1000, false, processId);
-              if (handle == IntPtr.Zero) return "";
-              try {
-                StringBuilder path = new StringBuilder(2048);
-                int size = path.Capacity;
-                if (!QueryFullProcessImageName(handle, 0, path, ref size)) return "";
-                return path.ToString();
-              } finally { CloseHandle(handle); }
-            }
-          }
-          '@
-          }
-
           function Get-ProcessSnapshot {
             $all = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue)
             $byId = @{}
@@ -82,9 +56,6 @@ jobs:
               $proc = Get-Process -Id ([int]$p.ProcessId) -ErrorAction SilentlyContinue
               $start = ''
               $exe = [string]$p.ExecutablePath
-              if ([string]::IsNullOrWhiteSpace($exe)) {
-                $exe = [A6NativeProcessInfo]::ImagePath([int]$p.ProcessId)
-              }
               if ($proc) {
                 if ([string]::IsNullOrWhiteSpace($exe)) { try { $exe = [string]$proc.Path } catch {} }
                 try { $start = $proc.StartTime.ToUniversalTime().ToString('o') } catch {}
@@ -159,7 +130,7 @@ jobs:
           }
 
           # Query only the two known task names through Task Scheduler COM.
-          # Emit task identity, executable and script path only; never arguments.
+          # Emit only principal, state, executable and script path; never arguments.
           $taskFindings = [System.Collections.Generic.List[object]]::new()
           $scheduler = $null
           $taskFolder = $null
@@ -173,16 +144,9 @@ jobs:
 
           foreach ($taskName in @('ARIA-Windows-Local-Agent','ARIA-Desktop-Commander-Remote')) {
             $finding = [ordered]@{
-              name=$taskName
-              source='none'
-              state=$null
-              user=$null
-              logon_type=$null
-              actions=@()
-              instances=@()
-              error=$null
+              name=$taskName; source='none'; state=$null; user=$null
+              logon_type=$null; actions=@(); instances=@(); error=$null
             }
-            $task = $null
             if ($taskFolder) {
               try {
                 $task = $taskFolder.GetTask($taskName)
@@ -284,18 +248,13 @@ jobs:
                   $enginePid=$null
                   try { $enginePid=[int]$instance.EnginePID } catch {}
                   $instanceDetails.Add([pscustomobject]@{
-                    name=[string]$instance.Name
-                    state=[int]$instance.State
-                    engine_pid=$enginePid
+                    name=[string]$instance.Name; state=[int]$instance.State; engine_pid=$enginePid
                   })
                 }
                 $finding.instances=@($instanceDetails.ToArray())
-              } catch {
-                $finding.error=$_.Exception.GetType().Name
-              }
+              } catch { $finding.error=$_.Exception.GetType().Name }
             }
 
-            # Fallback to schtasks XML when COM cannot read the task.
             if ($finding.source -eq 'none' -or $finding.error) {
               try {
                 $xmlText = & "$env:SystemRoot\System32\schtasks.exe" /query /tn $taskName /xml 2>$null
@@ -390,10 +349,9 @@ jobs:
                   $finding.actions=@([pscustomobject]@{ executable=$actionPath; script_path=$scriptPath })
                   $finding.error=$null
                 }
-              } catch {
-                if (-not $finding.error) { $finding.error=$_.Exception.GetType().Name }
-              }
+              } catch { if (-not $finding.error) { $finding.error=$_.Exception.GetType().Name } }
             }
+
             $taskFindings.Add([pscustomobject]$finding)
             Write-Host "TASK name=$taskName source=$($finding.source) state=$($finding.state) user=$($finding.user) logon=$($finding.logon_type) actions=$(@($finding.actions).Count) instances=$(@($finding.instances).Count) error=$($finding.error)"
             foreach ($action in @($finding.actions)) {
