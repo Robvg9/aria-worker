@@ -20,7 +20,7 @@ assert.match(windows, /POLL_MS=Math\.max\(5_000,Number\(process\.env\.ARIA_POLL_
 assert.match(windows, /GATEWAY_RETRIES=Math\.max\(0,Number\(process\.env\.ARIA_GATEWAY_RETRIES\|\|1\)\)/);
 assert.doesNotMatch(windows, /response\.status===401\|\|response\.status===408/);
 
-assert.match(installer, /heartbeat_ms = 60000/);
+assert.match(installer, /heartbeat_ms = 30000/);
 assert.match(installer, /poll_ms = 12000/);
 assert.match(installer, /gateway_retries = 1/);
 
