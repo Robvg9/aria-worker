@@ -59,7 +59,7 @@ jobs:
               } finally { CloseHandle(handle); }
             }
           }
-'@
+          '@
           }
 
           function Get-ProcessSnapshot {
