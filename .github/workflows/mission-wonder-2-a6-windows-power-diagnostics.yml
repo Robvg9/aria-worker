@@ -17,8 +17,8 @@ defaults:
 
 
 concurrency:
-  group: mission-wonder-2-a6-windows-power-diagnostics
-  cancel-in-progress: true
+  group: mission-wonder-2-a6-windows-power-diagnostics-${{ github.sha }}
+  cancel-in-progress: false
 
 jobs:
   diagnostics:
