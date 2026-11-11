@@ -11,6 +11,11 @@ on:
 permissions:
   contents: read
 
+defaults:
+  run:
+    shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+
+
 concurrency:
   group: mission-wonder-2-a6-windows-power-diagnostics
   cancel-in-progress: false
