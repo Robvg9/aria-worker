@@ -12,7 +12,8 @@ const { executeWindowsDesktop } = (() => {
   catch (error) { if (error?.code !== 'MODULE_NOT_FOUND') throw error; return require('../../computer-use/windows-desktop-adapter'); }
 })();
 const GATEWAY_URL=process.env.ARIA_DEVICE_GATEWAY_URL, DEVICE_TOKEN=process.env.ARIA_DEVICE_TOKEN, DEVICE_ID=process.env.ARIA_DEVICE_ID;
-const HEARTBEAT_MS=Math.max(30_000,Number(process.env.ARIA_HEARTBEAT_MS||60_000)), POLL_MS=Math.max(5_000,Number(process.env.ARIA_POLL_MS||12_000));
+// Keep the A6 device heartbeat capped at 30 seconds even when a legacy config.json still says 60000.
+const HEARTBEAT_MS=30_000, POLL_MS=Math.max(5_000,Number(process.env.ARIA_POLL_MS||12_000));
 const GATEWAY_TIMEOUT_MS=Math.max(3_000,Number(process.env.ARIA_GATEWAY_TIMEOUT_MS||15_000)), GATEWAY_RETRIES=Math.max(0,Number(process.env.ARIA_GATEWAY_RETRIES||1));
 const OLLAMA_URL=process.env.ARIA_OLLAMA_URL||'http://127.0.0.1:11434', OLLAMA_MODEL=process.env.ARIA_OLLAMA_MODEL||'qwen3:0.6b', OLLAMA_OPERATION='ollama.qwen3', SHELL_OPERATION='shell.execute', COMPUTER_OPERATION='computer.use', AUTONOMOUS_COMPUTER_OPERATION='computer.use.autonomous';
 const RESOURCE_PROFILE=getWindowsResourceProfile();
@@ -101,7 +102,10 @@ const AGENT_HEARTBEAT_PATH=process.env.ARIA_AGENT_HEARTBEAT_PATH||'';
 function log(message){console.log(`[ARIA] ${new Date().toISOString()} ${message}`)}
 function redact(text){let value=typeof text==='string'?text.slice(-DISPLAY_OUTPUT):'';for(const pattern of[/Bearer\s+[A-Za-z0-9._\-]+/g,/\bsk-[A-Za-z0-9_\-]{8,}/g,/\bor-v1-[A-Za-z0-9_\-]{8,}/g,/gh[pousr]_[A-Za-z0-9_]{20,}/g,/(api[_-]?key|token|secret|password)\s*[=:]\s*\S+/gi])value=value.replace(pattern,'[redacted]');return value}
 function sleep(ms){return new Promise(resolve=>setTimeout(resolve,ms))}
-function touchProcessHeartbeat(network='unknown'){if(!AGENT_HEARTBEAT_PATH)return;const payload=JSON.stringify({version:'aria-windows-agent-heartbeat-v1',timestamp:new Date().toISOString(),device_id:DEVICE_ID,network});void fs.promises.writeFile(AGENT_HEARTBEAT_PATH,payload,'utf8').catch(error=>console.error(`[heartbeat-file] ${error.message}`))}
+let gatewayHeartbeatInFlight=false;
+let lastGatewayHeartbeatAt=null;
+let lastGatewayHeartbeatError=null;
+function touchProcessHeartbeat(network='unknown'){if(!AGENT_HEARTBEAT_PATH)return;const payload=JSON.stringify({version:'aria-windows-agent-heartbeat-v2',timestamp:new Date().toISOString(),device_id:DEVICE_ID,network,last_gateway_heartbeat_at:lastGatewayHeartbeatAt,last_gateway_heartbeat_error:lastGatewayHeartbeatError});void fs.promises.writeFile(AGENT_HEARTBEAT_PATH,payload,'utf8').catch(error=>console.error(`[heartbeat-file] ${error.message}`))}
 function normalizeQwenResponse(value){return typeof value==='string'?value.replace(/<think>[\s\S]*?<\/think>/gi,'').trim().slice(0,MAX_OUTPUT):''}
 if(!GATEWAY_URL||!DEVICE_TOKEN||!DEVICE_ID){console.error('ARIA agent requires ARIA_DEVICE_GATEWAY_URL, ARIA_DEVICE_TOKEN and ARIA_DEVICE_ID');process.exit(2)}
 function endpoint(p){return`${GATEWAY_URL.replace(/\/$/,'')}${p}`} function headers(){return{'content-type':'application/json',authorization:`Bearer ${DEVICE_TOKEN}`,'x-aria-device-id':DEVICE_ID}}
@@ -126,10 +130,14 @@ function nativeGatewayRequest(url, options = {}) {
       res.on('data', chunk => { text += chunk; });
       res.on('end', () => resolve({ status: Number(res.statusCode || 0), text }));
     });
-    req.setTimeout(Math.max(1000,Number(options.timeoutMs)||GATEWAY_TIMEOUT_MS), () => {
-      req.destroy(new Error('gateway_timeout'));
-    });
-    req.on('error', reject);
+    const requestDeadlineMs=Math.max(1000,Number(options.timeoutMs)||GATEWAY_TIMEOUT_MS);
+    // Socket inactivity timeouts alone can be extended indefinitely by a
+    // trickling response. Enforce a hard wall-clock deadline for every request.
+    const deadline=setTimeout(()=>req.destroy(new Error('gateway_timeout')),requestDeadlineMs);
+    if(typeof deadline.unref==='function')deadline.unref();
+    req.setTimeout(requestDeadlineMs, () => req.destroy(new Error('gateway_timeout')));
+    req.on('error', error => { clearTimeout(deadline); reject(error); });
+    req.on('close',()=>clearTimeout(deadline));
     if (requestBody) req.write(requestBody);
     req.end();
   });
@@ -208,7 +216,30 @@ async function callOllama({prompt,model,timeout_ms,signal}){
   }
 }
 async function enroll(){return api('/v1/devices/enroll',{method:'POST',body:JSON.stringify({device_id:DEVICE_ID,token:DEVICE_TOKEN})})}
-async function heartbeat(){touchProcessHeartbeat('attempt');try{const capabilities=[SHELL_OPERATION,COMPUTER_OPERATION,AUTONOMOUS_COMPUTER_OPERATION];capabilities.push('app.open','browser.open_url');if(VOICE_BRIGHTNESS_ENABLED)capabilities.push('display.brightness.write');if(OLLAMA_ENABLED)capabilities.unshift(OLLAMA_OPERATION);await api('/v1/devices/heartbeat',{method:'POST',body:JSON.stringify({device_id:DEVICE_ID,agent_type:'windows-local',capabilities})});touchProcessHeartbeat('online');log(`ONLINE device=${DEVICE_ID} capabilities=${capabilities.join(',')}`)}catch(error){touchProcessHeartbeat('transport_error');console.error(`[heartbeat] ${error.message}`)}}
+async function heartbeat(){
+  if(gatewayHeartbeatInFlight){touchProcessHeartbeat('overlap_skipped');return}
+  gatewayHeartbeatInFlight=true;
+  touchProcessHeartbeat('attempt');
+  const startedAt=Date.now();
+  try{
+    const capabilities=[SHELL_OPERATION,COMPUTER_OPERATION,AUTONOMOUS_COMPUTER_OPERATION];
+    capabilities.push('app.open','browser.open_url');
+    if(VOICE_BRIGHTNESS_ENABLED)capabilities.push('display.brightness.write');
+    if(OLLAMA_ENABLED)capabilities.unshift(OLLAMA_OPERATION);
+    await api('/v1/devices/heartbeat',{method:'POST',body:JSON.stringify({device_id:DEVICE_ID,agent_type:'windows-local',capabilities})});
+    lastGatewayHeartbeatAt=new Date().toISOString();
+    lastGatewayHeartbeatError=null;
+    touchProcessHeartbeat('online');
+    log(`ONLINE device=${DEVICE_ID} capabilities=${capabilities.join(',')}`);
+    log(`HEARTBEAT_ACK device=${DEVICE_ID} duration_ms=${Date.now()-startedAt} interval_ms=${HEARTBEAT_MS}`);
+  }catch(error){
+    lastGatewayHeartbeatError={at:new Date().toISOString(),status:Number.isInteger(error?.status)?error.status:null,code:typeof error?.code==='string'?error.code:null,message:String(error?.message||error).slice(0,180)};
+    touchProcessHeartbeat('transport_error');
+    console.error(`[heartbeat] ${error.message}`);
+  }finally{
+    gatewayHeartbeatInFlight=false;
+  }
+}
 function emitTelemetry(message){try{void Promise.resolve(meditationController.event(message)).catch(error=>console.error(`[meditation] ${error.message}`))}catch(error){console.error(`[meditation] ${error.message}`)}}
 async function rejectClaimedJob(job,reason,operation=job?.operation){const result={status:'failed',exit_code:null,stdout:'',stderr:reason,duration_ms:0,metadata:{agent_version:'aria-windows-agent-v2',operation,rejected:true}};try{await api(`/v1/jobs/${encodeURIComponent(job.job_id)}/result`,{method:'POST',body:JSON.stringify({device_id:DEVICE_ID,result})})}catch(error){console.error(`[reject] ${error.message}`)}}
 async function readJobAuthorization(job){
