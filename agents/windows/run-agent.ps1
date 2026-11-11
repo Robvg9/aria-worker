@@ -21,6 +21,7 @@ $PidPath = Join-Path $PublicDir 'agent.pid'
 $StatusPath = Join-Path $PublicDir 'status.json'
 $HeartbeatPath = Join-Path $PublicDir 'agent-heartbeat.json'
 $AgentHeartbeatStaleSeconds = 120
+$GatewayHeartbeatStaleSeconds = 90
 $AgentStartupGraceSeconds = 45
 $WatchdogPidPath = Join-Path $PublicDir 'watchdog.pid'
 $KillRequestPath = Join-Path $PublicDir 'kill-request'
@@ -145,6 +146,7 @@ while ($true) {
         }
 
         $agentStartedAt = Get-Date
+        $gatewayHeartbeatStaleLogged = $false
         while (-not $process.HasExited) {
             if ((Get-Date) -lt $agentStartedAt.AddSeconds($AgentStartupGraceSeconds)) { }
             elseif (-not (Test-Path $HeartbeatPath) -or ((Get-Date).ToUniversalTime() - (Get-Item $HeartbeatPath).LastWriteTimeUtc).TotalSeconds -gt $AgentHeartbeatStaleSeconds) {
@@ -157,6 +159,32 @@ while ($true) {
                 }
                 break
             }
+            # Distinguish local Node liveness from a successful remote gateway ACK.
+            # Observe network outages without restarting a healthy process into a restart loop.
+            try {
+                $heartbeatState = Get-Content -Raw -Path $HeartbeatPath | ConvertFrom-Json
+                $processHeartbeatAge = [math]::Round(((Get-Date).ToUniversalTime() - (Get-Item $HeartbeatPath).LastWriteTimeUtc).TotalSeconds, 1)
+                $gatewayHeartbeatAge = [double]::PositiveInfinity
+                $gatewayLastAck = [string]$heartbeatState.last_gateway_heartbeat_at
+                if (-not [string]::IsNullOrWhiteSpace($gatewayLastAck)) {
+                    $gatewayLastAckUtc = ([datetime]::Parse($gatewayLastAck)).ToUniversalTime()
+                    $gatewayHeartbeatAge = [math]::Round(((Get-Date).ToUniversalTime() - $gatewayLastAckUtc).TotalSeconds, 1)
+                }
+                $gatewayStale = $gatewayHeartbeatAge -gt $GatewayHeartbeatStaleSeconds
+                if ($gatewayStale -and -not $gatewayHeartbeatStaleLogged) {
+                    $lastError = [string]$heartbeatState.last_gateway_heartbeat_error.message
+                    Write-Log "GATEWAY_HEARTBEAT_STALE age_seconds=$gatewayHeartbeatAge threshold_seconds=$GatewayHeartbeatStaleSeconds process_heartbeat_age_seconds=$processHeartbeatAge last_ack=$gatewayLastAck last_error=$lastError action=observe_only"
+                    Write-Status @{ state = 'agent_gateway_heartbeat_stale'; agent_pid = $process.Id; gateway_heartbeat_age_seconds = $gatewayHeartbeatAge; process_heartbeat_age_seconds = $processHeartbeatAge; last_gateway_heartbeat_at = $gatewayLastAck }
+                    $gatewayHeartbeatStaleLogged = $true
+                } elseif (-not $gatewayStale -and $gatewayHeartbeatStaleLogged) {
+                    Write-Log "GATEWAY_HEARTBEAT_RECOVERED age_seconds=$gatewayHeartbeatAge last_ack=$gatewayLastAck"
+                    Write-Status @{ state = 'agent_running'; agent_pid = $process.Id; gateway_heartbeat_age_seconds = $gatewayHeartbeatAge; process_heartbeat_age_seconds = $processHeartbeatAge; last_gateway_heartbeat_at = $gatewayLastAck }
+                    $gatewayHeartbeatStaleLogged = $false
+                }
+            } catch {
+                Write-Log "GATEWAY_HEARTBEAT_DIAGNOSTIC_ERROR $($_.Exception.Message)"
+            }
+
             if (Test-Path $DesktopTestRequestPath) {
                 try {
                     $request = Get-Content -Raw -Path $DesktopTestRequestPath | ConvertFrom-Json
