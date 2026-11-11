@@ -9,6 +9,7 @@ const watchdog = fs.readFileSync("agents/windows/run-agent.ps1", "utf8");
 // leaving room for one delayed/failed request without consuming the full budget.
 assert.match(agent, /const HEARTBEAT_MS=30_000/);
 assert.match(installer, /heartbeat_ms = 30000/);
+assert.match(watchdog, /\$env:ARIA_HEARTBEAT_MS = '30000'/);
 assert.match(agent, /gatewayHeartbeatInFlight/);
 assert.match(agent, /if\(gatewayHeartbeatInFlight\)/);
 assert.match(agent, /HEARTBEAT_ACK device=/);
