@@ -66,6 +66,28 @@ jobs:
           }
           $watchdogBytes = if (Test-Path -LiteralPath $watchdogPath) { (Get-Item -LiteralPath $watchdogPath).Length } else { 0 }
           $taskInfo = Invoke-BoundedNativeCommand -FilePath (Join-Path $env:WINDIR 'System32\schtasks.exe') -Arguments @('/query','/TN','ARIA-Windows-Local-Agent','/FO','LIST','/V') -TimeoutMs 5000
+          $taskSchedulerInfo = $null
+          try {
+            $scheduler = New-Object -ComObject 'Schedule.Service'
+            $scheduler.Connect()
+            $rootFolder = $scheduler.GetFolder('\')
+            $taskSchedulerInfo = @($rootFolder.GetTasks(1) | Where-Object { $_.Name -match 'ARIA|Agent' } | ForEach-Object {
+              $definition = $_.Definition
+              [ordered]@{
+                name = $_.Name
+                path = $_.Path
+                state = [int]$_.State
+                last_run_time = $_.LastRunTime.ToString('o')
+                last_task_result = $_.LastTaskResult
+                next_run_time = $_.NextRunTime.ToString('o')
+                principal_user = $definition.Principal.UserId
+                principal_logon_type = [int]$definition.Principal.LogonType
+                trigger_count = @($definition.Triggers).Count
+              }
+            })
+          } catch {
+            $taskSchedulerInfo = @{ read_error = $_.Exception.Message }
+          }
           $powerRequests = Invoke-BoundedNativeCommand -FilePath (Join-Path $env:WINDIR 'System32\powercfg.exe') -Arguments @('/requests') -TimeoutMs 5000
           $sleepPlan = Invoke-BoundedNativeCommand -FilePath (Join-Path $env:WINDIR 'System32\powercfg.exe') -Arguments @('/query','SCHEME_CURRENT','SUB_SLEEP') -TimeoutMs 5000
           $lastWake = Invoke-BoundedNativeCommand -FilePath (Join-Path $env:WINDIR 'System32\powercfg.exe') -Arguments @('/lastwake') -TimeoutMs 5000
@@ -80,6 +102,7 @@ jobs:
             watchdog_status = $watchdogStatus
             watchdog_log_bytes = $watchdogBytes
             scheduled_task_query = $taskInfo
+            scheduled_task_com = $taskSchedulerInfo
             active_processes = $processes
             powercfg_requests = $powerRequests
             active_sleep_plan = $sleepPlan
