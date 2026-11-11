@@ -15,7 +15,7 @@ assert.match(termux, /POLL_MS = Math\.max\(5_000, Number\(process\.env\.ARIA_POL
 assert.match(termux, /Math\.pow\(2,consecutivePollFailures\)/);
 assert.match(termux, /Math\.random\(\)/);
 
-assert.match(windows, /HEARTBEAT_MS=Math\.max\(30_000,Number\(process\.env\.ARIA_HEARTBEAT_MS\|\|60_000\)\)/);
+assert.match(windows, /HEARTBEAT_MS=Math\.max\(30_000,Number\(process\.env\.ARIA_HEARTBEAT_MS\|\|30_000\)\)/);
 assert.match(windows, /POLL_MS=Math\.max\(5_000,Number\(process\.env\.ARIA_POLL_MS\|\|12_000\)\)/);
 assert.match(windows, /GATEWAY_RETRIES=Math\.max\(0,Number\(process\.env\.ARIA_GATEWAY_RETRIES\|\|1\)\)/);
 assert.doesNotMatch(windows, /response\.status===401\|\|response\.status===408/);
