@@ -93,7 +93,7 @@ jobs:
           Write-Host "WINDOW_START_UTC=$($started.ToString('o'))"
 
           # Inspect only canonical folders and at most one directory level beneath each.
-          $scanRoots = @($windowsRuntime,$sourceRoot,(Join-Path $sourceRoot 'agents\\windows'))
+          $scanRoots = @($windowsRuntime,$sourceRoot,(Join-Path $sourceRoot 'agents\windows'))
           $scanFiles = [System.Collections.Generic.List[object]]::new()
           $excluded = @('.git','node_modules','Backups','Backup','Temp','tmp','cache','Caches','vendor','packages')
           foreach ($root in $scanRoots) {
@@ -240,6 +240,7 @@ jobs:
           }
           $result | ConvertTo-Json -Depth 9 | Set-Content -LiteralPath $resultPath -Encoding UTF8
           Write-Host "A6_READONLY_WRITER_DIAGNOSTIC=PASS samples=$($samples.Count) processes_start=$($before.Count) processes_end=$($after.Count)"
+          exit 0
 
       - name: Upload sanitized read-only diagnostic
         if: always()
