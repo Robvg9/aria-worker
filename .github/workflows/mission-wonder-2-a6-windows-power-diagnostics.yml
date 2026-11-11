@@ -7,14 +7,10 @@ on:
       - 'agents/windows/run-agent.ps1'
       - 'agents/windows/install-v2.ps1'
       - '.github/workflows/mission-wonder-2-a6-windows-power-diagnostics.yml'
+      - '.github/workflows/mission-wonder-2-a6-windows-diagnostics-queue-guard.yml'
 
 permissions:
   contents: read
-
-defaults:
-  run:
-    shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
-
 
 concurrency:
   group: mission-wonder-2-a6-windows-power-diagnostics-${{ github.sha }}
@@ -25,11 +21,17 @@ jobs:
     name: Read-only Windows power and heartbeat evidence
     runs-on: [self-hosted, Windows, X64]
     timeout-minutes: 3
+    defaults:
+      run:
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
     steps:
-      - name: Capture local power, watchdog and heartbeat evidence
+      - name: Capture heartbeat, task, process and power plan
         run: |
           $ErrorActionPreference = 'Continue'
-          $now = Get-Date
+          $root = 'D:\ARIA-Windows-Agent'
+          $logs = Join-Path $root 'Logs'
+          $outDir = Join-Path $env:RUNNER_TEMP 'a6-windows-power-diagnostics'
+          New-Item -ItemType Directory -Force -Path $outDir | Out-Null
           function Invoke-BoundedNativeCommand([string]$FilePath,[string[]]$Arguments,[int]$TimeoutMs=5000) {
             $base = Join-Path $env:RUNNER_TEMP ([guid]::NewGuid().ToString('N'))
             $stdoutPath = $base + '.out'
@@ -49,130 +51,75 @@ jobs:
               Remove-Item -LiteralPath $stdoutPath,$stderrPath -Force -ErrorAction SilentlyContinue
             }
           }
-          $start = $now.AddDays(-1)
-          $root = 'D:\ARIA-Windows-Agent'
-          $logs = Join-Path $root 'Logs'
           $heartbeatPath = Join-Path $logs 'agent-heartbeat.json'
           $statusPath = Join-Path $logs 'status.json'
           $watchdogPath = Join-Path $logs 'watchdog.log'
-
-          Write-Host 'A6DIAG_STEP=HEARTBEAT_FILE_START'
           $heartbeat = $null
           if (Test-Path -LiteralPath $heartbeatPath) {
-            try {
-              $raw = Get-Content -Raw -LiteralPath $heartbeatPath | ConvertFrom-Json
-              $heartbeat = [ordered]@{
-                version = $raw.version
-                timestamp = $raw.timestamp
-                network = $raw.network
-                last_gateway_heartbeat_at = $raw.last_gateway_heartbeat_at
-                last_gateway_heartbeat_error = $raw.last_gateway_heartbeat_error
-                file_last_write_utc = (Get-Item -LiteralPath $heartbeatPath).LastWriteTimeUtc.ToString('o')
-              }
-            } catch { $heartbeat = @{ read_error = $_.Exception.Message } }
+            try { $heartbeat = Get-Content -Raw -LiteralPath $heartbeatPath | ConvertFrom-Json } catch { $heartbeat = @{ read_error=$_.Exception.Message } }
           }
-
-          Write-Host 'A6DIAG_STEP=WATCHDOG_STATUS_START'
           $watchdogStatus = $null
           if (Test-Path -LiteralPath $statusPath) {
-            try { $watchdogStatus = Get-Content -Raw -LiteralPath $statusPath | ConvertFrom-Json } catch {}
+            try { $watchdogStatus = Get-Content -Raw -LiteralPath $statusPath | ConvertFrom-Json } catch { $watchdogStatus = @{ read_error=$_.Exception.Message } }
           }
-
-          Write-Host 'A6DIAG_STEP=SCHEDULED_TASK_START'
-          $taskInfo = Invoke-BoundedNativeCommand -FilePath (Join-Path $env:WINDIR 'System32\schtasks.exe') -Arguments @('/query','/TN','\\ARIA-Windows-Local-Agent','/FO','LIST') -TimeoutMs 5000
-
-          Write-Host 'A6DIAG_STEP=POWER_EVENTS_START'
-          $powerEvents = 'NOT_COLLECTED'
-          try {
-            $eventOut = Join-Path $env:RUNNER_TEMP 'a6-power-events.txt'
-            $eventErr = Join-Path $env:RUNNER_TEMP 'a6-power-events.err.txt'
-            $xpath = "*[System[(EventID=41 or EventID=42 or EventID=107 or EventID=506 or EventID=507 or (Provider[@Name='Microsoft-Windows-Power-Troubleshooter'] and EventID=1)) and TimeCreated[timediff(@SystemTime) <= 86400000]]]"
-            $eventArgs = 'qe System /q:"' + $xpath + '" /c:120 /rd:true /f:Text'
-            $eventProcess = Start-Process -FilePath (Join-Path $env:WINDIR 'System32\wevtutil.exe') -ArgumentList $eventArgs -PassThru -WindowStyle Hidden -RedirectStandardOutput $eventOut -RedirectStandardError $eventErr
-            if ($eventProcess.WaitForExit(10000)) {
-              $powerEvents = if (Test-Path -LiteralPath $eventOut) { Get-Content -Raw -LiteralPath $eventOut } else { 'NO_POWER_EVENTS_RETURNED' }
-              if (Test-Path -LiteralPath $eventErr) {
-                $eventErrorText = Get-Content -Raw -LiteralPath $eventErr
-                if (-not [string]::IsNullOrWhiteSpace($eventErrorText)) { $powerEvents += "\nWEVTUTIL_STDERR=" + $eventErrorText }
-              }
-            } else {
-              Stop-Process -Id $eventProcess.Id -Force -ErrorAction SilentlyContinue
-              $powerEvents = 'WEVTUTIL_TIMED_OUT_AFTER_10_SECONDS'
-            }
-          } catch { $powerEvents = 'WEVTUTIL_ERROR=' + $_.Exception.Message }
-
-          Write-Host 'A6DIAG_STEP=POWERCFG_REQUESTS_START'
+          $watchdogBytes = if (Test-Path -LiteralPath $watchdogPath) { (Get-Item -LiteralPath $watchdogPath).Length } else { 0 }
+          $taskInfo = Invoke-BoundedNativeCommand -FilePath (Join-Path $env:WINDIR 'System32\schtasks.exe') -Arguments @('/query','/TN','\ARIA-Windows-Local-Agent','/FO','LIST') -TimeoutMs 5000
           $powerRequests = Invoke-BoundedNativeCommand -FilePath (Join-Path $env:WINDIR 'System32\powercfg.exe') -Arguments @('/requests') -TimeoutMs 5000
-          Write-Host 'A6DIAG_STEP=POWERCFG_SLEEP_PLAN_START'
           $sleepPlan = Invoke-BoundedNativeCommand -FilePath (Join-Path $env:WINDIR 'System32\powercfg.exe') -Arguments @('/query','SCHEME_CURRENT','SUB_SLEEP') -TimeoutMs 5000
-          $system = [ordered]@{
-            computer_name = $env:COMPUTERNAME
-            user_name = $env:USERNAME
-            captured_at_utc = $now.ToUniversalTime().ToString('o')
-            runner_name = $env:RUNNER_NAME
-            runner_os = $env:RUNNER_OS
-            runner_arch = $env:RUNNER_ARCH
-          }
-
-          Write-Host 'A6DIAG_STEP=PROCESS_SNAPSHOT_START'
-          $processes = @(Get-Process -Name node,powershell -ErrorAction SilentlyContinue |
-            Select-Object Id,ProcessName,SessionId)
-
-          Write-Host 'A6DIAG_STEP=WATCHDOG_LOG_START'
-          $watchdogTail = @()
-          $watchdogLogBytes = 0
-          if (Test-Path -LiteralPath $watchdogPath) {
-            $watchdogLogBytes = (Get-Item -LiteralPath $watchdogPath).Length
-            try {
-              $stream = [System.IO.File]::OpenRead($watchdogPath)
-              try {
-                $tailBytes = [Math]::Min(131072,$stream.Length)
-                [void]$stream.Seek(-$tailBytes,[System.IO.SeekOrigin]::End)
-                $reader = New-Object System.IO.StreamReader($stream,[System.Text.Encoding]::UTF8,$true,4096,$true)
-                try {
-                  $tailText = $reader.ReadToEnd()
-                  $watchdogTail = @($tailText -split "\r?\n" | Select-Object -Last 160)
-                } finally { $reader.Dispose() }
-              } finally { $stream.Dispose() }
-            } catch {
-              $watchdogTail = @("WATCHDOG_TAIL_READ_ERROR=$($_.Exception.Message)")
-            }
-          }
-
-          Write-Host 'A6DIAG_STEP=REPORT_WRITE_START'
+          $lastWake = Invoke-BoundedNativeCommand -FilePath (Join-Path $env:WINDIR 'System32\powercfg.exe') -Arguments @('/lastwake') -TimeoutMs 5000
+          $processes = @(Get-Process -Name node,powershell -ErrorAction SilentlyContinue | Select-Object Id,ProcessName,SessionId)
           $report = [ordered]@{
             classification = 'READ_ONLY_DIAGNOSTICS'
-            window_start_utc = $start.ToUniversalTime().ToString('o')
-            system = $system
+            captured_at_utc = (Get-Date).ToUniversalTime().ToString('o')
+            computer_name = $env:COMPUTERNAME
+            runner_name = $env:RUNNER_NAME
+            runner_os = $env:RUNNER_OS
             device_heartbeat = $heartbeat
             watchdog_status = $watchdogStatus
-            scheduled_task = $taskInfo
-            relevant_power_events = $powerEvents
+            watchdog_log_bytes = $watchdogBytes
+            scheduled_task_query = $taskInfo
             active_processes = $processes
             powercfg_requests = $powerRequests
             active_sleep_plan = $sleepPlan
-            watchdog_log_bytes = $watchdogLogBytes
-            watchdog_log_tail = $watchdogTail
+            last_wake = $lastWake
           }
+          $report | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $outDir 'a6-windows-runtime-snapshot.json') -Encoding UTF8
+          Write-Host "COMPUTER=$env:COMPUTERNAME"
+          Write-Host "RUNNER=$env:RUNNER_NAME"
+          Write-Host "HEARTBEAT_FILE_PRESENT=$(Test-Path -LiteralPath $heartbeatPath)"
+          Write-Host "WATCHDOG_LOG_BYTES=$watchdogBytes"
+          Write-Host "AGENT_PROCESS_COUNT=$($processes.Count)"
+          Write-Host 'A6DIAG_RUNTIME_SNAPSHOT=PASS'
 
+      - name: Collect bounded Windows power events
+        run: |
+          $ErrorActionPreference = 'Continue'
           $outDir = Join-Path $env:RUNNER_TEMP 'a6-windows-power-diagnostics'
           New-Item -ItemType Directory -Force -Path $outDir | Out-Null
-          $reportPath = Join-Path $outDir 'a6-windows-power-diagnostics.json'
-          $report | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $reportPath -Encoding UTF8
+          $out = Join-Path $outDir 'a6-windows-power-events.txt'
+          $err = Join-Path $outDir 'a6-windows-power-events.err.txt'
+          $xpath = "*[System[(EventID=41 or EventID=42 or EventID=107 or EventID=506 or EventID=507 or (Provider[@Name='Microsoft-Windows-Power-Troubleshooter'] and EventID=1))]]"
+          $eventArgs = 'qe System /q:"' + $xpath + '" /c:40 /rd:true /f:Text'
+          try {
+            $proc = Start-Process -FilePath (Join-Path $env:WINDIR 'System32\wevtutil.exe') -ArgumentList $eventArgs -PassThru -WindowStyle Hidden -RedirectStandardOutput $out -RedirectStandardError $err
+            if (-not $proc.WaitForExit(12000)) {
+              Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+              'WEVTUTIL_TIMED_OUT_AFTER_12000_MS' | Set-Content -LiteralPath $out -Encoding UTF8
+            }
+          } catch {
+            ('WEVTUTIL_ERROR=' + $_.Exception.Message) | Set-Content -LiteralPath $out -Encoding UTF8
+          }
+          Write-Host "POWER_EVENT_FILE_BYTES=$((Get-Item -LiteralPath $out -ErrorAction SilentlyContinue).Length)"
+          Write-Host 'A6DIAG_POWER_EVENTS_CAPTURE=FINISHED'
 
-          Write-Host "DIAGNOSTIC_CLASSIFICATION=READ_ONLY"
-          Write-Host "COMPUTER=$($system.computer_name)"
-          Write-Host "RUNNER_NAME=$($system.runner_name)"
-          Write-Host "AGENT_HEARTBEAT_FILE_PRESENT=$(Test-Path -LiteralPath $heartbeatPath)"
-          Write-Host "SCHEDULED_TASK_QUERY=$($taskInfo.Substring(0,[Math]::Min(300,$taskInfo.Length)))"
-          Write-Host "POWER_EVENT_COUNT=$($powerEvents.Count)"
-          Write-Host "ACTIVE_AGENT_PROCESS_COUNT=$($processes.Count)"
-          Write-Host "DIAGNOSTIC_REPORT=$reportPath"
-
-      - name: Upload Windows diagnostics
+      - name: Upload direct Windows evidence
         uses: actions/upload-artifact@v4
         with:
           name: mission-wonder-2-a6-windows-power-diagnostics-${{ github.sha }}
-          path: ${{ runner.temp }}/a6-windows-power-diagnostics/a6-windows-power-diagnostics.json
+          path: |
+            ${{ runner.temp }}/a6-windows-power-diagnostics/**
+            D:/ARIA-Windows-Agent/Logs/agent-heartbeat.json
+            D:/ARIA-Windows-Agent/Logs/status.json
+            D:/ARIA-Windows-Agent/Logs/watchdog.log
           if-no-files-found: error
           retention-days: 14
