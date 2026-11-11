@@ -10,26 +10,29 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: a6-windows-heartbeat-writer-readonly
+  cancel-in-progress: false
+
 jobs:
   inspect:
     name: Inspect heartbeat writers without touching runtime
     runs-on: [self-hosted, Windows, X64]
-    timeout-minutes: 8
+    timeout-minutes: 6
     defaults:
       run:
         shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
     steps:
-      - name: Enumerate process identities, script copies and heartbeat schema (read-only)
+      - name: Bounded process, task and heartbeat inspection (read-only)
         run: |
           $ErrorActionPreference = 'Continue'
           $runtime = 'D:\ARIA-Windows-Agent'
+          $windowsRuntime = Join-Path $runtime 'Runtime\windows'
+          $sourceRoot = Join-Path $runtime 'Source'
           $logs = Join-Path $runtime 'Logs'
           $heartbeat = Join-Path $logs 'agent-heartbeat.json'
-          $runtimeAgent = Join-Path $runtime 'Runtime\windows\aria-agent.js'
-          $runtimeWatchdog = Join-Path $runtime 'Runtime\windows\run-agent.ps1'
           $resultPath = Join-Path $env:GITHUB_WORKSPACE 'a6-windows-heartbeat-writer-diagnostic.json'
           $samples = [System.Collections.Generic.List[object]]::new()
-          $processSnapshots = [System.Collections.Generic.List[object]]::new()
           $scriptCandidates = [System.Collections.Generic.List[object]]::new()
           $started = [DateTimeOffset]::UtcNow
 
@@ -37,61 +40,72 @@ jobs:
             $all = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue)
             $byId = @{}
             foreach ($p in $all) { $byId[[int]$p.ProcessId] = $p }
+            $out = [System.Collections.Generic.List[object]]::new()
             foreach ($p in $all | Where-Object { $_.Name -match '^(node|powershell|pwsh|cmd)(\.exe)?$' }) {
-              $proc = Get-Process -Id ([int]$p.ProcessId) -ErrorAction SilentlyContinue
-              $path = [string]$p.ExecutablePath
-              $start = ''
-              if ($proc) {
-                if ([string]::IsNullOrWhiteSpace($path)) { try { $path = [string]$proc.Path } catch {} }
-                try { $start = $proc.StartTime.ToUniversalTime().ToString('o') } catch {}
-              }
               $cmd = [string]$p.CommandLine
               $tags = @()
-              if ($cmd -match '(?i)aria-agent\.js') { $tags += 'ARIA_AGENT' }
-              if ($cmd -match '(?i)run-agent\.ps1') { $tags += 'ARIA_WATCHDOG' }
-              if ($cmd -match '(?i)aria-persistent-windows-worker-v1\.js') { $tags += 'PERSISTENT_WORKER_V1' }
-              if ($cmd -match '(?i)update-runtime-v3\.ps1') { $tags += 'RUNTIME_UPDATER_V3' }
-              if ($cmd -match '(?i)install-v2\.ps1') { $tags += 'INSTALLER_V2' }
-              $ownerName = 'unavailable'
-              try {
-                $owner = Invoke-CimMethod -InputObject $p -MethodName GetOwner -ErrorAction Stop
-                if ($owner.ReturnValue -eq 0) { $ownerName = "$($owner.Domain)\$($owner.User)" }
-              } catch {}
-              $parent = $byId[[int]$p.ParentProcessId]
-              [pscustomobject]@{
-                pid = [int]$p.ProcessId
-                name = [string]$p.Name
-                session_id = [int]$p.SessionId
-                parent_pid = [int]$p.ParentProcessId
-                parent_name = if ($parent) { [string]$parent.Name } else { 'not_running_or_unavailable' }
-                owner = $ownerName
-                executable_path = $path
-                start_utc = $start
-                command_line_available = -not [string]::IsNullOrWhiteSpace($cmd)
-                command_tags = @($tags)
+              foreach ($pair in @(
+                @{ pattern='(?i)aria-agent\.js'; tag='ARIA_AGENT' },
+                @{ pattern='(?i)run-agent\.ps1'; tag='ARIA_WATCHDOG' },
+                @{ pattern='(?i)aria-persistent-windows-worker-v1\.js'; tag='PERSISTENT_WORKER_V1' },
+                @{ pattern='(?i)update-runtime-v3\.ps1'; tag='RUNTIME_UPDATER_V3' },
+                @{ pattern='(?i)install-v2\.ps1'; tag='INSTALLER_V2' }
+              )) { if ($cmd -match $pair.pattern) { $tags += $pair.tag } }
+              $scriptPath = $null
+              if ($cmd -match '(?i)([A-Z]:\\[^"]+\.(?:js|ps1))') { $scriptPath = $Matches[1] }
+              $proc = Get-Process -Id ([int]$p.ProcessId) -ErrorAction SilentlyContinue
+              $start = ''
+              $exe = [string]$p.ExecutablePath
+              if ($proc) {
+                if ([string]::IsNullOrWhiteSpace($exe)) { try { $exe = [string]$proc.Path } catch {} }
+                try { $start = $proc.StartTime.ToUniversalTime().ToString('o') } catch {}
               }
+              $parent = $byId[[int]$p.ParentProcessId]
+              $out.Add([pscustomobject]@{
+                pid=[int]$p.ProcessId
+                name=[string]$p.Name
+                session_id=[int]$p.SessionId
+                parent_pid=[int]$p.ParentProcessId
+                parent_name=if ($parent) { [string]$parent.Name } else { 'not_running_or_unavailable' }
+                executable_path=$exe
+                start_utc=$start
+                command_line_available=-not [string]::IsNullOrWhiteSpace($cmd)
+                command_tags=@($tags)
+                script_path=$scriptPath
+              })
             }
+            return @($out.ToArray())
           }
 
           Write-Host "HOST=$env:COMPUTERNAME"
           Write-Host "RUNNER_IDENTITY=$([Security.Principal.WindowsIdentity]::GetCurrent().Name)"
           Write-Host "WINDOW_START_UTC=$($started.ToString('o'))"
 
-          foreach ($path in @($runtimeAgent,$runtimeWatchdog,(Join-Path $runtime 'run-agent.ps1'),(Join-Path $runtime 'Data\config.json'))) {
-            if (Test-Path -LiteralPath $path -PathType Leaf) {
-              $item = Get-Item -LiteralPath $path
-              $hash = if ($path.EndsWith('.js') -or $path.EndsWith('.ps1')) { (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash } else { $null }
-              $scriptCandidates.Add([pscustomobject]@{ path=$path; size=$item.Length; modified_utc=$item.LastWriteTimeUtc.ToString('o'); sha256=$hash })
-              Write-Host "RUNTIME_FILE path=$path size=$($item.Length) modified_utc=$($item.LastWriteTimeUtc.ToString('o')) sha256=$hash"
-            } else { Write-Host "RUNTIME_FILE_MISSING=$path" }
+          # Inspect only canonical folders and at most one directory level beneath each.
+          $scanRoots = @($windowsRuntime,$sourceRoot)
+          $scanFiles = [System.Collections.Generic.List[object]]::new()
+          $excluded = @('.git','node_modules','Backups','Backup','Temp','tmp','cache','Caches','vendor','packages')
+          foreach ($root in $scanRoots) {
+            if (-not (Test-Path -LiteralPath $root -PathType Container)) {
+              Write-Host "SCAN_ROOT_MISSING=$root"
+              continue
+            }
+            $files = @(Get-ChildItem -LiteralPath $root -File -Force -ErrorAction SilentlyContinue)
+            foreach ($file in $files) { $scanFiles.Add($file) }
+            $dirs = @(Get-ChildItem -LiteralPath $root -Directory -Force -ErrorAction SilentlyContinue |
+              Where-Object { $_.Name -notin $excluded } | Select-Object -First 30)
+            foreach ($dir in $dirs) {
+              $children = @(Get-ChildItem -LiteralPath $dir.FullName -File -Force -ErrorAction SilentlyContinue)
+              foreach ($file in $children) { $scanFiles.Add($file) }
+            }
           }
 
-          # Search only the ARIA runtime directory for script references. Print paths and
-          # match categories, never source lines, credentials, or token contents.
-          try {
-            $candidateFiles = @(Get-ChildItem -LiteralPath $runtime -Recurse -File -ErrorAction SilentlyContinue |
-              Where-Object { $_.Extension -in @('.js','.ps1','.cmd','.bat') })
-            foreach ($file in $candidateFiles) {
+          $eligible = @($scanFiles | Where-Object {
+            $_.Extension -in @('.js','.ps1','.cmd','.bat','.xml') -and $_.Length -le 1048576
+          } | Select-Object -First 400)
+          Write-Host "BOUNDED_SCRIPT_FILES=$($eligible.Count)"
+          foreach ($file in $eligible) {
+            try {
               $matches = @(Select-String -LiteralPath $file.FullName -Pattern 'agent-heartbeat\.json|ARIA_AGENT_HEARTBEAT_PATH|aria-windows-agent-heartbeat-v1|aria-windows-agent-heartbeat-v2' -ErrorAction SilentlyContinue)
               if ($matches.Count -gt 0) {
                 $categories = @()
@@ -101,69 +115,88 @@ jobs:
                   if ($m.Line -match 'aria-windows-agent-heartbeat-v1') { $categories += 'SCHEMA_V1' }
                   if ($m.Line -match 'aria-windows-agent-heartbeat-v2') { $categories += 'SCHEMA_V2' }
                 }
-                $scriptCandidates.Add([pscustomobject]@{ path=$file.FullName; size=$file.Length; modified_utc=$file.LastWriteTimeUtc.ToString('o'); sha256=(Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash; reference_categories=@($categories | Sort-Object -Unique); reference_line_count=$matches.Count })
-                Write-Host "SCRIPT_REFERENCE path=$($file.FullName) categories=$(@($categories | Sort-Object -Unique) -join ',') lines=$($matches.Count)"
+                $candidate = [pscustomobject]@{
+                  path=$file.FullName
+                  size=$file.Length
+                  modified_utc=$file.LastWriteTimeUtc.ToString('o')
+                  sha256=(Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash
+                  reference_categories=@($categories | Sort-Object -Unique)
+                  reference_line_count=$matches.Count
+                }
+                $scriptCandidates.Add($candidate)
+                Write-Host "SCRIPT_REFERENCE path=$($candidate.path) categories=$($candidate.reference_categories -join ',') lines=$($candidate.reference_line_count)"
               }
-            }
-            Write-Host "RUNTIME_SCRIPT_FILES_SCANNED=$($candidateFiles.Count)"
-          } catch { Write-Host "RUNTIME_SCRIPT_SCAN_ERROR=$($_.Exception.GetType().Name)" }
+            } catch { Write-Host "SCRIPT_REFERENCE_ERROR path=$($file.FullName) type=$($_.Exception.GetType().Name)" }
+          }
 
-          # Read-only scheduled task inventory. Arguments are deliberately omitted.
-          try {
-            $tasks = @(Get-ScheduledTask -ErrorAction Stop | Where-Object {
-              $_.TaskName -match '(?i)ARIA|Windows-Local-Agent' -or $_.TaskPath -match '(?i)ARIA'
-            })
-            Write-Host "ARIA_TASK_COUNT=$($tasks.Count)"
-            foreach ($task in $tasks) {
-              $executables = @($task.Actions | ForEach-Object { [string]$_.Execute }) -join ','
-              Write-Host "ARIA_TASK name=$($task.TaskName) path=$($task.TaskPath) state=$($task.State) user=$($task.Principal.UserId) executables=$executables"
-            }
-          } catch { Write-Host "ARIA_TASK_ENUMERATION_ERROR=$($_.Exception.GetType().Name)" }
+          # Check only the two known ARIA task names; do not dump command arguments.
+          foreach ($taskName in @('ARIA-Windows-Local-Agent','ARIA-Desktop-Commander-Remote')) {
+            try {
+              $task = Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
+              $actions = @($task.Actions | ForEach-Object {
+                $arg = [string]$_.Arguments
+                $matchedPath = $null
+                if ($arg -match '(?i)([A-Z]:\\[^"]+\.(?:js|ps1))') { $matchedPath = $Matches[1] }
+                [pscustomobject]@{ execute=[string]$_.Execute; script_path=$matchedPath }
+              })
+              Write-Host "TASK name=$taskName state=$($task.State) user=$($task.Principal.UserId) logon=$($task.Principal.LogonType) actions=$($actions.Count)"
+              foreach ($action in $actions) {
+                Write-Host "TASK_ACTION task=$taskName executable=$($action.execute) script_path=$($action.script_path)"
+              }
+            } catch { Write-Host "TASK_UNAVAILABLE name=$taskName error=$($_.Exception.GetType().Name)" }
+          }
 
           $before = @(Get-ProcessSnapshot)
           foreach ($p in $before) {
-            $processSnapshots.Add($p)
-            Write-Host "PROCESS pid=$($p.pid) name=$($p.name) session=$($p.session_id) parent=$($p.parent_pid)/$($p.parent_name) owner=$($p.owner) path=$($p.executable_path) start=$($p.start_utc) cmd_available=$($p.command_line_available) tags=$($p.command_tags -join ',')"
+            Write-Host "PROCESS pid=$($p.pid) name=$($p.name) session=$($p.session_id) parent=$($p.parent_pid)/$($p.parent_name) exe=$($p.executable_path) start=$($p.start_utc) cmd_available=$($p.command_line_available) tags=$($p.command_tags -join ',') script=$($p.script_path)"
           }
 
-          if (Test-Path -LiteralPath $heartbeat -PathType Leaf) {
-            $hbFile = Get-Item -LiteralPath $heartbeat
-            $hb = Get-Content -Raw -LiteralPath $heartbeat | ConvertFrom-Json
-            Write-Host "HEARTBEAT_INITIAL version=$($hb.version) timestamp=$($hb.timestamp) ack=$($hb.last_gateway_heartbeat_at) modified_utc=$($hbFile.LastWriteTimeUtc.ToString('o'))"
-          } else { Write-Host 'HEARTBEAT_INITIAL=MISSING' }
+          foreach ($path in @(
+            (Join-Path $windowsRuntime 'aria-agent.js'),
+            (Join-Path $windowsRuntime 'run-agent.ps1'),
+            (Join-Path $sourceRoot 'agents\windows\aria-agent.js'),
+            (Join-Path $sourceRoot 'agents\windows\run-agent.ps1'),
+            (Join-Path $logs 'ARIA-Windows-Local-Agent.xml'),
+            (Join-Path $logs 'ARIA-Desktop-Commander-Remote.xml')
+          )) {
+            if (Test-Path -LiteralPath $path -PathType Leaf) {
+              $item=Get-Item -LiteralPath $path
+              $hash=if ($item.Extension -in @('.js','.ps1')) { (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash } else { $null }
+              Write-Host "KNOWN_FILE path=$path size=$($item.Length) modified_utc=$($item.LastWriteTimeUtc.ToString('o')) sha256=$hash"
+            }
+          }
 
-          # Observe for 180 seconds without creating, deleting, or changing any runtime file.
-          $end = [DateTimeOffset]::UtcNow.AddSeconds(180)
+          # Observe heartbeat schema for 60 seconds, without writing to or deleting it.
           $lastSignature = ''
-          while ([DateTimeOffset]::UtcNow -lt $end) {
-            $now = [DateTimeOffset]::UtcNow
-            $entry = [ordered]@{ sampled_at_utc=$now.ToString('o'); exists=$false; version=$null; timestamp=$null; ack=$null; last_write_utc=$null; read_error=$null }
+          for ($i=0; $i -lt 12; $i++) {
+            $now=[DateTimeOffset]::UtcNow
+            $entry=[ordered]@{ sampled_at_utc=$now.ToString('o'); exists=$false; version=$null; timestamp=$null; ack=$null; last_write_utc=$null; read_error=$null }
             try {
               if (Test-Path -LiteralPath $heartbeat -PathType Leaf) {
-                $hbFile = Get-Item -LiteralPath $heartbeat
-                $hb = Get-Content -Raw -LiteralPath $heartbeat | ConvertFrom-Json
-                $entry.exists = $true
-                $entry.version = [string]$hb.version
-                $entry.timestamp = [string]$hb.timestamp
-                $entry.ack = [string]$hb.last_gateway_heartbeat_at
-                $entry.last_write_utc = $hbFile.LastWriteTimeUtc.ToString('o')
+                $hbFile=Get-Item -LiteralPath $heartbeat
+                $hb=Get-Content -Raw -LiteralPath $heartbeat | ConvertFrom-Json
+                $entry.exists=$true
+                $entry.version=[string]$hb.version
+                $entry.timestamp=[string]$hb.timestamp
+                $entry.ack=[string]$hb.last_gateway_heartbeat_at
+                $entry.last_write_utc=$hbFile.LastWriteTimeUtc.ToString('o')
               }
-            } catch { $entry.read_error = $_.Exception.GetType().Name }
-            $signature = "$($entry.version)|$($entry.read_error)|$($entry.exists)"
+            } catch { $entry.read_error=$_.Exception.GetType().Name }
+            $signature="$($entry.version)|$($entry.read_error)|$($entry.exists)"
             if ($signature -ne $lastSignature) {
               Write-Host "HEARTBEAT_SCHEMA_EVENT time=$($entry.sampled_at_utc) exists=$($entry.exists) version=$($entry.version) read_error=$($entry.read_error)"
-              $lastSignature = $signature
+              $lastSignature=$signature
             }
             $samples.Add([pscustomobject]$entry)
-            Start-Sleep -Seconds 5
+            if ($i -lt 11) { Start-Sleep -Seconds 5 }
           }
 
-          $after = @(Get-ProcessSnapshot)
+          $after=@(Get-ProcessSnapshot)
           foreach ($p in $after) {
-            Write-Host "PROCESS_END pid=$($p.pid) name=$($p.name) session=$($p.session_id) parent=$($p.parent_pid)/$($p.parent_name) owner=$($p.owner) path=$($p.executable_path) start=$($p.start_utc) cmd_available=$($p.command_line_available) tags=$($p.command_tags -join ',')"
+            Write-Host "PROCESS_END pid=$($p.pid) name=$($p.name) session=$($p.session_id) parent=$($p.parent_pid)/$($p.parent_name) cmd_available=$($p.command_line_available) tags=$($p.command_tags -join ',') script=$($p.script_path)"
           }
 
-          $result = [ordered]@{
+          $result=[ordered]@{
             status='OBSERVED_READ_ONLY'
             host=$env:COMPUTERNAME
             runner_identity=[Security.Principal.WindowsIdentity]::GetCurrent().Name
