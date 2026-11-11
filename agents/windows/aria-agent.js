@@ -225,6 +225,7 @@ async function heartbeat(){
     lastGatewayHeartbeatAt=new Date().toISOString();
     lastGatewayHeartbeatError=null;
     touchProcessHeartbeat('online');
+    log(`ONLINE device=${DEVICE_ID} capabilities=${capabilities.join(',')}`);
     log(`HEARTBEAT_ACK device=${DEVICE_ID} duration_ms=${Date.now()-startedAt} interval_ms=${HEARTBEAT_MS}`);
   }catch(error){
     lastGatewayHeartbeatError={at:new Date().toISOString(),status:Number.isInteger(error?.status)?error.status:null,code:typeof error?.code==='string'?error.code:null,message:String(error?.message||error).slice(0,180)};
