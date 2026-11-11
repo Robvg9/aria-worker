@@ -60,11 +60,22 @@ jobs:
                 if ([string]::IsNullOrWhiteSpace($exe)) { try { $exe = [string]$proc.Path } catch {} }
                 try { $start = $proc.StartTime.ToUniversalTime().ToString('o') } catch {}
               }
+              $owner = ''
+              try {
+                $ownerResult = Invoke-CimMethod -InputObject $p -MethodName GetOwner -ErrorAction Stop
+                if ($ownerResult.ReturnValue -eq 0) { $owner = [string]$ownerResult.Domain + '\\' + [string]$ownerResult.User }
+              } catch {}
+              $createdUtc = ''
+              try {
+                if ($p.CreationDate) { $createdUtc = [System.Management.ManagementDateTimeConverter]::ToDateTime([string]$p.CreationDate).ToUniversalTime().ToString('o') }
+              } catch {}
               $parent = $byId[[int]$p.ParentProcessId]
               $out.Add([pscustomobject]@{
                 pid=[int]$p.ProcessId
                 name=[string]$p.Name
                 session_id=[int]$p.SessionId
+                process_owner=$owner
+                creation_utc=$createdUtc
                 parent_pid=[int]$p.ParentProcessId
                 parent_name=if ($parent) { [string]$parent.Name } else { 'not_running_or_unavailable' }
                 executable_path=$exe
@@ -82,7 +93,7 @@ jobs:
           Write-Host "WINDOW_START_UTC=$($started.ToString('o'))"
 
           # Inspect only canonical folders and at most one directory level beneath each.
-          $scanRoots = @($windowsRuntime,$sourceRoot)
+          $scanRoots = @($windowsRuntime,$sourceRoot,(Join-Path $sourceRoot 'agents\\windows'))
           $scanFiles = [System.Collections.Generic.List[object]]::new()
           $excluded = @('.git','node_modules','Backups','Backup','Temp','tmp','cache','Caches','vendor','packages')
           foreach ($root in $scanRoots) {
@@ -129,8 +140,8 @@ jobs:
             } catch { Write-Host "SCRIPT_REFERENCE_ERROR path=$($file.FullName) type=$($_.Exception.GetType().Name)" }
           }
 
-          # Check only the two known ARIA task names; do not dump command arguments.
-          foreach ($taskName in @('ARIA-Windows-Local-Agent','ARIA-Desktop-Commander-Remote')) {
+          # Query only known ARIA task names. The schtasks XML fallback is read-only and emits no raw arguments.
+          foreach ($taskName in @('ARIA-Windows-Local-Agent','ARIA-Desktop-Commander-Remote','ARIA Persistent Windows Worker')) {
             try {
               $task = Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
               $actions = @($task.Actions | ForEach-Object {
@@ -144,11 +155,31 @@ jobs:
                 Write-Host "TASK_ACTION task=$taskName executable=$($action.execute) script_path=$($action.script_path)"
               }
             } catch { Write-Host "TASK_UNAVAILABLE name=$taskName error=$($_.Exception.GetType().Name)" }
+            try {
+              $taskXmlLines = @(& schtasks.exe /Query /TN $taskName /XML 2>&1)
+              $taskExit = $LASTEXITCODE
+              if ($taskExit -eq 0) {
+                [xml]$taskXml = ($taskXmlLines -join [Environment]::NewLine)
+                $commandNode = $taskXml.SelectSingleNode("//*[local-name()='Command']")
+                $argumentsNode = $taskXml.SelectSingleNode("//*[local-name()='Arguments']")
+                $userNode = $taskXml.SelectSingleNode("//*[local-name()='Principal']/*[local-name()='UserId']")
+                $logonNode = $taskXml.SelectSingleNode("//*[local-name()='Principal']/*[local-name()='LogonType']")
+                $levelNode = $taskXml.SelectSingleNode("//*[local-name()='Principal']/*[local-name()='RunLevel']")
+                $enabledNode = $taskXml.SelectSingleNode("//*[local-name()='Settings']/*[local-name()='Enabled']")
+                $argText = if ($argumentsNode) { [string]$argumentsNode.InnerText } else { '' }
+                $scriptPath = $null
+                if ($argText -match '(?i)([A-Z]:\\\\[^\"]+\\.(?:js|ps1))') { $scriptPath = $Matches[1] }
+                $commandText = if ($commandNode) { [string]$commandNode.InnerText } else { '' }
+                Write-Host "TASK_XML name=$taskName command=$commandText script_path=$scriptPath user=$([string]$userNode.InnerText) logon=$([string]$logonNode.InnerText) run_level=$([string]$levelNode.InnerText) enabled=$([string]$enabledNode.InnerText)"
+              } else {
+                Write-Host "TASK_SCHTASKS_UNAVAILABLE name=$taskName exit=$taskExit"
+              }
+            } catch { Write-Host "TASK_SCHTASKS_ERROR name=$taskName error=$($_.Exception.GetType().Name)" }
           }
 
           $before = @(Get-ProcessSnapshot)
           foreach ($p in $before) {
-            Write-Host "PROCESS pid=$($p.pid) name=$($p.name) session=$($p.session_id) parent=$($p.parent_pid)/$($p.parent_name) exe=$($p.executable_path) start=$($p.start_utc) cmd_available=$($p.command_line_available) tags=$($p.command_tags -join ',') script=$($p.script_path)"
+            Write-Host "PROCESS pid=$($p.pid) name=$($p.name) session=$($p.session_id) owner=$($p.process_owner) created=$($p.creation_utc) parent=$($p.parent_pid)/$($p.parent_name) exe=$($p.executable_path) start=$($p.start_utc) cmd_available=$($p.command_line_available) tags=$($p.command_tags -join ',') script=$($p.script_path)"
           }
 
           foreach ($path in @(
@@ -193,7 +224,7 @@ jobs:
 
           $after=@(Get-ProcessSnapshot)
           foreach ($p in $after) {
-            Write-Host "PROCESS_END pid=$($p.pid) name=$($p.name) session=$($p.session_id) parent=$($p.parent_pid)/$($p.parent_name) cmd_available=$($p.command_line_available) tags=$($p.command_tags -join ',') script=$($p.script_path)"
+            Write-Host "PROCESS_END pid=$($p.pid) name=$($p.name) session=$($p.session_id) owner=$($p.process_owner) created=$($p.creation_utc) parent=$($p.parent_pid)/$($p.parent_name) cmd_available=$($p.command_line_available) tags=$($p.command_tags -join ',') script=$($p.script_path)"
           }
 
           $result=[ordered]@{
