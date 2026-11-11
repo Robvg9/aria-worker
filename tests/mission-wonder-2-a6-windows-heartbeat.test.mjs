@@ -17,8 +17,9 @@ assert.match(agent, /gatewayHeartbeatInFlight/);
 assert.match(agent, /if\(gatewayHeartbeatInFlight\)/);
 assert.match(agent, /HEARTBEAT_ACK device=/);
 assert.match(agent, /interval_ms=\$\{HEARTBEAT_MS\}/);
-assert.match(agent, /const requestDeadlineMs=Math.max\\(1000,Number\\(options.timeoutMs\\)\\|\\|GATEWAY_TIMEOUT_MS\\)/);
-assert.match(agent, /const deadline=setTimeout/);
+assert.ok(agent.includes('const requestDeadlineMs=Math.max(1000,Number(options.timeoutMs)||GATEWAY_TIMEOUT_MS)'));
+assert.ok(agent.includes("const deadline=setTimeout(()=>req.destroy(new Error('gateway_timeout')),requestDeadlineMs)"));
+
 
 // Separate process-local liveness from a confirmed remote heartbeat ACK.
 // This makes the next interruption diagnosable without treating WAN loss as
