@@ -65,7 +65,7 @@ jobs:
             try { $watchdogStatus = Get-Content -Raw -LiteralPath $statusPath | ConvertFrom-Json } catch { $watchdogStatus = @{ read_error=$_.Exception.Message } }
           }
           $watchdogBytes = if (Test-Path -LiteralPath $watchdogPath) { (Get-Item -LiteralPath $watchdogPath).Length } else { 0 }
-          $taskInfo = Invoke-BoundedNativeCommand -FilePath (Join-Path $env:WINDIR 'System32\schtasks.exe') -Arguments @('/query','/TN','\ARIA-Windows-Local-Agent','/FO','LIST') -TimeoutMs 5000
+          $taskInfo = Invoke-BoundedNativeCommand -FilePath (Join-Path $env:WINDIR 'System32\schtasks.exe') -Arguments @('/query','/TN','ARIA-Windows-Local-Agent','/FO','LIST','/V') -TimeoutMs 5000
           $powerRequests = Invoke-BoundedNativeCommand -FilePath (Join-Path $env:WINDIR 'System32\powercfg.exe') -Arguments @('/requests') -TimeoutMs 5000
           $sleepPlan = Invoke-BoundedNativeCommand -FilePath (Join-Path $env:WINDIR 'System32\powercfg.exe') -Arguments @('/query','SCHEME_CURRENT','SUB_SLEEP') -TimeoutMs 5000
           $lastWake = Invoke-BoundedNativeCommand -FilePath (Join-Path $env:WINDIR 'System32\powercfg.exe') -Arguments @('/lastwake') -TimeoutMs 5000
