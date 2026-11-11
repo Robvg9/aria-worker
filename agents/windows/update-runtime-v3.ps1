@@ -44,8 +44,8 @@ while ((Get-Date) -lt $deadline) {
         if ($hb.LastWriteTimeUtc -gt $before) {
             try {
                 $payload = Get-Content -Raw -Path $heartbeatPath | ConvertFrom-Json
-                if ($payload.version -eq 'aria-windows-agent-heartbeat-v1') {
-                    Write-Host "ARIA_PROCESS_HEARTBEAT=PASS"
+                if ($payload.version -eq 'aria-windows-agent-heartbeat-v2') {
+                    Write-Host "ARIA_PROCESS_HEARTBEAT_V2=PASS"
                     Write-Host ("HEARTBEAT_TIMESTAMP=" + $payload.timestamp)
                     Write-Host ("HEARTBEAT_NETWORK=" + $payload.network)
                     $healthy = $true
