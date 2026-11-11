@@ -35,16 +35,8 @@ jobs:
             -H "Authorization: Bearer $GH_TOKEN" \
             -H "Accept: application/vnd.github+json" \
             "https://api.github.com/repos/$repo/actions/runs?branch=$branch_query&per_page=100")
-          echo "$runs" | jq -r --arg head "$PR_HEAD_SHA" '
-            .workflow_runs[] |
-            select(.name == "Mission Wonder 2 A6 Windows Power Diagnostics") |
-            select(.status == "queued" or .status == "in_progress") |
-            select(.head_sha != $head) |
-            [.id, .status, .head_sha] | @tsv' |
-          while IFS=
-          echo "KEEP_A6_DIAGNOSTICS_HEAD=$PR_HEAD_SHA"
-          echo "A6_WINDOWS_DIAGNOSTICS_QUEUE_GUARD=PASS"
-\t' read -r run_id status old_sha; do
+          echo "$runs" | jq -r --arg head "$PR_HEAD_SHA" '.workflow_runs[] | select(.name == "Mission Wonder 2 A6 Windows Power Diagnostics") | select(.status == "queued" or .status == "in_progress") | select(.head_sha != $head) | [.id, .status, .head_sha] | @tsv' |
+          while IFS=$'\t' read -r run_id status old_sha; do
             [ -z "$run_id" ] && continue
             echo "CANCEL_STALE_A6_DIAGNOSTICS id=$run_id status=$status old_sha=$old_sha"
             curl -fsS -X POST \
@@ -53,4 +45,4 @@ jobs:
               "https://api.github.com/repos/$repo/actions/runs/$run_id/cancel" >/dev/null
           done
           echo "KEEP_A6_DIAGNOSTICS_HEAD=$PR_HEAD_SHA"
-          echo "A6_WINDOWS_DIAGNOSTICS_QUEUE_GUARD=PASS"
+          echo 'A6_WINDOWS_DIAGNOSTICS_QUEUE_GUARD=PASS'
