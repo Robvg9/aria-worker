@@ -57,17 +57,7 @@ jobs:
             try { $watchdogStatus = Get-Content -Raw -LiteralPath $statusPath | ConvertFrom-Json } catch {}
           }
 
-          $taskInfo = $null
-          try {
-            $task = Get-ScheduledTask -TaskName 'ARIA-Windows-Local-Agent' -ErrorAction Stop
-            $info = Get-ScheduledTaskInfo -TaskName 'ARIA-Windows-Local-Agent' -ErrorAction Stop
-            $taskInfo = [ordered]@{
-              state = [string]$task.State
-              last_run_time = $info.LastRunTime.ToString('o')
-              last_task_result = $info.LastTaskResult
-              next_run_time = $info.NextRunTime.ToString('o')
-            }
-          } catch { $taskInfo = @{ read_error = $_.Exception.Message } }
+          $taskInfo = (& schtasks.exe /query /TN 'ARIA-Windows-Local-Agent' /FO LIST /V 2>&1 | Out-String)
 
           $powerEvents = 'NOT_COLLECTED'
           try {
@@ -90,22 +80,17 @@ jobs:
 
           $powerRequests = (& powercfg.exe /requests 2>&1 | Out-String)
           $sleepPlan = (& powercfg.exe /query SCHEME_CURRENT SUB_SLEEP 2>&1 | Out-String)
-          $os = Get-CimInstance Win32_OperatingSystem -ErrorAction SilentlyContinue
           $system = [ordered]@{
             computer_name = $env:COMPUTERNAME
-            user_name = [string](Get-CimInstance Win32_ComputerSystem -ErrorAction SilentlyContinue).UserName
-            last_boot_utc = if ($os) { $os.LastBootUpTime.ToUniversalTime().ToString('o') } else { $null }
+            user_name = $env:USERNAME
             captured_at_utc = $now.ToUniversalTime().ToString('o')
             runner_name = $env:RUNNER_NAME
-            runner_labels = $env:RUNNER_LABELS
+            runner_os = $env:RUNNER_OS
+            runner_arch = $env:RUNNER_ARCH
           }
 
-          $processes = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
-            Where-Object {
-              ($_.Name -match '^(node|powershell)(\.exe)?$') -and
-              ($_.CommandLine -match 'aria-agent\.js|run-agent\.ps1')
-            } |
-            Select-Object ProcessId,ParentProcessId,Name,CreationDate)
+          $processes = @(Get-Process -Name node,powershell -ErrorAction SilentlyContinue |
+            Select-Object Id,ProcessName,SessionId)
 
           $watchdogTail = @()
           if (Test-Path -LiteralPath $watchdogPath) {
