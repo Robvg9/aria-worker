@@ -156,97 +156,130 @@ jobs:
             Write-Host 'A6_HEARTBEAT_INTERVAL_MS=30000'
             Write-Host 'A6_LOCAL_OLLAMA_ENABLED=false'
 
-            # A6 marker missions use shell.execute only; they do not need an interactive desktop task.
-            # Reuse the existing headless watchdog when present. If absent, create it through WMI
-            # so the process is detached from this GitHub Actions job and survives job cleanup.
-            $runtimeWatchdogFull = [IO.Path]::GetFullPath($watchdogTarget)
-            $runtimeAgentFull = [IO.Path]::GetFullPath($agentTarget)
-            $processes = @(Get-CimInstance Win32_Process -ErrorAction Stop)
-            $watchdogs = @($processes | Where-Object {
-              $_.Name -match '^(powershell|pwsh)(\.exe)?$' -and
-              $_.CommandLine -and $_.CommandLine.IndexOf($runtimeWatchdogFull,[StringComparison]::OrdinalIgnoreCase) -ge 0
-            })
-            $oldAgents = @($processes | Where-Object {
-              $_.Name -match '^node(\.exe)?$' -and
-              $_.CommandLine -and $_.CommandLine.IndexOf($runtimeAgentFull,[StringComparison]::OrdinalIgnoreCase) -ge 0
-            })
-            $oldAgentPids = @($oldAgents | ForEach-Object { [int]$_.ProcessId })
-            Write-Host "A6_EXISTING_WATCHDOG_COUNT=$($watchdogs.Count)"
-            Write-Host "A6_EXISTING_AGENT_COUNT=$($oldAgents.Count)"
-
-            $expectedProcessOwner = $runnerIdentity
-            if ($watchdogs.Count -gt 0) {
-              $selectedWatchdog = $watchdogs | Select-Object -First 1
-              $watchdogOwner = Invoke-CimMethod -InputObject $selectedWatchdog -MethodName GetOwner -ErrorAction Stop
-              $expectedProcessOwner = "$($watchdogOwner.Domain)\$($watchdogOwner.User)"
-              if ($watchdogOwner.ReturnValue -ne 0 -or [string]::IsNullOrWhiteSpace($expectedProcessOwner)) {
-                throw 'EXISTING_WATCHDOG_OWNER_UNAVAILABLE'
-              }
-              Write-Host "A6_REUSED_WATCHDOG_PID=$($selectedWatchdog.ProcessId)"
-            } else {
-              $powershellPath = Join-Path $PSHOME 'powershell.exe'
-              $watchdogCommand = '"' + $powershellPath + '" -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + $watchdogTarget + '"'
-              $launch = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{
-                CommandLine = $watchdogCommand
-                CurrentDirectory = $runtimeDir
-              } -ErrorAction Stop
-              if ($launch.ReturnValue -ne 0 -or [int]$launch.ProcessId -le 0) {
-                throw "HEADLESS_WATCHDOG_WMI_CREATE_FAILED=$($launch.ReturnValue)"
-              }
-              Write-Host "A6_HEADLESS_WATCHDOG_CREATED_PID=$($launch.ProcessId)"
+            # Resolve the exact old runtime pair from the device-maintained PID files.
+            # The two session-1 Node processes belong to the desktop and are never touched.
+            $oldAgentPid = 0
+            $oldWatchdogPid = 0
+            if (-not (Test-Path -LiteralPath $agentPidPath) -or
+                -not [int]::TryParse((Get-Content -Raw -LiteralPath $agentPidPath).Trim(),[ref]$oldAgentPid) -or $oldAgentPid -le 0) {
+              throw 'LEGACY_AGENT_PID_FILE_INVALID'
+            }
+            $watchdogPidPath = Join-Path $logDir 'watchdog.pid'
+            if (-not (Test-Path -LiteralPath $watchdogPidPath) -or
+                -not [int]::TryParse((Get-Content -Raw -LiteralPath $watchdogPidPath).Trim(),[ref]$oldWatchdogPid) -or $oldWatchdogPid -le 0) {
+              throw 'LEGACY_WATCHDOG_PID_FILE_INVALID'
             }
 
-            # Stop only exact legacy ARIA agent processes. The pre-existing (or WMI-created)
-            # watchdog remains outside this job and will start the v2 agent from the updated path.
-            foreach ($p in $oldAgents) {
-              Write-Host "STOP_OLD_ARIA_AGENT_PID=$($p.ProcessId)"
-              Stop-Process -Id ([int]$p.ProcessId) -Force -ErrorAction Stop
+            $oldWatchdog = Get-Process -Id $oldWatchdogPid -ErrorAction SilentlyContinue
+            $oldAgent = Get-Process -Id $oldAgentPid -ErrorAction SilentlyContinue
+            if (-not $oldWatchdog -or $oldWatchdog.ProcessName -notmatch '^powershell$' -or [int]$oldWatchdog.SessionId -ne 0) {
+              throw 'LEGACY_WATCHDOG_PROCESS_IDENTITY_MISMATCH'
+            }
+            if (-not $oldAgent -or $oldAgent.ProcessName -notmatch '^node$' -or [int]$oldAgent.SessionId -ne 0) {
+              throw 'LEGACY_AGENT_PROCESS_IDENTITY_MISMATCH'
             }
 
-            $watchdogReady = $false
+            $oldWatchdogCim = Get-CimInstance Win32_Process -Filter "ProcessId=$oldWatchdogPid" -ErrorAction Stop
+            $oldAgentCim = Get-CimInstance Win32_Process -Filter "ProcessId=$oldAgentPid" -ErrorAction Stop
+            if ([int]$oldAgentCim.ParentProcessId -ne $oldWatchdogPid) {
+              throw "LEGACY_AGENT_PARENT_MISMATCH expected=$oldWatchdogPid actual=$($oldAgentCim.ParentProcessId)"
+            }
+
+            $legacyHeartbeat = Get-Content -Raw -LiteralPath $heartbeatPath | ConvertFrom-Json
+            if ($legacyHeartbeat.device_id -ne $expectedDevice) { throw 'LEGACY_HEARTBEAT_DEVICE_MISMATCH' }
+            $legacyHeartbeatAgeMs = [long]([DateTimeOffset]::UtcNow - [DateTimeOffset]::Parse([string]$legacyHeartbeat.timestamp).ToUniversalTime()).TotalMilliseconds
+            if ($legacyHeartbeatAgeMs -lt 0 -or $legacyHeartbeatAgeMs -gt 90000) {
+              throw "LEGACY_HEARTBEAT_FILE_NOT_FRESH_MS=$legacyHeartbeatAgeMs"
+            }
+
+            Write-Host "A6_LEGACY_AGENT_PID=$oldAgentPid"
+            Write-Host "A6_LEGACY_WATCHDOG_PID=$oldWatchdogPid"
+            Write-Host "A6_LEGACY_AGENT_PARENT=$($oldAgentCim.ParentProcessId)"
+            Write-Host "A6_LEGACY_HEARTBEAT_AGE_MS=$legacyHeartbeatAgeMs"
+
+            # Stop only the two verified Session-0 ARIA processes, watchdog first.
+            Stop-Process -Id $oldWatchdogPid -Force -ErrorAction Stop
+            $stopDeadline = (Get-Date).AddSeconds(15)
+            while ((Get-Date) -lt $stopDeadline -and (Get-Process -Id $oldWatchdogPid -ErrorAction SilentlyContinue)) {
+              Start-Sleep -Milliseconds 250
+            }
+            if (Get-Process -Id $oldWatchdogPid -ErrorAction SilentlyContinue) {
+              throw 'LEGACY_WATCHDOG_DID_NOT_STOP'
+            }
+
+            Stop-Process -Id $oldAgentPid -Force -ErrorAction Stop
+            $stopDeadline = (Get-Date).AddSeconds(15)
+            while ((Get-Date) -lt $stopDeadline -and (Get-Process -Id $oldAgentPid -ErrorAction SilentlyContinue)) {
+              Start-Sleep -Milliseconds 250
+            }
+            if (Get-Process -Id $oldAgentPid -ErrorAction SilentlyContinue) {
+              throw 'LEGACY_AGENT_DID_NOT_STOP'
+            }
+            Write-Host 'A6_LEGACY_SESSION0_PAIR_STOPPED=PASS'
+
+            # Launch the checked-out watchdog outside the Actions job via WMI.
+            $powershellPath = Join-Path $PSHOME 'powershell.exe'
+            $watchdogCommand = '"' + $powershellPath + '" -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + $watchdogTarget + '"'
+            $launch = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{
+              CommandLine = $watchdogCommand
+              CurrentDirectory = $runtimeDir
+            } -ErrorAction Stop
+            if ($launch.ReturnValue -ne 0 -or [int]$launch.ProcessId -le 0) {
+              throw "HEADLESS_WATCHDOG_WMI_CREATE_FAILED=$($launch.ReturnValue)"
+            }
+            $newWatchdogPid = [int]$launch.ProcessId
+            Write-Host "A6_NEW_WATCHDOG_LAUNCH_PID=$newWatchdogPid"
+
             $agentProcess = $null
-            $startupDeadline = (Get-Date).AddSeconds(75)
+            $agentCim = $null
+            $startupDeadline = (Get-Date).AddSeconds(90)
             while ((Get-Date) -lt $startupDeadline) {
-              $currentProcesses = @(Get-CimInstance Win32_Process -ErrorAction Stop)
-              $currentWatchdogs = @($currentProcesses | Where-Object {
-                $_.Name -match '^(powershell|pwsh)(\.exe)?$' -and
-                $_.CommandLine -and $_.CommandLine.IndexOf($runtimeWatchdogFull,[StringComparison]::OrdinalIgnoreCase) -ge 0
-              })
-              $currentAgents = @($currentProcesses | Where-Object {
-                $_.Name -match '^node(\.exe)?$' -and
-                $_.CommandLine -and $_.CommandLine.IndexOf($runtimeAgentFull,[StringComparison]::OrdinalIgnoreCase) -ge 0
-              })
-              $watchdogReady = ($currentWatchdogs.Count -eq 1)
-              if ($currentAgents.Count -eq 1 -and
-                  ($oldAgentPids -notcontains [int]$currentAgents[0].ProcessId)) {
-                $agentProcess = Get-Process -Id ([int]$currentAgents[0].ProcessId) -ErrorAction SilentlyContinue
-                if ($agentProcess) {
-                  $agentCim = $currentAgents[0]
-                  break
+              $watchdogFilePid = 0
+              $agentFilePid = 0
+              if (Test-Path -LiteralPath $watchdogPidPath) {
+                [void][int]::TryParse((Get-Content -Raw -LiteralPath $watchdogPidPath).Trim(),[ref]$watchdogFilePid)
+              }
+              if (Test-Path -LiteralPath $agentPidPath) {
+                [void][int]::TryParse((Get-Content -Raw -LiteralPath $agentPidPath).Trim(),[ref]$agentFilePid)
+              }
+
+              $newWatchdog = Get-Process -Id $watchdogFilePid -ErrorAction SilentlyContinue
+              if ($watchdogFilePid -gt 0 -and $watchdogFilePid -ne $oldWatchdogPid -and
+                  $newWatchdog -and $newWatchdog.ProcessName -match '^powershell$' -and [int]$newWatchdog.SessionId -eq 0 -and
+                  $agentFilePid -gt 0 -and $agentFilePid -ne $oldAgentPid) {
+                $candidateAgent = Get-Process -Id $agentFilePid -ErrorAction SilentlyContinue
+                if ($candidateAgent -and $candidateAgent.ProcessName -match '^node$' -and [int]$candidateAgent.SessionId -eq 0) {
+                  $candidateCim = Get-CimInstance Win32_Process -Filter "ProcessId=$agentFilePid" -ErrorAction SilentlyContinue
+                  if ($candidateCim -and [int]$candidateCim.ParentProcessId -eq $watchdogFilePid) {
+                    $agentProcess = $candidateAgent
+                    $agentCim = $candidateCim
+                    $newWatchdogPid = $watchdogFilePid
+                    break
+                  }
                 }
               }
               Start-Sleep -Seconds 2
             }
-            if (-not $watchdogReady) { throw 'HEADLESS_WATCHDOG_NOT_RUNNING_AS_SINGLETON' }
-            if (-not $agentProcess -or -not $agentCim) { throw 'V2_AGENT_NOT_RESTARTED_BY_HEADLESS_WATCHDOG' }
+            if (-not $agentProcess -or -not $agentCim) { throw 'V2_AGENT_NOT_STARTED_AS_CHILD_OF_NEW_WATCHDOG' }
 
             $actualSessionId = [int]$agentProcess.SessionId
             if ($actualSessionId -ne 0) { throw "A6_HEADLESS_AGENT_SESSION_EXPECTED_0_ACTUAL_$actualSessionId" }
-            $owner = Invoke-CimMethod -InputObject $agentCim -MethodName GetOwner -ErrorAction Stop
-            $actualOwner = "$($owner.Domain)\$($owner.User)"
-            if ($owner.ReturnValue -ne 0 -or $actualOwner -ine $expectedProcessOwner) {
-              throw "AGENT_OWNER_MISMATCH expected=$expectedProcessOwner actual=$actualOwner"
+            $watchdogProcess = Get-Process -Id $newWatchdogPid -ErrorAction SilentlyContinue
+            if (-not $watchdogProcess -or $watchdogProcess.ProcessName -notmatch '^powershell$' -or [int]$watchdogProcess.SessionId -ne 0) {
+              throw 'NEW_HEADLESS_WATCHDOG_NOT_ALIVE'
             }
 
-            $allAgentProcesses = @(Get-CimInstance Win32_Process -ErrorAction Stop | Where-Object {
-              $_.Name -match '^node(\.exe)?$' -and
-              $_.CommandLine -and $_.CommandLine.IndexOf($runtimeAgentFull,[StringComparison]::OrdinalIgnoreCase) -ge 0
+            $allSessionZeroAgents = @(Get-CimInstance Win32_Process -ErrorAction Stop | Where-Object {
+              $_.Name -match '^node(\.exe)?$' -and [int]$_.SessionId -eq 0 -and
+              [int]$_.ParentProcessId -eq $newWatchdogPid
             })
-            if ($allAgentProcesses.Count -ne 1) { throw "A6_AGENT_SINGLETON_COUNT=$($allAgentProcesses.Count)" }
+            if ($allSessionZeroAgents.Count -ne 1 -or [int]$allSessionZeroAgents[0].ProcessId -ne $agentProcess.Id) {
+              throw "A6_NEW_WATCHDOG_AGENT_CHILD_COUNT=$($allSessionZeroAgents.Count)"
+            }
 
             Write-Host "A6_AGENT_SESSION_ID=$actualSessionId"
             Write-Host "A6_AGENT_PID=$($agentProcess.Id)"
-            Write-Host "A6_AGENT_OWNER=$actualOwner"
+            Write-Host "A6_WATCHDOG_PID=$newWatchdogPid"
             Write-Host 'A6_HEADLESS_AGENT_CONTEXT=PASS'
 
             # Start the measured window only after the first v2 remote gateway ACK.
