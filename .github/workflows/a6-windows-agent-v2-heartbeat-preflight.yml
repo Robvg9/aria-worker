@@ -74,6 +74,10 @@ jobs:
           }
 
           try {
+            # This workflow must only touch the ROBVG device; other Windows runners must exit before any runtime write.
+            if ([string]$env:COMPUTERNAME -ine 'ROBVG') { throw "A6_RUNNER_HOST_MISMATCH expected=ROBVG actual=$env:COMPUTERNAME" }
+            Write-Host "A6_RUNNER_HOST=ROBVG"
+
             # Self-hosted checkouts are reused; older workflows may have left sparse-checkout enabled.
             # Materialize the tracked source tree before touching the Windows runtime.
             if (-not (Test-Path -LiteralPath $agentSource -PathType Leaf) -or
