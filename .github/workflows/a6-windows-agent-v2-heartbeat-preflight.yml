@@ -249,33 +249,6 @@ jobs:
             Write-Host "A6_AGENT_OWNER=$actualOwner"
             Write-Host 'A6_HEADLESS_AGENT_CONTEXT=PASS'
 
-            $agentProcess = $null
-            $startupDeadline = (Get-Date).AddSeconds(60)
-            while ((Get-Date) -lt $startupDeadline) {
-              if (Test-Path -LiteralPath $agentPidPath) {
-                $pidValue = 0
-                if ([int]::TryParse((Get-Content -Raw -LiteralPath $agentPidPath).Trim(),[ref]$pidValue) -and $pidValue -gt 0) {
-                  $candidate = Get-Process -Id $pidValue -ErrorAction SilentlyContinue
-                  if ($candidate -and $candidate.ProcessName -match '^node' -and [int]$candidate.SessionId -gt 0) {
-                    $agentProcess = $candidate
-                    break
-                  }
-                }
-              }
-              Start-Sleep -Seconds 2
-            }
-            if (-not $agentProcess) { throw 'INTERACTIVE_AGENT_NOT_STARTED_IN_USER_SESSION' }
-
-            $agentCim = Get-CimInstance Win32_Process -Filter "ProcessId=$($agentProcess.Id)" -ErrorAction Stop
-            $owner = Invoke-CimMethod -InputObject $agentCim -MethodName GetOwner -ErrorAction Stop
-            $actualOwner = "$($owner.Domain)\$($owner.User)"
-            if ($owner.ReturnValue -ne 0 -or $actualOwner -ine $interactiveUser) {
-              throw "AGENT_OWNER_MISMATCH expected=$interactiveUser actual=$actualOwner"
-            }
-            Write-Host "A6_AGENT_SESSION_ID=$($agentProcess.SessionId)"
-            Write-Host "A6_AGENT_PID=$($agentProcess.Id)"
-            Write-Host 'A6_AGENT_CONTEXT=INTERACTIVE=PASS'
-
             # Start the measured window only after the first v2 remote gateway ACK.
             $firstAck = $null
             $ackDeadline = (Get-Date).AddMinutes(2)
