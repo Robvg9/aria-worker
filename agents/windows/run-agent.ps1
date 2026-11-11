@@ -120,7 +120,8 @@ while ($true) {
         $env:ARIA_AGENT_HEARTBEAT_PATH = $HeartbeatPath
         $env:ARIA_DEVICE_GATEWAY_URL = [string]$config.gateway_url
         if (Test-Path $HeartbeatPath) { Remove-Item -Path $HeartbeatPath -Force -ErrorAction SilentlyContinue }
-        if ($config.heartbeat_ms) { $env:ARIA_HEARTBEAT_MS = [string]$config.heartbeat_ms }
+        # A6's 90-second freshness fence requires a fixed 30-second Windows heartbeat, including legacy config.json files.
+        $env:ARIA_HEARTBEAT_MS = '30000'
         if ($config.poll_ms) { $env:ARIA_POLL_MS = [string]$config.poll_ms }
         if ($config.gateway_timeout_ms) { $env:ARIA_GATEWAY_TIMEOUT_MS = [string]$config.gateway_timeout_ms }
         if ($config.gateway_retries) { $env:ARIA_GATEWAY_RETRIES = [string]$config.gateway_retries }
