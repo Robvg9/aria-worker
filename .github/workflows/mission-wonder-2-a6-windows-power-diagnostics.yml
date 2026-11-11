@@ -1,0 +1,146 @@
+name: Mission Wonder 2 A6 Windows Power Diagnostics
+
+on:
+  pull_request:
+    paths:
+      - 'agents/windows/aria-agent.js'
+      - 'agents/windows/run-agent.ps1'
+      - 'agents/windows/install-v2.ps1'
+      - '.github/workflows/mission-wonder-2-a6-windows-power-diagnostics.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mission-wonder-2-a6-windows-power-diagnostics
+  cancel-in-progress: false
+
+jobs:
+  diagnostics:
+    name: Read-only Windows power and heartbeat evidence
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 8
+    steps:
+      - name: Capture local power, watchdog and heartbeat evidence
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $now = Get-Date
+          $start = $now.AddDays(-2)
+          $root = 'D:\ARIA-Windows-Agent'
+          $logs = Join-Path $root 'Logs'
+          $heartbeatPath = Join-Path $logs 'agent-heartbeat.json'
+          $statusPath = Join-Path $logs 'status.json'
+          $watchdogPath = Join-Path $logs 'watchdog.log'
+
+          $heartbeat = $null
+          if (Test-Path -LiteralPath $heartbeatPath) {
+            try {
+              $raw = Get-Content -Raw -LiteralPath $heartbeatPath | ConvertFrom-Json
+              $heartbeat = [ordered]@{
+                version = $raw.version
+                timestamp = $raw.timestamp
+                network = $raw.network
+                last_gateway_heartbeat_at = $raw.last_gateway_heartbeat_at
+                last_gateway_heartbeat_error = $raw.last_gateway_heartbeat_error
+                file_last_write_utc = (Get-Item -LiteralPath $heartbeatPath).LastWriteTimeUtc.ToString('o')
+              }
+            } catch { $heartbeat = @{ read_error = $_.Exception.Message } }
+          }
+
+          $watchdogStatus = $null
+          if (Test-Path -LiteralPath $statusPath) {
+            try { $watchdogStatus = Get-Content -Raw -LiteralPath $statusPath | ConvertFrom-Json } catch {}
+          }
+
+          $taskInfo = $null
+          try {
+            $task = Get-ScheduledTask -TaskName 'ARIA-Windows-Local-Agent' -ErrorAction Stop
+            $info = Get-ScheduledTaskInfo -TaskName 'ARIA-Windows-Local-Agent' -ErrorAction Stop
+            $taskInfo = [ordered]@{
+              state = [string]$task.State
+              last_run_time = $info.LastRunTime.ToString('o')
+              last_task_result = $info.LastTaskResult
+              next_run_time = $info.NextRunTime.ToString('o')
+            }
+          } catch { $taskInfo = @{ read_error = $_.Exception.Message } }
+
+          $powerEvents = @()
+          try {
+            $powerEvents = @(Get-WinEvent -FilterHashtable @{ LogName='System'; StartTime=$start } -ErrorAction Stop |
+              Where-Object {
+                ($_.ProviderName -match 'Kernel-Power|Power-Troubleshooter|User32|EventLog') -and
+                ($_.Id -in 1,12,13,41,42,107,506,507,6005,6006,6008)
+              } |
+              Sort-Object TimeCreated -Descending |
+              Select-Object -First 120 |
+              ForEach-Object {
+                [ordered]@{
+                  time = $_.TimeCreated.ToUniversalTime().ToString('o')
+                  provider = $_.ProviderName
+                  id = $_.Id
+                  level = $_.LevelDisplayName
+                  message = ([string]$_.Message).Substring(0,[Math]::Min(1200,([string]$_.Message).Length))
+                }
+              })
+          } catch { $powerEvents = @(@{ read_error = $_.Exception.Message }) }
+
+          $powerRequests = (& powercfg.exe /requests 2>&1 | Out-String)
+          $sleepPlan = (& powercfg.exe /query SCHEME_CURRENT SUB_SLEEP 2>&1 | Out-String)
+          $os = Get-CimInstance Win32_OperatingSystem -ErrorAction SilentlyContinue
+          $system = [ordered]@{
+            computer_name = $env:COMPUTERNAME
+            user_name = [string](Get-CimInstance Win32_ComputerSystem -ErrorAction SilentlyContinue).UserName
+            last_boot_utc = if ($os) { $os.LastBootUpTime.ToUniversalTime().ToString('o') } else { $null }
+            captured_at_utc = $now.ToUniversalTime().ToString('o')
+            runner_name = $env:RUNNER_NAME
+            runner_labels = $env:RUNNER_LABELS
+          }
+
+          $processes = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+            Where-Object {
+              ($_.Name -match '^(node|powershell)(\.exe)?$') -and
+              ($_.CommandLine -match 'aria-agent\.js|run-agent\.ps1')
+            } |
+            Select-Object ProcessId,ParentProcessId,Name,CreationDate)
+
+          $watchdogTail = @()
+          if (Test-Path -LiteralPath $watchdogPath) {
+            $watchdogTail = @(Get-Content -LiteralPath $watchdogPath -Tail 100 -ErrorAction SilentlyContinue)
+          }
+
+          $report = [ordered]@{
+            classification = 'READ_ONLY_DIAGNOSTICS'
+            window_start_utc = $start.ToUniversalTime().ToString('o')
+            system = $system
+            device_heartbeat = $heartbeat
+            watchdog_status = $watchdogStatus
+            scheduled_task = $taskInfo
+            relevant_power_events = $powerEvents
+            active_processes = $processes
+            powercfg_requests = $powerRequests
+            active_sleep_plan = $sleepPlan
+            watchdog_log_tail = $watchdogTail
+          }
+
+          $outDir = Join-Path $env:RUNNER_TEMP 'a6-windows-power-diagnostics'
+          New-Item -ItemType Directory -Force -Path $outDir | Out-Null
+          $reportPath = Join-Path $outDir 'a6-windows-power-diagnostics.json'
+          $report | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $reportPath -Encoding UTF8
+
+          Write-Host "DIAGNOSTIC_CLASSIFICATION=READ_ONLY"
+          Write-Host "COMPUTER=$($system.computer_name)"
+          Write-Host "LAST_BOOT_UTC=$($system.last_boot_utc)"
+          Write-Host "AGENT_HEARTBEAT_FILE_PRESENT=$(Test-Path -LiteralPath $heartbeatPath)"
+          Write-Host "SCHEDULED_TASK_STATE=$($taskInfo.state)"
+          Write-Host "POWER_EVENT_COUNT=$($powerEvents.Count)"
+          Write-Host "ACTIVE_AGENT_PROCESS_COUNT=$($processes.Count)"
+          Write-Host "DIAGNOSTIC_REPORT=$reportPath"
+
+      - name: Upload Windows diagnostics
+        uses: actions/upload-artifact@v4
+        with:
+          name: mission-wonder-2-a6-windows-power-diagnostics-${{ github.sha }}
+          path: ${{ runner.temp }}/a6-windows-power-diagnostics/a6-windows-power-diagnostics.json
+          if-no-files-found: error
+          retention-days: 14
