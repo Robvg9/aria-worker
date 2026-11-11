@@ -24,7 +24,7 @@ jobs:
   diagnostics:
     name: Read-only Windows power and heartbeat evidence
     runs-on: [self-hosted, Windows, X64]
-    timeout-minutes: 8
+    timeout-minutes: 3
     steps:
       - name: Capture local power, watchdog and heartbeat evidence
         run: |
@@ -121,7 +121,12 @@ jobs:
           Write-Host 'A6DIAG_STEP=WATCHDOG_LOG_START'
           $watchdogTail = @()
           if (Test-Path -LiteralPath $watchdogPath) {
-            $watchdogTail = @(Get-Content -LiteralPath $watchdogPath -Tail 100 -ErrorAction SilentlyContinue)
+            $watchdogLogBytes = (Get-Item -LiteralPath $watchdogPath).Length
+            if ($watchdogLogBytes -le 10485760) {
+              $watchdogTail = @(Get-Content -LiteralPath $watchdogPath -Tail 100 -ErrorAction SilentlyContinue)
+            } else {
+              $watchdogTail = @("WATCHDOG_LOG_SKIPPED_TOO_LARGE_BYTES=$watchdogLogBytes")
+            }
           }
 
           Write-Host 'A6DIAG_STEP=REPORT_WRITE_START'
