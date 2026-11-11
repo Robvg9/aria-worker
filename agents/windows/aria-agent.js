@@ -12,7 +12,8 @@ const { executeWindowsDesktop } = (() => {
   catch (error) { if (error?.code !== 'MODULE_NOT_FOUND') throw error; return require('../../computer-use/windows-desktop-adapter'); }
 })();
 const GATEWAY_URL=process.env.ARIA_DEVICE_GATEWAY_URL, DEVICE_TOKEN=process.env.ARIA_DEVICE_TOKEN, DEVICE_ID=process.env.ARIA_DEVICE_ID;
-const HEARTBEAT_MS=Math.max(30_000,Number(process.env.ARIA_HEARTBEAT_MS||30_000)), POLL_MS=Math.max(5_000,Number(process.env.ARIA_POLL_MS||12_000));
+// Keep the A6 device heartbeat capped at 30 seconds even when a legacy config.json still says 60000.
+const HEARTBEAT_MS=30_000, POLL_MS=Math.max(5_000,Number(process.env.ARIA_POLL_MS||12_000));
 const GATEWAY_TIMEOUT_MS=Math.max(3_000,Number(process.env.ARIA_GATEWAY_TIMEOUT_MS||15_000)), GATEWAY_RETRIES=Math.max(0,Number(process.env.ARIA_GATEWAY_RETRIES||1));
 const OLLAMA_URL=process.env.ARIA_OLLAMA_URL||'http://127.0.0.1:11434', OLLAMA_MODEL=process.env.ARIA_OLLAMA_MODEL||'qwen3:0.6b', OLLAMA_OPERATION='ollama.qwen3', SHELL_OPERATION='shell.execute', COMPUTER_OPERATION='computer.use', AUTONOMOUS_COMPUTER_OPERATION='computer.use.autonomous';
 const RESOURCE_PROFILE=getWindowsResourceProfile();
