@@ -18,7 +18,7 @@ defaults:
 
 concurrency:
   group: mission-wonder-2-a6-windows-power-diagnostics
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   diagnostics:
