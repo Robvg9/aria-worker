@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import { spawnSync } from "node:child_process";
 
 const agent = fs.readFileSync("agents/windows/aria-agent.js", "utf8");
 const installer = fs.readFileSync("agents/windows/install-v2.ps1", "utf8");
 const watchdog = fs.readFileSync("agents/windows/run-agent.ps1", "utf8");
+const syntax = spawnSync(process.execPath, ["--check", "agents/windows/aria-agent.js"], { encoding: "utf8" });
+assert.equal(syntax.status, 0, syntax.stderr || syntax.stdout || "Windows agent JavaScript syntax check failed");
 
 // The 90-second A6 freshness threshold needs a 30-second producer cadence,
 // leaving room for one delayed/failed request without consuming the full budget.
