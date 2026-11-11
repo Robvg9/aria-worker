@@ -1,0 +1,125 @@
+name: A6 Windows Runtime Read-Only Host Discovery
+
+on:
+  push:
+    branches:
+      - ops/a6-windows-agent-v2-heartbeat-preflight-v1
+    paths:
+      - '.github/workflows/a6-windows-runtime-readonly-discovery.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  discover:
+    name: Read-only ARIA Windows runtime discovery
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    defaults:
+      run:
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+    steps:
+      - name: Inspect ARIA process, task, config shape and heartbeat state
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $runtimeRoot = 'D:\ARIA-Windows-Agent'
+          $logRoot = Join-Path $runtimeRoot 'Logs'
+          $configPath = Join-Path $runtimeRoot 'Data\config.json'
+          $tokenPath = Join-Path $runtimeRoot 'Data\device-token.dpapi'
+          $heartbeatPath = Join-Path $logRoot 'agent-heartbeat.json'
+          $statusPath = Join-Path $logRoot 'status.json'
+          $watchdogLog = Join-Path $logRoot 'watchdog.log'
+
+          Write-Host 'A6_READONLY_DISCOVERY=START'
+          Write-Host "HOST=$env:COMPUTERNAME"
+          Write-Host "RUNNER_IDENTITY=$([Security.Principal.WindowsIdentity]::GetCurrent().Name)"
+
+          foreach ($p in @($configPath,$tokenPath,$heartbeatPath,$statusPath,$watchdogLog)) {
+            if (Test-Path -LiteralPath $p -PathType Leaf) {
+              $f = Get-Item -LiteralPath $p
+              Write-Host "FILE_PRESENT=$($f.Name) SIZE=$($f.Length) MODIFIED_UTC=$($f.LastWriteTimeUtc.ToString('o'))"
+            } else {
+              Write-Host "FILE_MISSING=$p"
+            }
+          }
+
+          if (Test-Path -LiteralPath $configPath) {
+            try {
+              $cfg = Get-Content -Raw -LiteralPath $configPath | ConvertFrom-Json
+              Write-Host "CONFIG_DEVICE_ID=$($cfg.device_id)"
+              Write-Host "CONFIG_GATEWAY_URL=$($cfg.gateway_url)"
+              Write-Host "CONFIG_NODE_PATH=$($cfg.node_path)"
+              Write-Host "CONFIG_HEARTBEAT_MS=$($cfg.heartbeat_ms)"
+              Write-Host "CONFIG_OLLAMA_ENABLED=$($cfg.ollama_enabled)"
+              Write-Host "CONFIG_CAPABILITIES=$(@($cfg.capabilities) -join ',')"
+            } catch { Write-Host "CONFIG_READ_ERROR=$($_.Exception.Message)" }
+          }
+
+          if (Test-Path -LiteralPath $heartbeatPath) {
+            try {
+              $hb = Get-Content -Raw -LiteralPath $heartbeatPath | ConvertFrom-Json
+              Write-Host "HEARTBEAT_VERSION=$($hb.version)"
+              Write-Host "HEARTBEAT_TIMESTAMP=$($hb.timestamp)"
+              Write-Host "HEARTBEAT_DEVICE_ID=$($hb.device_id)"
+              Write-Host "HEARTBEAT_NETWORK=$($hb.network)"
+              Write-Host "HEARTBEAT_REMOTE_ACK=$($hb.last_gateway_heartbeat_at)"
+              if ($null -ne $hb.last_gateway_heartbeat_error) {
+                Write-Host "HEARTBEAT_REMOTE_ERROR_CODE=$($hb.last_gateway_heartbeat_error.code)"
+                Write-Host "HEARTBEAT_REMOTE_ERROR_STATUS=$($hb.last_gateway_heartbeat_error.status)"
+                Write-Host "HEARTBEAT_REMOTE_ERROR_MESSAGE=$($hb.last_gateway_heartbeat_error.message)"
+              } else { Write-Host 'HEARTBEAT_REMOTE_ERROR=none' }
+            } catch { Write-Host "HEARTBEAT_READ_ERROR=$($_.Exception.Message)" }
+          }
+
+          if (Test-Path -LiteralPath $statusPath) {
+            try {
+              $st = Get-Content -Raw -LiteralPath $statusPath | ConvertFrom-Json
+              Write-Host "STATUS_UPDATED_AT=$($st.updated_at)"
+              Write-Host "STATUS_STATE=$($st.state)"
+              Write-Host "STATUS_WATCHDOG_PID=$($st.watchdog_pid)"
+              Write-Host "STATUS_AGENT_PID=$($st.agent_pid)"
+              Write-Host "STATUS_ERROR=$($st.error)"
+            } catch { Write-Host "STATUS_READ_ERROR=$($_.Exception.Message)" }
+          }
+
+          $procs = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue)
+          $ariaProcs = @($procs | Where-Object {
+            $_.CommandLine -and (
+              $_.CommandLine -match '(?i)aria-agent\.js|run-agent\.ps1|ARIA-Windows-Agent'
+            )
+          })
+          Write-Host "ARIA_MATCHING_PROCESS_COUNT=$($ariaProcs.Count)"
+          foreach ($p in $ariaProcs) {
+            $owner = Invoke-CimMethod -InputObject $p -MethodName GetOwner -ErrorAction SilentlyContinue
+            $ownerName = if ($owner.ReturnValue -eq 0) { "$($owner.Domain)\$($owner.User)" } else { 'unavailable' }
+            $cmd = [string]$p.CommandLine
+            $cmd = $cmd -replace '(?i)(token|secret|password)(=|:)\S+','$1$2[redacted]'
+            Write-Host "ARIA_PROCESS PID=$($p.ProcessId) NAME=$($p.Name) SESSION=$($p.SessionId) OWNER=$ownerName CMD=$cmd"
+          }
+
+          try {
+            $tasks = @(Get-ScheduledTask -ErrorAction Stop | Where-Object {
+              $_.TaskName -match '(?i)ARIA|Windows-Local-Agent' -or $_.TaskPath -match '(?i)ARIA'
+            })
+            Write-Host "ARIA_SCHEDULED_TASK_COUNT=$($tasks.Count)"
+            foreach ($t in $tasks) {
+              $info = Get-ScheduledTaskInfo -TaskName $t.TaskName -TaskPath $t.TaskPath -ErrorAction SilentlyContinue
+              $execs = @($t.Actions | ForEach-Object { "$($_.Execute) $($_.Arguments)" }) -join ' ; '
+              Write-Host "ARIA_TASK PATH=$($t.TaskPath) NAME=$($t.TaskName) STATE=$($t.State) USER=$($t.Principal.UserId) LOGON=$($t.Principal.LogonType) LAST_RESULT=$($info.LastTaskResult) LAST_RUN=$($info.LastRunTime) ACTION=$execs"
+            }
+          } catch { Write-Host "ARIA_TASK_ENUM_ERROR=$($_.Exception.Message)" }
+
+          if (Test-Path -LiteralPath $watchdogLog) {
+            Write-Host 'WATCHDOG_LOG_TAIL_BEGIN'
+            Get-Content -LiteralPath $watchdogLog -Tail 40 -ErrorAction SilentlyContinue |
+              ForEach-Object {
+                $line = [string]$_
+                if ($line -match '(?i)token|secret|password|authorization|bearer') {
+                  $line = $line -replace '(?i)(token|secret|password|authorization|bearer)\S*.*','$1 [redacted]'
+                }
+                Write-Host $line
+              }
+            Write-Host 'WATCHDOG_LOG_TAIL_END'
+          }
+
+          Write-Host 'A6_READONLY_DISCOVERY=PASS'
