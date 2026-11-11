@@ -132,8 +132,9 @@ jobs:
             }
 
             # Heartbeat-only preflight must never enable or invoke local Ollama.
-            $config.heartbeat_ms = 30000
-            $config.ollama_enabled = $false
+            # Older config.json files may not declare these properties yet.
+            Add-Member -InputObject $config -MemberType NoteProperty -Name 'heartbeat_ms' -Value 30000 -Force
+            Add-Member -InputObject $config -MemberType NoteProperty -Name 'ollama_enabled' -Value $false -Force
             if ($null -ne $config.capabilities) {
               $config.capabilities = @($config.capabilities | Where-Object { [string]$_ -ne 'ollama.qwen3' })
             }
