@@ -5,6 +5,7 @@ import { spawnSync } from "node:child_process";
 const agent = fs.readFileSync("agents/windows/aria-agent.js", "utf8");
 const installer = fs.readFileSync("agents/windows/install-v2.ps1", "utf8");
 const watchdog = fs.readFileSync("agents/windows/run-agent.ps1", "utf8");
+const runtimeUpdater = fs.readFileSync("agents/windows/update-runtime-v3.ps1", "utf8");
 const syntax = spawnSync(process.execPath, ["--check", "agents/windows/aria-agent.js"], { encoding: "utf8" });
 assert.equal(syntax.status, 0, syntax.stderr || syntax.stdout || "Windows agent JavaScript syntax check failed");
 
@@ -25,6 +26,9 @@ assert.ok(agent.includes("const deadline=setTimeout(()=>req.destroy(new Error('g
 // This makes the next interruption diagnosable without treating WAN loss as
 // a reason to kill/restart a healthy Windows agent.
 assert.match(agent, /aria-windows-agent-heartbeat-v2/);
+assert.match(runtimeUpdater, /\$payload\.version -eq 'aria-windows-agent-heartbeat-v2'/);
+assert.match(runtimeUpdater, /ARIA_PROCESS_HEARTBEAT_V2=PASS/);
+assert.doesNotMatch(runtimeUpdater, /aria-windows-agent-heartbeat-v1/);
 assert.match(agent, /last_gateway_heartbeat_at/);
 assert.match(agent, /last_gateway_heartbeat_error/);
 assert.match(agent, /lastGatewayHeartbeatAt=new Date\(\)\.toISOString\(\)/);
