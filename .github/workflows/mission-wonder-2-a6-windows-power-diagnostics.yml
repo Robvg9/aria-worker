@@ -1,7 +1,9 @@
 name: Mission Wonder 2 A6 Windows Power Diagnostics
 
 on:
-  pull_request:
+  push:
+    branches:
+      - fix/mission-wonder-2-a6-windows-heartbeat-continuity-v1
     paths:
       - 'agents/windows/aria-agent.js'
       - 'agents/windows/run-agent.ps1'
