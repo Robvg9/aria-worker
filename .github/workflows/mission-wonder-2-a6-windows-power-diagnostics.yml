@@ -25,7 +25,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Capture bounded local heartbeat and power snapshot
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         run: |
           $ErrorActionPreference = 'Continue'
           $root = 'D:\ARIA-Windows-Agent'
@@ -134,7 +134,7 @@ jobs:
           Write-Host 'A6DIAG_RUNTIME_SNAPSHOT=PASS'
 
       - name: Collect bounded Windows power events
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         run: |
           $ErrorActionPreference = 'Continue'
           $outDir = Join-Path $env:RUNNER_TEMP 'a6-windows-power-diagnostics'
@@ -155,7 +155,7 @@ jobs:
           Write-Host 'A6DIAG_POWER_EVENTS_CAPTURE=FINISHED'
 
       - name: Stage bounded diagnostics for upload
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         run: |
           $ErrorActionPreference = 'Stop'
           $source = Join-Path $env:RUNNER_TEMP 'a6-windows-power-diagnostics'
