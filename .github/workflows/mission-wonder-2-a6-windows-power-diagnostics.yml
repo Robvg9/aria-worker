@@ -30,6 +30,25 @@ jobs:
         run: |
           $ErrorActionPreference = 'Continue'
           $now = Get-Date
+          function Invoke-BoundedNativeCommand([string]$FilePath,[string[]]$Arguments,[int]$TimeoutMs=5000) {
+            $base = Join-Path $env:RUNNER_TEMP ([guid]::NewGuid().ToString('N'))
+            $stdoutPath = $base + '.out'
+            $stderrPath = $base + '.err'
+            try {
+              $proc = Start-Process -FilePath $FilePath -ArgumentList ($Arguments -join ' ') -PassThru -WindowStyle Hidden -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath
+              if (-not $proc.WaitForExit($TimeoutMs)) {
+                Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+                return ('TIMED_OUT_AFTER_MS=' + $TimeoutMs)
+              }
+              $stdout = if (Test-Path -LiteralPath $stdoutPath) { Get-Content -Raw -LiteralPath $stdoutPath } else { '' }
+              $stderr = if (Test-Path -LiteralPath $stderrPath) { Get-Content -Raw -LiteralPath $stderrPath } else { '' }
+              return ('EXIT_CODE=' + $proc.ExitCode + "`nSTDOUT=" + $stdout + "`nSTDERR=" + $stderr)
+            } catch {
+              return ('COMMAND_ERROR=' + $_.Exception.Message)
+            } finally {
+              Remove-Item -LiteralPath $stdoutPath,$stderrPath -Force -ErrorAction SilentlyContinue
+            }
+          }
           $start = $now.AddDays(-1)
           $root = 'D:\ARIA-Windows-Agent'
           $logs = Join-Path $root 'Logs'
@@ -37,6 +56,7 @@ jobs:
           $statusPath = Join-Path $logs 'status.json'
           $watchdogPath = Join-Path $logs 'watchdog.log'
 
+          Write-Host 'A6DIAG_STEP=HEARTBEAT_FILE_START'
           $heartbeat = $null
           if (Test-Path -LiteralPath $heartbeatPath) {
             try {
@@ -52,13 +72,16 @@ jobs:
             } catch { $heartbeat = @{ read_error = $_.Exception.Message } }
           }
 
+          Write-Host 'A6DIAG_STEP=WATCHDOG_STATUS_START'
           $watchdogStatus = $null
           if (Test-Path -LiteralPath $statusPath) {
             try { $watchdogStatus = Get-Content -Raw -LiteralPath $statusPath | ConvertFrom-Json } catch {}
           }
 
-          $taskInfo = (& schtasks.exe /query /TN 'ARIA-Windows-Local-Agent' /FO LIST /V 2>&1 | Out-String)
+          Write-Host 'A6DIAG_STEP=SCHEDULED_TASK_START'
+          $taskInfo = Invoke-BoundedNativeCommand -FilePath (Join-Path $env:WINDIR 'System32\schtasks.exe') -Arguments @('/query','/TN','ARIA-Windows-Local-Agent','/FO','LIST') -TimeoutMs 5000
 
+          Write-Host 'A6DIAG_STEP=POWER_EVENTS_START'
           $powerEvents = 'NOT_COLLECTED'
           try {
             $eventOut = Join-Path $env:RUNNER_TEMP 'a6-power-events.txt'
@@ -78,8 +101,10 @@ jobs:
             }
           } catch { $powerEvents = 'WEVTUTIL_ERROR=' + $_.Exception.Message }
 
-          $powerRequests = (& powercfg.exe /requests 2>&1 | Out-String)
-          $sleepPlan = (& powercfg.exe /query SCHEME_CURRENT SUB_SLEEP 2>&1 | Out-String)
+          Write-Host 'A6DIAG_STEP=POWERCFG_REQUESTS_START'
+          $powerRequests = Invoke-BoundedNativeCommand -FilePath (Join-Path $env:WINDIR 'System32\powercfg.exe') -Arguments @('/requests') -TimeoutMs 5000
+          Write-Host 'A6DIAG_STEP=POWERCFG_SLEEP_PLAN_START'
+          $sleepPlan = Invoke-BoundedNativeCommand -FilePath (Join-Path $env:WINDIR 'System32\powercfg.exe') -Arguments @('/query','SCHEME_CURRENT','SUB_SLEEP') -TimeoutMs 5000
           $system = [ordered]@{
             computer_name = $env:COMPUTERNAME
             user_name = $env:USERNAME
@@ -89,14 +114,17 @@ jobs:
             runner_arch = $env:RUNNER_ARCH
           }
 
+          Write-Host 'A6DIAG_STEP=PROCESS_SNAPSHOT_START'
           $processes = @(Get-Process -Name node,powershell -ErrorAction SilentlyContinue |
             Select-Object Id,ProcessName,SessionId)
 
+          Write-Host 'A6DIAG_STEP=WATCHDOG_LOG_START'
           $watchdogTail = @()
           if (Test-Path -LiteralPath $watchdogPath) {
             $watchdogTail = @(Get-Content -LiteralPath $watchdogPath -Tail 100 -ErrorAction SilentlyContinue)
           }
 
+          Write-Host 'A6DIAG_STEP=REPORT_WRITE_START'
           $report = [ordered]@{
             classification = 'READ_ONLY_DIAGNOSTICS'
             window_start_utc = $start.ToUniversalTime().ToString('o')
@@ -118,9 +146,9 @@ jobs:
 
           Write-Host "DIAGNOSTIC_CLASSIFICATION=READ_ONLY"
           Write-Host "COMPUTER=$($system.computer_name)"
-          Write-Host "LAST_BOOT_UTC=$($system.last_boot_utc)"
+          Write-Host "RUNNER_NAME=$($system.runner_name)"
           Write-Host "AGENT_HEARTBEAT_FILE_PRESENT=$(Test-Path -LiteralPath $heartbeatPath)"
-          Write-Host "SCHEDULED_TASK_STATE=$($taskInfo.state)"
+          Write-Host "SCHEDULED_TASK_QUERY=$($taskInfo.Substring(0,[Math]::Min(300,$taskInfo.Length)))"
           Write-Host "POWER_EVENT_COUNT=$($powerEvents.Count)"
           Write-Host "ACTIVE_AGENT_PROCESS_COUNT=$($processes.Count)"
           Write-Host "DIAGNOSTIC_REPORT=$reportPath"
