@@ -110,17 +110,19 @@ jobs:
           $incidentStart = [DateTimeOffset]::Parse('2026-11-12T06:20:00Z')
           $incidentEnd = [DateTimeOffset]::Parse('2026-11-12T06:28:00Z')
           $incidentEvents = @()
-          foreach ($logName in @('System','Microsoft-Windows-TaskScheduler/Operational')) {
+          foreach ($logName in @('System','Microsoft-Windows-NetworkProfile/Operational','Microsoft-Windows-NDIS/Operational','Microsoft-Windows-TaskScheduler/Operational')) {
             try {
               $events = @(Get-WinEvent -FilterHashtable @{
                 LogName=$logName
                 StartTime=$incidentStart.LocalDateTime
                 EndTime=$incidentEnd.LocalDateTime
-              } -ErrorAction Stop | Where-Object {
-                $_.Id -in @(1,12,13,41,42,107,109,100,102,106,129,200,201,203,6005,6006,6008)
-              } | Select-Object -First 120)
+              } -ErrorAction Stop | Select-Object -First 300)
               foreach ($event in $events) {
                 $message = [string]$event.Message
+                $isNetworkRelevant = $logName -ne 'System' -or
+                  $event.ProviderName -match 'rt640x64|NDIS|Tcpip|Network|Kernel-PnP|Kernel-Power' -or
+                  $event.Id -in @(27,32,41,10400,10401,4201,4202,5002,5005,5007,6008)
+                if (-not $isNetworkRelevant) { continue }
                 $message = $message -replace '(?i)Bearer\s+[^\s]+','Bearer [REDACTED]'
                 $message = $message -replace '(?i)(token|secret|password|authorization)(\s*[:=]\s*|\s+)[^\s;]+','$1$2[REDACTED]'
                 $incidentEvents += @{
@@ -129,7 +131,7 @@ jobs:
                   provider=[string]$event.ProviderName
                   event_id=[int]$event.Id
                   level=[string]$event.LevelDisplayName
-                  message=$message.Substring(0,[Math]::Min(800,$message.Length))
+                  message=$message.Substring(0,[Math]::Min(1000,$message.Length))
                 }
               }
             } catch {
@@ -139,10 +141,53 @@ jobs:
             }
           }
 
+          $networkAdapters = @()
+          try {
+            $networkAdapters = @(Get-CimInstance Win32_NetworkAdapter -ErrorAction Stop |
+              Where-Object { $_.Name -match 'Realtek|PCIe FE' } |
+              Select-Object Name,Manufacturer,NetEnabled,NetConnectionStatus,Speed,PNPDeviceID,ConfigManagerErrorCode)
+          } catch {
+            $networkAdapters = @(@{ query_error=$_.Exception.GetType().Name; message=$_.Exception.Message })
+          }
+          $networkDrivers = @()
+          try {
+            $networkDrivers = @(Get-CimInstance Win32_PnPSignedDriver -ErrorAction Stop |
+              Where-Object { $_.DeviceName -match 'Realtek|PCIe FE' } |
+              Select-Object DeviceName,DriverVersion,DriverDate,DriverProviderName,InfName,IsSigned)
+          } catch {
+            $networkDrivers = @(@{ query_error=$_.Exception.GetType().Name; message=$_.Exception.Message })
+          }
+          $networkPowerManagement = @()
+          try {
+            if (Get-Command Get-NetAdapterPowerManagement -ErrorAction SilentlyContinue) {
+              $networkPowerManagement = @(Get-NetAdapterPowerManagement -Name '*' -ErrorAction Stop |
+                Where-Object { $_.Name -match 'Realtek|Ethernet' } |
+                Select-Object Name,AllowComputerToTurnOffDevice,SelectiveSuspend,DeviceSleepOnDisconnect,WakeOnMagicPacket,WakeOnPattern)
+            } else {
+              $networkPowerManagement = @(@{ unavailable='Get-NetAdapterPowerManagement cmdlet not present' })
+            }
+          } catch {
+            $networkPowerManagement = @(@{ query_error=$_.Exception.GetType().Name; message=$_.Exception.Message })
+          }
+          $networkAdvancedProperties = @()
+          try {
+            if (Get-Command Get-NetAdapterAdvancedProperty -ErrorAction SilentlyContinue) {
+              $networkAdvancedProperties = @(Get-NetAdapterAdvancedProperty -Name '*' -ErrorAction Stop |
+                Where-Object { $_.Name -match 'Realtek|Ethernet' -and $_.DisplayName -match 'Power|Energy|Green|EEE|Speed|Suspend' } |
+                Select-Object Name,DisplayName,DisplayValue,RegistryKeyword)
+            }
+          } catch {
+            $networkAdvancedProperties = @(@{ query_error=$_.Exception.GetType().Name; message=$_.Exception.Message })
+          }
+
           $watchdogIncidentLines = @()
           $watchdogLog = Join-Path $logs 'watchdog.log'
-          if (Test-Path -LiteralPath $watchdogLog -PathType Leaf) {
+          $watchdogLogInfo = @{ exists=(Test-Path -LiteralPath $watchdogLog -PathType Leaf) }
+          if ($watchdogLogInfo.exists) {
             try {
+              $watchdogItem = Get-Item -LiteralPath $watchdogLog
+              $watchdogLogInfo.size_bytes=[long]$watchdogItem.Length
+              $watchdogLogInfo.last_write_utc=$watchdogItem.LastWriteTimeUtc.ToString('o')
               $watchdogIncidentLines = @(Get-Content -LiteralPath $watchdogLog -Tail 12000 |
                 ForEach-Object {
                   $line = [string]$_
@@ -166,8 +211,6 @@ jobs:
           try {
             $powerSettings += '--- POWER PLAN / SLEEP ---'
             $powerSettings += @(& powercfg.exe /query SCHEME_CURRENT SUB_SLEEP 2>&1 | Select-Object -First 100 | ForEach-Object { [string]$_ })
-            $powerSettings += '--- POWER REQUESTS ---'
-            $powerSettings += @(& powercfg.exe /requests 2>&1 | Select-Object -First 80 | ForEach-Object { [string]$_ })
           } catch {
             $powerSettings += 'POWERCFG_READ_FAILED:' + $_.Exception.GetType().Name
           }
@@ -223,6 +266,11 @@ jobs:
             incident_window_utc=@($incidentStart.ToString('o'),$incidentEnd.ToString('o'))
             power_settings=@($powerSettings)
             operating_system=$osBoot
+            network_adapters=@($networkAdapters)
+            network_drivers=@($networkDrivers)
+            network_power_management=@($networkPowerManagement)
+            network_advanced_properties=@($networkAdvancedProperties)
+            watchdog_log_info=$watchdogLogInfo
             restrictions=@('NO_RUNTIME_WRITES','NO_CONFIG_CHANGES','NO_PROCESS_RESTARTS','NO_TASK_CHANGES','NO_GATEWAY_CALLS','NO_MISSIONS_OR_JOBS')
           }
           $result | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $out -Encoding UTF8
@@ -231,6 +279,8 @@ jobs:
           Write-Host "A6_AGENT_PID_FILE=$agentPid"
           Write-Host "A6_WATCHDOG_PID_FILE=$watchdogPid"
           Write-Host 'A6_READ_ONLY_CAPTURE=PASS'
+          $global:LASTEXITCODE = 0
+          exit 0
 
       - name: Upload sanitized read-only evidence
         if: always()
