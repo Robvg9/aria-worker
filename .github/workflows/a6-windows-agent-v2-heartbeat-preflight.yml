@@ -17,8 +17,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: a6-windows-agent-readonly-diagnostic
-  cancel-in-progress: true
+  group: a6-windows-agent-v2-host-install-and-qualification
+  cancel-in-progress: false
 
 jobs:
   read-only-diagnostic:
