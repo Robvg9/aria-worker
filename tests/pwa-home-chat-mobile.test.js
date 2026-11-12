@@ -53,7 +53,7 @@ test('mobile Chat compacts chrome while retaining a dedicated message-history sc
 });
 
 test('Chat opens and returns to the latest restored or newly appended message', () => {
-  const start = app.indexOf('// Always open the active conversation at its newest message.');
+  const start = app.indexOf('// Pin the active conversation to its newest message after history restore,');
   assert.ok(start >= 0, 'latest-message scroll effect must be documented');
   const end = app.indexOf('\n\n  useEffect(() => {', start + 10);
   assert.ok(end > start, 'latest-message scroll effect must be bounded');
