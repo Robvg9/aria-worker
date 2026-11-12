@@ -36,6 +36,27 @@ jobs:
           $watchdogPidPath = Join-Path $logDir 'watchdog.pid'
           $resultPath = Join-Path $env:GITHUB_WORKSPACE 'a6-windows-readonly-diagnostic.json'
           $capturedAt = [DateTimeOffset]::UtcNow
+          function Read-SharedTextFile {
+            param([Parameter(Mandatory=$true)][string]$Path, [int]$Attempts = 12, [int]$DelayMs = 200)
+            $lastError = $null
+            for ($attempt = 1; $attempt -le $Attempts; $attempt++) {
+              $stream = $null
+              $reader = $null
+              try {
+                $share = [System.IO.FileShare]::ReadWrite -bor [System.IO.FileShare]::Delete
+                $stream = [System.IO.FileStream]::new($Path, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, $share)
+                $reader = [System.IO.StreamReader]::new($stream, [System.Text.Encoding]::UTF8, $true)
+                return $reader.ReadToEnd()
+              } catch {
+                $lastError = $_
+                if ($attempt -lt $Attempts) { Start-Sleep -Milliseconds $DelayMs }
+              } finally {
+                if ($reader) { $reader.Dispose() } elseif ($stream) { $stream.Dispose() }
+              }
+            }
+            throw $lastError
+          }
+
           $result = [ordered]@{
             status = 'BLOCKED'
             reason = ''
@@ -73,24 +94,28 @@ jobs:
             }
 
             if (Test-Path -LiteralPath $heartbeatPath -PathType Leaf) {
-              $rawHeartbeat = Get-Content -Raw -LiteralPath $heartbeatPath
-              $hb = $rawHeartbeat | ConvertFrom-Json
-              $heartbeatFile = Get-Item -LiteralPath $heartbeatPath
-              $heartbeatTimestamp = $null
-              $ackTimestamp = $null
-              if ($hb.timestamp) { $heartbeatTimestamp = [DateTimeOffset]::Parse([string]$hb.timestamp).ToUniversalTime().ToString('o') }
-              if ($hb.last_gateway_heartbeat_at) { $ackTimestamp = [DateTimeOffset]::Parse([string]$hb.last_gateway_heartbeat_at).ToUniversalTime().ToString('o') }
-              $result.heartbeat = [ordered]@{
-                schema_version = [string]$hb.version
-                fields = @($hb.PSObject.Properties.Name | Sort-Object)
-                device_id = [string]$hb.device_id
-                process_heartbeat_at_utc = $heartbeatTimestamp
-                gateway_ack_at_utc = $ackTimestamp
-                has_gateway_error = ($null -ne $hb.last_gateway_heartbeat_error)
-                file_last_write_utc = $heartbeatFile.LastWriteTimeUtc.ToString('o')
-                file_sha256 = (Get-FileHash -LiteralPath $heartbeatPath -Algorithm SHA256).Hash
-                age_ms = [long]([DateTimeOffset]::UtcNow - $heartbeatFile.LastWriteTimeUtc).TotalMilliseconds
-              }
+              try {
+                $rawHeartbeat = Read-SharedTextFile -Path $heartbeatPath
+                $hb = $rawHeartbeat | ConvertFrom-Json
+                $heartbeatFile = Get-Item -LiteralPath $heartbeatPath
+                $heartbeatTimestamp = $null
+                $ackTimestamp = $null
+                if ($hb.timestamp) { $heartbeatTimestamp = [DateTimeOffset]::Parse([string]$hb.timestamp).ToUniversalTime().ToString('o') }
+                if ($hb.last_gateway_heartbeat_at) { $ackTimestamp = [DateTimeOffset]::Parse([string]$hb.last_gateway_heartbeat_at).ToUniversalTime().ToString('o') }
+                $sha = [Security.Cryptography.SHA256]::Create()
+                try { $heartbeatHash = [BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($rawHeartbeat))).Replace('-', '') } finally { $sha.Dispose() }
+                $result.heartbeat = [ordered]@{
+                  schema_version = [string]$hb.version
+                  fields = @($hb.PSObject.Properties.Name | Sort-Object)
+                  device_id = [string]$hb.device_id
+                  process_heartbeat_at_utc = $heartbeatTimestamp
+                  gateway_ack_at_utc = $ackTimestamp
+                  has_gateway_error = ($null -ne $hb.last_gateway_heartbeat_error)
+                  file_last_write_utc = $heartbeatFile.LastWriteTimeUtc.ToString('o')
+                  file_sha256 = $heartbeatHash
+                  age_ms = [long]([DateTimeOffset]::UtcNow - $heartbeatFile.LastWriteTimeUtc).TotalMilliseconds
+                }
+              } catch { $result.heartbeat_read_error = [string]$_.Exception.Message }
             }
 
             $agentPid = $null
@@ -130,39 +155,44 @@ jobs:
             for ($sampleIndex = 0; $sampleIndex -lt 24; $sampleIndex++) {
               $sampleAt = [DateTimeOffset]::UtcNow
               if (Test-Path -LiteralPath $heartbeatPath -PathType Leaf) {
-                $sampleRaw = Get-Content -Raw -LiteralPath $heartbeatPath
-                $sampleHb = $sampleRaw | ConvertFrom-Json
-                $sampleFile = Get-Item -LiteralPath $heartbeatPath
-                $processAt = $null
-                $ackAt = $null
-                $processAtText = $null
-                $ackAtText = $null
-                $processAgeMs = $null
-                $ackAgeMs = $null
-                if ($sampleHb.timestamp) {
-                  $processAt = [DateTimeOffset]::Parse([string]$sampleHb.timestamp).ToUniversalTime()
-                  $processAtText = $processAt.ToString('o')
-                  $processAgeMs = [long]($sampleAt - $processAt).TotalMilliseconds
+                try {
+                  $sampleRaw = Read-SharedTextFile -Path $heartbeatPath -Attempts 6 -DelayMs 150
+                  $sampleHb = $sampleRaw | ConvertFrom-Json
+                  $sampleFile = Get-Item -LiteralPath $heartbeatPath
+                  $processAt = $null
+                  $ackAt = $null
+                  $processAtText = $null
+                  $ackAtText = $null
+                  $processAgeMs = $null
+                  $ackAgeMs = $null
+                  if ($sampleHb.timestamp) {
+                    $processAt = [DateTimeOffset]::Parse([string]$sampleHb.timestamp).ToUniversalTime()
+                    $processAtText = $processAt.ToString('o')
+                    $processAgeMs = [long]($sampleAt - $processAt).TotalMilliseconds
+                  }
+                  if ($sampleHb.last_gateway_heartbeat_at) {
+                    $ackAt = [DateTimeOffset]::Parse([string]$sampleHb.last_gateway_heartbeat_at).ToUniversalTime()
+                    $ackAtText = $ackAt.ToString('o')
+                    $ackAgeMs = [long]($sampleAt - $ackAt).TotalMilliseconds
+                    if ($ackTimes.Count -eq 0 -or $ackAt -gt $ackTimes[$ackTimes.Count - 1]) { $ackTimes.Add($ackAt) }
+                  }
+                  $sha = [Security.Cryptography.SHA256]::Create()
+                  try { $sampleHash = [BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($sampleRaw))).Replace('-', '') } finally { $sha.Dispose() }
+                  $samples.Add([ordered]@{
+                    sampled_at_utc = $sampleAt.ToString('o')
+                    schema_version = [string]$sampleHb.version
+                    device_id = [string]$sampleHb.device_id
+                    process_heartbeat_at_utc = $processAtText
+                    gateway_ack_at_utc = $ackAtText
+                    process_heartbeat_age_ms = $processAgeMs
+                    gateway_ack_age_ms = $ackAgeMs
+                    has_gateway_error = ($null -ne $sampleHb.last_gateway_heartbeat_error)
+                    file_last_write_utc = $sampleFile.LastWriteTimeUtc.ToString('o')
+                    file_sha256 = $sampleHash
+                  })
+                } catch {
+                  $samples.Add([ordered]@{ sampled_at_utc = $sampleAt.ToString('o'); read_error = [string]$_.Exception.Message })
                 }
-                if ($sampleHb.last_gateway_heartbeat_at) {
-                  $ackAt = [DateTimeOffset]::Parse([string]$sampleHb.last_gateway_heartbeat_at).ToUniversalTime()
-                  $ackAtText = $ackAt.ToString('o')
-                  $ackAgeMs = [long]($sampleAt - $ackAt).TotalMilliseconds
-                  if ($ackTimes.Count -eq 0 -or $ackAt -gt $ackTimes[$ackTimes.Count - 1]) { $ackTimes.Add($ackAt) }
-                }
-                $sampleHash = (Get-FileHash -LiteralPath $heartbeatPath -Algorithm SHA256).Hash
-                $samples.Add([ordered]@{
-                  sampled_at_utc = $sampleAt.ToString('o')
-                  schema_version = [string]$sampleHb.version
-                  device_id = [string]$sampleHb.device_id
-                  process_heartbeat_at_utc = $processAtText
-                  gateway_ack_at_utc = $ackAtText
-                  process_heartbeat_age_ms = $processAgeMs
-                  gateway_ack_age_ms = $ackAgeMs
-                  has_gateway_error = ($null -ne $sampleHb.last_gateway_heartbeat_error)
-                  file_last_write_utc = $sampleFile.LastWriteTimeUtc.ToString('o')
-                  file_sha256 = $sampleHash
-                })
               } else {
                 $samples.Add([ordered]@{ sampled_at_utc = $sampleAt.ToString('o'); missing = $true })
               }
