@@ -10,12 +10,32 @@ function Materialize-ExactGitBlob {
   param([string]$RelativePath,[string]$DestinationPath,[string]$ExpectedBlob)
   $parent = Split-Path -Parent $DestinationPath
   New-Item -ItemType Directory -Force -Path $parent | Out-Null
-  $native = 'git -C "' + $repoRoot + '" show "HEAD:' + $RelativePath + '" > "' + $DestinationPath + '"'
-  & $env:ComSpec /d /c $native
-  $nativeExit = $LASTEXITCODE
-  if ($nativeExit -ne 0 -or -not (Test-Path -LiteralPath $DestinationPath -PathType Leaf)) {
-    throw "A6_GIT_BLOB_MATERIALIZATION_FAILED=$RelativePath"
+  $gitExe = (Get-Command git.exe -ErrorAction Stop).Source
+  $startInfo = New-Object System.Diagnostics.ProcessStartInfo
+  $startInfo.FileName = $gitExe
+  $startInfo.Arguments = '-C "' + $repoRoot + '" cat-file blob ' + $ExpectedBlob
+  $startInfo.WorkingDirectory = $repoRoot
+  $startInfo.UseShellExecute = $false
+  $startInfo.CreateNoWindow = $true
+  $startInfo.RedirectStandardOutput = $true
+  $startInfo.RedirectStandardError = $true
+  $process = New-Object System.Diagnostics.Process
+  $process.StartInfo = $startInfo
+  if (-not $process.Start()) { throw "A6_GIT_BLOB_PROCESS_START_FAILED=$RelativePath" }
+  $outputFile = $null
+  try {
+    $outputFile = [System.IO.File]::Open($DestinationPath,[System.IO.FileMode]::Create,[System.IO.FileAccess]::Write,[System.IO.FileShare]::None)
+    $process.StandardOutput.BaseStream.CopyTo($outputFile)
+    $outputFile.Flush()
+  } finally {
+    if ($outputFile) { $outputFile.Dispose() }
   }
+  $process.WaitForExit()
+  $processError = $process.StandardError.ReadToEnd()
+  if ($process.ExitCode -ne 0 -or -not (Test-Path -LiteralPath $DestinationPath -PathType Leaf)) {
+    throw "A6_GIT_BLOB_MATERIALIZATION_FAILED=$RelativePath exit=$($process.ExitCode) stderr=$processError"
+  }
+  $process.Dispose()
   $workingBlob = (& git -C $repoRoot hash-object --path $RelativePath $DestinationPath 2>$null)
   if ($LASTEXITCODE -ne 0 -or [string]$workingBlob -ne [string]$ExpectedBlob) {
     throw "A6_GIT_BLOB_HASH_MISMATCH=$RelativePath"
