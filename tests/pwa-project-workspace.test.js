@@ -431,6 +431,10 @@ assert.match(css,/\.globalPageFrame\.keyboardOpen \.bottomNav\{display:none!impo
 assert.match(css,/\.globalPageFrame\.keyboardOpen>\.appShell\{padding-bottom:[^}]*!important;?\}/,'chat and project viewports must reclaim the nav reserve while the keyboard is open');
 assert.match(css,/\.projectShell\{[^}]*display:flex[^}]*flex-direction:column[^}]*height:100%[^}]*min-height:0[^}]*overflow:hidden/,'project shell must have a bounded column layout');
 assert.match(css,/\.projectBodyViewport\{[^}]*overflow-x:hidden;overflow-y:auto/,'project body must be the single vertical scroll owner');
+assert.match(project,/projectBodyViewportChat/,'project Chat must explicitly select its own scroll layout');
+assert.match(css,/\.projectBodyViewportChat\{overflow:hidden!important;display:flex;flex-direction:column/,'project Chat outer viewport must not scroll');
+assert.match(css,/\.projectBodyViewportChat>\.chatPanel>\.projectChatWindow\{[^}]*overflow-y:auto/,'project messages must own vertical scrolling while the composer stays outside that scroller');
+assert.match(css,/\.projectBodyViewportChat>\.chatPanel>\.composer\{flex:0 0 auto/,'project composer must remain fixed below the message list');
 assert.match(project,/projectSummary/,'project hero must use the compact description instead of the long technical context');
 assert.match(project,/<details className='projectContextDetails'>/,'full project context must remain available in a collapsed details section');
 assert.match(project,/\{project\.context\}/,'collapsing project context must not discard its source information');
