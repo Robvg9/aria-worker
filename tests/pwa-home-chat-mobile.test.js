@@ -6,6 +6,9 @@ const path = require('node:path');
 const root = process.cwd();
 const app = fs.readFileSync(path.join(root, 'pwa/src/App.tsx'), 'utf8');
 const css = fs.readFileSync(path.join(root, 'pwa/src/index.css'), 'utf8');
+const mobileCssStart = css.lastIndexOf('/* 2026-11-12 — compact Android layout');
+assert.ok(mobileCssStart >= 0, 'mobile compact layout block must exist');
+const mobileCss = css.slice(mobileCssStart);
 
 test('mobile Dashboard keeps all content reachable inside its own vertical scroller', () => {
   assert.match(css, /\.homeEssential\{[\s\S]*?overflow-x:hidden;[\s\S]*?overflow-y:auto;/);
