@@ -1,4 +1,4 @@
-name: A6 Windows Agent v2 Update and 15m Heartbeat Preflight
+name: A6 Windows Agent Read-Only Diagnostic
 
 on:
   push:
@@ -11,370 +11,156 @@ permissions:
   contents: read
 
 concurrency:
-  group: a6-windows-agent-v2-heartbeat-preflight
+  group: a6-windows-agent-readonly-diagnostic
   cancel-in-progress: true
 
 jobs:
-  update-and-observe:
-    if: false # Safety hold: prevent host mutation until explicit approval.
-    name: Update only ARIA Windows agent and observe gateway ACKs
+  read-only-diagnostic:
+    name: Read Windows agent state without changing runtime
     runs-on: [self-hosted, Windows, X64]
-    timeout-minutes: 24
+    timeout-minutes: 5
     defaults:
       run:
         shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
     steps:
-      - name: Checkout exact source
+      - name: Checkout diagnostic definition
         uses: actions/checkout@v4
 
-      - name: Replace Session 0 agent with interactive v2 and observe 15 minutes
+      - name: Capture read-only Windows agent evidence
         run: |
           $ErrorActionPreference = 'Stop'
-          $ProgressPreference = 'SilentlyContinue'
           $expectedDevice = 'windows-fe722cc6681e4f9c9cc35f5ebbb0a089'
           $runtimeRoot = 'D:\ARIA-Windows-Agent'
-          $runtimeDir = Join-Path $runtimeRoot 'Runtime\windows'
           $logDir = Join-Path $runtimeRoot 'Logs'
           $dataDir = Join-Path $runtimeRoot 'Data'
           $configPath = Join-Path $dataDir 'config.json'
-          $agentSource = Join-Path $env:GITHUB_WORKSPACE 'agents\windows\aria-agent.js'
-          $watchdogSource = Join-Path $env:GITHUB_WORKSPACE 'agents\windows\run-agent.ps1'
-          $agentTarget = Join-Path $runtimeDir 'aria-agent.js'
-          $watchdogTarget = Join-Path $runtimeDir 'run-agent.ps1'
           $heartbeatPath = Join-Path $logDir 'agent-heartbeat.json'
           $agentPidPath = Join-Path $logDir 'agent.pid'
-          $taskName = 'ARIA-Windows-Local-Agent'
-          $startedAt = [DateTimeOffset]::UtcNow
-          $samples = [System.Collections.Generic.List[object]]::new()
-          $ackTimes = [System.Collections.Generic.List[DateTimeOffset]]::new()
-          $transportErrors = 0
-          $maxAckAgeMs = 0
-          $maxProcessHeartbeatAgeMs = 0
-          $maxAckGapMs = 0
-          $resultPath = Join-Path $env:GITHUB_WORKSPACE 'a6-windows-heartbeat-preflight.json'
-          $backupDir = Join-Path $runtimeRoot ('Backups\a6-heartbeat-v2-' + (Get-Date).ToUniversalTime().ToString('yyyyMMdd-HHmmss'))
-
-          function Write-Result([string]$Status, [string]$Reason) {
-            $payload = [ordered]@{
-              status = $Status
-              reason = $Reason
-              device_id = $expectedDevice
-              source_sha = $env:GITHUB_SHA
-              captured_at_utc = [DateTimeOffset]::UtcNow.ToString('o')
-              operation_started_at_utc = $startedAt.ToString('o')
-              measured_window_minutes = 15
-              sample_count = $samples.Count
-              distinct_gateway_ack_count = $ackTimes.Count
-              max_consecutive_gateway_ack_gap_ms = $maxAckGapMs
-              max_gateway_ack_age_ms = $maxAckAgeMs
-              max_process_heartbeat_age_ms = $maxProcessHeartbeatAgeMs
-              transport_error_samples = $transportErrors
-              samples = @($samples.ToArray())
-            }
-            $payload | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $resultPath -Encoding UTF8
+          $watchdogPidPath = Join-Path $logDir 'watchdog.pid'
+          $resultPath = Join-Path $env:GITHUB_WORKSPACE 'a6-windows-readonly-diagnostic.json'
+          $capturedAt = [DateTimeOffset]::UtcNow
+          $result = [ordered]@{
+            status = 'BLOCKED'
+            reason = ''
+            host = [string]$env:COMPUTERNAME
+            expected_host = 'ROBVG'
+            device_id_expected = $expectedDevice
+            captured_at_utc = $capturedAt.ToString('o')
+            runtime_root_exists = Test-Path -LiteralPath $runtimeRoot -PathType Container
+            config = $null
+            heartbeat = $null
+            pid_files = $null
+            processes = @()
+            scheduled_task = $null
+            ollama_process_count = 0
           }
 
           try {
-            # This workflow must only touch the ROBVG device; other Windows runners must exit before any runtime write.
-            if ([string]$env:COMPUTERNAME -ine 'ROBVG') { throw "A6_RUNNER_HOST_MISMATCH expected=ROBVG actual=$env:COMPUTERNAME" }
-            Write-Host "A6_RUNNER_HOST=ROBVG"
-
-            # Self-hosted checkouts are reused; older workflows may have left sparse-checkout enabled.
-            # Materialize the tracked source tree before touching the Windows runtime.
-            if (-not (Test-Path -LiteralPath $agentSource -PathType Leaf) -or
-                -not (Test-Path -LiteralPath $watchdogSource -PathType Leaf)) {
-              $repoRoot = [string]$env:GITHUB_WORKSPACE
-              $sparseState = (& git -C $repoRoot config --get core.sparsecheckout 2>$null | Out-String).Trim()
-              Write-Host "A6_SPARSE_CHECKOUT_STATE=$sparseState"
-              if ($sparseState -match '^(?i)true$') {
-                Write-Host 'A6_SPARSE_CHECKOUT_SELF_HEAL=START'
-                & git -C $repoRoot sparse-checkout disable
-                if ($LASTEXITCODE -ne 0) { throw "SPARSE_CHECKOUT_DISABLE_FAILED=$LASTEXITCODE" }
-                Write-Host 'A6_SPARSE_CHECKOUT_SELF_HEAL=PASS'
-              }
-            }
-            if (-not (Test-Path -LiteralPath $agentSource -PathType Leaf) -or
-                -not (Test-Path -LiteralPath $watchdogSource -PathType Leaf)) {
-              throw 'OFFICIAL_AGENT_SOURCE_STILL_MISSING_AFTER_SPARSE_CHECKOUT_SELF_HEAL'
-            }
-            foreach ($p in @($agentSource,$watchdogSource,$configPath)) {
-              if (-not (Test-Path -LiteralPath $p -PathType Leaf)) { throw "REQUIRED_SOURCE_OR_CONFIG_MISSING=$p" }
-            }
-            foreach ($d in @($runtimeRoot,$runtimeDir,$logDir,$dataDir,$backupDir)) {
-              New-Item -ItemType Directory -Force -Path $d | Out-Null
+            if ([string]$env:COMPUTERNAME -ine 'ROBVG') {
+              throw "A6_RUNNER_HOST_MISMATCH expected=ROBVG actual=$env:COMPUTERNAME"
             }
 
-            $config = Get-Content -Raw -LiteralPath $configPath | ConvertFrom-Json
-            if ([string]$config.device_id -ne $expectedDevice) { throw 'DEVICE_ID_MISMATCH' }
-
-            # A6 is restricted to shell.execute markers; no interactive desktop is needed.
-            # Record the runner service identity so the headless agent can be checked against it.
-            $runnerCim = Get-CimInstance Win32_Process -Filter "ProcessId=$PID" -ErrorAction Stop
-            $runnerOwner = Invoke-CimMethod -InputObject $runnerCim -MethodName GetOwner -ErrorAction Stop
-            if ($runnerOwner.ReturnValue -ne 0 -or [string]::IsNullOrWhiteSpace([string]$runnerOwner.User)) {
-              throw 'RUNNER_SERVICE_IDENTITY_UNAVAILABLE'
-            }
-            $runnerIdentity = "$($runnerOwner.Domain)\$($runnerOwner.User)"
-
-            $nodePath = [string]$config.node_path
-            if (-not (Test-Path -LiteralPath $nodePath -PathType Leaf)) { throw 'CONFIGURED_NODE_PATH_MISSING' }
-            $nodeVersion = (& $nodePath --version 2>&1 | Out-String).Trim()
-            if ($LASTEXITCODE -ne 0 -or $nodeVersion -notmatch '^v(20|2[1-9]|[3-9][0-9])\.') {
-              throw "NODE_VERSION_UNSUPPORTED=$nodeVersion"
-            }
-
-            # Back up only the two runtime scripts and non-secret config. Never copy token material.
-            foreach ($path in @($agentTarget,$watchdogTarget,$configPath)) {
-              if (Test-Path -LiteralPath $path -PathType Leaf) {
-                Copy-Item -LiteralPath $path -Destination (Join-Path $backupDir ([IO.Path]::GetFileName($path))) -Force
+            if (Test-Path -LiteralPath $configPath -PathType Leaf) {
+              $cfg = Get-Content -Raw -LiteralPath $configPath | ConvertFrom-Json
+              $result.config = [ordered]@{
+                device_id = [string]$cfg.device_id
+                node_path = [string]$cfg.node_path
+                heartbeat_ms = $cfg.heartbeat_ms
+                ollama_enabled = $cfg.ollama_enabled
+                capabilities = @($cfg.capabilities | ForEach-Object { [string]$_ })
+                last_write_utc = (Get-Item -LiteralPath $configPath).LastWriteTimeUtc.ToString('o')
+                sha256 = (Get-FileHash -LiteralPath $configPath -Algorithm SHA256).Hash
               }
             }
 
-            Copy-Item -LiteralPath $agentSource -Destination $agentTarget -Force
-            Copy-Item -LiteralPath $watchdogSource -Destination $watchdogTarget -Force
-            $agentHash = (Get-FileHash -LiteralPath $agentTarget -Algorithm SHA256).Hash
-            $watchdogHash = (Get-FileHash -LiteralPath $watchdogTarget -Algorithm SHA256).Hash
-            if ($agentHash -ne (Get-FileHash -LiteralPath $agentSource -Algorithm SHA256).Hash -or
-                $watchdogHash -ne (Get-FileHash -LiteralPath $watchdogSource -Algorithm SHA256).Hash) {
-              throw 'RUNTIME_FILE_SHA256_MISMATCH'
-            }
-
-            # Heartbeat-only preflight must never enable or invoke local Ollama.
-            # Older config.json files may not declare these properties yet.
-            Add-Member -InputObject $config -MemberType NoteProperty -Name 'heartbeat_ms' -Value 30000 -Force
-            Add-Member -InputObject $config -MemberType NoteProperty -Name 'ollama_enabled' -Value $false -Force
-            if ($null -ne $config.capabilities) {
-              $config.capabilities = @($config.capabilities | Where-Object { [string]$_ -ne 'ollama.qwen3' })
-            }
-            $config | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $configPath -Encoding UTF8
-            $configReadback = Get-Content -Raw -LiteralPath $configPath | ConvertFrom-Json
-            if ([int]$configReadback.heartbeat_ms -ne 30000 -or $configReadback.ollama_enabled -ne $false) {
-              throw 'HEARTBEAT_OR_OLLAMA_CONFIG_READBACK_FAILED'
-            }
-
-            Write-Host "A6_DEVICE=$expectedDevice"
-            Write-Host "A6_RUNNER_IDENTITY=$runnerIdentity"
-            Write-Host 'A6_EXECUTION_MODE=HEADLESS_SESSION0'
-            Write-Host "A6_NODE_VERSION=$nodeVersion"
-            Write-Host "A6_AGENT_SHA256=$agentHash"
-            Write-Host "A6_WATCHDOG_SHA256=$watchdogHash"
-            Write-Host 'A6_HEARTBEAT_INTERVAL_MS=30000'
-            Write-Host 'A6_LOCAL_OLLAMA_ENABLED=false'
-
-            # Confirm the current watchdog/agent pair using the device-owned PID files.
-            # Do not terminate protected processes from NetworkService. Use the watchdog's
-            # own kill-request interface to restart only its Node child from the updated v2 file.
-            $oldAgentPid = 0
-            $oldWatchdogPid = 0
-            if (-not (Test-Path -LiteralPath $agentPidPath) -or
-                -not [int]::TryParse((Get-Content -Raw -LiteralPath $agentPidPath).Trim(),[ref]$oldAgentPid) -or $oldAgentPid -le 0) {
-              throw 'LEGACY_AGENT_PID_FILE_INVALID'
-            }
-            $watchdogPidPath = Join-Path $logDir 'watchdog.pid'
-            if (-not (Test-Path -LiteralPath $watchdogPidPath) -or
-                -not [int]::TryParse((Get-Content -Raw -LiteralPath $watchdogPidPath).Trim(),[ref]$oldWatchdogPid) -or $oldWatchdogPid -le 0) {
-              throw 'LEGACY_WATCHDOG_PID_FILE_INVALID'
-            }
-
-            $oldWatchdog = Get-Process -Id $oldWatchdogPid -ErrorAction SilentlyContinue
-            $oldAgent = Get-Process -Id $oldAgentPid -ErrorAction SilentlyContinue
-            if (-not $oldWatchdog -or $oldWatchdog.ProcessName -notmatch '^powershell$' -or [int]$oldWatchdog.SessionId -ne 0) {
-              throw 'LEGACY_WATCHDOG_PROCESS_IDENTITY_MISMATCH'
-            }
-            if (-not $oldAgent -or $oldAgent.ProcessName -notmatch '^node$' -or [int]$oldAgent.SessionId -ne 0) {
-              throw 'LEGACY_AGENT_PROCESS_IDENTITY_MISMATCH'
-            }
-
-            $oldAgentCim = Get-CimInstance Win32_Process -Filter "ProcessId=$oldAgentPid" -ErrorAction Stop
-            if ([int]$oldAgentCim.ParentProcessId -ne $oldWatchdogPid) {
-              throw "LEGACY_AGENT_PARENT_MISMATCH expected=$oldWatchdogPid actual=$($oldAgentCim.ParentProcessId)"
-            }
-
-            $legacyHeartbeat = Get-Content -Raw -LiteralPath $heartbeatPath | ConvertFrom-Json
-            if ($legacyHeartbeat.device_id -ne $expectedDevice) { throw 'LEGACY_HEARTBEAT_DEVICE_MISMATCH' }
-            $legacyHeartbeatAgeMs = [long]([DateTimeOffset]::UtcNow - [DateTimeOffset]::Parse([string]$legacyHeartbeat.timestamp).ToUniversalTime()).TotalMilliseconds
-            if ($legacyHeartbeatAgeMs -lt 0 -or $legacyHeartbeatAgeMs -gt 90000) {
-              throw "LEGACY_HEARTBEAT_FILE_NOT_FRESH_MS=$legacyHeartbeatAgeMs"
-            }
-
-            $killRequestPath = Join-Path $logDir 'kill-request'
-            if (Test-Path -LiteralPath $killRequestPath) { throw 'ARIA_KILL_REQUEST_ALREADY_PRESENT' }
-
-            Write-Host "A6_LEGACY_AGENT_PID=$oldAgentPid"
-            Write-Host "A6_LEGACY_WATCHDOG_PID=$oldWatchdogPid"
-            Write-Host "A6_LEGACY_AGENT_PARENT=$($oldAgentCim.ParentProcessId)"
-            Write-Host "A6_LEGACY_HEARTBEAT_AGE_MS=$legacyHeartbeatAgeMs"
-            Set-Content -LiteralPath $killRequestPath -Value 'A6_HEARTBEAT_V2_ROTATION' -Encoding ASCII -NoNewline
-            if (-not (Test-Path -LiteralPath $killRequestPath)) { throw 'A6_KILL_REQUEST_WRITE_VERIFY_FAILED' }
-            Write-Host 'A6_WATCHDOG_MEDIATED_RESTART=REQUESTED'
-
-            # The existing watchdog owns its child and can stop it without elevating the runner.
-            # It will then relaunch the Node source now staged at the canonical runtime path.
-            $agentProcess = $null
-            $agentCim = $null
-            $newAgentPid = 0
-            $watchdogFilePid = 0
-            $startupDeadline = (Get-Date).AddSeconds(75)
-            while ((Get-Date) -lt $startupDeadline) {
-              if (Test-Path -LiteralPath $watchdogPidPath) {
-                [void][int]::TryParse((Get-Content -Raw -LiteralPath $watchdogPidPath).Trim(),[ref]$watchdogFilePid)
+            if (Test-Path -LiteralPath $heartbeatPath -PathType Leaf) {
+              $rawHeartbeat = Get-Content -Raw -LiteralPath $heartbeatPath
+              $hb = $rawHeartbeat | ConvertFrom-Json
+              $heartbeatFile = Get-Item -LiteralPath $heartbeatPath
+              $heartbeatTimestamp = $null
+              $ackTimestamp = $null
+              if ($hb.timestamp) { $heartbeatTimestamp = [DateTimeOffset]::Parse([string]$hb.timestamp).ToUniversalTime().ToString('o') }
+              if ($hb.last_gateway_heartbeat_at) { $ackTimestamp = [DateTimeOffset]::Parse([string]$hb.last_gateway_heartbeat_at).ToUniversalTime().ToString('o') }
+              $result.heartbeat = [ordered]@{
+                schema_version = [string]$hb.version
+                fields = @($hb.PSObject.Properties.Name | Sort-Object)
+                device_id = [string]$hb.device_id
+                process_heartbeat_at_utc = $heartbeatTimestamp
+                gateway_ack_at_utc = $ackTimestamp
+                has_gateway_error = ($null -ne $hb.last_gateway_heartbeat_error)
+                file_last_write_utc = $heartbeatFile.LastWriteTimeUtc.ToString('o')
+                file_sha256 = (Get-FileHash -LiteralPath $heartbeatPath -Algorithm SHA256).Hash
+                age_ms = [long]([DateTimeOffset]::UtcNow - $heartbeatFile.LastWriteTimeUtc).TotalMilliseconds
               }
-              if ($watchdogFilePid -ne $oldWatchdogPid) { throw 'WATCHDOG_PID_CHANGED_DURING_CHILD_ROTATION' }
-
-              $agentFilePid = 0
-              if (Test-Path -LiteralPath $agentPidPath) {
-                [void][int]::TryParse((Get-Content -Raw -LiteralPath $agentPidPath).Trim(),[ref]$agentFilePid)
-              }
-              if ($agentFilePid -gt 0 -and $agentFilePid -ne $oldAgentPid) {
-                $candidate = Get-Process -Id $agentFilePid -ErrorAction SilentlyContinue
-                if ($candidate -and $candidate.ProcessName -match '^node$' -and [int]$candidate.SessionId -eq 0) {
-                  $candidateCim = Get-CimInstance Win32_Process -Filter "ProcessId=$agentFilePid" -ErrorAction SilentlyContinue
-                  if ($candidateCim -and [int]$candidateCim.ParentProcessId -eq $oldWatchdogPid) {
-                    $agentProcess = $candidate
-                    $agentCim = $candidateCim
-                    $newAgentPid = $agentFilePid
-                    break
-                  }
-                }
-              }
-              Start-Sleep -Seconds 2
-            }
-            if (-not $agentProcess -or -not $agentCim) { throw 'WATCHDOG_DID_NOT_RELAUNCH_AGENT_AS_NEW_CHILD' }
-
-            $newWatchdogPid = $oldWatchdogPid
-            $watchdogProcess = Get-Process -Id $newWatchdogPid -ErrorAction SilentlyContinue
-            if (-not $watchdogProcess -or $watchdogProcess.ProcessName -notmatch '^powershell$' -or [int]$watchdogProcess.SessionId -ne 0) {
-              throw 'EXISTING_HEADLESS_WATCHDOG_NOT_ALIVE_AFTER_RESTART'
             }
 
-            $allSessionZeroAgents = @(Get-CimInstance Win32_Process -ErrorAction Stop | Where-Object {
-              $_.Name -match '^node(\.exe)?$' -and [int]$_.SessionId -eq 0 -and
-              [int]$_.ParentProcessId -eq $newWatchdogPid
-            })
-            if ($allSessionZeroAgents.Count -ne 1 -or [int]$allSessionZeroAgents[0].ProcessId -ne $newAgentPid) {
-              throw "A6_WATCHDOG_AGENT_CHILD_COUNT=$($allSessionZeroAgents.Count)"
+            $agentPid = $null
+            $watchdogPid = $null
+            if (Test-Path -LiteralPath $agentPidPath -PathType Leaf) {
+              $agentPid = (Get-Content -Raw -LiteralPath $agentPidPath).Trim()
+            }
+            if (Test-Path -LiteralPath $watchdogPidPath -PathType Leaf) {
+              $watchdogPid = (Get-Content -Raw -LiteralPath $watchdogPidPath).Trim()
+            }
+            $result.pid_files = [ordered]@{ agent_pid = $agentPid; watchdog_pid = $watchdogPid }
+
+            $allProcesses = @(Get-CimInstance Win32_Process -ErrorAction Stop)
+            foreach ($proc in $allProcesses | Where-Object { $_.Name -match '^(node|powershell|pwsh|ollama)(\.exe)?$' }) {
+              $session = $null
+              $owner = $null
+              try { $session = [int]$proc.SessionId } catch {}
+              try {
+                $ownerResult = Invoke-CimMethod -InputObject $proc -MethodName GetOwner -ErrorAction Stop
+                if ($ownerResult.ReturnValue -eq 0) { $owner = "$($ownerResult.Domain)\$($ownerResult.User)" }
+              } catch {}
+              $result.processes += [ordered]@{
+                pid = [int]$proc.ProcessId
+                parent_pid = [int]$proc.ParentProcessId
+                name = [string]$proc.Name
+                session_id = $session
+                owner = $owner
+                executable_path = [string]$proc.ExecutablePath
+              }
+            }
+            $result.ollama_process_count = @($result.processes | Where-Object { $_.name -match '^ollama(\.exe)?$' }).Count
+
+            try {
+              $task = Get-ScheduledTask -TaskName 'ARIA-Windows-Local-Agent' -ErrorAction Stop
+              $taskInfo = Get-ScheduledTaskInfo -TaskName 'ARIA-Windows-Local-Agent' -ErrorAction Stop
+              $result.scheduled_task = [ordered]@{
+                state = [string]$task.State
+                task_path = [string]$task.TaskPath
+                last_run_time = $taskInfo.LastRunTime.ToString('o')
+                last_task_result = [int]$taskInfo.LastTaskResult
+              }
+            } catch {
+              $result.scheduled_task = [ordered]@{ inspection_error = [string]$_.Exception.Message }
             }
 
-            $actualSessionId = [int]$agentProcess.SessionId
-            Write-Host "A6_AGENT_SESSION_ID=$actualSessionId"
-            Write-Host "A6_AGENT_PID=$newAgentPid"
-            Write-Host "A6_WATCHDOG_PID=$newWatchdogPid"
-            Write-Host 'A6_WATCHDOG_MEDIATED_RESTART=PASS'
-            Write-Host 'A6_HEADLESS_AGENT_CONTEXT=PASS'
-
-            # Start the measured window only after the first v2 remote gateway ACK.
-            $firstAck = $null
-            $ackDeadline = (Get-Date).AddMinutes(2)
-            while ((Get-Date) -lt $ackDeadline) {
-              if (Test-Path -LiteralPath $heartbeatPath) {
-                $state = Get-Content -Raw -LiteralPath $heartbeatPath | ConvertFrom-Json
-                if ($state.version -eq 'aria-windows-agent-heartbeat-v2' -and
-                    $state.device_id -eq $expectedDevice -and
-                    -not [string]::IsNullOrWhiteSpace([string]$state.last_gateway_heartbeat_at)) {
-                  $firstAck = [DateTimeOffset]::Parse([string]$state.last_gateway_heartbeat_at).ToUniversalTime()
-                  break
-                }
-              }
-              Start-Sleep -Seconds 5
+            if ($result.config -and $result.heartbeat -and $result.config.device_id -eq $expectedDevice -and $result.heartbeat.device_id -eq $expectedDevice) {
+              $result.status = 'CAPTURED'
+            } else {
+              $result.reason = 'CONFIG_OR_HEARTBEAT_MISSING_OR_DEVICE_MISMATCH'
             }
-            if (-not $firstAck) { throw 'FIRST_V2_GATEWAY_ACK_NOT_OBSERVED' }
-            Write-Host "A6_FIRST_GATEWAY_ACK_UTC=$($firstAck.ToString('o'))"
-
-            $observedStart = [DateTimeOffset]::UtcNow
-            $observedEnd = $observedStart.AddMinutes(15)
-            $lastAck = $firstAck
-            $ackTimes.Add($firstAck)
-
-            while ([DateTimeOffset]::UtcNow -lt $observedEnd) {
-              $now = [DateTimeOffset]::UtcNow
-              if (-not (Test-Path -LiteralPath $heartbeatPath)) { throw 'HEARTBEAT_FILE_DISAPPEARED' }
-              $state = Get-Content -Raw -LiteralPath $heartbeatPath | ConvertFrom-Json
-              $schemaVersion = [string]$state.version
-              if ($schemaVersion -ne 'aria-windows-agent-heartbeat-v2') {
-                $heartbeatFile = Get-Item -LiteralPath $heartbeatPath
-                $schemaFields = @($state.PSObject.Properties.Name | Sort-Object) -join ','
-                $schemaHash = (Get-FileHash -LiteralPath $heartbeatPath -Algorithm SHA256).Hash
-                $schemaVersionForEvidence = if ([string]::IsNullOrWhiteSpace($schemaVersion)) { '<missing>' } else { $schemaVersion }
-                $samples.Add([ordered]@{
-                  sampled_at_utc = $now.ToString('o')
-                  schema_version = $schemaVersionForEvidence
-                  schema_fields = $schemaFields
-                  heartbeat_file_last_write_utc = $heartbeatFile.LastWriteTimeUtc.ToString('o')
-                  heartbeat_file_sha256 = $schemaHash
-                  session_id = [int]$agentProcess.SessionId
-                })
-                Write-Host "A6_SCHEMA_MISMATCH observed=$schemaVersion fields=$schemaFields last_write_utc=$($heartbeatFile.LastWriteTimeUtc.ToString('o')) sha256=$schemaHash"
-                throw "HEARTBEAT_SCHEMA_NOT_V2 observed=$schemaVersion"
-              }
-              $localTimestamp = [DateTimeOffset]::Parse([string]$state.timestamp).ToUniversalTime()
-              $localAge = [long]($now - $localTimestamp).TotalMilliseconds
-              if ($localAge -lt 0 -or $localAge -gt 45000) { throw "LOCAL_PROCESS_HEARTBEAT_STALE_MS=$localAge" }
-              if ($localAge -gt $maxProcessHeartbeatAgeMs) { $maxProcessHeartbeatAgeMs = $localAge }
-
-              $ackTimestamp = [DateTimeOffset]::Parse([string]$state.last_gateway_heartbeat_at).ToUniversalTime()
-              $ackAge = [long]($now - $ackTimestamp).TotalMilliseconds
-              if ($ackAge -lt 0 -or $ackAge -gt 90000) { throw "REMOTE_GATEWAY_ACK_STALE_MS=$ackAge" }
-              if ($ackAge -gt $maxAckAgeMs) { $maxAckAgeMs = $ackAge }
-
-              if ($null -ne $state.last_gateway_heartbeat_error) {
-                $transportErrors++
-                throw 'GATEWAY_TRANSPORT_ERROR_OBSERVED'
-              }
-
-              $currentAgent = Get-Process -Id $agentProcess.Id -ErrorAction SilentlyContinue
-              if (-not $currentAgent -or $currentAgent.ProcessName -notmatch '^node' -or [int]$currentAgent.SessionId -ne 0) {
-                throw 'HEADLESS_AGENT_PROCESS_STOPPED_OR_LEFT_SESSION0'
-              }
-
-              if ($ackTimestamp -gt $lastAck) {
-                $gap = [long]($ackTimestamp - $lastAck).TotalMilliseconds
-                if ($gap -gt $maxAckGapMs) { $maxAckGapMs = $gap }
-                if ($gap -gt 90000) { throw "REMOTE_GATEWAY_ACK_GAP_MS=$gap" }
-                $ackTimes.Add($ackTimestamp)
-                $lastAck = $ackTimestamp
-              }
-
-              $samples.Add([ordered]@{
-                sampled_at_utc = $now.ToString('o')
-                process_heartbeat_at_utc = $localTimestamp.ToString('o')
-                gateway_ack_at_utc = $ackTimestamp.ToString('o')
-                process_heartbeat_age_ms = $localAge
-                gateway_ack_age_ms = $ackAge
-                session_id = [int]$currentAgent.SessionId
-              })
-              Start-Sleep -Seconds 5
-            }
-
-            $measuredDurationMs = [long]([DateTimeOffset]::UtcNow - $observedStart).TotalMilliseconds
-            if ($measuredDurationMs -lt 870000) { throw "MEASURED_WINDOW_TOO_SHORT_MS=$measuredDurationMs" }
-            if ($samples.Count -lt 150) { throw "INSUFFICIENT_PREFLIGHT_SAMPLES=$($samples.Count)" }
-            if ($ackTimes.Count -lt 26) { throw "INSUFFICIENT_DISTINCT_GATEWAY_ACKS=$($ackTimes.Count)" }
-            if ($maxAckGapMs -gt 90000) { throw "MAX_GATEWAY_ACK_GAP_MS=$maxAckGapMs" }
-            if ($transportErrors -ne 0) { throw "TRANSPORT_ERRORS=$transportErrors" }
-
-            Write-Result 'PASS' ''
-            Write-Host 'A6_WINDOWS_AGENT_V2=INSTALLED'
-            Write-Host 'A6_WINDOWS_HEADLESS_SESSION0=PASS'
-            Write-Host 'A6_WINDOWS_HEARTBEAT_V2=PASS'
-            Write-Host "A6_PREFLIGHT_DURATION_MS=$measuredDurationMs"
-            Write-Host "A6_PREFLIGHT_SAMPLES=$($samples.Count)"
-            Write-Host "A6_GATEWAY_ACK_COUNT=$($ackTimes.Count)"
-            Write-Host "A6_MAX_CONSECUTIVE_GATEWAY_ACK_GAP_MS=$maxAckGapMs"
-            Write-Host "A6_MAX_GATEWAY_ACK_AGE_MS=$maxAckAgeMs"
-            Write-Host 'A6_TRANSPORT_ERRORS=0'
-          }
-          catch {
-            $reason = [string]$_.Exception.Message
-            Write-Result 'BLOCKED' $reason
-            Write-Host "A6_WINDOWS_HEARTBEAT_PREFLIGHT=BLOCKED reason=$reason"
-            throw
+          } catch {
+            $result.reason = [string]$_.Exception.Message
           }
 
-      - name: Upload sanitized heartbeat evidence
+          $result | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $resultPath -Encoding UTF8
+          Write-Host "A6_READ_ONLY_STATUS=$($result.status)"
+          Write-Host "A6_READ_ONLY_REASON=$($result.reason)"
+          Write-Host "A6_READ_ONLY_HOST=$($result.host)"
+          if ($result.heartbeat) {
+            Write-Host "A6_HEARTBEAT_SCHEMA=$($result.heartbeat.schema_version)"
+            Write-Host "A6_HEARTBEAT_AGE_MS=$($result.heartbeat.age_ms)"
+          }
+          Write-Host "A6_OLLAMA_PROCESS_COUNT=$($result.ollama_process_count)"
+
+      - name: Upload read-only diagnostic evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: a6-windows-heartbeat-preflight-${{ github.sha }}
-          path: a6-windows-heartbeat-preflight.json
+          name: a6-windows-readonly-diagnostic-${{ github.sha }}
+          path: a6-windows-readonly-diagnostic.json
           if-no-files-found: warn
           retention-days: 14
