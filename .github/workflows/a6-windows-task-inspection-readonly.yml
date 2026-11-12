@@ -144,11 +144,17 @@ jobs:
           Write-Host "A6_WATCHDOG_PID=$watchdogPid"
           Write-Host "A6_TASK_LIST_EXIT=$($result.task_list_exit_code)"
           Write-Host "A6_TASK_MATCHES=$(@($result.task_list_matches).Count)"
+          foreach ($task in @($result.task_list_matches)) {
+            Write-Host "A6_TASK_MATCH name=$($task.task_name) status=$($task.status) run_as=$($task.run_as) action=$($task.action)"
+          }
+          foreach ($task in @($result.exact_task_xml)) {
+            Write-Host "A6_TASK_XML name=$($task.task_name) read=$($task.xml_read) command=$($task.command) arguments=$($task.arguments) user=$($task.user) logon=$($task.logon_type) run_level=$($task.run_level)"
+          }
       - name: Upload read-only task identity evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: a6-windows-task-inspection-\${{ github.sha }}
+          name: a6-windows-task-inspection
           path: a6-windows-task-inspection.json
           if-no-files-found: warn
           retention-days: 14
