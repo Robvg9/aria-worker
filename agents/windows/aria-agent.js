@@ -1,6 +1,7 @@
 'use strict';
 const crypto = require('node:crypto');
 const fs = require('node:fs');
+const { runHeartbeatLoop } = require('./heartbeat-scheduler.cjs');
 const os = require('node:os');
 const { parseShellJob, executePowerShell } = require('./windows-shell-executor');
 const { createWindowsMeditationController } = require('./aria-meditation-controller');
@@ -217,7 +218,7 @@ async function callOllama({prompt,model,timeout_ms,signal}){
 }
 async function enroll(){return api('/v1/devices/enroll',{method:'POST',body:JSON.stringify({device_id:DEVICE_ID,token:DEVICE_TOKEN})})}
 async function heartbeat(){
-  if(gatewayHeartbeatInFlight){touchProcessHeartbeat('overlap_skipped');return}
+  if(gatewayHeartbeatInFlight){touchProcessHeartbeat('overlap_skipped');return false}
   gatewayHeartbeatInFlight=true;
   touchProcessHeartbeat('attempt');
   const startedAt=Date.now();
@@ -231,11 +232,13 @@ async function heartbeat(){
     lastGatewayHeartbeatError=null;
     touchProcessHeartbeat('online');
     log(`ONLINE device=${DEVICE_ID} capabilities=${capabilities.join(',')}`);
-    log(`HEARTBEAT_ACK device=${DEVICE_ID} duration_ms=${Date.now()-startedAt} interval_ms=${HEARTBEAT_MS}`);
+    log(`HEARTBEAT_ACK device=${DEVICE_ID} duration_ms=${Date.now()-startedAt} next_interval_ms=${HEARTBEAT_MS}`);
+    return true;
   }catch(error){
     lastGatewayHeartbeatError={at:new Date().toISOString(),status:Number.isInteger(error?.status)?error.status:null,code:typeof error?.code==='string'?error.code:null,message:String(error?.message||error).slice(0,180)};
     touchProcessHeartbeat('transport_error');
     console.error(`[heartbeat] ${error.message}`);
+    return false;
   }finally{
     gatewayHeartbeatInFlight=false;
   }
@@ -342,4 +345,13 @@ if(job.operation===AUTONOMOUS_COMPUTER_OPERATION){await executeAutonomousRwhtJob
 let stopping=false;
 const meditationController=createWindowsMeditationController();
 process.on('SIGTERM',()=>{stopping=true;void meditationController.shutdown();log('STOP requested')});process.on('SIGINT',()=>{stopping=true;void meditationController.shutdown();log('STOP requested')});
-(async()=>{log(`START device=${DEVICE_ID} platform=windows-local node=${process.version} resource_profile=${RESOURCE_PROFILE.profile} ram_gb=${RESOURCE_PROFILE.ram_gb} logical_cpus=${RESOURCE_PROFILE.logical_cpus} ollama_enabled=${OLLAMA_ENABLED} guard=${RESOURCE_PROFILE.guard_reason}`);try{await Promise.race([enroll(),sleep(5000).then(()=>{throw new Error('enroll_timeout')})]);log(`ENROLLED device=${DEVICE_ID}`)}catch(error){console.error(`[enroll] ${error.message}`)}await heartbeat();setInterval(heartbeat,HEARTBEAT_MS);let consecutivePollFailures=0;let voiceRetryAt=0;while(!stopping){let voiceState='idle';if(Date.now()>=voiceRetryAt){voiceState=await claimAndExecuteVoiceCommand();if(voiceState==='error')voiceRetryAt=Date.now()+60_000}const state=voiceState==='worked'?'worked':await claimAndExecute();if(state==='error'){consecutivePollFailures=Math.min(consecutivePollFailures+1,6)}else{consecutivePollFailures=0}const baseDelay=state==='worked'?5_000:POLL_MS;const backoff=state==='error'?Math.min(POLL_MS*Math.pow(2,consecutivePollFailures),60_000):baseDelay;const jitter=Math.floor(Math.random()*Math.max(1,Math.min(3_000,Math.round(backoff*0.25))));await sleep(backoff+jitter)}})().catch(error=>{console.error(error);process.exit(1)})
+(async()=>{log(`START device=${DEVICE_ID} platform=windows-local node=${process.version} resource_profile=${RESOURCE_PROFILE.profile} ram_gb=${RESOURCE_PROFILE.ram_gb} logical_cpus=${RESOURCE_PROFILE.logical_cpus} ollama_enabled=${OLLAMA_ENABLED} guard=${RESOURCE_PROFILE.guard_reason}`);try{await Promise.race([enroll(),sleep(5000).then(()=>{throw new Error('enroll_timeout')})]);log(`ENROLLED device=${DEVICE_ID}`)}catch(error){console.error(`[enroll] ${error.message}`)}const heartbeatLoop=runHeartbeatLoop({
+  sendHeartbeat:heartbeat,
+  shouldStop:()=>stopping,
+  sleep,
+  intervalMs:HEARTBEAT_MS,
+  retryBaseMs:2_000,
+  retryMaxMs:15_000,
+  onRetry:({consecutiveFailures,delayMs})=>log(`HEARTBEAT_RETRY device=${DEVICE_ID} consecutive_failures=${consecutiveFailures} retry_in_ms=${delayMs}`)
+});
+void heartbeatLoop.catch(error=>{console.error(`[heartbeat-loop] ${error.message}`);stopping=true;});let consecutivePollFailures=0;let voiceRetryAt=0;while(!stopping){let voiceState='idle';if(Date.now()>=voiceRetryAt){voiceState=await claimAndExecuteVoiceCommand();if(voiceState==='error')voiceRetryAt=Date.now()+60_000}const state=voiceState==='worked'?'worked':await claimAndExecute();if(state==='error'){consecutivePollFailures=Math.min(consecutivePollFailures+1,6)}else{consecutivePollFailures=0}const baseDelay=state==='worked'?5_000:POLL_MS;const backoff=state==='error'?Math.min(POLL_MS*Math.pow(2,consecutivePollFailures),60_000):baseDelay;const jitter=Math.floor(Math.random()*Math.max(1,Math.min(3_000,Math.round(backoff*0.25))));await sleep(backoff+jitter)}})().catch(error=>{console.error(error);process.exit(1)})
