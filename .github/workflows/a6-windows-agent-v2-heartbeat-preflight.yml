@@ -50,6 +50,8 @@ jobs:
             processes = @()
             scheduled_task = $null
             ollama_process_count = 0
+            observation = $null
+            process_identity_hashes = @()
           }
 
           try {
@@ -120,6 +122,86 @@ jobs:
               }
             }
             $result.ollama_process_count = @($result.processes | Where-Object { $_.name -match '^ollama(\.exe)?$' }).Count
+
+            # Two-minute read-only observation. No runtime/config/process changes.
+            $samples = [System.Collections.Generic.List[object]]::new()
+            $ackTimes = [System.Collections.Generic.List[DateTimeOffset]]::new()
+            $observationStarted = [DateTimeOffset]::UtcNow
+            for ($sampleIndex = 0; $sampleIndex -lt 24; $sampleIndex++) {
+              $sampleAt = [DateTimeOffset]::UtcNow
+              if (Test-Path -LiteralPath $heartbeatPath -PathType Leaf) {
+                $sampleRaw = Get-Content -Raw -LiteralPath $heartbeatPath
+                $sampleHb = $sampleRaw | ConvertFrom-Json
+                $sampleFile = Get-Item -LiteralPath $heartbeatPath
+                $processAt = $null
+                $ackAt = $null
+                $processAtText = $null
+                $ackAtText = $null
+                $processAgeMs = $null
+                $ackAgeMs = $null
+                if ($sampleHb.timestamp) {
+                  $processAt = [DateTimeOffset]::Parse([string]$sampleHb.timestamp).ToUniversalTime()
+                  $processAtText = $processAt.ToString('o')
+                  $processAgeMs = [long]($sampleAt - $processAt).TotalMilliseconds
+                }
+                if ($sampleHb.last_gateway_heartbeat_at) {
+                  $ackAt = [DateTimeOffset]::Parse([string]$sampleHb.last_gateway_heartbeat_at).ToUniversalTime()
+                  $ackAtText = $ackAt.ToString('o')
+                  $ackAgeMs = [long]($sampleAt - $ackAt).TotalMilliseconds
+                  if ($ackTimes.Count -eq 0 -or $ackAt -gt $ackTimes[$ackTimes.Count - 1]) { $ackTimes.Add($ackAt) }
+                }
+                $sampleHash = (Get-FileHash -LiteralPath $heartbeatPath -Algorithm SHA256).Hash
+                $samples.Add([ordered]@{
+                  sampled_at_utc = $sampleAt.ToString('o')
+                  schema_version = [string]$sampleHb.version
+                  device_id = [string]$sampleHb.device_id
+                  process_heartbeat_at_utc = $processAtText
+                  gateway_ack_at_utc = $ackAtText
+                  process_heartbeat_age_ms = $processAgeMs
+                  gateway_ack_age_ms = $ackAgeMs
+                  has_gateway_error = ($null -ne $sampleHb.last_gateway_heartbeat_error)
+                  file_last_write_utc = $sampleFile.LastWriteTimeUtc.ToString('o')
+                  file_sha256 = $sampleHash
+                })
+              } else {
+                $samples.Add([ordered]@{ sampled_at_utc = $sampleAt.ToString('o'); missing = $true })
+              }
+              if ($sampleIndex -lt 23) { Start-Sleep -Seconds 5 }
+            }
+            $ackGaps = @()
+            for ($ackIndex = 1; $ackIndex -lt $ackTimes.Count; $ackIndex++) {
+              $ackGaps += [long]($ackTimes[$ackIndex] - $ackTimes[$ackIndex - 1]).TotalMilliseconds
+            }
+            $maxAckGap = $null
+            if ($ackGaps.Count -gt 0) { $maxAckGap = [long](($ackGaps | Measure-Object -Maximum).Maximum) }
+            $result.observation = [ordered]@{
+              window_seconds = [long]([DateTimeOffset]::UtcNow - $observationStarted).TotalSeconds
+              sample_count = $samples.Count
+              distinct_gateway_ack_count = $ackTimes.Count
+              max_gateway_ack_gap_ms = $maxAckGap
+              samples = @($samples.ToArray())
+            }
+
+            # Hash process command lines without storing their contents or secrets.
+            $processIdentity = @()
+            foreach ($proc in Get-CimInstance Win32_Process -ErrorAction Stop | Where-Object { $_.Name -match '^(node|powershell|pwsh)(\.exe)?$' }) {
+              $commandHash = $null
+              if (-not [string]::IsNullOrWhiteSpace([string]$proc.CommandLine)) {
+                $sha = [Security.Cryptography.SHA256]::Create()
+                try {
+                  $bytes = [Text.Encoding]::UTF8.GetBytes([string]$proc.CommandLine)
+                  $commandHash = [BitConverter]::ToString($sha.ComputeHash($bytes)).Replace('-', '')
+                } finally { $sha.Dispose() }
+              }
+              $processIdentity += [ordered]@{
+                pid = [int]$proc.ProcessId
+                parent_pid = [int]$proc.ParentProcessId
+                name = [string]$proc.Name
+                session_id = [int]$proc.SessionId
+                command_line_sha256 = $commandHash
+              }
+            }
+            $result.process_identity_hashes = $processIdentity
 
             try {
               $task = Get-ScheduledTask -TaskName 'ARIA-Windows-Local-Agent' -ErrorAction Stop
