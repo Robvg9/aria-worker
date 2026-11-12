@@ -70,14 +70,34 @@ jobs:
           if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace([string]$blob)) { throw 'A6_INSTALLER_BLOB_MISSING_FROM_EXACT_COMMIT' }
           $installer = Join-Path $repoRoot $relative
           if (-not (Test-Path -LiteralPath $installer -PathType Leaf)) {
-            # Write the exact commit blob through cmd.exe redirection; git checkout
-            # by path fails on this runner's sparse index even though rev-parse works.
-            $native = 'git -C "' + $repoRoot + '" show "HEAD:' + $relative + '" > "' + $installer + '"'
-            & $env:ComSpec /d /c $native
-            $nativeExit = $LASTEXITCODE
-            if ($nativeExit -ne 0 -or -not (Test-Path -LiteralPath $installer -PathType Leaf)) {
-              throw 'A6_INSTALLER_MATERIALIZATION_FAILED'
+            # Copy raw blob bytes from the exact HEAD object. This avoids cmd.exe
+            # redirection and the self-hosted runner's sparse-index path checkout.
+            $gitExe = (Get-Command git.exe -ErrorAction Stop).Source
+            $startInfo = New-Object System.Diagnostics.ProcessStartInfo
+            $startInfo.FileName = $gitExe
+            $startInfo.Arguments = '-C "' + $repoRoot + '" cat-file blob ' + $blob
+            $startInfo.WorkingDirectory = $repoRoot
+            $startInfo.UseShellExecute = $false
+            $startInfo.CreateNoWindow = $true
+            $startInfo.RedirectStandardOutput = $true
+            $startInfo.RedirectStandardError = $true
+            $process = New-Object System.Diagnostics.Process
+            $process.StartInfo = $startInfo
+            if (-not $process.Start()) { throw 'A6_INSTALLER_BLOB_PROCESS_START_FAILED' }
+            $outputFile = $null
+            try {
+              $outputFile = [System.IO.File]::Open($installer,[System.IO.FileMode]::Create,[System.IO.FileAccess]::Write,[System.IO.FileShare]::None)
+              $process.StandardOutput.BaseStream.CopyTo($outputFile)
+              $outputFile.Flush()
+            } finally {
+              if ($outputFile) { $outputFile.Dispose() }
             }
+            $process.WaitForExit()
+            $processError = $process.StandardError.ReadToEnd()
+            if ($process.ExitCode -ne 0 -or -not (Test-Path -LiteralPath $installer -PathType Leaf)) {
+              throw "A6_INSTALLER_MATERIALIZATION_FAILED exit=$($process.ExitCode) stderr=$processError"
+            }
+            $process.Dispose()
           }
           $workingBlob = (& git -C $repoRoot hash-object --path $relative $installer 2>$null)
           if ($LASTEXITCODE -ne 0 -or [string]$workingBlob -ne [string]$blob) { throw 'A6_INSTALLER_HASH_MISMATCH' }
