@@ -31,6 +31,7 @@ assert.ok(agent.includes("const deadline=setTimeout(()=>req.destroy(new Error('g
 // Local process liveness and successful remote gateway ACK stay separate.
 assert.match(agent, /aria-windows-agent-heartbeat-v2/);
 assert.match(agent, /heartbeat_scheduler_version:'serial-retry-v1'/);
+assert.match(agent, /gateway_dns_fallback_version:'supabase-scoped-public-fallback-v1'/);
 assert.match(runtimeUpdater, /\$payload\.version -eq 'aria-windows-agent-heartbeat-v2'/);
 assert.match(runtimeUpdater, /ARIA_PROCESS_HEARTBEAT_V2=PASS/);
 assert.doesNotMatch(runtimeUpdater, /aria-windows-agent-heartbeat-v1/);
