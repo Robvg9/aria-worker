@@ -319,3 +319,5 @@ jobs:
           path: a6-heartbeat-live-readonly.json
           if-no-files-found: warn
           retention-days: 14
+
+# Post-user-change verification checkpoint: Ethernet power-saving state and default route.
