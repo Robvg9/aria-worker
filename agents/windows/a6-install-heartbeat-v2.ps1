@@ -1,0 +1,343 @@
+$ErrorActionPreference = 'Stop'
+if ($env:COMPUTERNAME -ine 'ROBVG') { throw "A6_INSTALL_HOST_MISMATCH=$env:COMPUTERNAME" }
+$runtimeRoot = 'D:\ARIA-Windows-Agent'
+$runtimeDir = Join-Path $runtimeRoot 'Runtime\windows'
+$sharedDir = Join-Path $runtimeRoot 'Runtime\shared'
+$logDir = Join-Path $runtimeRoot 'Logs'
+$configPath = Join-Path $runtimeRoot 'Data\config.json'
+$heartbeatPath = Join-Path $logDir 'agent-heartbeat.json'
+$agentPidPath = Join-Path $logDir 'agent.pid'
+$watchdogPidPath = Join-Path $logDir 'watchdog.pid'
+$killRequestPath = Join-Path $logDir 'kill-request'
+$backupDir = Join-Path $runtimeRoot ("Backups\a6-heartbeat-v2-" + $env:GITHUB_RUN_ID)
+$resultPath = Join-Path $env:GITHUB_WORKSPACE 'a6-windows-v2-install.json'
+$manifest = [ordered]@{
+  status = 'BLOCKED'
+  host = $env:COMPUTERNAME
+  source_sha = $env:GITHUB_SHA
+  runner_identity = [Security.Principal.WindowsIdentity]::GetCurrent().Name
+  backup_dir = $backupDir
+  started_at_utc = [DateTimeOffset]::UtcNow.ToString('o')
+  files = @()
+  old_agent_pid = $null
+  new_agent_pid = $null
+  watchdog_pid = $null
+  restart_requested = $false
+  heartbeat = $null
+  rollback = 'NOT_REQUIRED'
+}
+$backupFiles = [System.Collections.Generic.List[object]]::new()
+$changed = $false
+$files = @(
+  @{ source='agents\windows\aria-agent.js'; target=Join-Path $runtimeDir 'aria-agent.js' },
+  @{ source='agents\windows\heartbeat-scheduler.cjs'; target=Join-Path $runtimeDir 'heartbeat-scheduler.cjs' },
+  @{ source='agents\windows\gateway-dns-lookup.cjs'; target=Join-Path $runtimeDir 'gateway-dns-lookup.cjs' },
+  @{ source='agents\windows\aria-meditation-controller.js'; target=Join-Path $runtimeDir 'aria-meditation-controller.js' },
+  @{ source='agents\windows\autonomous-rwht-controller.js'; target=Join-Path $runtimeDir 'autonomous-rwht-controller.js' },
+  @{ source='agents\windows\resource-profile.js'; target=Join-Path $runtimeDir 'resource-profile.js' },
+  @{ source='agents\windows\run-agent.ps1'; target=Join-Path $runtimeDir 'run-agent.ps1' },
+  @{ source='autonomy\windows-shell-executor.js'; target=Join-Path $runtimeDir 'windows-shell-executor.js' },
+  @{ source='computer-use\windows-desktop-adapter.js'; target=Join-Path $runtimeDir 'windows-desktop-adapter.js' },
+  @{ source='computer-use\windows-desktop-runner.ps1'; target=Join-Path $runtimeDir 'windows-desktop-runner.ps1' },
+  @{ source='computer-use\windows-ui-automation.ps1'; target=Join-Path $runtimeDir 'windows-ui-automation.ps1' },
+  @{ source='agents\shared\voice-command-executor.cjs'; target=Join-Path $sharedDir 'voice-command-executor.cjs' }
+)
+try {
+  if (-not (Test-Path -LiteralPath $runtimeDir -PathType Container)) { throw 'A6_RUNTIME_DIRECTORY_MISSING' }
+  if (-not (Test-Path -LiteralPath $configPath -PathType Leaf)) { throw 'A6_CONFIG_MISSING' }
+  if (-not (Test-Path -LiteralPath $agentPidPath -PathType Leaf) -or -not (Test-Path -LiteralPath $watchdogPidPath -PathType Leaf)) { throw 'A6_PID_FILES_MISSING' }
+  if (Test-Path -LiteralPath $killRequestPath) { throw 'A6_EXISTING_KILL_REQUEST_PRESENT' }
+
+  $config = Get-Content -Raw -LiteralPath $configPath | ConvertFrom-Json
+  $expectedDevice = 'windows-fe722cc6681e4f9c9cc35f5ebbb0a089'
+  if ([string]$config.device_id -ne $expectedDevice) { throw 'A6_DEVICE_ID_MISMATCH' }
+
+  $oldAgentPid = 0
+  $watchdogPid = 0
+  if (-not [int]::TryParse((Get-Content -Raw -LiteralPath $agentPidPath).Trim(),[ref]$oldAgentPid) -or $oldAgentPid -le 0) { throw 'A6_AGENT_PID_INVALID' }
+  if (-not [int]::TryParse((Get-Content -Raw -LiteralPath $watchdogPidPath).Trim(),[ref]$watchdogPid) -or $watchdogPid -le 0) { throw 'A6_WATCHDOG_PID_INVALID' }
+  $processes = @(Get-CimInstance Win32_Process -ErrorAction Stop)
+  $agentProcess = $processes | Where-Object { [int]$_.ProcessId -eq $oldAgentPid } | Select-Object -First 1
+  $watchdogProcess = $processes | Where-Object { [int]$_.ProcessId -eq $watchdogPid } | Select-Object -First 1
+  if (-not $agentProcess -or $agentProcess.Name -notmatch '^(node|node\.exe)      - name: Capture installed Windows agent continuity evidence
+        run: |
+$ErrorActionPreference = 'Stop'
+$expectedDevice = 'windows-fe722cc6681e4f9c9cc35f5ebbb0a089'
+$runtimeRoot = 'D:\ARIA-Windows-Agent'
+$logDir = Join-Path $runtimeRoot 'Logs'
+$dataDir = Join-Path $runtimeRoot 'Data'
+$configPath = Join-Path $dataDir 'config.json'
+$heartbeatPath = Join-Path $logDir 'agent-heartbeat.json'
+$agentPidPath = Join-Path $logDir 'agent.pid'
+$watchdogPidPath = Join-Path $logDir 'watchdog.pid'
+$resultPath = Join-Path $env:GITHUB_WORKSPACE ('a6-windows-readonly-diagnostic-' + $env:GITHUB_RUN_ID + '.json')
+$capturedAt = [DateTimeOffset]::UtcNow
+function Read-SharedTextFile {
+  param([Parameter(Mandatory=$true)][string]$Path, [int]$Attempts = 12, [int]$DelayMs = 200)
+  $lastError = $null
+  for ($attempt = 1; $attempt -le $Attempts; $attempt++) {
+    $stream = $null
+    $reader = $null
+    try {
+      $share = [System.IO.FileShare]::ReadWrite -bor [System.IO.FileShare]::Delete
+      $stream = [System.IO.FileStream]::new($Path, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, $share)
+      $reader = [System.IO.StreamReader]::new($stream, [System.Text.Encoding]::UTF8, $true)
+      return $reader.ReadToEnd()
+    } catch {
+      $lastError = $_
+      if ($attempt -lt $Attempts) { Start-Sleep -Milliseconds $DelayMs }
+    } finally {
+      if ($reader) { $reader.Dispose() } elseif ($stream) { $stream.Dispose() }
+    }
+  }
+  throw $lastError
+}
+
+$result = [ordered]@{
+  status = 'BLOCKED'
+  reason = ''
+  host = [string]$env:COMPUTERNAME
+  expected_host = 'ROBVG'
+  device_id_expected = $expectedDevice
+  captured_at_utc = $capturedAt.ToString('o')
+  runtime_root_exists = Test-Path -LiteralPath $runtimeRoot -PathType Container
+  config = $null
+  heartbeat = $null
+  pid_files = $null
+  processes = @()
+  scheduled_task = $null
+  ollama_process_count = 0
+  observation = $null
+  process_identity_hashes = @()
+}
+
+try {
+  if ([string]$env:COMPUTERNAME -ine 'ROBVG') {
+    throw "A6_RUNNER_HOST_MISMATCH expected=ROBVG actual=$env:COMPUTERNAME"
+  }
+
+  if (Test-Path -LiteralPath $configPath -PathType Leaf) {
+    $cfg = Get-Content -Raw -LiteralPath $configPath | ConvertFrom-Json
+    $result.config = [ordered]@{
+      device_id = [string]$cfg.device_id
+      node_path = [string]$cfg.node_path
+      heartbeat_ms = $cfg.heartbeat_ms
+      ollama_enabled = $cfg.ollama_enabled
+      capabilities = @($cfg.capabilities | ForEach-Object { [string]$_ })
+      last_write_utc = (Get-Item -LiteralPath $configPath).LastWriteTimeUtc.ToString('o')
+      sha256 = (Get-FileHash -LiteralPath $configPath -Algorithm SHA256).Hash
+    }
+  }
+
+  if (Test-Path -LiteralPath $heartbeatPath -PathType Leaf) {
+    try {
+      $rawHeartbeat = Read-SharedTextFile -Path $heartbeatPath
+      $hb = $rawHeartbeat | ConvertFrom-Json
+      $heartbeatFile = Get-Item -LiteralPath $heartbeatPath
+      $heartbeatTimestamp = $null
+      $ackTimestamp = $null
+      if ($hb.timestamp) { $heartbeatTimestamp = [DateTimeOffset]::Parse([string]$hb.timestamp).ToUniversalTime().ToString('o') }
+      if ($hb.last_gateway_heartbeat_at) { $ackTimestamp = [DateTimeOffset]::Parse([string]$hb.last_gateway_heartbeat_at).ToUniversalTime().ToString('o') }
+      $sha = [Security.Cryptography.SHA256]::Create()
+      try { $heartbeatHash = [BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($rawHeartbeat))).Replace('-', '') } finally { $sha.Dispose() }
+      $result.heartbeat = [ordered]@{
+        schema_version = [string]$hb.version
+        heartbeat_scheduler_version = [string]$hb.heartbeat_scheduler_version
+        gateway_dns_fallback_version = [string]$hb.gateway_dns_fallback_version
+        fields = @($hb.PSObject.Properties.Name | Sort-Object)
+        device_id = [string]$hb.device_id
+        process_heartbeat_at_utc = $heartbeatTimestamp
+        gateway_ack_at_utc = $ackTimestamp
+        has_gateway_error = ($null -ne $hb.last_gateway_heartbeat_error)
+        file_last_write_utc = $heartbeatFile.LastWriteTimeUtc.ToString('o')
+        file_sha256 = $heartbeatHash
+        age_ms = [long]([DateTimeOffset]::UtcNow - $heartbeatFile.LastWriteTimeUtc).TotalMilliseconds
+      }
+    } catch { $result.heartbeat_read_error = [string]$_.Exception.Message }
+  }
+
+  $agentPid = $null
+  $watchdogPid = $null
+  if (Test-Path -LiteralPath $agentPidPath -PathType Leaf) {
+    $agentPid = (Get-Content -Raw -LiteralPath $agentPidPath).Trim()
+  }
+  if (Test-Path -LiteralPath $watchdogPidPath -PathType Leaf) {
+    $watchdogPid = (Get-Content -Raw -LiteralPath $watchdogPidPath).Trim()
+  }
+  $result.pid_files = [ordered]@{ agent_pid = $agentPid; watchdog_pid = $watchdogPid }
+
+  $allProcesses = @(Get-CimInstance Win32_Process -ErrorAction Stop)
+  foreach ($proc in $allProcesses | Where-Object { $_.Name -match '^(node|powershell|pwsh|ollama)(\.exe)?$' }) {
+    $session = $null
+    $owner = $null
+    try { $session = [int]$proc.SessionId } catch {}
+    try {
+      $ownerResult = Invoke-CimMethod -InputObject $proc -MethodName GetOwner -ErrorAction Stop
+      if ($ownerResult.ReturnValue -eq 0) { $owner = "$($ownerResult.Domain)\$($ownerResult.User)" }
+    } catch {}
+    $result.processes += [ordered]@{
+      pid = [int]$proc.ProcessId
+      parent_pid = [int]$proc.ParentProcessId
+      name = [string]$proc.Name
+      session_id = $session
+      owner = $owner
+      executable_path = [string]$proc.ExecutablePath
+    }
+  }
+  $result.ollama_process_count = @($result.processes | Where-Object { $_.name -match '^ollama(\.exe)?$' }).Count
+
+  # Fifteen-minute post-install observation. No further runtime/config/process changes.
+  $samples = [System.Collections.Generic.List[object]]::new()
+  $ackTimes = [System.Collections.Generic.List[DateTimeOffset]]::new()
+  $observationStarted = [DateTimeOffset]::UtcNow
+  for ($sampleIndex = 0; $sampleIndex -lt 180; $sampleIndex++) {
+    $sampleAt = [DateTimeOffset]::UtcNow
+    if (Test-Path -LiteralPath $heartbeatPath -PathType Leaf) {
+      try {
+        $sampleRaw = Read-SharedTextFile -Path $heartbeatPath -Attempts 6 -DelayMs 150
+        $sampleHb = $sampleRaw | ConvertFrom-Json
+        $sampleFile = Get-Item -LiteralPath $heartbeatPath
+        $processAt = $null
+        $ackAt = $null
+        $processAtText = $null
+        $ackAtText = $null
+        $processAgeMs = $null
+        $ackAgeMs = $null
+        if ($sampleHb.timestamp) {
+          $processAt = [DateTimeOffset]::Parse([string]$sampleHb.timestamp).ToUniversalTime()
+          $processAtText = $processAt.ToString('o')
+          $processAgeMs = [long]($sampleAt - $processAt).TotalMilliseconds
+        }
+        if ($sampleHb.last_gateway_heartbeat_at) {
+          $ackAt = [DateTimeOffset]::Parse([string]$sampleHb.last_gateway_heartbeat_at).ToUniversalTime()
+          $ackAtText = $ackAt.ToString('o')
+          $ackAgeMs = [long]($sampleAt - $ackAt).TotalMilliseconds
+          if ($ackTimes.Count -eq 0 -or $ackAt -gt $ackTimes[$ackTimes.Count - 1]) { $ackTimes.Add($ackAt) }
+        }
+        $sha = [Security.Cryptography.SHA256]::Create()
+        try { $sampleHash = [BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($sampleRaw))).Replace('-', '') } finally { $sha.Dispose() }
+        $samples.Add([ordered]@{
+          sampled_at_utc = $sampleAt.ToString('o')
+          schema_version = [string]$sampleHb.version
+          heartbeat_scheduler_version = [string]$sampleHb.heartbeat_scheduler_version
+          gateway_dns_fallback_version = [string]$sampleHb.gateway_dns_fallback_version
+          device_id = [string]$sampleHb.device_id
+          process_heartbeat_at_utc = $processAtText
+          gateway_ack_at_utc = $ackAtText
+          process_heartbeat_age_ms = $processAgeMs
+          gateway_ack_age_ms = $ackAgeMs
+          has_gateway_error = ($null -ne $sampleHb.last_gateway_heartbeat_error)
+          file_last_write_utc = $sampleFile.LastWriteTimeUtc.ToString('o')
+          file_sha256 = $sampleHash
+        })
+      } catch {
+        $samples.Add([ordered]@{ sampled_at_utc = $sampleAt.ToString('o'); read_error = [string]$_.Exception.Message })
+      }
+    } else {
+      $samples.Add([ordered]@{ sampled_at_utc = $sampleAt.ToString('o'); missing = $true })
+    }
+    if ($sampleIndex -lt 179) { Start-Sleep -Seconds 5 }
+  }
+  $ackGaps = @()
+  for ($ackIndex = 1; $ackIndex -lt $ackTimes.Count; $ackIndex++) {
+    $ackGaps += [long]($ackTimes[$ackIndex] - $ackTimes[$ackIndex - 1]).TotalMilliseconds
+  }
+  $maxAckGap = $null
+  if ($ackGaps.Count -gt 0) { $maxAckGap = [long](($ackGaps | Measure-Object -Maximum).Maximum) }
+  $result.observation = [ordered]@{
+    window_seconds = [long]([DateTimeOffset]::UtcNow - $observationStarted).TotalSeconds
+    sample_count = $samples.Count
+    distinct_gateway_ack_count = $ackTimes.Count
+    max_gateway_ack_gap_ms = $maxAckGap
+    samples = @($samples.ToArray())
+  }
+
+  # Persist the 180-sample continuity proof immediately. Avoid optional
+  # service/task enumeration on this critical preflight path: those Windows
+  # APIs have previously delayed the run after the sampling window completed.
+  $sampleRows = @($samples.ToArray())
+  $processAges = @($sampleRows | Where-Object { $null -ne $_.process_heartbeat_age_ms } | ForEach-Object { [long]$_.process_heartbeat_age_ms })
+  $ackAges = @($sampleRows | Where-Object { $null -ne $_.gateway_ack_age_ms } | ForEach-Object { [long]$_.gateway_ack_age_ms })
+  $sampleTimes = @($sampleRows | Where-Object { $_.sampled_at_utc } | ForEach-Object { [DateTimeOffset]::Parse([string]$_.sampled_at_utc).ToUniversalTime() })
+  $sampleGaps = @()
+  for ($i=1; $i -lt $sampleTimes.Count; $i++) {
+    $sampleGaps += [long]($sampleTimes[$i] - $sampleTimes[$i-1]).TotalMilliseconds
+  }
+  $result.observation = [ordered]@{
+    window_seconds = [long]([DateTimeOffset]::UtcNow - $observationStarted).TotalSeconds
+    sample_count = $sampleRows.Count
+    distinct_gateway_ack_count = $ackTimes.Count
+    max_gateway_ack_gap_ms = $maxAckGap
+    max_process_heartbeat_age_ms = if($processAges.Count){[long](($processAges | Measure-Object -Maximum).Maximum)}else{$null}
+    max_gateway_ack_age_ms = if($ackAges.Count){[long](($ackAges | Measure-Object -Maximum).Maximum)}else{$null}
+    max_sample_gap_ms = if($sampleGaps.Count){[long](($sampleGaps | Measure-Object -Maximum).Maximum)}else{$null}
+    missing_sample_count = @($sampleRows | Where-Object { $_.missing -eq $true }).Count
+    read_error_count = @($sampleRows | Where-Object { $_.read_error }).Count
+    gateway_error_count = @($sampleRows | Where-Object { $_.has_gateway_error -eq $true }).Count
+    device_id_mismatch_count = @($sampleRows | Where-Object { $_.device_id -ne $expectedDevice }).Count
+    schema_mismatch_count = @($sampleRows | Where-Object { $_.schema_version -ne 'aria-windows-agent-heartbeat-v2' }).Count
+    scheduler_mismatch_count = @($sampleRows | Where-Object { $_.heartbeat_scheduler_version -ne 'serial-retry-v1' }).Count
+    dns_fallback_mismatch_count = @($sampleRows | Where-Object { $_.gateway_dns_fallback_version -ne 'supabase-scoped-public-fallback-v1' }).Count
+    samples = $sampleRows
+  }
+
+  $preflightFailures = [System.Collections.Generic.List[string]]::new()
+  if ($result.host -ine 'ROBVG') { $preflightFailures.Add('HOST_MISMATCH') }
+  if (-not $result.config -or $result.config.device_id -ne $expectedDevice) { $preflightFailures.Add('CONFIG_DEVICE_MISMATCH') }
+  if (-not $result.config -or [int]$result.config.heartbeat_ms -ne 30000) { $preflightFailures.Add('CONFIG_HEARTBEAT_NOT_30S') }
+  if (-not $result.config -or $result.config.ollama_enabled -ne $false) { $preflightFailures.Add('LOCAL_OLLAMA_NOT_DISABLED') }
+  if (-not $result.heartbeat -or $result.heartbeat.device_id -ne $expectedDevice) { $preflightFailures.Add('HEARTBEAT_DEVICE_MISMATCH') }
+  if (-not $result.heartbeat -or $result.heartbeat.schema_version -ne 'aria-windows-agent-heartbeat-v2') { $preflightFailures.Add('HEARTBEAT_SCHEMA_NOT_V2') }
+  if (-not $result.heartbeat -or $result.heartbeat.heartbeat_scheduler_version -ne 'serial-retry-v1') { $preflightFailures.Add('SERIAL_RETRY_SCHEDULER_NOT_INSTALLED') }
+  if (-not $result.heartbeat -or $result.heartbeat.gateway_dns_fallback_version -ne 'supabase-scoped-public-fallback-v1') { $preflightFailures.Add('SCOPED_DNS_FALLBACK_NOT_INSTALLED') }
+  if ($result.ollama_process_count -ne 0) { $preflightFailures.Add('OLLAMA_PROCESS_PRESENT') }
+  if ($result.observation.window_seconds -lt 890) { $preflightFailures.Add('OBSERVATION_SHORTER_THAN_890S') }
+  if ($result.observation.sample_count -lt 150) { $preflightFailures.Add('FEWER_THAN_150_SAMPLES') }
+  if ($result.observation.distinct_gateway_ack_count -lt 26) { $preflightFailures.Add('FEWER_THAN_26_DISTINCT_GATEWAY_ACKS') }
+  if ($null -eq $result.observation.max_gateway_ack_gap_ms -or $result.observation.max_gateway_ack_gap_ms -gt 90000) { $preflightFailures.Add('GATEWAY_ACK_GAP_OVER_90S') }
+  if ($null -eq $result.observation.max_process_heartbeat_age_ms -or $result.observation.max_process_heartbeat_age_ms -gt 90000) { $preflightFailures.Add('PROCESS_HEARTBEAT_STALE') }
+  if ($null -eq $result.observation.max_gateway_ack_age_ms -or $result.observation.max_gateway_ack_age_ms -gt 90000) { $preflightFailures.Add('GATEWAY_ACK_STALE') }
+  if ($null -eq $result.observation.max_sample_gap_ms -or $result.observation.max_sample_gap_ms -gt 15000) { $preflightFailures.Add('SAMPLING_GAP_OVER_15S') }
+  if ($result.observation.missing_sample_count -ne 0) { $preflightFailures.Add('MISSING_SAMPLES') }
+  if ($result.observation.read_error_count -ne 0) { $preflightFailures.Add('READ_ERRORS') }
+  if ($result.observation.gateway_error_count -ne 0) { $preflightFailures.Add('GATEWAY_ERRORS') }
+  if ($result.observation.device_id_mismatch_count -ne 0) { $preflightFailures.Add('DEVICE_ID_MISMATCHES') }
+  if ($result.observation.schema_mismatch_count -ne 0) { $preflightFailures.Add('SCHEMA_MISMATCHES') }
+  if ($result.observation.scheduler_mismatch_count -ne 0) { $preflightFailures.Add('SCHEDULER_VERSION_MISMATCHES') }
+  if ($result.observation.dns_fallback_mismatch_count -ne 0) { $preflightFailures.Add('DNS_FALLBACK_VERSION_MISMATCHES') }
+
+  if ($preflightFailures.Count -eq 0) {
+    $result.status = 'PASS'
+    $result.reason = 'ALL_A6_HOST_PRECHECKS_PASSED'
+  } else {
+    $result.status = 'BLOCKED'
+    $result.reason = $preflightFailures -join ','
+  }
+
+  $result | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $resultPath -Encoding UTF8
+  Write-Host "A6_READ_ONLY_STATUS=$($result.status)"
+  Write-Host "A6_READ_ONLY_REASON=$($result.reason)"
+  Write-Host "A6_READ_ONLY_HOST=$($result.host)"
+  Write-Host "A6_SAMPLE_COUNT=$($result.observation.sample_count)"
+  Write-Host "A6_MAX_PROCESS_HEARTBEAT_AGE_MS=$($result.observation.max_process_heartbeat_age_ms)"
+  Write-Host "A6_MAX_GATEWAY_ACK_AGE_MS=$($result.observation.max_gateway_ack_age_ms)"
+  Write-Host "A6_MAX_GATEWAY_ACK_GAP_MS=$($result.observation.max_gateway_ack_gap_ms)"
+  Write-Host "A6_MISSING_SAMPLES=$($result.observation.missing_sample_count)"
+  Write-Host "A6_READ_ERRORS=$($result.observation.read_error_count)"
+  Write-Host "A6_GATEWAY_ERRORS=$($result.observation.gateway_error_count)"
+  Write-Host "A6_DEVICE_ID_MISMATCHES=$($result.observation.device_id_mismatch_count)"
+  Write-Host "A6_SCHEMA_MISMATCHES=$($result.observation.schema_mismatch_count)"
+  Write-Host "A6_SCHEDULER_MISMATCHES=$($result.observation.scheduler_mismatch_count)"
+  Write-Host "A6_DNS_FALLBACK_MISMATCHES=$($result.observation.dns_fallback_mismatch_count)"
+  Write-Host "A6_PREFLIGHT_STATUS=$($result.status)"
+  Write-Host "A6_PREFLIGHT_REASON=$($result.reason)"
+  Write-Host "A6_OLLAMA_PROCESS_COUNT=$($result.ollama_process_count)"
+} catch {
+  $result.reason = [string]$_.Exception.Message
+  $result.status = 'BLOCKED'
+  $result | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $resultPath -Encoding UTF8
+  Write-Host "A6_READ_ONLY_STATUS=$($result.status)"
+  Write-Host "A6_READ_ONLY_REASON=$($result.reason)"
+  throw
+}
+if ($result.status -ne 'PASS') { throw "A6_PREFLIGHT_BLOCKED=$($result.reason)" }
