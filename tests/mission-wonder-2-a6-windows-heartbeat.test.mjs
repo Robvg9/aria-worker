@@ -39,6 +39,10 @@ assert.match(preflight, /for \(\$sampleIndex = 0; \$sampleIndex -lt 24; \$sample
 assert.match(preflight, /Start-Sleep -Seconds 5/);
 assert.match(preflight, /distinct_gateway_ack_count/);
 assert.match(preflight, /command_line_sha256/);
+assert.match(preflight, /processById/);
+assert.match(preflight, /schtasks\.exe \/Query/);
+assert.match(preflight, /scheduled_task_discovery/);
+assert.doesNotMatch(preflight, /CommandLine\s*=/);
 assert.match(preflight, /ollama_process_count/);
 assert.doesNotMatch(preflight, /\bCopy-Item\b|\bNew-Item\b|\bStop-Process\b|\bRestart-Service\b|kill-request/i);
 assert.doesNotMatch(preflight, /Set-Content\s+-LiteralPath\s+\$configPath/i);
