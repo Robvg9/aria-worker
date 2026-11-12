@@ -4430,10 +4430,32 @@ export default function App() {
   const initialNavigation = navigationFromHash();
   const [navigation, setNavigation] = useState<NavigationState>(() => initialNavigation);
   const [uiPrefs, setUiPrefs] = useState<UiPrefs>(() => readUiPrefs());
+  const [keyboardOpen, setKeyboardOpen] = useState(false);
   const globalSwipeStartRef = useRef<{ x: number; y: number } | null>(null);
   const globalSwipeTriggeredRef = useRef(false);
   const page = navigation.page;
   const signOut = () => { localStorage.removeItem(SESSION_KEY); setSession(null); };
+
+  // Hide the global navigation while a text editor owns the screen. Android
+  // resizes the WebView for the soft keyboard; keeping a fixed bottom bar visible
+  // makes it jump into the middle of the chat and steals useful editing space.
+  useEffect(() => {
+    const editableSelector = 'textarea,input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="button"]):not([type="submit"]):not([type="reset"]),[contenteditable="true"]';
+    const syncKeyboardState = () => {
+      const active = document.activeElement;
+      const editing = active instanceof HTMLElement &&
+        (active.matches(editableSelector) || Boolean(active.closest('[contenteditable="true"]')));
+      setKeyboardOpen(editing);
+    };
+    const handleFocusOut = () => { window.requestAnimationFrame(syncKeyboardState); };
+    document.addEventListener('focusin', syncKeyboardState);
+    document.addEventListener('focusout', handleFocusOut);
+    syncKeyboardState();
+    return () => {
+      document.removeEventListener('focusin', syncKeyboardState);
+      document.removeEventListener('focusout', handleFocusOut);
+    };
+  }, []);
 
   useEffect(() => {
     const applyRefreshedSession = (event: Event) => {
@@ -4563,7 +4585,7 @@ export default function App() {
   function beginGlobalSwipe(x: number, y: number, target: EventTarget | null) {
     if (!uiPrefs.swipeNavigation) return;
     const element = target as Element | null;
-    if (element?.closest?.('input,textarea,[contenteditable="true"],canvas,.noSwipe')) return;
+    if (element?.closest?.('input,textarea,[contenteditable="true"],canvas,.noSwipe,.projectShell')) return;
     globalSwipeStartRef.current = { x, y };
   }
 
@@ -4600,7 +4622,7 @@ export default function App() {
   };
   return (
     <div
-      className={'globalPageFrame ' + (uiPrefs.animations ? '' : 'animationsOff')}
+      className={'globalPageFrame ' + (uiPrefs.animations ? '' : 'animationsOff') + (keyboardOpen ? ' keyboardOpen' : '')}
       onPointerDown={handleGlobalPointerDown}
       onPointerUp={handleGlobalPointerUp}
       onPointerCancel={() => { globalSwipeStartRef.current = null; }}
