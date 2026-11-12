@@ -2318,14 +2318,24 @@ function Chat({
     writeChatHistory(session.userId, conversationId, messages, pendingMissionConfirmation);
   }, [session.userId, conversationId, messages, pendingMissionConfirmation]);
 
+  // Always open the active conversation at its newest message. Two animation
+  // frames allow restored history, markdown and WebView layout to settle before
+  // measuring the real scroll height.
   useEffect(() => {
     const node = chatWindowRef.current;
-    if (!node) return;
-    const distanceFromBottom = node.scrollHeight - node.scrollTop - node.clientHeight;
-    if (messages.length <= 1 || distanceFromBottom < 140 || sending) {
-      requestAnimationFrame(() => { node.scrollTop = node.scrollHeight; });
-    }
-  }, [messages.length, sending]);
+    if (!node || screen !== 1) return;
+    let firstFrame = 0;
+    let secondFrame = 0;
+    firstFrame = requestAnimationFrame(() => {
+      secondFrame = requestAnimationFrame(() => {
+        if (chatWindowRef.current === node) node.scrollTop = node.scrollHeight;
+      });
+    });
+    return () => {
+      cancelAnimationFrame(firstFrame);
+      cancelAnimationFrame(secondFrame);
+    };
+  }, [screen, messages.length, messages[messages.length - 1]?.id, sending]);
 
   useEffect(() => {
     if (screen !== 1) return;
@@ -2954,7 +2964,7 @@ function Chat({
                 <div>
                   <div className='eyebrow'>CENTRO DE MANDO</div>
                   <h2>{mission ? statusLabel(String(mission.status)) : 'Lista para actuar'}</h2>
-                  <p>{mission ? missionHumanTitle(mission) : 'Aquí solo verás lo esencial para saber si ARIA está lista y qué misión está atendiendo.'}</p>
+                  <p>{mission ? missionHumanTitle(mission) : 'Estado de ARIA y de la misión actual.'}</p>
                 </div>
               </div>
               <section className='panel homeMissionCard'>
@@ -2970,7 +2980,7 @@ function Chat({
                 ) : (
                   <>
                     <h3>Ninguna misión se está ejecutando</h3>
-                    <p className='muted'>Las misiones y su progreso se controlan desde Meditación IA.</p>
+                    <p className='muted'>Consulta el progreso en Meditación IA.</p>
                   </>
                 )}
               </section>
