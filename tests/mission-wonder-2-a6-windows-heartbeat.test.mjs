@@ -78,9 +78,21 @@ const reuseBlockStart = a6Installer.indexOf("$runtimeExact = $true");
 const reuseBlockEnd = a6Installer.indexOf("$configExact =", reuseBlockStart);
 assert.ok(reuseBlockStart >= 0 && reuseBlockEnd > reuseBlockStart, "A6 exact-runtime reuse block must remain explicit");
 const reuseBlock = a6Installer.slice(reuseBlockStart, reuseBlockEnd);
-assert.match(reuseBlock, /rev-parse \("HEAD:" \+ \$item\.source\)/);
-assert.match(reuseBlock, /Materialize-ExactGitBlob -RelativePath \$item\.source -DestinationPath \$sourcePath/);
-assert.match(reuseBlock, /hash-object --path \$item\.source \$sourcePath/);
+assert.match(reuseBlock, /\$gitRelativePath = \(\[string\]\$item\.source\)\.Replace\('\\\\','\/'\)/);
+assert.match(reuseBlock, /rev-parse \("HEAD:" \+ \$gitRelativePath\)/);
+assert.match(reuseBlock, /Materialize-ExactGitBlob -RelativePath \$gitRelativePath -DestinationPath \$sourcePath/);
+assert.match(reuseBlock, /hash-object --path \$gitRelativePath \$sourcePath/);
+assert.doesNotMatch(reuseBlock, /(?:rev-parse|hash-object)[^\n]*\$item\.source/);
+
+const installLoopStart = a6Installer.indexOf("foreach ($item in $map)", a6Installer.indexOf("A6_REUSE_CHECK_REJECTED"));
+const installLoopEnd = a6Installer.indexOf("\n\n  New-Item -ItemType Directory", installLoopStart);
+assert.ok(installLoopStart >= 0 && installLoopEnd > installLoopStart, "A6 source materialization loop must remain explicit");
+const installLoop = a6Installer.slice(installLoopStart, installLoopEnd);
+assert.match(installLoop, /\$gitRelativePath = \(\[string\]\$item\.source\)\.Replace\('\\\\','\/'\)/);
+assert.match(installLoop, /rev-parse \("HEAD:" \+ \$gitRelativePath\)/);
+assert.match(installLoop, /Materialize-ExactGitBlob -RelativePath \$gitRelativePath -DestinationPath \$source/);
+assert.match(installLoop, /hash-object --path \$gitRelativePath \$source/);
+assert.doesNotMatch(installLoop, /(?:rev-parse|hash-object)[^\n]*\$item\.source/);
 assert.ok(
   reuseBlock.indexOf("Materialize-ExactGitBlob") < reuseBlock.indexOf("Get-FileHash -LiteralPath $sourcePath"),
   "Sparse source blobs must be materialized before runtime comparison"
