@@ -382,7 +382,7 @@ assert.ok(project.includes("workspace.scrollTop=0"), 'entering Projects must res
 assert.ok(project.includes("appFrame.scrollTop=0"), 'entering Projects must reset the app-frame scroll container');
 assert.ok(project.includes("document.documentElement.scrollTop=0")&&project.includes("document.body.scrollTop=0")&&project.includes("window.scrollTo(0,0)"), 'entering Projects must reset every document scroll root');
 assert.ok(project.includes("initialViewportResetDoneRef")&&project.includes("resetAfterInitialConnectionLayout")&&project.includes("window.requestAnimationFrame(()=>window.requestAnimationFrame("), 'the viewport must be reset after the async connection panel has finished changing layout');
-assert.ok(css.includes(".projectShell{max-width:1240px;overflow-anchor:none}"), 'the fixed-height Projects shell must disable browser scroll anchoring that shifts project cards during async panel loading');
+assert.match(css,/\.projectShell\{[^}]*overflow-anchor:none/,'the bounded Projects shell must disable browser scroll anchoring that shifts project cards during async panel loading');
 assert.ok(projectsRwht.includes("project_shell_scroll_top")&&projectsRwht.includes("first_project_card_top"), 'the Projects E2E artifact must preserve scroll diagnostics if the viewport regression recurs');
 assert.ok(projectsRwht.includes('viewport_height: viewportHeight')&&projectsRwht.includes('Number(report.ux.project_tabs_bottom) > Number(report.ux.viewport_height)'), 'the Node-side RWHT gate must use viewport metrics returned by page.evaluate, never the browser-only window global');
 assert.ok(!projectsRwht.includes("Number(report.ux.project_tabs_bottom) > window.innerHeight"), 'the final PC RWHT must not reference window in Node scope');
