@@ -68,8 +68,8 @@ for (const [index, spec] of canonicalArmSpecs.entries()) {
   assert.equal(spec.ordinal, ordinal);
   assert.equal(spec.command, canonicalStep.input.command);
   assert.equal(spec.command, spec.command.trim(), "arm payload command must have no outer whitespace");
-  assert.equal(spec.command.startsWith("\\n"), false);
-  assert.equal(spec.command.endsWith("\\n"), false);
+  assert.equal(spec.command.startsWith("\n"), false);
+  assert.equal(spec.command.endsWith("\n"), false);
   assert.equal(spec.mission_id, m22A6MissionIdV1(RUN_ID, ordinal));
   assert.equal(spec.scope_id, m22A6ChildScopeIdV1(RUN_ID, ordinal));
   assert.equal(spec.request_id, RUN_ID + "." + ordinal);
@@ -171,7 +171,7 @@ const args = {
 assert.equal(await m22A6ScopeRowMatchesV1(args), true);
 assert.equal(await m22A6ScopeRowMatchesV1({
   ...args,
-  scope: { ...scope, command: "\\n" + scope.command + "\\n" },
+  scope: { ...scope, command: "\n" + scope.command + "\n" },
 }), false, "the runtime must reject the exact leading/trailing newline defect from the failed live run");
 for (const change of [
   { run: { ...run, status: "revoked" } },
