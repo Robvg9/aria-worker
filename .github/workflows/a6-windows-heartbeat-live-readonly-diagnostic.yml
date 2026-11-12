@@ -187,6 +187,9 @@ jobs:
             samples=@($samples.ToArray())
             processes_before=$processes
             processes_after=$finalProcesses
+            incident_events=@($incidentEvents)
+            watchdog_incident_lines=@($watchdogIncidentLines)
+            incident_window_utc=@($incidentStart.ToString('o'),$incidentEnd.ToString('o'))
             restrictions=@('NO_RUNTIME_WRITES','NO_CONFIG_CHANGES','NO_PROCESS_RESTARTS','NO_TASK_CHANGES','NO_GATEWAY_CALLS','NO_MISSIONS_OR_JOBS')
           }
           $result | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $out -Encoding UTF8
