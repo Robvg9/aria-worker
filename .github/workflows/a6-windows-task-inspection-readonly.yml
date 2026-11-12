@@ -23,60 +23,96 @@ jobs:
       run:
         shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
     steps:
-      - name: Read task XML and PID ancestry without modifying anything
+      - name: Read existing tasks and PID ancestry without modifications
         run: |
           $ErrorActionPreference = 'Stop'
           if ($env:COMPUTERNAME -ine 'ROBVG') { throw "A6_HOST_MISMATCH=$env:COMPUTERNAME" }
           $root = 'D:\ARIA-Windows-Agent'
           $logs = Join-Path $root 'Logs'
+          $schtasks = Join-Path $env:WINDIR 'System32\schtasks.exe'
           function Read-Pid([string]$path) {
             if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return $null }
             $id = 0
             if ([int]::TryParse((Get-Content -Raw -LiteralPath $path).Trim(),[ref]$id)) { return $id }
             return $null
           }
+          function Invoke-SchtasksReadOnly([string[]]$Arguments) {
+            $oldPreference = $ErrorActionPreference
+            $ErrorActionPreference = 'Continue'
+            try {
+              $output = @(& $schtasks @Arguments 2>&1)
+              $exitCode = $LASTEXITCODE
+            } finally {
+              $ErrorActionPreference = $oldPreference
+            }
+            return @{ exit_code=$exitCode; lines=@($output | ForEach-Object { [string]$_ }) }
+          }
           $agentPid = Read-Pid (Join-Path $logs 'agent.pid')
           $watchdogPid = Read-Pid (Join-Path $logs 'watchdog.pid')
           $result = [ordered]@{
             host = $env:COMPUTERNAME
             captured_at_utc = [DateTimeOffset]::UtcNow.ToString('o')
+            schtasks_executable_exists = Test-Path -LiteralPath $schtasks
             agent_pid_file = $agentPid
             watchdog_pid_file = $watchdogPid
-            exact_task_queries = @()
+            task_list_exit_code = $null
             task_list_matches = @()
+            exact_task_xml = @()
             process_ancestry = @()
             services_for_pid = @()
             mutations = 'NONE_READ_ONLY'
           }
-          foreach ($taskName in @('SpaceAgentTask','ARIA-Windows-Local-Agent','ARIA Persistent Windows Worker')) {
-            $xmlLines = @(& schtasks.exe /Query /TN $taskName /XML 2>&1)
-            $exit = $LASTEXITCODE
-            $entry = [ordered]@{ task_name=$taskName; exit_code=$exit; xml_read=false; command=$null; arguments=$null; user=$null; logon_type=$null; run_level=$null }
-            if ($exit -eq 0) {
-              try {
-                [xml]$xml = ($xmlLines -join [Environment]::NewLine)
-                $entry.command = [string]$xml.SelectSingleNode("//*[local-name()='Actions']/*[local-name()='Exec']/*[local-name()='Command']").InnerText
-                $entry.arguments = [string]$xml.SelectSingleNode("//*[local-name()='Actions']/*[local-name()='Exec']/*[local-name()='Arguments']").InnerText
-                $entry.user = [string]$xml.SelectSingleNode("//*[local-name()='Principals']/*[local-name()='Principal']/*[local-name()='UserId']").InnerText
-                $entry.logon_type = [string]$xml.SelectSingleNode("//*[local-name()='Principals']/*[local-name()='Principal']/*[local-name()='LogonType']").InnerText
-                $entry.run_level = [string]$xml.SelectSingleNode("//*[local-name()='Principals']/*[local-name()='Principal']/*[local-name()='RunLevel']").InnerText
-                $entry.xml_read = $true
-                $entry.arguments = $entry.arguments -replace '(?i)(token|secret|password|authorization)(\s*[:=]\s*|\s+)[^\s;]+','$1$2[REDACTED]'
-              } catch { $entry.parse_error = $_.Exception.GetType().Name }
-            } else {
-              $entry.error = (($xmlLines | ForEach-Object { [string]$_ }) -join ' ').Substring(0,[Math]::Min(300,(($xmlLines | ForEach-Object { [string]$_ }) -join ' ').Length))
+
+          $listing = Invoke-SchtasksReadOnly @('/Query','/FO','CSV','/V')
+          $result.task_list_exit_code = $listing.exit_code
+          if ($listing.exit_code -eq 0 -and $listing.lines.Count -gt 1) {
+            try {
+              $rows = @($listing.lines | ConvertFrom-Csv)
+              foreach ($row in $rows) {
+                $properties = @($row.PSObject.Properties)
+                $nameProperty = $properties | Where-Object { $_.Name -match 'TaskName|Nombre de tarea|Tarea' } | Select-Object -First 1
+                if (-not $nameProperty) { continue }
+                $name = [string]$nameProperty.Value
+                if ($name -notmatch '(?i)SpaceAgent|ARIA|Windows.*Agent|Agent.*Windows') { continue }
+                $actionProperty = $properties | Where-Object { $_.Name -match 'Task To Run|Tarea que se ejecutará|Acción' } | Select-Object -First 1
+                $statusProperty = $properties | Where-Object { $_.Name -match 'Status|Estado' } | Select-Object -First 1
+                $userProperty = $properties | Where-Object { $_.Name -match 'Run As User|Ejecutar como usuario' } | Select-Object -First 1
+                $result.task_list_matches += @{
+                  task_name=$name
+                  action=if($actionProperty){([string]$actionProperty.Value -replace '(?i)(token|secret|password|authorization)(\s*[:=]\s*|\s+)[^\s;]+','$1$2[REDACTED]')}else{$null}
+                  status=if($statusProperty){[string]$statusProperty.Value}else{$null}
+                  run_as=if($userProperty){[string]$userProperty.Value}else{$null}
+                }
+              }
+            } catch {
+              $result.task_list_parse_error = $_.Exception.GetType().Name
             }
-            $result.exact_task_queries += $entry
+          } else {
+            $result.task_list_error = (($listing.lines -join ' ').Substring(0,[Math]::Min(500,($listing.lines -join ' ').Length)))
           }
-          try {
-            $csv = @(& schtasks.exe /Query /FO CSV /V 2>&1)
-            $csvExit = $LASTEXITCODE
-            if ($csvExit -eq 0) {
-              $result.task_list_matches = @($csv | Where-Object { $_ -match '(?i)SpaceAgent|ARIA|Windows.*Agent|agent.*windows' } | Select-Object -First 30)
+
+          foreach ($task in @($result.task_list_matches)) {
+            $query = Invoke-SchtasksReadOnly @('/Query','/TN',[string]$task.task_name,'/XML')
+            $entry = [ordered]@{ task_name=$task.task_name; exit_code=$query.exit_code; xml_read=$false; command=$null; arguments=$null; user=$null; logon_type=$null; run_level=$null }
+            if ($query.exit_code -eq 0) {
+              try {
+                [xml]$taskXml = ($query.lines -join [Environment]::NewLine)
+                $entry.command = [string]$taskXml.SelectSingleNode("//*[local-name()='Actions']/*[local-name()='Exec']/*[local-name()='Command']").InnerText
+                $entry.arguments = [string]$taskXml.SelectSingleNode("//*[local-name()='Actions']/*[local-name()='Exec']/*[local-name()='Arguments']").InnerText
+                $entry.user = [string]$taskXml.SelectSingleNode("//*[local-name()='Principals']/*[local-name()='Principal']/*[local-name()='UserId']").InnerText
+                $entry.logon_type = [string]$taskXml.SelectSingleNode("//*[local-name()='Principals']/*[local-name()='Principal']/*[local-name()='LogonType']").InnerText
+                $entry.run_level = [string]$taskXml.SelectSingleNode("//*[local-name()='Principals']/*[local-name()='Principal']/*[local-name()='RunLevel']").InnerText
+                $entry.arguments = $entry.arguments -replace '(?i)(token|secret|password|authorization)(\s*[:=]\s*|\s+)[^\s;]+','$1$2[REDACTED]'
+                $entry.xml_read = $true
+              } catch {
+                $entry.parse_error = $_.Exception.GetType().Name
+              }
             } else {
-              $result.task_list_error = "SCHTASKS_QUERY_EXIT=$csvExit"
+              $entry.error = (($query.lines -join ' ').Substring(0,[Math]::Min(300,($query.lines -join ' ').Length)))
             }
-          } catch { $result.task_list_error = $_.Exception.GetType().Name }
+            $result.exact_task_xml += $entry
+          }
+
           $all = @(Get-CimInstance Win32_Process -ErrorAction Stop)
           $byId = @{}
           foreach ($p in $all) { $byId[[int]$p.ProcessId] = $p }
@@ -106,12 +142,13 @@ jobs:
           Write-Host "A6_TASK_INSPECTION=PASS"
           Write-Host "A6_AGENT_PID=$agentPid"
           Write-Host "A6_WATCHDOG_PID=$watchdogPid"
-          Write-Host "A6_TASK_XML_SUCCESS=$(@($result.exact_task_queries | Where-Object { $_.xml_read }).Count)"
+          Write-Host "A6_TASK_LIST_EXIT=$($result.task_list_exit_code)"
+          Write-Host "A6_TASK_MATCHES=$(@($result.task_list_matches).Count)"
       - name: Upload read-only task identity evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: a6-windows-task-inspection-${{ github.sha }}
+          name: a6-windows-task-inspection-\${{ github.sha }}
           path: a6-windows-task-inspection.json
           if-no-files-found: warn
           retention-days: 14
