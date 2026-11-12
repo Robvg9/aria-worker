@@ -1,0 +1,163 @@
+name: A6 Windows heartbeat live read-only diagnostic
+
+on:
+  push:
+    branches:
+      - ops/a6-windows-agent-v2-heartbeat-preflight-v1
+    paths:
+      - '.github/workflows/a6-windows-heartbeat-live-readonly-diagnostic.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: a6-windows-heartbeat-live-readonly-diagnostic
+  cancel-in-progress: false
+
+jobs:
+  inspect:
+    name: Read heartbeat and process identity on ROBVG
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    defaults:
+      run:
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+    steps:
+      - name: Checkout exact source
+        uses: actions/checkout@v4
+
+      - name: Capture live state without modifying runtime
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ([string]$env:COMPUTERNAME -ine 'ROBVG') { throw "A6_RUNNER_HOST_MISMATCH expected=ROBVG actual=$env:COMPUTERNAME" }
+          $root = 'D:\ARIA-Windows-Agent'
+          $logs = Join-Path $root 'Logs'
+          $heartbeat = Join-Path $logs 'agent-heartbeat.json'
+          $agentPidFile = Join-Path $logs 'agent.pid'
+          $watchdogPidFile = Join-Path $logs 'watchdog.pid'
+          $out = Join-Path $env:GITHUB_WORKSPACE 'a6-heartbeat-live-readonly.json'
+          $samples = [System.Collections.Generic.List[object]]::new()
+          $started = [DateTimeOffset]::UtcNow
+
+          function Read-PidFile([string]$Path) {
+            if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $null }
+            $v = 0
+            if ([int]::TryParse((Get-Content -Raw -LiteralPath $Path).Trim(),[ref]$v)) { return $v }
+            return $null
+          }
+
+          function Get-HeartbeatSnapshot {
+            if (-not (Test-Path -LiteralPath $heartbeat -PathType Leaf)) { return @{ exists=$false } }
+            $item = Get-Item -LiteralPath $heartbeat
+            $raw = Get-Content -Raw -LiteralPath $heartbeat
+            $hash = (Get-FileHash -LiteralPath $heartbeat -Algorithm SHA256).Hash
+            $state = $null
+            $parseError = $null
+            try { $state = $raw | ConvertFrom-Json -ErrorAction Stop } catch { $parseError = 'JSON_PARSE_FAILED' }
+            $keys = @()
+            if ($state) { $keys = @($state.PSObject.Properties.Name | Sort-Object) }
+            return @{
+              exists=$true
+              length=$item.Length
+              last_write_utc=$item.LastWriteTimeUtc.ToString('o')
+              sha256=$hash
+              json_valid=($null -ne $state)
+              parse_error=$parseError
+              version=if($state){[string]$state.version}else{$null}
+              device_id=if($state){[string]$state.device_id}else{$null}
+              timestamp=if($state){[string]$state.timestamp}else{$null}
+              network=if($state){[string]$state.network}else{$null}
+              last_gateway_heartbeat_at=if($state){[string]$state.last_gateway_heartbeat_at}else{$null}
+              has_gateway_error=if($state){$null -ne $state.last_gateway_heartbeat_error}else{$false}
+              property_names=$keys
+            }
+          }
+
+          $agentPid = Read-PidFile $agentPidFile
+          $watchdogPid = Read-PidFile $watchdogPidFile
+          $all = @(Get-CimInstance Win32_Process -ErrorAction Stop)
+          $byId = @{}
+          foreach ($p in $all) { $byId[[int]$p.ProcessId] = $p }
+
+          $processes = @()
+          foreach ($p in $all | Where-Object { $_.Name -match '^(node|node.exe|powershell|powershell.exe|pwsh|pwsh.exe)$' }) {
+            $parent = $byId[[int]$p.ParentProcessId]
+            $owner = $null
+            try {
+              $o = Invoke-CimMethod -InputObject $p -MethodName GetOwner -ErrorAction Stop
+              if ($o.ReturnValue -eq 0) { $owner = "$($o.Domain)\$($o.User)" }
+            } catch {}
+            $cmd = [string]$p.CommandLine
+            $processes += @{
+              pid=[int]$p.ProcessId
+              parent_pid=[int]$p.ParentProcessId
+              parent_name=if($parent){[string]$parent.Name}else{$null}
+              name=[string]$p.Name
+              session_id=[int]$p.SessionId
+              owner=$owner
+              executable_path=[string]$p.ExecutablePath
+              command_mentions_runtime_agent=($cmd -match 'ARIA-Windows-Agent|aria-agent\.js')
+              command_mentions_watchdog=($cmd -match 'run-agent\.ps1')
+              command_mentions_heartbeat=($cmd -match 'agent-heartbeat\.json')
+              commandline_redacted=($cmd -replace '(?i)(token|secret|password|authorization)(\s*[:=]\s*|\s+)[^\s;]+','$1$2[REDACTED]')
+            }
+          }
+
+          $initial = Get-HeartbeatSnapshot
+          for ($i=0; $i -lt 31; $i++) {
+            $snap = Get-HeartbeatSnapshot
+            $samples.Add(@{ captured_at_utc=[DateTimeOffset]::UtcNow.ToString('o'); heartbeat=$snap })
+            if ($i -lt 30) { Start-Sleep -Seconds 2 }
+          }
+
+          $finalProcesses = @()
+          $allAfter = @(Get-CimInstance Win32_Process -ErrorAction Stop)
+          $byIdAfter = @{}
+          foreach ($p in $allAfter) { $byIdAfter[[int]$p.ProcessId] = $p }
+          foreach ($p in $allAfter | Where-Object { $_.Name -match '^(node|node.exe|powershell|powershell.exe|pwsh|pwsh.exe)$' }) {
+            $parent = $byIdAfter[[int]$p.ParentProcessId]
+            $cmd = [string]$p.CommandLine
+            $owner = $null
+            try { $o=Invoke-CimMethod -InputObject $p -MethodName GetOwner -ErrorAction Stop; if($o.ReturnValue -eq 0){$owner="$($o.Domain)\$($o.User)"} } catch {}
+            $finalProcesses += @{
+              pid=[int]$p.ProcessId; parent_pid=[int]$p.ParentProcessId
+              parent_name=if($parent){[string]$parent.Name}else{$null}
+              name=[string]$p.Name; session_id=[int]$p.SessionId; owner=$owner
+              executable_path=[string]$p.ExecutablePath
+              command_mentions_runtime_agent=($cmd -match 'ARIA-Windows-Agent|aria-agent\.js')
+              command_mentions_watchdog=($cmd -match 'run-agent\.ps1')
+              command_mentions_heartbeat=($cmd -match 'agent-heartbeat\.json')
+              commandline_redacted=($cmd -replace '(?i)(token|secret|password|authorization)(\s*[:=]\s*|\s+)[^\s;]+','$1$2[REDACTED]')
+            }
+          }
+
+          $result = @{
+            status='READ_ONLY_CAPTURE_COMPLETE'
+            host=[string]$env:COMPUTERNAME
+            captured_at_utc=[DateTimeOffset]::UtcNow.ToString('o')
+            duration_seconds=[math]::Round(([DateTimeOffset]::UtcNow-$started).TotalSeconds,1)
+            source_sha=[string]$env:GITHUB_SHA
+            heartbeat_path=$heartbeat
+            agent_pid_file=$agentPid
+            watchdog_pid_file=$watchdogPid
+            initial_heartbeat=$initial
+            samples=@($samples.ToArray())
+            processes_before=$processes
+            processes_after=$finalProcesses
+            restrictions=@('NO_RUNTIME_WRITES','NO_CONFIG_CHANGES','NO_PROCESS_RESTARTS','NO_TASK_CHANGES','NO_GATEWAY_CALLS','NO_MISSIONS_OR_JOBS')
+          }
+          $result | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $out -Encoding UTF8
+          Write-Host "A6_READ_ONLY_HOST=$env:COMPUTERNAME"
+          Write-Host "A6_READ_ONLY_SAMPLES=$($samples.Count)"
+          Write-Host "A6_AGENT_PID_FILE=$agentPid"
+          Write-Host "A6_WATCHDOG_PID_FILE=$watchdogPid"
+          Write-Host 'A6_READ_ONLY_CAPTURE=PASS'
+
+      - name: Upload sanitized read-only evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: a6-heartbeat-live-readonly-${{ github.sha }}
+          path: a6-heartbeat-live-readonly.json
+          if-no-files-found: warn
+          retention-days: 14
