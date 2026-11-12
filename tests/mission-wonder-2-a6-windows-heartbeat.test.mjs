@@ -51,7 +51,9 @@ assert.ok(preflight.includes("name: A6 Windows Agent v2 Install + 15-minute ACK 
 assert.ok(preflight.includes("a6-install-heartbeat-v2.ps1"));
 assert.match(preflight, /rev-parse HEAD/);
 assert.match(preflight, /rev-parse \("HEAD:" \+ \$relative\)/);
-assert.match(preflight, /git -C \$repoRoot checkout HEAD -- \$relative/);
+assert.ok(preflight.includes('show "HEAD:'), "installer must restore the exact Git blob without sparse-index checkout");
+assert.match(preflight, /ComSpec \/d \/c \$native/);
+assert.doesNotMatch(preflight, /checkout HEAD -- \$relative/);
 assert.match(preflight, /hash-object --path \$relative \$installer/);
 assert.match(preflight, /A6_INSTALLER_HASH_VERIFIED=true/);
 assert.match(preflight, /for \(\$sampleIndex = 0; \$sampleIndex -lt 180; \$sampleIndex\+\+\)/);
@@ -68,7 +70,14 @@ assert.match(preflight, /gateway_dns_fallback_version = \[string\]\$sampleHb\.ga
 assert.match(a6Installer, /COMPUTERNAME -ine 'ROBVG'/);
 assert.match(a6Installer, /rev-parse HEAD/);
 assert.match(a6Installer, /SOURCE_SHA_MISMATCH/);
-assert.match(a6Installer, /git -C \$repoRoot checkout HEAD -- \$item\.source/);
+assert.match(a6Installer, /Materialize-ExactGitBlob/);
+assert.ok(a6Installer.includes('show "HEAD:'), "runtime sources must be materialized from exact Git blobs");
+assert.match(a6Installer, /ComSpec \/d \/c \$native/);
+assert.doesNotMatch(a6Installer, /checkout HEAD -- \$item\.source/);
+assert.match(a6Installer, /ALREADY_INSTALLED/);
+assert.match(a6Installer, /processAgeMs -lt 90000/);
+assert.match(a6Installer, /gatewayAckAgeMs -lt 90000/);
+assert.match(a6Installer, /restart_requested = \$false/);
 assert.match(a6Installer, /hash-object --path \$item\.source \$source/);
 assert.match(a6Installer, /Backups\\a6-heartbeat-v2/);
 assert.match(a6Installer, /Get-CimInstance Win32_Process/);
