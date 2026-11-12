@@ -157,6 +157,13 @@ jobs:
           } catch {
             $networkDrivers = @(@{ query_error=$_.Exception.GetType().Name; message=$_.Exception.Message })
           }
+          $computerSystem = $null
+          try {
+            $cs = Get-CimInstance Win32_ComputerSystem -ErrorAction Stop
+            $computerSystem = @{ manufacturer=[string]$cs.Manufacturer; model=[string]$cs.Model; system_type=[string]$cs.SystemType }
+          } catch {
+            $computerSystem = @{ query_error=$_.Exception.GetType().Name }
+          }
           $networkPowerManagement = @()
           try {
             if (Get-Command Get-NetAdapterPowerManagement -ErrorAction SilentlyContinue) {
@@ -172,9 +179,9 @@ jobs:
           $networkAdvancedProperties = @()
           try {
             if (Get-Command Get-NetAdapterAdvancedProperty -ErrorAction SilentlyContinue) {
-              $networkAdvancedProperties = @(Get-NetAdapterAdvancedProperty -Name '*' -ErrorAction Stop |
-                Where-Object { $_.Name -match 'Realtek|Ethernet' -and $_.DisplayName -match 'Power|Energy|Green|EEE|Speed|Suspend' } |
-                Select-Object Name,DisplayName,DisplayValue,RegistryKeyword)
+              $networkAdvancedProperties = @(Get-NetAdapterAdvancedProperty -Name '*' -AllProperties -ErrorAction Stop |
+                Where-Object { $_.Name -match 'Realtek|Ethernet' -and $_.DisplayName -match 'Power Saving Mode|Energy|Green|EEE|Speed|Suspend' } |
+                Select-Object Name,DisplayName,DisplayValue,RegistryKeyword,RegistryValue,ValidDisplayValues,ValidRegistryValues,DefaultDisplayValue,DefaultRegistryValue)
             }
           } catch {
             $networkAdvancedProperties = @(@{ query_error=$_.Exception.GetType().Name; message=$_.Exception.Message })
@@ -266,6 +273,7 @@ jobs:
             incident_window_utc=@($incidentStart.ToString('o'),$incidentEnd.ToString('o'))
             power_settings=@($powerSettings)
             operating_system=$osBoot
+            computer_system=$computerSystem
             network_adapters=@($networkAdapters)
             network_drivers=@($networkDrivers)
             network_power_management=@($networkPowerManagement)
