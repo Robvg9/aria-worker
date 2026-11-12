@@ -141,6 +141,24 @@ jobs:
             }
           }
 
+          $netAdaptersDetailed = @()
+          try {
+            $netAdaptersDetailed = @(Get-NetAdapter -IncludeHidden -ErrorAction Stop | Select-Object Name,InterfaceDescription,Status,LinkSpeed,InterfaceIndex,DriverInformation,DriverFileName,DriverVersion)
+          } catch {
+            $netAdaptersDetailed = @(@{ query_error=$_.Exception.GetType().Name; message=$_.Exception.Message })
+          }
+          $connectionProfiles = @()
+          try {
+            $connectionProfiles = @(Get-NetConnectionProfile -ErrorAction Stop | Select-Object Name,InterfaceAlias,InterfaceIndex,NetworkCategory,IPv4Connectivity,IPv6Connectivity)
+          } catch {
+            $connectionProfiles = @(@{ query_error=$_.Exception.GetType().Name; message=$_.Exception.Message })
+          }
+          $defaultRoutes = @()
+          try {
+            $defaultRoutes = @(Get-NetRoute -DestinationPrefix '0.0.0.0/0' -ErrorAction Stop | Select-Object InterfaceAlias,InterfaceIndex,NextHop,RouteMetric,State)
+          } catch {
+            $defaultRoutes = @(@{ query_error=$_.Exception.GetType().Name; message=$_.Exception.Message })
+          }
           $networkAdapters = @()
           try {
             $networkAdapters = @(Get-CimInstance Win32_NetworkAdapter -ErrorAction Stop |
@@ -274,6 +292,9 @@ jobs:
             power_settings=@($powerSettings)
             operating_system=$osBoot
             computer_system=$computerSystem
+            active_network_adapters=@($netAdaptersDetailed)
+            connection_profiles=@($connectionProfiles)
+            default_routes=@($defaultRoutes)
             network_adapters=@($networkAdapters)
             network_drivers=@($networkDrivers)
             network_power_management=@($networkPowerManagement)
