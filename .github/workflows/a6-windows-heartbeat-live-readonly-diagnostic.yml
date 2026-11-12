@@ -117,8 +117,8 @@ jobs:
                 Select-Object -First 120)
               foreach ($event in $events) {
                 $message = [string]$event.Message
-                $message = $message -replace '(?i)Bearer\\s+[^\\s]+','Bearer [REDACTED]'
-                $message = $message -replace '(?i)(token|secret|password|authorization)(\\s*[:=]\\s*|\\s+)[^\\s;]+','$1$2[REDACTED]'
+                $message = $message -replace '(?i)Bearer\s+[^\s]+','Bearer [REDACTED]'
+                $message = $message -replace '(?i)(token|secret|password|authorization)(\s*[:=]\s*|\s+)[^\s;]+','$1$2[REDACTED]'
                 $incidentEvents += @{
                   log=$logName
                   time_utc=$event.TimeCreated.ToUniversalTime().ToString('o')
@@ -138,9 +138,9 @@ jobs:
           if (Test-Path -LiteralPath $watchdogLog -PathType Leaf) {
             try {
               $watchdogIncidentLines = @(Get-Content -LiteralPath $watchdogLog -Tail 12000 |
-                Where-Object { $_ -match '^\\[ARIA-WATCHDOG\\] 2026-11-12T06:(1[5-9]|2[0-9]):' } |
+                Where-Object { $_ -match '^\[ARIA-WATCHDOG\] 2026-11-12T06:(1[5-9]|2[0-9]):' } |
                 ForEach-Object {
-                  ([string]$_ -replace '(?i)(token|secret|password|authorization)(\\s*[:=]\\s*|\\s+)[^\\s;]+','$1$2[REDACTED]').Substring(0,[Math]::Min(600,([string]$_).Length))
+                  ([string]$_ -replace '(?i)(token|secret|password|authorization)(\s*[:=]\s*|\s+)[^\s;]+','$1$2[REDACTED]').Substring(0,[Math]::Min(600,([string]$_).Length))
                 } |
                 Select-Object -Last 160)
             } catch {
