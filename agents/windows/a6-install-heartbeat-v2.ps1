@@ -166,9 +166,31 @@ try {
   # when the exact source SHA and its fresh serial-heartbeat runtime are already live.
   $runtimeExact = $true
   foreach ($item in $map) {
-    $sourcePath = Join-Path $repoRoot $item.source
     if (-not (Test-Path -LiteralPath $item.target -PathType Leaf)) { $runtimeExact = $false; break }
-    if ((Get-FileHash -LiteralPath $sourcePath -Algorithm SHA256).Hash -ne (Get-FileHash -LiteralPath $item.target -Algorithm SHA256).Hash) { $runtimeExact = $false; break }
+
+    # Sparse checkout can omit tracked source files from the worktree. Resolve
+    # the exact commit blob before hashing so idempotency never calls Get-FileHash
+    # on a path that has not been materialized.
+    $sourcePath = Join-Path $repoRoot $item.source
+    $sourceBlob = (& git -C $repoRoot rev-parse ("HEAD:" + $item.source) 2>$null)
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace([string]$sourceBlob)) {
+      throw "A6_SOURCE_NOT_TRACKED_AT_EXACT_SHA=$($item.source)"
+    }
+    if (-not (Test-Path -LiteralPath $sourcePath -PathType Leaf)) {
+      Materialize-ExactGitBlob -RelativePath $item.source -DestinationPath $sourcePath -ExpectedBlob ([string]$sourceBlob)
+    }
+    $workingBlob = (& git -C $repoRoot hash-object --path $item.source $sourcePath 2>$null)
+    if ($LASTEXITCODE -ne 0 -or [string]$workingBlob -ne [string]$sourceBlob) {
+      Materialize-ExactGitBlob -RelativePath $item.source -DestinationPath $sourcePath -ExpectedBlob ([string]$sourceBlob)
+      $workingBlob = (& git -C $repoRoot hash-object --path $item.source $sourcePath 2>$null)
+    }
+    if ($LASTEXITCODE -ne 0 -or [string]$workingBlob -ne [string]$sourceBlob) {
+      throw "A6_SOURCE_WORKTREE_HASH_MISMATCH=$($item.source)"
+    }
+    if ((Get-FileHash -LiteralPath $sourcePath -Algorithm SHA256).Hash -ne (Get-FileHash -LiteralPath $item.target -Algorithm SHA256).Hash) {
+      $runtimeExact = $false
+      break
+    }
   }
   $configExact = (
     [int]$config.heartbeat_ms -eq 30000 -and
