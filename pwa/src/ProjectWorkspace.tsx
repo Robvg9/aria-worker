@@ -921,10 +921,11 @@ export function ProjectWorkspace({session,onBack}:{session:Session;onBack:()=>vo
 
   return <main className='appShell projectShell'>
     <section className='projectGrid' aria-label='Seleccionar proyecto'>{PROJECTS.map(p=><button type='button' key={p.id} className={'projectCard '+(p.id===project.id?'selected':'')} onClick={()=>selectProject(p)}><span className='projectIcon'>{p.icon}</span><div><strong>{p.name}</strong><small>{p.id==='battlecruiser'?'Operación':p.id==='cuevacoin'?'Finanzas':'Cerebro'}</small></div></button>)}</section>
-    {tab!=='chat' && <section className='panel projectHero'><div><div className='eyebrow'>PROYECTO ACTUAL</div><h2>{project.icon} {project.name}</h2><p className='muted'>{project.context}</p></div></section>}
+    {tab!=='chat' && <section className='panel projectHero'><div><div className='eyebrow'>PROYECTO ACTUAL</div><h2>{project.icon} {project.name}</h2><p className='muted projectSummary'>{project.description}</p></div></section>}
     <div className='capTabs projectTabs' aria-label='Secciones del proyecto'>{(['overview','chat','missions','visual'] as const).map(t=><button type='button' key={t} className={'tabButton '+(tab===t?'selected':'')} onClick={()=>selectTab(t)}>{t==='overview'?'Resumen':t==='chat'?'Chat':t==='missions'?'Misiones':'ARTIA'}</button>)}</div>
     <div className='projectBodyViewport'>
       {error&&<div className='errorBox'>{error}</div>}
+      {tab!=='chat'&&<details className='projectContextDetails'><summary>Ver contexto técnico y fuentes</summary><p className='muted projectContextText'>{project.context}</p></details>}
       {tab==='overview'&&<>
       {project.id==='battlecruiser'&&<ProjectResourceConnections project={project} session={session}/>}
         <section className='panel realityBoardEntry' aria-label='ARIA Reality Board'>
