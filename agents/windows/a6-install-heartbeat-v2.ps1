@@ -292,6 +292,8 @@ try {
   $manifest.restart_requested = $true
 
   $newPid = 0
+  $restartObservations = [System.Collections.Generic.List[object]]::new()
+  $expectedAgentPath = Join-Path $runtime 'aria-agent.js'
   $deadline = (Get-Date).AddSeconds(90)
   while ((Get-Date) -lt $deadline -and $newPid -eq 0) {
     if (Test-Path -LiteralPath $agentPidPath) {
@@ -299,11 +301,181 @@ try {
       if ([int]::TryParse((Get-Content -Raw -LiteralPath $agentPidPath).Trim(),[ref]$candidate) -and $candidate -gt 0 -and $candidate -ne $oldPid) {
         $snapshot = @(Get-CimInstance Win32_Process -ErrorAction Stop)
         $child = $snapshot | Where-Object { [int]$_.ProcessId -eq $candidate } | Select-Object -First 1
-        if ($child -and [int]$child.ParentProcessId -eq $watchdogPid -and $child.Name -match '^(node|node\.exe)$' -and [string]$child.CommandLine -match 'aria-agent\.js') { $newPid = $candidate }
+        $candidateStatus = $null
+        try { $candidateStatus = Get-Content -Raw -LiteralPath $statusPath | ConvertFrom-Json } catch {}
+        $candidateCommandLine = if ($child) { [string]$child.CommandLine } else { '' }
+        $candidateCommandLineAvailable = -not [string]::IsNullOrWhiteSpace($candidateCommandLine)
+        $candidateCommandLineMatches = [bool]($candidateCommandLineAvailable -and $candidateCommandLine -match 'aria-agent\.js')
+        $candidateCommandLineCompatible = (-not $candidateCommandLineAvailable -or $candidateCommandLineMatches)
+        $candidateStatusMatches = [bool](
+          $candidateStatus -and
+          [int]$candidateStatus.agent_pid -eq $candidate -and
+          [int]$candidateStatus.watchdog_pid -eq $watchdogPid -and
+          [string]$candidateStatus.agent_path -ieq $expectedAgentPath -and
+          [string]$candidateStatus.runtime_root -ieq $root -and
+          [string]$candidateStatus.node_path -ieq $nodePath -and
+          [string]$candidateStatus.state -eq 'agent_running'
+        )
+        $candidateObservation = [ordered]@{
+          captured_at_utc = [DateTimeOffset]::UtcNow.ToString('o')
+          pid = $candidate
+          process_found = [bool]$child
+          process_name = if ($child) { [string]$child.Name } else { $null }
+          parent_pid = if ($child) { [int]$child.ParentProcessId } else { $null }
+          parent_matches_watchdog = [bool]($child -and [int]$child.ParentProcessId -eq $watchdogPid)
+          process_name_matches = [bool]($child -and $child.Name -match '^(node|node\.exe)
+  if ($newPid -eq 0) { throw 'A6_WATCHDOG_MEDIATED_RESTART_NOT_CONFIRMED' }
+  $manifest.new_agent_pid = $newPid
+  $manifest.old_agent_pid = $oldPid
+  $manifest.watchdog_pid = $watchdogPid
+
+  $heartbeatOk = $false
+  $deadline = (Get-Date).AddSeconds(120)
+  while ((Get-Date) -lt $deadline -and -not $heartbeatOk) {
+    if (Test-Path -LiteralPath $heartbeatPath) {
+      try {
+        $hb = Get-Content -Raw -LiteralPath $heartbeatPath | ConvertFrom-Json
+        $written = (Get-Item -LiteralPath $heartbeatPath).LastWriteTimeUtc
+        $age = if ($hb.timestamp) { ([DateTimeOffset]::UtcNow - [DateTimeOffset]::Parse([string]$hb.timestamp).ToUniversalTime()).TotalMilliseconds } else { [double]::PositiveInfinity }
+        $heartbeatOk = ($written -gt $oldHeartbeatWrite -and [string]$hb.device_id -eq $expectedDevice -and [string]$hb.version -eq 'aria-windows-agent-heartbeat-v2' -and [string]$hb.heartbeat_scheduler_version -eq 'serial-retry-v1' -and [string]$hb.gateway_dns_fallback_version -eq 'supabase-scoped-public-fallback-v1' -and $age -ge 0 -and $age -lt 90000 -and $null -eq $hb.last_gateway_heartbeat_error)
+        $manifest.scheduler_version = [string]$hb.heartbeat_scheduler_version
+        $manifest.dns_fallback_version = [string]$hb.gateway_dns_fallback_version
+      } catch {}
+    }
+    if (-not $heartbeatOk) { Start-Sleep -Seconds 2 }
+  }
+  if (-not $heartbeatOk) { throw 'A6_NEW_HEARTBEAT_METADATA_NOT_CONFIRMED' }
+
+  $manifest.status = 'INSTALLED'
+  $manifest.finished_at_utc = [DateTimeOffset]::UtcNow.ToString('o')
+  $manifest | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $resultPath -Encoding UTF8
+  Write-Host "A6_INSTALL_STATUS=INSTALLED"
+  Write-Host "A6_OLD_AGENT_PID=$oldPid"
+  Write-Host "A6_NEW_AGENT_PID=$newPid"
+  Write-Host "A6_WATCHDOG_PID=$watchdogPid"
+  Write-Host "A6_HEARTBEAT_SCHEDULER=$($manifest.scheduler_version)"
+  Write-Host "A6_DNS_FALLBACK=$($manifest.dns_fallback_version)"
+} catch {
+  if ($backedUp) {
+    $errors = [System.Collections.Generic.List[string]]::new()
+    foreach ($item in $map) {
+      try {
+        $relative = $item.target.Substring($root.Length).TrimStart('\')
+        $saved = Join-Path $backup $relative
+        $missingMarker = Join-Path $backup ($relative + '.was-missing')
+        if (Test-Path -LiteralPath $missingMarker) {
+          if (Test-Path -LiteralPath $item.target) { Remove-Item -LiteralPath $item.target -Force }
+        } elseif (Test-Path -LiteralPath $saved) {
+          Copy-Item -LiteralPath $saved -Destination $item.target -Force
+        }
+      } catch { $errors.Add($item.target) }
+    }
+    try { Copy-Item -LiteralPath (Join-Path $backup 'Data\config.json') -Destination $configPath -Force } catch { $errors.Add('Data\config.json') }
+    $currentPid = 0
+    if (Test-Path -LiteralPath $agentPidPath) { [void][int]::TryParse((Get-Content -Raw -LiteralPath $agentPidPath).Trim(),[ref]$currentPid) }
+    if ($currentPid -gt 0) {
+      if (Test-Path -LiteralPath $killPath) { Remove-Item -LiteralPath $killPath -Force -ErrorAction SilentlyContinue }
+      [System.IO.File]::WriteAllText($killPath,'A6_ROLLBACK_RESTART',[System.Text.UTF8Encoding]::new($false))
+    }
+    $manifest.rollback = if ($errors.Count -eq 0) { 'RESTORED_RUNTIME_AND_CONFIG' } else { 'FAILED:' + ($errors -join ',') }
+  }
+  $manifest.status = 'BLOCKED'
+  $manifest.reason = [string]$_.Exception.Message
+  $manifest.finished_at_utc = [DateTimeOffset]::UtcNow.ToString('o')
+  $manifest | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $resultPath -Encoding UTF8
+  Write-Host "A6_INSTALL_STATUS=BLOCKED"
+  Write-Host "A6_INSTALL_REASON=$($manifest.reason)"
+  Write-Host "A6_ROLLBACK=$($manifest.rollback)"
+  throw
+}
+)
+          command_line_available = $candidateCommandLineAvailable
+          command_line_matches = $candidateCommandLineMatches
+          command_line_compatible = $candidateCommandLineCompatible
+          status_matches = $candidateStatusMatches
+          status_state = if ($candidateStatus) { [string]$candidateStatus.state } else { $null }
+          status_agent_pid = if ($candidateStatus) { $candidateStatus.agent_pid } else { $null }
+        }
+        $restartObservations.Add($candidateObservation)
+        if ($restartObservations.Count -gt 20) { $restartObservations.RemoveAt(0) }
+        Write-Host ("A6_RESTART_CANDIDATE=" + ($candidateObservation | ConvertTo-Json -Compress))
+        if (
+          $child -and
+          [int]$child.ParentProcessId -eq $watchdogPid -and
+          $child.Name -match '^(node|node\.exe)
+  if ($newPid -eq 0) { throw 'A6_WATCHDOG_MEDIATED_RESTART_NOT_CONFIRMED' }
+  $manifest.new_agent_pid = $newPid
+  $manifest.old_agent_pid = $oldPid
+  $manifest.watchdog_pid = $watchdogPid
+
+  $heartbeatOk = $false
+  $deadline = (Get-Date).AddSeconds(120)
+  while ((Get-Date) -lt $deadline -and -not $heartbeatOk) {
+    if (Test-Path -LiteralPath $heartbeatPath) {
+      try {
+        $hb = Get-Content -Raw -LiteralPath $heartbeatPath | ConvertFrom-Json
+        $written = (Get-Item -LiteralPath $heartbeatPath).LastWriteTimeUtc
+        $age = if ($hb.timestamp) { ([DateTimeOffset]::UtcNow - [DateTimeOffset]::Parse([string]$hb.timestamp).ToUniversalTime()).TotalMilliseconds } else { [double]::PositiveInfinity }
+        $heartbeatOk = ($written -gt $oldHeartbeatWrite -and [string]$hb.device_id -eq $expectedDevice -and [string]$hb.version -eq 'aria-windows-agent-heartbeat-v2' -and [string]$hb.heartbeat_scheduler_version -eq 'serial-retry-v1' -and [string]$hb.gateway_dns_fallback_version -eq 'supabase-scoped-public-fallback-v1' -and $age -ge 0 -and $age -lt 90000 -and $null -eq $hb.last_gateway_heartbeat_error)
+        $manifest.scheduler_version = [string]$hb.heartbeat_scheduler_version
+        $manifest.dns_fallback_version = [string]$hb.gateway_dns_fallback_version
+      } catch {}
+    }
+    if (-not $heartbeatOk) { Start-Sleep -Seconds 2 }
+  }
+  if (-not $heartbeatOk) { throw 'A6_NEW_HEARTBEAT_METADATA_NOT_CONFIRMED' }
+
+  $manifest.status = 'INSTALLED'
+  $manifest.finished_at_utc = [DateTimeOffset]::UtcNow.ToString('o')
+  $manifest | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $resultPath -Encoding UTF8
+  Write-Host "A6_INSTALL_STATUS=INSTALLED"
+  Write-Host "A6_OLD_AGENT_PID=$oldPid"
+  Write-Host "A6_NEW_AGENT_PID=$newPid"
+  Write-Host "A6_WATCHDOG_PID=$watchdogPid"
+  Write-Host "A6_HEARTBEAT_SCHEDULER=$($manifest.scheduler_version)"
+  Write-Host "A6_DNS_FALLBACK=$($manifest.dns_fallback_version)"
+} catch {
+  if ($backedUp) {
+    $errors = [System.Collections.Generic.List[string]]::new()
+    foreach ($item in $map) {
+      try {
+        $relative = $item.target.Substring($root.Length).TrimStart('\')
+        $saved = Join-Path $backup $relative
+        $missingMarker = Join-Path $backup ($relative + '.was-missing')
+        if (Test-Path -LiteralPath $missingMarker) {
+          if (Test-Path -LiteralPath $item.target) { Remove-Item -LiteralPath $item.target -Force }
+        } elseif (Test-Path -LiteralPath $saved) {
+          Copy-Item -LiteralPath $saved -Destination $item.target -Force
+        }
+      } catch { $errors.Add($item.target) }
+    }
+    try { Copy-Item -LiteralPath (Join-Path $backup 'Data\config.json') -Destination $configPath -Force } catch { $errors.Add('Data\config.json') }
+    $currentPid = 0
+    if (Test-Path -LiteralPath $agentPidPath) { [void][int]::TryParse((Get-Content -Raw -LiteralPath $agentPidPath).Trim(),[ref]$currentPid) }
+    if ($currentPid -gt 0) {
+      if (Test-Path -LiteralPath $killPath) { Remove-Item -LiteralPath $killPath -Force -ErrorAction SilentlyContinue }
+      [System.IO.File]::WriteAllText($killPath,'A6_ROLLBACK_RESTART',[System.Text.UTF8Encoding]::new($false))
+    }
+    $manifest.rollback = if ($errors.Count -eq 0) { 'RESTORED_RUNTIME_AND_CONFIG' } else { 'FAILED:' + ($errors -join ',') }
+  }
+  $manifest.status = 'BLOCKED'
+  $manifest.reason = [string]$_.Exception.Message
+  $manifest.finished_at_utc = [DateTimeOffset]::UtcNow.ToString('o')
+  $manifest | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $resultPath -Encoding UTF8
+  Write-Host "A6_INSTALL_STATUS=BLOCKED"
+  Write-Host "A6_INSTALL_REASON=$($manifest.reason)"
+  Write-Host "A6_ROLLBACK=$($manifest.rollback)"
+  throw
+}
+ -and
+          $candidateCommandLineCompatible -and
+          $candidateStatusMatches
+        ) { $newPid = $candidate }
       }
     }
     if ($newPid -eq 0) { Start-Sleep -Seconds 2 }
   }
+  $manifest.restart_observations = @($restartObservations.ToArray())
   if ($newPid -eq 0) { throw 'A6_WATCHDOG_MEDIATED_RESTART_NOT_CONFIRMED' }
   $manifest.new_agent_pid = $newPid
   $manifest.old_agent_pid = $oldPid
