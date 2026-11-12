@@ -315,6 +315,10 @@ button{touch-action:manipulation;}
 .projectShell .topBar{flex:0 0 auto;}
 .projectShell{min-height:0;}
 .projectBodyViewport{flex:1 1 0;min-height:0;min-width:0;overflow-x:hidden;overflow-y:auto;overscroll-behavior-y:contain;-webkit-overflow-scrolling:touch;padding-bottom:calc(12px + env(safe-area-inset-bottom));touch-action:pan-y;}
+.projectBodyViewportChat{overflow:hidden!important;display:flex;flex-direction:column;min-height:0;padding-bottom:0!important;}
+.projectBodyViewportChat>.chatPanel{flex:1 1 0;min-height:0;height:100%;overflow:hidden;}
+.projectBodyViewportChat>.chatPanel>.projectChatWindow{flex:1 1 0;min-height:0;overflow-y:auto;overscroll-behavior-y:contain;-webkit-overflow-scrolling:touch;}
+.projectBodyViewportChat>.chatPanel>.composer{flex:0 0 auto;}
 .projectTabs{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;}
 .projectTabs .tabButton{min-width:0;}
 .projectCard{min-width:0;min-height:64px;}
