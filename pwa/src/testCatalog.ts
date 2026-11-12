@@ -8,7 +8,7 @@ export type TestCatalogItem = {
   capabilities: string;
 };
 
-export const TEST_CATALOG_VERSION = '2026-11-12-a6-preflight-pwa-catalog-v1';
+export const TEST_CATALOG_VERSION = '2026-11-12-a6-preflight-pwa-catalog-v2';
 export const TEST_CATALOG: TestCatalogItem[] = [
   {
     "id": "voice-v4-telegram-delivery",
@@ -3129,15 +3129,6 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "includedInNpmTest": false,
     "how": "Comprueba que solo exista una instancia del worker, rechaza procesos duplicados y recupera bloqueos de procesos terminados.",
     "capabilities": "Evita workers concurrentes y permite recuperación segura después de una caída sin borrar el bloqueo de una instancia activa."
-  },
-  {
-    "id": "pwa-home-chat-mobile",
-    "file": "tests/pwa-home-chat-mobile.test.js",
-    "title": "PWA Home and Chat Mobile Layout",
-    "category": "PWA / UX / móvil",
-    "includedInNpmTest": false,
-    "how": "Verifica que el Dashboard y el chat móvil conserven sus propios contenedores de scroll, controles compactos y desplazamiento automático al último mensaje.",
-    "capabilities": "Evita que el teclado o el viewport oculten contenido, que el historial quede inaccesible y que el chat abra en un mensaje antiguo."
   },
 ];
 
