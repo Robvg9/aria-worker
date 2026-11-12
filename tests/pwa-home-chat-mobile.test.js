@@ -18,12 +18,21 @@ function cssRule(source, selector) {
   return source.slice(start, end + 1);
 }
 
-test('mobile Dashboard keeps all content reachable inside its own vertical scroller', () => {
-  const home = cssRule(mobileCss, '.homeEssential{');
+test('mobile Dashboard is a bounded viewport with one reachable vertical scroll owner', () => {
+  const hardenedStart = css.lastIndexOf('/* 2026-11-12 — harden mobile scroll ownership');
+  assert.ok(hardenedStart >= 0, 'explicit mobile scroll ownership override must exist');
+  const hardened = css.slice(hardenedStart);
+  const shell = cssRule(hardened, '.appShell{');
+  const viewport = cssRule(hardened, '.screenViewport{');
+  const dashboard = cssRule(hardened, '.dashboardScreen{');
+  const home = cssRule(hardened, '.homeEssential{');
   const quickActions = cssRule(mobileCss, '.homeQuickActions{');
   const actionButton = cssRule(mobileCss, '.homeQuickActions button{');
-  assert.ok(home.includes('min-height:0'));
-  assert.ok(home.includes('overflow-y:auto'));
+  assert.ok(shell.includes('height:100dvh') && shell.includes('display:flex'));
+  assert.ok(viewport.includes('flex:1 1 0') && viewport.includes('min-height:0'));
+  assert.ok(dashboard.includes('overflow-y:auto'));
+  assert.ok(dashboard.includes('touch-action:pan-y'));
+  assert.ok(home.includes('overflow:visible'));
   assert.ok(quickActions.includes('grid-template-columns:repeat(3,minmax(0,1fr))'));
   assert.ok(actionButton.includes('min-height:44px'));
   assert.ok(app.includes('Estado de ARIA y de la misión actual.'));
@@ -53,9 +62,15 @@ test('Chat opens and returns to the latest restored or newly appended message', 
   assert.ok(effect.includes('firstFrame = requestAnimationFrame'));
   assert.ok(effect.includes('secondFrame = requestAnimationFrame'));
   assert.ok(effect.includes('node.scrollTop = node.scrollHeight'));
+  assert.ok(effect.includes('MutationObserver'));
+  assert.ok(effect.includes('ResizeObserver'));
+  assert.ok(effect.includes('observeChildren'));
+  assert.ok(effect.includes('window.setTimeout(scrollLatest, 420)'));
   assert.ok(effect.includes('[screen, messages, sending]'));
   assert.ok(effect.includes('cancelAnimationFrame(firstFrame)'));
   assert.ok(effect.includes('cancelAnimationFrame(secondFrame)'));
+  assert.ok(effect.includes('mutationObserver?.disconnect()'));
+  assert.ok(effect.includes('resizeObserver?.disconnect()'));
 });
 
 test('long-form PWA screens retain their existing scroll containers', () => {
