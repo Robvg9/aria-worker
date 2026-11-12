@@ -49,6 +49,11 @@ assert.match(agent, /lastGatewayHeartbeatError=null/);
 // the following 15-minute qualification phase is read-only.
 assert.ok(preflight.includes("name: A6 Windows Agent v2 Install + 15-minute ACK Qualification"));
 assert.ok(preflight.includes("a6-install-heartbeat-v2.ps1"));
+assert.match(preflight, /rev-parse HEAD/);
+assert.match(preflight, /rev-parse \("HEAD:" \+ \$relative\)/);
+assert.match(preflight, /git -C \$repoRoot checkout HEAD -- \$relative/);
+assert.match(preflight, /hash-object --path \$relative \$installer/);
+assert.match(preflight, /A6_INSTALLER_HASH_VERIFIED=true/);
 assert.match(preflight, /for \(\$sampleIndex = 0; \$sampleIndex -lt 180; \$sampleIndex\+\+\)/);
 assert.match(preflight, /Start-Sleep -Seconds 5/);
 assert.match(preflight, /distinct_gateway_ack_count/);
@@ -61,6 +66,10 @@ assert.match(preflight, /heartbeat_scheduler_version = \[string\]\$sampleHb\.hea
 assert.match(preflight, /gateway_dns_fallback_version = \[string\]\$sampleHb\.gateway_dns_fallback_version/);
 
 assert.match(a6Installer, /COMPUTERNAME -ine 'ROBVG'/);
+assert.match(a6Installer, /rev-parse HEAD/);
+assert.match(a6Installer, /SOURCE_SHA_MISMATCH/);
+assert.match(a6Installer, /git -C \$repoRoot checkout HEAD -- \$item\.source/);
+assert.match(a6Installer, /hash-object --path \$item\.source \$source/);
 assert.match(a6Installer, /Backups\\a6-heartbeat-v2/);
 assert.match(a6Installer, /Get-CimInstance Win32_Process/);
 assert.match(a6Installer, /agent\.ParentProcessId -ne \$watchdogPid/);
