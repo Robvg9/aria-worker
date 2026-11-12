@@ -47,9 +47,9 @@ assert.match(agent, /lastGatewayHeartbeatError=null/);
 
 // Host installation is bounded to the exact ROBVG runtime and uses its watchdog;
 // the following 15-minute qualification phase is read-only.
-assert.match(preflight, /name: A6 Windows Agent v2 Install \\+ 15-minute ACK Qualification/);
-assert.match(preflight, /a6-install-heartbeat-v2\\.ps1/);
-assert.match(preflight, /for \\(\\$sampleIndex = 0; \\$sampleIndex -lt 180; \\$sampleIndex\\+\\+\\)/);
+assert.ok(preflight.includes("name: A6 Windows Agent v2 Install + 15-minute ACK Qualification"));
+assert.ok(preflight.includes("a6-install-heartbeat-v2.ps1"));
+assert.match(preflight, /for \(\$sampleIndex = 0; \$sampleIndex -lt 180; \$sampleIndex\+\+\)/);
 assert.match(preflight, /Start-Sleep -Seconds 5/);
 assert.match(preflight, /distinct_gateway_ack_count/);
 assert.match(preflight, /schema_mismatch_count/);
@@ -57,20 +57,21 @@ assert.match(preflight, /OBSERVATION_SHORTER_THAN_890S/);
 assert.match(preflight, /FEWER_THAN_150_SAMPLES/);
 assert.match(preflight, /GATEWAY_ACK_GAP_OVER_90S/);
 assert.match(preflight, /ALL_A6_HOST_PRECHECKS_PASSED/);
-assert.match(preflight, /heartbeat_scheduler_version = \\[string\\]\\$sampleHb\\.heartbeat_scheduler_version/);
-assert.match(preflight, /gateway_dns_fallback_version = \\[string\\]\\$sampleHb\\.gateway_dns_fallback_version/);
+assert.match(preflight, /heartbeat_scheduler_version = \[string\]\$sampleHb\.heartbeat_scheduler_version/);
+assert.match(preflight, /gateway_dns_fallback_version = \[string\]\$sampleHb\.gateway_dns_fallback_version/);
 
 assert.match(a6Installer, /COMPUTERNAME -ine 'ROBVG'/);
-assert.match(a6Installer, /Backups\\\\a6-heartbeat-v2/);
+assert.match(a6Installer, /Backups\\a6-heartbeat-v2/);
 assert.match(a6Installer, /Get-CimInstance Win32_Process/);
-assert.match(a6Installer, /agent.ParentProcessId -ne \\$watchdogPid/);
+assert.match(a6Installer, /agent\.ParentProcessId -ne \$watchdogPid/);
 assert.match(a6Installer, /kill-request/);
-assert.match(a6Installer, /heartbeat-scheduler\\.cjs/);
-assert.match(a6Installer, /gateway-dns-lookup\\.cjs/);
+assert.match(a6Installer, /heartbeat-scheduler\.cjs/);
+assert.match(a6Installer, /gateway-dns-lookup\.cjs/);
 assert.match(a6Installer, /heartbeat_ms = 30000/);
-assert.match(a6Installer, /ollama_enabled = \\$false/);
+assert.match(a6Installer, /ollama_enabled = \$false/);
 assert.match(a6Installer, /RESTORED_RUNTIME_AND_CONFIG/);
-assert.doesNotMatch(a6Installer, /\\bStop-Process\\b|\\bRestart-Service\\b|\\bRegister-ScheduledTask\\b|\\bUnregister-ScheduledTask\\b|Set-NetAdapter|Restart-NetAdapter/i);
+assert.match(a6Installer, /repoRoot = Split-Path -Parent/);
+assert.doesNotMatch(a6Installer, /\bStop-Process\b|\bRestart-Service\b|\bRegister-ScheduledTask\b|\bUnregister-ScheduledTask\b|Set-NetAdapter|Restart-NetAdapter/i);
 assert.doesNotMatch(a6Installer, /MISSION_EXECUTION_PAUSED|cron.*53|aria_m22_a6_start_run/i);
 const observationStep = preflight.slice(preflight.indexOf("Capture installed Windows agent continuity evidence"));
 assert.match(observationStep, /Start-Sleep -Seconds 5/);
@@ -78,8 +79,8 @@ assert.match(observationStep, /distinct_gateway_ack_count -lt 26/);
 assert.match(observationStep, /max_gateway_ack_gap_ms -gt 90000/);
 assert.match(observationStep, /scheduler_mismatch_count/);
 assert.match(observationStep, /dns_fallback_mismatch_count/);
-assert.doesNotMatch(observationStep, /\\bCopy-Item\\b|\\bStop-Process\\b|\\bRestart-Service\\b|\\bRegister-ScheduledTask\\b|kill-request/i);
-assert.doesNotMatch(preflight, /Set-Content\\s+-LiteralPath\\s+\\$configPath/i);
+assert.doesNotMatch(observationStep, /\bCopy-Item\b|\bStop-Process\b|\bRestart-Service\b|\bRegister-ScheduledTask\b|kill-request/i);
+assert.doesNotMatch(preflight, /Set-Content\s+-LiteralPath\s+\$configPath/i);
 
 // Only a stale local process heartbeat triggers a local restart. A stale remote
 // gateway ACK is observational and must never kill a healthy Node process.
