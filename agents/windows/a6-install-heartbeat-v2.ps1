@@ -54,6 +54,7 @@ $configPath = Join-Path $root 'Data\config.json'
 $heartbeatPath = Join-Path $logs 'agent-heartbeat.json'
 $agentPidPath = Join-Path $logs 'agent.pid'
 $watchdogPidPath = Join-Path $logs 'watchdog.pid'
+$statusPath = Join-Path $logs 'status.json'
 $killPath = Join-Path $logs 'kill-request'
 $backup = Join-Path $root ("Backups\a6-heartbeat-v2-" + $env:GITHUB_RUN_ID)
 $resultPath = Join-Path $env:GITHUB_WORKSPACE 'a6-windows-v2-install.json'
@@ -93,7 +94,7 @@ $oldPid = 0
 $watchdogPid = 0
 
 try {
-  foreach ($path in @($runtime,$logs,$configPath,$agentPidPath,$watchdogPidPath)) {
+  foreach ($path in @($runtime,$logs,$configPath,$agentPidPath,$watchdogPidPath,$statusPath,$heartbeatPath)) {
     if (-not (Test-Path -LiteralPath $path)) { throw "A6_REQUIRED_PATH_MISSING=$path" }
   }
   if (Test-Path -LiteralPath $killPath) { throw 'A6_PENDING_KILL_REQUEST_ALREADY_EXISTS' }
@@ -105,6 +106,51 @@ try {
   $processes = @(Get-CimInstance Win32_Process -ErrorAction Stop)
   $agent = $processes | Where-Object { [int]$_.ProcessId -eq $oldPid } | Select-Object -First 1
   $watchdog = $processes | Where-Object { [int]$_.ProcessId -eq $watchdogPid } | Select-Object -First 1
+  $processStatus = Get-Content -Raw -LiteralPath $statusPath | ConvertFrom-Json
+  $preflightHeartbeat = Get-Content -Raw -LiteralPath $heartbeatPath | ConvertFrom-Json
+  $agentExpectedPath = Join-Path $runtime 'aria-agent.js'
+  $agentStatusMatches = ([int]$processStatus.agent_pid -eq $oldPid -and [string]$processStatus.agent_path -ieq $agentExpectedPath -and [string]$processStatus.runtime_root -ieq $root -and [string]$processStatus.state -eq 'agent_running')
+  $watchdogStatusMatches = ([int]$processStatus.watchdog_pid -eq $watchdogPid)
+  $nodePathExists = Test-Path -LiteralPath ([string]$processStatus.node_path) -PathType Leaf
+  $agentCommandLineAvailable = -not [string]::IsNullOrWhiteSpace([string]$agent.CommandLine)
+  $watchdogCommandLineAvailable = -not [string]::IsNullOrWhiteSpace([string]$watchdog.CommandLine)
+  $agentCommandLineMatches = [bool]($agentCommandLineAvailable -and [string]$agent.CommandLine -match 'aria-agent\.js')
+  $watchdogCommandLineMatches = [bool]($watchdogCommandLineAvailable -and [string]$watchdog.CommandLine -match 'run-agent\.ps1')
+  $commandLineCompatible = ((-not $agentCommandLineAvailable -or $agentCommandLineMatches) -and (-not $watchdogCommandLineAvailable -or $watchdogCommandLineMatches))
+  $preinstallProcessAgeMs = ([DateTimeOffset]::UtcNow - [DateTimeOffset]::Parse([string]$preflightHeartbeat.timestamp).ToUniversalTime()).TotalMilliseconds
+  $preinstallGatewayAckAgeMs = ([DateTimeOffset]::UtcNow - [DateTimeOffset]::Parse([string]$preflightHeartbeat.last_gateway_heartbeat_at).ToUniversalTime()).TotalMilliseconds
+  $preinstallHeartbeatSafe = ([string]$preflightHeartbeat.device_id -eq $expectedDevice -and [string]$preflightHeartbeat.version -eq 'aria-windows-agent-heartbeat-v2' -and $preinstallProcessAgeMs -ge 0 -and $preinstallProcessAgeMs -lt 90000 -and $preinstallGatewayAckAgeMs -ge 0 -and $preinstallGatewayAckAgeMs -lt 90000 -and $null -eq $preflightHeartbeat.last_gateway_heartbeat_error)
+  $identityDiagnostic = [ordered]@{
+    runner_identity = [string]$manifest.runner_identity
+    process_snapshot_count = [int]$processes.Count
+    expected_agent_pid = $oldPid
+    agent_found = [bool]$agent
+    agent_name = $(if ($agent) { [string]$agent.Name } else { $null })
+    agent_parent_pid = $(if ($agent) { [int]$agent.ParentProcessId } else { $null })
+    agent_status_matches = $agentStatusMatches
+    watchdog_status_matches = $watchdogStatusMatches
+    status_state = [string]$processStatus.state
+    status_node_path_exists = $nodePathExists
+    agent_command_line_available = $agentCommandLineAvailable
+    agent_command_line_matches = $agentCommandLineMatches
+    expected_watchdog_pid = $watchdogPid
+    watchdog_found = [bool]$watchdog
+    watchdog_name = $(if ($watchdog) { [string]$watchdog.Name } else { $null })
+    watchdog_command_line_available = $watchdogCommandLineAvailable
+    watchdog_command_line_matches = $watchdogCommandLineMatches
+    command_line_compatible = $commandLineCompatible
+    preinstall_process_heartbeat_age_ms = [long]$preinstallProcessAgeMs
+    preinstall_gateway_ack_age_ms = [long]$preinstallGatewayAckAgeMs
+    preinstall_heartbeat_safe = $preinstallHeartbeatSafe
+  }
+  $manifest.old_agent_pid = $oldPid
+  $manifest.watchdog_pid = $watchdogPid
+  $manifest.process_identity = $identityDiagnostic
+  Write-Host ("A6_PROCESS_IDENTITY_CHECK=" + ($identityDiagnostic | ConvertTo-Json -Compress))
+  if (-not $preinstallHeartbeatSafe) { throw 'A6_PREINSTALL_HEARTBEAT_NOT_FRESH' }
+  if (-not $agent -or $agent.Name -notmatch '^(node|node\.exe)$' -or [int]$agent.ParentProcessId -ne $watchdogPid -or -not $agentStatusMatches -or -not $nodePathExists) { throw 'A6_AGENT_IDENTITY_OR_PARENT_MISMATCH' }
+  if (-not $watchdog -or $watchdog.Name -notmatch '^(powershell|powershell\.exe|pwsh|pwsh\.exe)$' -or -not $watchdogStatusMatches) { throw 'A6_WATCHDOG_IDENTITY_MISMATCH' }
+  if (-not $commandLineCompatible) { throw 'A6_PROCESS_COMMAND_LINE_CONFLICT' }
   $agentCommandLineMatches = [bool]($agent -and [string]$agent.CommandLine -match 'aria-agent\.js')
   $watchdogCommandLineMatches = [bool]($watchdog -and [string]$watchdog.CommandLine -match 'run-agent\.ps1')
   $identityDiagnostic = [ordered]@{
@@ -124,8 +170,6 @@ try {
   $manifest.watchdog_pid = $watchdogPid
   $manifest.process_identity = $identityDiagnostic
   Write-Host ("A6_PROCESS_IDENTITY_CHECK=" + ($identityDiagnostic | ConvertTo-Json -Compress))
-  if (-not $agent -or $agent.Name -notmatch '^(node|node\.exe)$' -or [int]$agent.ParentProcessId -ne $watchdogPid -or [string]$agent.CommandLine -notmatch 'aria-agent\.js') { throw 'A6_AGENT_IDENTITY_OR_PARENT_MISMATCH' }
-  if (-not $watchdog -or $watchdog.Name -notmatch '^(powershell|powershell\.exe|pwsh|pwsh\.exe)$' -or [string]$watchdog.CommandLine -notmatch 'run-agent\.ps1') { throw 'A6_WATCHDOG_IDENTITY_MISMATCH' }
   if (@(Get-Process -Name ollama -ErrorAction SilentlyContinue).Count -gt 0) { throw 'A6_OLLAMA_PROCESS_PRESENT' }
 
   # Idempotent reuse: a later A6 qualification run must not restart Node again
