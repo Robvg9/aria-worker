@@ -929,3 +929,69 @@ button{touch-action:manipulation;}
   .pageBodyViewport{overscroll-behavior-y:contain;-webkit-overflow-scrolling:touch;}
   .capabilitiesViewport,.meditationViewport,.settingsViewport{min-height:0;}
 }
+
+
+/* 2026-11-12 — shared compact density for the remaining PWA sections.
+   These screens still scroll when their data exceeds the viewport; no content is hidden. */
+@media(max-width:700px){
+  .pageBodyViewport{gap:8px;padding-left:0;padding-right:0;}
+  .pageBodyViewport>.panel,
+  .pageBodyViewport>.statePanel,
+  .pageBodyViewport>.errorBox{margin-bottom:7px;}
+  .pageBodyViewport .panel{padding:10px;border-radius:15px;}
+  .pageBodyViewport .panelTitle{font-size:9px;letter-spacing:1.1px;}
+  .pageBodyViewport .panelHeading{gap:7px;}
+  .pageBodyViewport .panelHeading h2,
+  .pageBodyViewport h2{font-size:15px;line-height:1.25;margin-top:3px;margin-bottom:4px;}
+  .pageBodyViewport p.muted,
+  .pageBodyViewport .muted{font-size:10px;line-height:1.4;}
+  .pageBodyViewport .actions{gap:6px;margin-top:9px;}
+  .pageBodyViewport .actions button{min-height:44px;padding:8px 10px;font-size:10px;}
+  .pageBodyViewport .statsGrid{gap:6px;}
+  .pageBodyViewport .statCard{min-height:54px;padding:8px;}
+  .pageBodyViewport .statValue{font-size:19px;}
+  .pageBodyViewport .statLabel{font-size:9px;margin-top:3px;}
+  .capabilitiesViewport{padding-bottom:calc(14px + env(safe-area-inset-bottom));}
+  .capabilitiesViewport>.panel{gap:8px;}
+  .capabilitiesViewport .capHero{gap:9px;padding:10px;border-radius:14px;}
+  .capabilitiesViewport .capHero .smallOrb{width:48px;height:48px;font-size:10px;flex:0 0 48px;}
+  .capabilitiesViewport .capHeroText{font-size:13px;line-height:1.35;margin:2px 0 4px;}
+  .capabilitiesViewport .capTabs{flex-wrap:nowrap;overflow-x:auto;overscroll-behavior-x:contain;scrollbar-width:none;padding:2px 0 5px;margin:7px 0;touch-action:pan-x;}
+  .capabilitiesViewport .capTabs::-webkit-scrollbar{display:none;}
+  .capabilitiesViewport .capTabs .tabButton{flex:0 0 auto;min-height:40px;padding:7px 9px;font-size:10px;white-space:nowrap;}
+  .capabilitiesViewport .capGrid{grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;}
+  .capabilitiesViewport .capTile{padding:10px;border-radius:13px;}
+  .capabilitiesViewport .capTile strong{font-size:21px;margin-top:5px;}
+  .capabilitiesViewport .capTile small{font-size:9px;line-height:1.35;}
+  .capabilitiesViewport .searchRow{gap:6px;align-items:stretch;flex-wrap:wrap;}
+  .capabilitiesViewport .searchRow input{min-width:0;min-height:40px;padding:8px 10px;}
+  .capabilitiesViewport .catalogList{margin-top:7px;}
+  .capabilitiesViewport .catalogRow{gap:8px;padding:9px 0;}
+  .capabilitiesViewport .catalogRow strong{font-size:11px;}
+  .capabilitiesViewport .catalogRow small{font-size:9px;}
+  .meditationViewport{gap:8px;}
+  .meditationViewport>.executionHero{padding:11px;border-radius:16px;margin-bottom:0;}
+  .meditationViewport .executionHeroTitle{font-size:18px;line-height:1.25;}
+  .meditationViewport .executionGoal{font-size:11px;line-height:1.4;}
+  .meditationViewport .executionProgressRow{margin-top:9px;}
+  .meditationViewport .executionNarrative{margin-top:8px;padding:10px;border-radius:14px;}
+  .meditationViewport .executionNarrative>strong{font-size:15px;}
+  .meditationViewport .executionNarrativeGrid{gap:6px;margin-top:7px;}
+  .meditationViewport .executionNarrativeGrid>div{padding:7px;border-radius:10px;}
+  .meditationViewport .meditationToolsPanel{padding:10px;}
+  .meditationViewport .meditationToolHeader h3{font-size:15px;}
+  .meditationViewport .meditationSecondary{gap:8px;margin-top:8px;}
+  .settingsViewport{gap:8px;padding-bottom:calc(14px + env(safe-area-inset-bottom));}
+  .settingsViewport .settingsHero{gap:6px;}
+  .settingsViewport .settingsOption{gap:8px;padding:9px 0;align-items:center;}
+  .settingsViewport .settingsOption strong{font-size:11px;line-height:1.3;}
+  .settingsViewport .settingsOption small{font-size:9px;line-height:1.35;margin-top:3px;}
+  .settingsViewport .toggleButton{min-height:40px;min-width:90px;padding:7px 9px;font-size:10px;}
+  .projectBodyViewport{padding-top:3px;}
+  .projectBodyViewport>.panel{padding:10px;margin-bottom:7px;border-radius:15px;}
+  .projectBodyViewport .panelHeading h2{font-size:15px;line-height:1.3;}
+  .projectBodyViewport .muted{font-size:10px;line-height:1.4;}
+  .projectBodyViewport .statsGrid{gap:6px;}
+  .projectBodyViewport .statCard{padding:8px;min-height:54px;}
+  .projectBodyViewport .actions button{min-height:44px;}
+}
