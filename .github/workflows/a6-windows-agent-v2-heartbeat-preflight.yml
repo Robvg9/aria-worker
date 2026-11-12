@@ -41,38 +41,31 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $workspace = [string]$env:GITHUB_WORKSPACE
-          $candidates = @(
-            (Get-Location).Path,
-            $workspace,
-            (Join-Path $workspace 'aria-worker'),
-            (Split-Path -Parent $workspace),
-            (Join-Path (Split-Path -Parent $workspace) 'aria-worker')
-          ) | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) } | Select-Object -Unique
-          $repoRoot = $null
-          $installer = $null
-          foreach ($candidate in $candidates) {
-            $probe = Join-Path $candidate 'agents\windows\a6-install-heartbeat-v2.ps1'
-            if (Test-Path -LiteralPath $probe -PathType Leaf) {
-              $repoRoot = (Resolve-Path -LiteralPath $candidate).Path
-              $installer = $probe
-              break
+          $repoRoot = (& git -C $workspace rev-parse --show-toplevel 2>$null)
+          $gitHead = (& git -C $workspace rev-parse HEAD 2>$null)
+          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace([string]$repoRoot)) { throw 'A6_CHECKOUT_GIT_ROOT_NOT_FOUND' }
+          $repoRoot = (Resolve-Path -LiteralPath ([string]$repoRoot).Trim()).Path
+          if ([string]$gitHead -ne [string]$env:GITHUB_SHA) { throw "A6_CHECKOUT_SHA_MISMATCH expected=$env:GITHUB_SHA actual=$gitHead" }
+          $relative = 'agents/windows/a6-install-heartbeat-v2.ps1'
+          $blob = (& git -C $repoRoot rev-parse ("HEAD:" + $relative) 2>$null)
+          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace([string]$blob)) { throw 'A6_INSTALLER_BLOB_MISSING_FROM_EXACT_COMMIT' }
+          $installer = Join-Path $repoRoot $relative
+          if (-not (Test-Path -LiteralPath $installer -PathType Leaf)) {
+            # Restore just this tracked installer from the exact checked-out HEAD.
+            & git -C $repoRoot checkout HEAD -- $relative
+            if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $installer -PathType Leaf)) {
+              throw 'A6_INSTALLER_MATERIALIZATION_FAILED'
             }
           }
-          if (-not $installer) {
-            Write-Host "A6_GITHUB_WORKSPACE=$workspace"
-            Write-Host "A6_CURRENT_DIRECTORY=$((Get-Location).Path)"
-            foreach ($candidate in $candidates) { Write-Host "A6_REPO_CANDIDATE=$candidate EXISTS=$(Test-Path -LiteralPath $candidate)" }
-            throw 'A6_INSTALLER_SCRIPT_NOT_FOUND_IN_CHECKOUT'
-          }
-          $gitRoot = (& git -C $repoRoot rev-parse --show-toplevel 2>$null)
-          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace([string]$gitRoot)) { throw 'A6_CHECKOUT_GIT_ROOT_NOT_FOUND' }
-          if ((Resolve-Path -LiteralPath $gitRoot).Path -ne $repoRoot) { throw 'A6_CHECKOUT_ROOT_MISMATCH' }
+          $workingBlob = (& git -C $repoRoot hash-object --path $relative $installer 2>$null)
+          if ($LASTEXITCODE -ne 0 -or [string]$workingBlob -ne [string]$blob) { throw 'A6_INSTALLER_HASH_MISMATCH' }
           Write-Host "A6_REPOSITORY_ROOT=$repoRoot"
+          Write-Host "A6_CHECKOUT_SHA=$gitHead"
+          Write-Host "A6_INSTALLER_BLOB=$blob"
           Write-Host "A6_INSTALLER_PATH=$installer"
-          Write-Host "A6_INSTALLER_SHA256=$((Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash)"
+          Write-Host "A6_INSTALLER_HASH_VERIFIED=true"
           Set-Location -LiteralPath $repoRoot
           & $installer
-
       - name: Upload installed-runtime evidence
         if: always()
         uses: actions/upload-artifact@v4
