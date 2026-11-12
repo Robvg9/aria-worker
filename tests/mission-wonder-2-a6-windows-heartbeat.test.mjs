@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
 const { runHeartbeatLoop } = require("../agents/windows/heartbeat-scheduler.cjs");
+const { createGatewayLookup } = require('../agents/windows/gateway-dns-lookup.cjs');
 import fs from "node:fs";
 import { spawnSync } from "node:child_process";
 
@@ -70,7 +71,9 @@ assert.ok(!gatewayBlock.includes("Stop-Process"));
 assert.ok(!gatewayBlock.includes("AGENT_KILLED_BY_WATCHDOG"));
 
 assert.match(installer, /'heartbeat-scheduler\.cjs' = Join-Path \$AgentRoot/);
+assert.match(installer, /'gateway-dns-lookup\.cjs' = Join-Path \$AgentRoot/);
 assert.match(runtimeUpdater, /'heartbeat-scheduler\.cjs'; destination = Join-Path \$RuntimeDir/);
+assert.match(runtimeUpdater, /'gateway-dns-lookup\.cjs'; destination = Join-Path \$RuntimeDir/);
 
 // Deterministic scheduler contract: retry at 2s then 4s, successful ACK resets
 // the cadence to 30s. sendHeartbeat is awaited, so calls are never overlapped.
@@ -127,3 +130,92 @@ assert.match(runtimeUpdater, /'heartbeat-scheduler\.cjs'; destination = Join-Pat
 
 console.log("MISSION_WONDER_2_A6_WINDOWS_HEARTBEAT=PASS");
 console.log("MISSION_WONDER_2_A6_WINDOWS_HEARTBEAT_SERIAL_RETRY=PASS");
+
+
+// DNS fallback is scoped to the single ARIA Supabase gateway hostname.
+// It activates only after the OS resolver reports a transient DNS failure.
+{
+  const lookups = [];
+  const fallbackEvents = [];
+  const originalError = Object.assign(new Error("getaddrinfo ENOTFOUND"), { code: "ENOTFOUND" });
+  const lookup = createGatewayLookup({
+    systemLookup: (hostname, options, callback) => {
+      lookups.push({ hostname, options });
+      callback(originalError);
+    },
+    resolver: {
+      resolve4(hostname, callback) {
+        callback(null, ["104.18.38.10", "172.64.149.246"]);
+      },
+      resolve6(hostname, callback) {
+        callback(null, ["2606:4700::6812:260a"]);
+      }
+    },
+    onFallbackStart: event => fallbackEvents.push({ type: "start", ...event }),
+    onFallbackResult: event => fallbackEvents.push({ type: "result", ...event })
+  });
+  const result = await new Promise((resolve, reject) => {
+    lookup("icuqsstxfdbvjytkhlog.supabase.co", { family: 4 }, (error, address, family) => {
+      if (error) return reject(error);
+      resolve({ address, family });
+    });
+  });
+  assert.deepEqual(result, { address: "104.18.38.10", family: 4 });
+  assert.equal(lookups.length, 1);
+  assert.deepEqual(fallbackEvents.map(event => event.type), ["start", "result"]);
+  assert.equal(fallbackEvents[1].status, "succeeded");
+}
+
+{
+  const lookup = createGatewayLookup({
+    systemLookup: (hostname, options, callback) => {
+      callback(Object.assign(new Error("not found"), { code: "ENOTFOUND" }));
+    },
+    resolver: {
+      resolve4(hostname, callback) { callback(null, ["104.18.38.10"]); },
+      resolve6(hostname, callback) { callback(null, []); }
+    }
+  });
+  const result = await new Promise((resolve, reject) => {
+    lookup("example.com", { family: 4 }, (error, address, family) => {
+      if (error) return resolve({ code: error.code });
+      reject(new Error("unexpected fallback for an unrelated hostname"));
+    });
+  });
+  assert.deepEqual(result, { code: "ENOTFOUND" });
+}
+
+{
+  let fallbackCalls = 0;
+  const lookup = createGatewayLookup({
+    systemLookup: (hostname, options, callback) => {
+      callback(Object.assign(new Error("connection refused"), { code: "ECONNREFUSED" }));
+    },
+    resolver: {
+      resolve4(hostname, callback) { fallbackCalls += 1; callback(null, ["104.18.38.10"]); }
+    }
+  });
+  const result = await new Promise(resolve => {
+    lookup("icuqsstxfdbvjytkhlog.supabase.co", { family: 4 }, error => resolve(error?.code));
+  });
+  assert.equal(result, "ECONNREFUSED");
+  assert.equal(fallbackCalls, 0);
+}
+
+{
+  const lookup = createGatewayLookup({
+    systemLookup: (hostname, options, callback) => callback(Object.assign(new Error("temporary failure"), { code: "EAI_AGAIN" })),
+    resolver: {
+      resolve4(hostname, callback) { callback(null, ["104.18.38.10"]); }
+    }
+  });
+  const results = await new Promise((resolve, reject) => {
+    lookup("icuqsstxfdbvjytkhlog.supabase.co", { family: 4, all: true }, (error, addresses) => {
+      if (error) return reject(error);
+      resolve(addresses);
+    });
+  });
+  assert.deepEqual(results, [{ address: "104.18.38.10", family: 4 }]);
+}
+
+console.log("MISSION_WONDER_2_A6_GATEWAY_DNS_FALLBACK=PASS");
