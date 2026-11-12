@@ -23,9 +23,6 @@ jobs:
       run:
         shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
     steps:
-      - name: Checkout diagnostic definition
-        uses: actions/checkout@v4
-
       - name: Capture read-only Windows agent evidence
         run: |
           $ErrorActionPreference = 'Stop'
