@@ -229,7 +229,35 @@ jobs:
 
             # Resolve Windows services hosting the observed process ancestors.
             $serviceEvidence = @()
-            $serviceHostIds = @($processIdentity | Where-Object { $_.name -match '^(svchost|RunnerService)(\.exe)?            $taskDiscovery = @()
+            $serviceHostIds = @($processIdentity | Where-Object { $_.name -match '^(svchost|RunnerService)(\.exe)?$' } | ForEach-Object { [int]$_.pid })
+            foreach ($serviceHostPid in $serviceHostIds) {
+              try {
+                $hostedServices = @(Get-CimInstance Win32_Service -Filter "ProcessId=$serviceHostPid" -ErrorAction Stop)
+                foreach ($service in $hostedServices) {
+                  $pathHash = $null
+                  if (-not [string]::IsNullOrWhiteSpace([string]$service.PathName)) {
+                    $sha = [Security.Cryptography.SHA256]::Create()
+                    try {
+                      $bytes = [Text.Encoding]::UTF8.GetBytes([string]$service.PathName)
+                      $pathHash = [BitConverter]::ToString($sha.ComputeHash($bytes)).Replace('-', '')
+                    } finally { $sha.Dispose() }
+                  }
+                  $serviceEvidence += [ordered]@{
+                    process_id = [int]$serviceHostPid
+                    service_name = [string]$service.Name
+                    display_name = [string]$service.DisplayName
+                    state = [string]$service.State
+                    start_mode = [string]$service.StartMode
+                    start_name = [string]$service.StartName
+                    path_name_sha256 = $pathHash
+                  }
+                }
+              } catch {
+                $serviceEvidence += [ordered]@{ process_id = [int]$serviceHostPid; inspection_error = [string]$_.Exception.Message }
+              }
+            }
+            $result.service_ancestors = $serviceEvidence
+            $taskDiscovery = @()
             try {
               $taskOutput = & schtasks.exe /Query /FO CSV /NH 2>$null
               $taskExitCode = $LASTEXITCODE
