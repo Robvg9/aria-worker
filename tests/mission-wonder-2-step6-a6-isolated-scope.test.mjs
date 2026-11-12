@@ -17,6 +17,7 @@ import {
   m22A6ExpectedJobIdV1,
   m22A6ArtifactPathV1,
   m22A6BuildContinuityProbeStepV1,
+  m22A6BuildRunScopeSpecsV1,
   m22A6ContinuityProbeStepMatchesV1,
   m22A6ScopeRowMatchesV1,
   m22A6MissionPlanMatchesV1,
@@ -54,6 +55,26 @@ assert.equal(m22A6ArtifactPathV1(RUN_ID, 4),
 assert.throws(() => m22A6MissionIdV1(RUN_ID, 6), /ordinal_invalid/);
 assert.throws(() => m22A6BuildContinuityProbeStepV1("other-device", RUN_ID, 1, HUMAN_GATE_REF), /device_not_allowlisted/);
 assert.throws(() => m22A6ArtifactPathV1("m22-a6-../../evil", 1), /run_id_invalid/);
+
+const canonicalArmSpecs = await m22A6BuildRunScopeSpecsV1({
+  runId: RUN_ID,
+  userId: OWNER,
+  humanGateRef: HUMAN_GATE_REF,
+});
+assert.equal(canonicalArmSpecs.length, M22_A6_MISSION_COUNT);
+for (const [index, spec] of canonicalArmSpecs.entries()) {
+  const ordinal = index + 1;
+  const canonicalStep = m22A6BuildContinuityProbeStepV1(DEVICE, RUN_ID, ordinal, HUMAN_GATE_REF);
+  assert.equal(spec.ordinal, ordinal);
+  assert.equal(spec.command, canonicalStep.input.command);
+  assert.equal(spec.command, spec.command.trim(), "arm payload command must have no outer whitespace");
+  assert.equal(spec.command.startsWith("\\n"), false);
+  assert.equal(spec.command.endsWith("\\n"), false);
+  assert.equal(spec.mission_id, m22A6MissionIdV1(RUN_ID, ordinal));
+  assert.equal(spec.scope_id, m22A6ChildScopeIdV1(RUN_ID, ordinal));
+  assert.equal(spec.request_id, RUN_ID + "." + ordinal);
+  assert.equal(spec.job_id, await m22A6ExpectedJobIdV1(spec.mission_id, canonicalStep.id));
+}
 
 for (let ordinal = 1; ordinal <= M22_A6_MISSION_COUNT; ordinal += 1) {
   const missionId = m22A6MissionIdV1(RUN_ID, ordinal);
@@ -148,6 +169,10 @@ const args = {
   requiredStatuses: ["bound"], nowMs: NOW,
 };
 assert.equal(await m22A6ScopeRowMatchesV1(args), true);
+assert.equal(await m22A6ScopeRowMatchesV1({
+  ...args,
+  scope: { ...scope, command: "\\n" + scope.command + "\\n" },
+}), false, "the runtime must reject the exact leading/trailing newline defect from the failed live run");
 for (const change of [
   { run: { ...run, status: "revoked" } },
   { run: { ...run, max_jobs: 6 } },
