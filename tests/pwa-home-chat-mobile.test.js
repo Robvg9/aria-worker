@@ -1,0 +1,45 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+
+const root = process.cwd();
+const app = fs.readFileSync(path.join(root, 'pwa/src/App.tsx'), 'utf8');
+const css = fs.readFileSync(path.join(root, 'pwa/src/index.css'), 'utf8');
+const mobileCssStart = css.lastIndexOf('/* 2026-11-12 — compact Android layout');
+assert.ok(mobileCssStart >= 0, 'mobile compact layout block must exist');
+const mobileCss = css.slice(mobileCssStart);
+
+test('mobile Dashboard keeps all content reachable inside its own vertical scroller', () => {
+  assert.match(mobileCss, /\.homeEssential\{[^}]*overflow-x:hidden;[^}]*overflow-y:auto;/);
+  assert.match(mobileCss, /\.homeEssential\{[^}]*min-height:0;/);
+  assert.match(mobileCss, /\.homeQuickActions\{grid-template-columns:repeat\(3,minmax\(0,1fr\)\)/);
+  assert.match(app, /Estado de ARIA y de la misión actual\./);
+});
+
+test('mobile Chat compacts chrome while retaining a dedicated message-history scroller', () => {
+  assert.match(mobileCss, /\.chatPanel \.chatWindow\{[^}]*overflow-x:hidden;[^}]*overflow-y:auto;/);
+  assert.match(mobileCss, /\.chatPanel \.chatWindow\{[^}]*min-height:0;/);
+  assert.match(mobileCss, /\.chatPanel \.composer textarea\{min-height:44px;max-height:88px/);
+  assert.match(mobileCss, /\.chatPanel \.send\{width:44px;min-width:44px;height:44px/);
+});
+
+test('Chat opens and returns to the latest restored or newly appended message', () => {
+  const start = app.indexOf('// Always open the active conversation at its newest message.');
+  assert.ok(start >= 0, 'latest-message scroll effect must be documented');
+  const end = app.indexOf('\n\n  useEffect(() => {', start + 10);
+  assert.ok(end > start, 'latest-message scroll effect must be bounded');
+  const effect = app.slice(start, end);
+  assert.match(effect, /if \(!node \|\| screen !== 1\) return/);
+  assert.match(effect, /requestAnimationFrame\(\(\) => \{/);
+  assert.match(effect, /secondFrame = requestAnimationFrame/);
+  assert.match(effect, /node\.scrollTop = node\.scrollHeight/);
+  assert.match(effect, /\[screen, messages\.length, messages\[messages\.length - 1\]\?\.id, sending\]/);
+  assert.match(effect, /cancelAnimationFrame\(firstFrame\)/);
+  assert.match(effect, /cancelAnimationFrame\(secondFrame\)/);
+});
+
+test('long-form PWA screens retain their existing scroll containers', () => {
+  assert.match(css, /\.pageBodyViewport\{[^}]*overflow:auto;/);
+  assert.match(css, /\.projectBodyViewport\{[^}]*overflow-x:hidden;overflow-y:auto;/);
+});
