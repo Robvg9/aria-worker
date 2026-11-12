@@ -105,10 +105,25 @@ jobs:
 
           $initial = Get-HeartbeatSnapshot
 
-          # Historical read-only incident evidence: correlate the A6 heartbeat gap
-          # with Windows power, boot, service and Task Scheduler events.
-          $incidentStart = [DateTimeOffset]::Parse('2026-11-12T16:00:00Z')
-          $incidentEnd = [DateTimeOffset]::Parse('2026-11-12T16:05:00Z')
+          # Read-only incident window: capture the latest 30 minutes so the
+          # failed A6 watchdog-mediated restart and rollback can be correlated.
+          $incidentEnd = [DateTimeOffset]::UtcNow
+          $incidentStart = $incidentEnd.AddMinutes(-30)
+          $killRequestPath = Join-Path $logs 'kill-request'
+          $killRequest = @{
+            exists = (Test-Path -LiteralPath $killRequestPath -PathType Leaf)
+            content = $null
+            last_write_utc = $null
+          }
+          if ($killRequest.exists) {
+            try {
+              $killItem = Get-Item -LiteralPath $killRequestPath
+              $killRequest.content = (Get-Content -Raw -LiteralPath $killRequestPath).Trim()
+              $killRequest.last_write_utc = $killItem.LastWriteTimeUtc.ToString('o')
+            } catch {
+              $killRequest.read_error_type = $_.Exception.GetType().Name
+            }
+          }
           $incidentEvents = @()
           foreach ($logName in @('System','Microsoft-Windows-NetworkProfile/Operational','Microsoft-Windows-NDIS/Operational','Microsoft-Windows-TaskScheduler/Operational')) {
             try {
@@ -360,6 +375,7 @@ jobs:
             agent_pid_file=$agentPid
             watchdog_pid_file=$watchdogPid
             initial_heartbeat=$initial
+            kill_request=$killRequest
             samples=@($samples.ToArray())
             processes_before=$processes
             processes_after=$finalProcesses
