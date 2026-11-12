@@ -50,7 +50,7 @@ assert.match(preflight, /ollama_process_count/);
 assert.doesNotMatch(preflight, /\bCopy-Item\b|\bNew-Item\b|\bStop-Process\b|\bRestart-Service\b|\bRegister-ScheduledTask\b|\bUnregister-ScheduledTask\b|kill-request/i);
 assert.doesNotMatch(preflight, /Set-Content\s+-LiteralPath\s+\$configPath/i);
 const setContentTargets = [...preflight.matchAll(/Set-Content\s+-LiteralPath\s+(\$[A-Za-z_][A-Za-z0-9_]*)/g)].map((match) => match[1]);
-assert.deepEqual(setContentTargets, ["$resultPath"]);
+assert.deepEqual(setContentTargets, ["$resultPath", "$resultPath"]);
 
 // Only a stale local process heartbeat triggers a local restart. A stale remote
 // gateway ACK is observational and must never kill a healthy Node process.
