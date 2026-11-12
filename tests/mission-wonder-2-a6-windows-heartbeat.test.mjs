@@ -107,7 +107,7 @@ assert.match(a6Installer, /ALREADY_INSTALLED/);
 assert.match(a6Installer, /processAgeMs -lt 90000/);
 assert.match(a6Installer, /gatewayAckAgeMs -lt 90000/);
 assert.match(a6Installer, /restart_requested = \$false/);
-assert.match(a6Installer, /hash-object --path \$item\.source \$source/);
+assert.match(a6Installer, /hash-object --path \$gitRelativePath \$source/);
 assert.match(a6Installer, /Backups\\a6-heartbeat-v2/);
 assert.match(a6Installer, /Get-CimInstance Win32_Process/);
 assert.match(a6Installer, /agent\.ParentProcessId -ne \$watchdogPid/);
