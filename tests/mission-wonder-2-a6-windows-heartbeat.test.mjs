@@ -94,7 +94,7 @@ assert.match(a6Installer, /gateway-dns-lookup\.cjs/);
 assert.match(a6Installer, /heartbeat_ms = 30000/);
 assert.match(a6Installer, /ollama_enabled = \$false/);
 assert.match(a6Installer, /RESTORED_RUNTIME_AND_CONFIG/);
-assert.match(a6Installer, /git -C \\$PSScriptRoot rev-parse --show-toplevel/);
+assert.ok(a6Installer.includes('git -C $PSScriptRoot rev-parse --show-toplevel'));
 assert.match(a6Installer, /A6_SOURCE_GIT_ROOT_UNAVAILABLE/);
 assert.doesNotMatch(a6Installer, /\bStop-Process\b|\bRestart-Service\b|\bRegister-ScheduledTask\b|\bUnregister-ScheduledTask\b|Set-NetAdapter|Restart-NetAdapter/i);
 assert.doesNotMatch(a6Installer, /MISSION_EXECUTION_PAUSED|cron.*53|aria_m22_a6_start_run/i);
