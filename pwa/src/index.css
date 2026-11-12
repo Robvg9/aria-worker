@@ -192,7 +192,9 @@ h1{margin:2px 0 4px;font-size:28px;letter-spacing:-.03em}h2{margin:4px 0 7px;fon
 .recoveryLink{text-decoration:none;display:inline-flex;align-items:center;justify-content:center}
 
 /* Global PWA navigation + human mission presentation */
-.globalPageFrame{min-height:100dvh;width:100%;touch-action:pan-y;overscroll-behavior-x:none}
+.globalPageFrame{height:100dvh;min-height:0;width:100%;overflow:hidden;display:flex;flex-direction:column;touch-action:pan-y;overscroll-behavior:none}
+.globalPageFrame>.appShell{flex:1 1 auto;width:100%;height:100%;min-height:0;overflow:hidden}
+.globalPageFrame.keyboardOpen .bottomNav{display:none!important}
 .globalPageFrame:not(.animationsOff) .appShell{animation:globalPageEnter .22s ease both}
 .globalPageFrame.animationsOff *,
 .globalPageFrame.animationsOff *::before,
@@ -211,7 +213,15 @@ h1{margin:2px 0 4px;font-size:28px;letter-spacing:-.03em}h2{margin:4px 0 7px;fon
 
 /* ARIA Project Workspaces / ARTIA */
 .statButton{width:100%;text-align:left;cursor:pointer}
-.projectShell{max-width:1240px;overflow-anchor:none}
+.projectShell{max-width:1240px;overflow-anchor:none;display:flex;flex:1 1 auto;flex-direction:column;height:100%;min-height:0;overflow:hidden}
+.projectGrid,.projectHero,.projectTabs{flex:0 0 auto;min-width:0}
+.projectHero .projectSummary{margin:4px 0 0;line-height:1.4;max-width:58ch}
+.projectContextDetails{margin:0 0 10px;border:1px solid var(--line);border-radius:14px;background:rgba(255,255,255,.025);overflow:hidden}
+.projectContextDetails summary{display:flex;min-height:44px;align-items:center;justify-content:space-between;gap:12px;padding:10px 13px;cursor:pointer;color:var(--muted);font-size:11px;font-weight:850;list-style:none}
+.projectContextDetails summary::-webkit-details-marker{display:none}
+.projectContextDetails summary::after{content:'＋';color:var(--violet);font-size:16px;line-height:1}
+.projectContextDetails[open] summary::after{content:'−'}
+.projectContextText{margin:0;padding:0 13px 13px;line-height:1.5;overflow-wrap:anywhere}
 .projectGrid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px}
 .projectCard{display:flex;align-items:center;gap:12px;text-align:left;padding:15px;border:1px solid var(--line);border-radius:18px;background:linear-gradient(180deg,#191328,#120e1c);color:var(--text)}
 .projectCard.selected{border-color:#7658df;box-shadow:0 0 0 1px rgba(159,124,255,.15),0 12px 40px rgba(84,60,160,.15)}
@@ -304,7 +314,11 @@ button{touch-action:manipulation;}
 .visualInstruction{height:58px;min-height:58px;max-height:80px;resize:none;box-sizing:border-box;}
 .projectShell .topBar{flex:0 0 auto;}
 .projectShell{min-height:0;}
-.projectBodyViewport{flex:1 1 auto;min-height:0;overflow:auto;overscroll-behavior:contain;padding-bottom:calc(12px + env(safe-area-inset-bottom));touch-action:pan-y;}
+.projectBodyViewport{flex:1 1 0;min-height:0;min-width:0;overflow-x:hidden;overflow-y:auto;overscroll-behavior-y:contain;-webkit-overflow-scrolling:touch;padding-bottom:calc(12px + env(safe-area-inset-bottom));touch-action:pan-y;}
+.projectBodyViewportChat{overflow:hidden!important;display:flex;flex-direction:column;min-height:0;padding-bottom:0!important;}
+.projectBodyViewportChat>.chatPanel{flex:1 1 0;min-height:0;height:100%;overflow:hidden;}
+.projectBodyViewportChat>.chatPanel>.projectChatWindow{flex:1 1 0;min-height:0;overflow-y:auto;overscroll-behavior-y:contain;-webkit-overflow-scrolling:touch;}
+.projectBodyViewportChat>.chatPanel>.composer{flex:0 0 auto;}
 .projectTabs{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;}
 .projectTabs .tabButton{min-width:0;}
 .projectCard{min-width:0;min-height:64px;}
@@ -320,6 +334,7 @@ button{touch-action:manipulation;}
   .desktopOnly{display:none !important;}
   .appShell{padding:10px 10px calc(74px + env(safe-area-inset-bottom));}
   .pwaShell{padding-bottom:calc(74px + env(safe-area-inset-bottom));}
+  .globalPageFrame.keyboardOpen>.appShell{padding-bottom:calc(10px + env(safe-area-inset-bottom))!important;}
   .topBar{gap:8px;}
   .topBar h1{font-size:20px;}
   .topBar .sub{font-size:10px;}
@@ -357,7 +372,11 @@ button{touch-action:manipulation;}
   .projectCard strong{font-size:10px;white-space:nowrap;}
   .projectCard small{font-size:8px;margin:0;}
   .projectHero{padding:12px;gap:8px;}
-  .projectHero .muted{font-size:10px;line-height:1.35;}
+  .projectHero .muted{font-size:11px;line-height:1.4;}
+  .projectHero .projectSummary{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;}
+  .projectContextDetails{margin-bottom:8px;}
+  .projectContextDetails summary{min-height:42px;padding:9px 11px;}
+  .projectContextText{font-size:11px;line-height:1.45;padding:0 11px 11px;}
   .projectTabs .tabButton{padding:8px 5px;font-size:10px;}
   .projectBodyViewport{padding-top:4px;}
   .missionCreateRow{position:sticky;top:0;z-index:5;background:#120e1d;padding-bottom:6px;}
