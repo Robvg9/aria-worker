@@ -260,13 +260,26 @@ jobs:
           } catch {
             $gatewayProbe = @(@{ query_error=$_.Exception.GetType().Name; message=$_.Exception.Message })
           }
-          $httpsNameProbe = @{ status='BLOCKED'; error=$null }
+          $httpsNameProbe = @{ status='BLOCKED'; error=$null; elapsed_ms=$null }
+          $tcpProbe = $null
+          $tcpAsync = $null
+          $tcpStarted = [DateTimeOffset]::UtcNow
           try {
-            $httpsResult = Test-NetConnection -ComputerName 'icuqsstxfdbvjytkhlog.supabase.co' -Port 443 -InformationLevel Quiet -WarningAction SilentlyContinue -ErrorAction Stop
-            $httpsNameProbe.status = if ($httpsResult) { 'PASS' } else { 'FAILED' }
+            $tcpProbe = [System.Net.Sockets.TcpClient]::new()
+            $tcpAsync = $tcpProbe.BeginConnect('icuqsstxfdbvjytkhlog.supabase.co',443,$null,$null)
+            if ($tcpAsync.AsyncWaitHandle.WaitOne(4000)) {
+              $tcpProbe.EndConnect($tcpAsync)
+              $httpsNameProbe.status = 'PASS'
+            } else {
+              $httpsNameProbe.status = 'TIMEOUT_4000MS'
+              $httpsNameProbe.error = 'DNS_OR_TCP_CONNECT_DEADLINE_EXCEEDED'
+            }
           } catch {
             $httpsNameProbe.status = 'ERROR'
             $httpsNameProbe.error = [string]$_.Exception.Message
+          } finally {
+            $httpsNameProbe.elapsed_ms = [long]([DateTimeOffset]::UtcNow - $tcpStarted).TotalMilliseconds
+            if ($tcpProbe) { $tcpProbe.Dispose() }
           }
 
           $watchdogIncidentLines = @()
@@ -397,3 +410,5 @@ jobs:
 # Narrow read-only query for Ethernet power management and all Realtek advanced properties.
 
 # Read-only DNS resolver comparison for the A6 ENOTFOUND incident.
+
+# Bound the HTTPS hostname probe to 4 seconds so diagnostics cannot hang on DNS.
