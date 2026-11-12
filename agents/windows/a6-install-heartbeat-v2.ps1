@@ -1,6 +1,11 @@
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 if (-not (Test-Path -LiteralPath (Join-Path $repoRoot 'package.json') -PathType Leaf)) { throw 'A6_SOURCE_REPOSITORY_ROOT_NOT_FOUND' }
+$gitRoot = (& git -C $repoRoot rev-parse --show-toplevel 2>$null)
+$gitHead = (& git -C $repoRoot rev-parse HEAD 2>$null)
+if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace([string]$gitRoot)) { throw 'A6_SOURCE_GIT_ROOT_UNAVAILABLE' }
+if ((Resolve-Path -LiteralPath $gitRoot).Path -ne $repoRoot) { throw 'A6_SOURCE_GIT_ROOT_MISMATCH' }
+if ([string]$gitHead -ne [string]$env:GITHUB_SHA) { throw "A6_SOURCE_SHA_MISMATCH expected=$env:GITHUB_SHA actual=$gitHead" }
 $expectedDevice = 'windows-fe722cc6681e4f9c9cc35f5ebbb0a089'
 if ($env:COMPUTERNAME -ine 'ROBVG') { throw "A6_HOST_MISMATCH=$env:COMPUTERNAME" }
 
@@ -69,7 +74,18 @@ try {
 
   foreach ($item in $map) {
     $source = Join-Path $repoRoot $item.source
-    if (-not (Test-Path -LiteralPath $source -PathType Leaf)) { throw "A6_SOURCE_FILE_MISSING=$($item.source)" }
+    $blob = (& git -C $repoRoot rev-parse ("HEAD:" + $item.source) 2>$null)
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace([string]$blob)) { throw "A6_SOURCE_NOT_TRACKED_AT_EXACT_SHA=$($item.source)" }
+    if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
+      # Some self-hosted checkouts retain sparse-worktree exclusions. Materialize
+      # only the exact files required by this installer from the already checked-out commit.
+      & git -C $repoRoot checkout HEAD -- $item.source
+      if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $source -PathType Leaf)) {
+        throw "A6_SOURCE_MATERIALIZATION_FAILED=$($item.source)"
+      }
+    }
+    $workingBlob = (& git -C $repoRoot hash-object --path $item.source $source 2>$null)
+    if ($LASTEXITCODE -ne 0 -or [string]$workingBlob -ne [string]$blob) { throw "A6_SOURCE_WORKTREE_HASH_MISMATCH=$($item.source)" }
   }
 
   New-Item -ItemType Directory -Force -Path $backup,(Join-Path $backup 'Runtime\windows'),(Join-Path $backup 'Runtime\shared'),(Join-Path $backup 'Data'),$shared | Out-Null
