@@ -233,9 +233,15 @@ jobs:
               $targetProc = $processById[[int]$targetPid]
               if (-not $targetProc) { continue }
               $targetOwner = $null
+              $targetCreatedUtc = $null
               try {
                 $targetOwnerResult = Invoke-CimMethod -InputObject $targetProc -MethodName GetOwner -ErrorAction Stop
                 if ($targetOwnerResult.ReturnValue -eq 0) { $targetOwner = "$($targetOwnerResult.Domain)\\$($targetOwnerResult.User)" }
+              } catch {}
+              try {
+                if ($targetProc.CreationDate) {
+                  $targetCreatedUtc = ([Management.ManagementDateTimeConverter]::ToDateTime($targetProc.CreationDate)).ToUniversalTime().ToString('o')
+                }
               } catch {}
               $targetProcessDetails += [ordered]@{
                 pid = [int]$targetProc.ProcessId
@@ -244,7 +250,7 @@ jobs:
                 session_id = [int]$targetProc.SessionId
                 owner = $targetOwner
                 executable_path = [string]$targetProc.ExecutablePath
-                creation_date_utc = if ($targetProc.CreationDate) { ([Management.ManagementDateTimeConverter]::ToDateTime($targetProc.CreationDate)).ToUniversalTime().ToString('o') } else { $null }
+                creation_date_utc = $targetCreatedUtc
               }
             }
             $result.target_process_details = $targetProcessDetails
@@ -260,13 +266,6 @@ jobs:
                   start_mode = [string]$service.StartMode
                   process_id = [int]$service.ProcessId
                   start_name = [string]$service.StartName
-                  path_name_sha256 = if (-not [string]::IsNullOrWhiteSpace([string]$service.PathName)) {
-                    $sha = [Security.Cryptography.SHA256]::Create()
-                    try {
-                      $bytes = [Text.Encoding]::UTF8.GetBytes([string]$service.PathName)
-                      [BitConverter]::ToString($sha.ComputeHash($bytes)).Replace('-', '')
-                    } finally { $sha.Dispose() }
-                  } else { $null }
                 }
               }
             } catch {
@@ -275,7 +274,24 @@ jobs:
             $result.services_hosted_by_watchdog_parent = $serviceAttribution
 
             $sessionOneNodeAttribution = @()
-            foreach ($sessionOneNode in $allProcessSnapshot | Where-Object { $_.Name -match '^node(\\.exe)?            $taskDiscovery = @()
+            foreach ($sessionOneNode in $allProcessSnapshot | Where-Object { $_.Name -match '^node(\\.exe)?$' -and [int]$_.SessionId -eq 1 }) {
+              $nodeCreatedUtc = $null
+              try {
+                if ($sessionOneNode.CreationDate) {
+                  $nodeCreatedUtc = ([Management.ManagementDateTimeConverter]::ToDateTime($sessionOneNode.CreationDate)).ToUniversalTime().ToString('o')
+                }
+              } catch {}
+              $sessionOneNodeAttribution += [ordered]@{
+                pid = [int]$sessionOneNode.ProcessId
+                parent_pid = [int]$sessionOneNode.ParentProcessId
+                session_id = [int]$sessionOneNode.SessionId
+                executable_path = [string]$sessionOneNode.ExecutablePath
+                creation_date_utc = $nodeCreatedUtc
+              }
+            }
+            $result.session_one_node_processes = $sessionOneNodeAttribution
+
+            $taskDiscovery = @()
             try {
               $taskOutput = & schtasks.exe /Query /FO CSV /NH 2>$null
               $taskExitCode = $LASTEXITCODE
