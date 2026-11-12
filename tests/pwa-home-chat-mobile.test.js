@@ -11,17 +11,17 @@ assert.ok(mobileCssStart >= 0, 'mobile compact layout block must exist');
 const mobileCss = css.slice(mobileCssStart);
 
 test('mobile Dashboard keeps all content reachable inside its own vertical scroller', () => {
-  assert.match(css, /\.homeEssential\{[\s\S]*?overflow-x:hidden;[\s\S]*?overflow-y:auto;/);
-  assert.match(css, /\.homeEssential\{[\s\S]*?min-height:0;/);
-  assert.match(css, /\.homeQuickActions\{grid-template-columns:repeat\(3,minmax\(0,1fr\)\)/);
+  assert.match(mobileCss, /\.homeEssential\{[^}]*overflow-x:hidden;[^}]*overflow-y:auto;/);
+  assert.match(mobileCss, /\.homeEssential\{[^}]*min-height:0;/);
+  assert.match(mobileCss, /\.homeQuickActions\{grid-template-columns:repeat\(3,minmax\(0,1fr\)\)/);
   assert.match(app, /Estado de ARIA y de la misión actual\./);
 });
 
 test('mobile Chat compacts chrome while retaining a dedicated message-history scroller', () => {
-  assert.match(css, /\.chatPanel \.chatWindow\{[\s\S]*?overflow-y:auto;/);
-  assert.match(css, /\.chatPanel \.chatWindow\{[\s\S]*?min-height:0;/);
-  assert.match(css, /\.chatPanel \.composer textarea\{min-height:44px;max-height:88px/);
-  assert.match(css, /\.chatPanel \.send\{width:44px;min-width:44px;height:44px/);
+  assert.match(mobileCss, /\.chatPanel \.chatWindow\{[^}]*overflow-x:hidden;[^}]*overflow-y:auto;/);
+  assert.match(mobileCss, /\.chatPanel \.chatWindow\{[^}]*min-height:0;/);
+  assert.match(mobileCss, /\.chatPanel \.composer textarea\{min-height:44px;max-height:88px/);
+  assert.match(mobileCss, /\.chatPanel \.send\{width:44px;min-width:44px;height:44px/);
 });
 
 test('Chat opens and returns to the latest restored or newly appended message', () => {
