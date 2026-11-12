@@ -124,6 +124,29 @@ assert.match(a6Installer, /commandLineCompatible/);
 assert.match(a6Installer, /preinstallGatewayAckAgeMs -lt 90000/);
 assert.match(a6Installer, /A6_PREINSTALL_HEARTBEAT_NOT_FRESH/);
 assert.match(a6Installer, /A6_PROCESS_IDENTITY_CHECK=/);
+
+const restartStart = a6Installer.indexOf("$newPid = 0");
+const restartEnd = a6Installer.indexOf("A6_WATCHDOG_MEDIATED_RESTART_NOT_CONFIRMED", restartStart);
+assert.ok(restartStart >= 0 && restartEnd > restartStart, "A6 watchdog restart attestation must remain explicit");
+const restartBlock = a6Installer.slice(restartStart, restartEnd);
+assert.match(restartBlock, /candidateCommandLineAvailable/);
+assert.match(restartBlock, /candidateCommandLineCompatible/);
+assert.match(restartBlock, /candidateStatusMatches/);
+assert.match(restartBlock, /statusPath/);
+assert.match(restartBlock, /candidateStatus\.agent_path/);
+assert.match(restartBlock, /candidateStatus\.runtime_root/);
+assert.match(restartBlock, /candidateStatus\.node_path/);
+assert.match(restartBlock, /candidateStatus\.watchdog_pid/);
+assert.match(restartBlock, /A6_RESTART_CANDIDATE=/);
+assert.match(restartBlock, /restart_observations/);
+assert.ok(
+  restartBlock.includes("(-not $candidateCommandLineAvailable -or $candidateCommandLineMatches)"),
+  "A missing WMI CommandLine may be accepted only with the full status-backed process identity"
+);
+assert.ok(
+  restartBlock.indexOf("candidateStatusMatches") < restartBlock.indexOf("if ($newPid -eq 0)"),
+  "The new PID must be corroborated by status.json before acceptance"
+);
 assert.match(a6Installer, /process_identity = \$identityDiagnostic/);
 assert.doesNotMatch(a6Installer, /Test-Path -LiteralPath \(\[string\]\$processStatus\.node_path\)/);
 assert.match(a6Installer, /agent_command_line_matches = \$agentCommandLineMatches/);
