@@ -105,10 +105,10 @@ jobs:
 
           $initial = Get-HeartbeatSnapshot
 
-          # Read-only incident window: capture the latest 30 minutes so the
-          # failed A6 watchdog-mediated restart and rollback can be correlated.
+          # Read-only incident window: capture the latest six hours so the
+          # A6 watchdog-mediated restart and rollback at ~20:43 UTC are included.
           $incidentEnd = [DateTimeOffset]::UtcNow
-          $incidentStart = $incidentEnd.AddMinutes(-30)
+          $incidentStart = $incidentEnd.AddHours(-6)
           $killRequestPath = Join-Path $logs 'kill-request'
           $killRequest = @{
             exists = (Test-Path -LiteralPath $killRequestPath -PathType Leaf)
