@@ -74,6 +74,17 @@ assert.match(a6Installer, /COMPUTERNAME -ine 'ROBVG'/);
 assert.match(a6Installer, /rev-parse HEAD/);
 assert.match(a6Installer, /SOURCE_SHA_MISMATCH/);
 assert.match(a6Installer, /Materialize-ExactGitBlob/);
+const reuseBlockStart = a6Installer.indexOf("$runtimeExact = $true");
+const reuseBlockEnd = a6Installer.indexOf("$configExact =", reuseBlockStart);
+assert.ok(reuseBlockStart >= 0 && reuseBlockEnd > reuseBlockStart, "A6 exact-runtime reuse block must remain explicit");
+const reuseBlock = a6Installer.slice(reuseBlockStart, reuseBlockEnd);
+assert.match(reuseBlock, /rev-parse \("HEAD:" \+ \$item\.source\)/);
+assert.match(reuseBlock, /Materialize-ExactGitBlob -RelativePath \$item\.source -DestinationPath \$sourcePath/);
+assert.match(reuseBlock, /hash-object --path \$item\.source \$sourcePath/);
+assert.ok(
+  reuseBlock.indexOf("Materialize-ExactGitBlob") < reuseBlock.indexOf("Get-FileHash -LiteralPath $sourcePath"),
+  "Sparse source blobs must be materialized before runtime comparison"
+);
 assert.ok(a6Installer.includes("cat-file blob"), "runtime sources must stream exact Git blobs");
 assert.match(a6Installer, /RedirectStandardOutput = \$true/);
 assert.match(a6Installer, /cat-file blob .*\+ \$ExpectedBlob/);
