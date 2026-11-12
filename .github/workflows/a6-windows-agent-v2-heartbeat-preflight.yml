@@ -369,3 +369,5 @@ jobs:
           path: a6-windows-readonly-diagnostic.json
           if-no-files-found: warn
           retention-days: 14
+
+# Post-Realtek-power-saving-fix 15-minute continuity requalification checkpoint.
