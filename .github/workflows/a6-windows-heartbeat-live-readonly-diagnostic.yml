@@ -107,8 +107,8 @@ jobs:
 
           # Historical read-only incident evidence: correlate the A6 heartbeat gap
           # with Windows power, boot, service and Task Scheduler events.
-          $incidentStart = [DateTimeOffset]::Parse('2026-11-12T06:20:00Z')
-          $incidentEnd = [DateTimeOffset]::Parse('2026-11-12T06:28:00Z')
+          $incidentStart = [DateTimeOffset]::Parse('2026-11-12T16:00:00Z')
+          $incidentEnd = [DateTimeOffset]::Parse('2026-11-12T16:05:00Z')
           $incidentEvents = @()
           foreach ($logName in @('System','Microsoft-Windows-NetworkProfile/Operational','Microsoft-Windows-NDIS/Operational','Microsoft-Windows-TaskScheduler/Operational')) {
             try {
@@ -321,3 +321,5 @@ jobs:
           retention-days: 14
 
 # Post-user-change verification checkpoint: Ethernet power-saving state and default route.
+
+# Read-only correlation refresh for the 2026-11-12 16:03 UTC A6 heartbeat continuity block.
