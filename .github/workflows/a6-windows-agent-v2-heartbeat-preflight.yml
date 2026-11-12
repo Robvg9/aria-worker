@@ -69,9 +69,12 @@ jobs:
           if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace([string]$blob)) { throw 'A6_INSTALLER_BLOB_MISSING_FROM_EXACT_COMMIT' }
           $installer = Join-Path $repoRoot $relative
           if (-not (Test-Path -LiteralPath $installer -PathType Leaf)) {
-            # Restore just this tracked installer from the exact checked-out HEAD.
-            & git -C $repoRoot checkout HEAD -- $relative
-            if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $installer -PathType Leaf)) {
+            # Write the exact commit blob through cmd.exe redirection; git checkout
+            # by path fails on this runner's sparse index even though rev-parse works.
+            $native = 'git -C "' + $repoRoot + '" show "HEAD:' + $relative + '" > "' + $installer + '"'
+            & $env:ComSpec /d /c $native
+            $nativeExit = $LASTEXITCODE
+            if ($nativeExit -ne 0 -or -not (Test-Path -LiteralPath $installer -PathType Leaf)) {
               throw 'A6_INSTALLER_MATERIALIZATION_FAILED'
             }
           }
