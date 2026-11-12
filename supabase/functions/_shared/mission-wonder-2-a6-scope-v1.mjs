@@ -146,6 +146,52 @@ export function m22A6ContinuityProbeStepMatchesV1(step, deviceId, runId, ordinal
   }
 }
 
+/**
+ * Build the exact JSON scope specs accepted by aria_m22_a6_arm_run_v1.
+ * The command is passed through unchanged from the canonical step builder:
+ * do not wrap it in multiline template literals or add presentation whitespace.
+ */
+export async function m22A6BuildRunScopeSpecsV1({ runId, userId, humanGateRef }) {
+  const id = norm(runId);
+  const owner = norm(userId);
+  const gateRef = norm(humanGateRef);
+  if (!M22_A6_RUN_ID_PATTERN.test(id)) throw new Error("a6_run_id_invalid");
+  if (!owner) throw new Error("a6_owner_user_id_required");
+  if (!/^a6-human-gate-[0-9]{10,20}[.][0-9]{1,3}$/.test(gateRef)) {
+    throw new Error("a6_human_gate_ref_invalid");
+  }
+
+  const specs = [];
+  for (let ordinal = 1; ordinal <= M22_A6_MISSION_COUNT; ordinal += 1) {
+    const missionId = m22A6MissionIdV1(id, ordinal);
+    const goal = m22A6GoalV1(id, ordinal);
+    const step = m22A6BuildContinuityProbeStepV1(
+      M22_A6_ALLOWED_DEVICE_ID,
+      id,
+      ordinal,
+      gateRef,
+    );
+    const command = step.input.command;
+    if (command !== command.trim()) {
+      throw new Error("a6_generated_command_has_outer_whitespace");
+    }
+    specs.push({
+      ordinal,
+      mission_id: missionId,
+      scope_id: m22A6ChildScopeIdV1(id, ordinal),
+      request_id: id + "." + ordinal,
+      allowed_device_id: M22_A6_ALLOWED_DEVICE_ID,
+      operation: "shell.execute",
+      scheduled_offset_hours: M22_A6_MISSION_OFFSETS_HOURS[ordinal - 1],
+      artifact_path: step.policy.allowed_artifact_path,
+      goal_hash: await m22A6GoalIdentityHashV1(owner, goal, null),
+      job_id: await m22A6ExpectedJobIdV1(missionId, step.id),
+      command,
+    });
+  }
+  return specs;
+}
+
 export async function m22A6ScopeRowMatchesV1({
   run,
   scope,
