@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { createRequire } from "node:module";
+const require = createRequire(import.meta.url);
+const { runHeartbeatLoop } = require("../agents/windows/heartbeat-scheduler.cjs");
 import fs from "node:fs";
 import { spawnSync } from "node:child_process";
 
@@ -17,6 +20,8 @@ assert.match(installer, /heartbeat_ms = 30000/);
 assert.match(watchdog, /\$env:ARIA_HEARTBEAT_MS = '30000'/);
 assert.match(agent, /gatewayHeartbeatInFlight/);
 assert.match(agent, /if\(gatewayHeartbeatInFlight\)/);
+assert.match(agent, /runHeartbeatLoop\(/);
+assert.doesNotMatch(agent, /setInterval\(heartbeat,HEARTBEAT_MS\)/);
 assert.match(agent, /HEARTBEAT_ACK device=/);
 assert.match(agent, /interval_ms=\$\{HEARTBEAT_MS\}/);
 assert.ok(agent.includes('const requestDeadlineMs=Math.max(1000,Number(options.timeoutMs)||GATEWAY_TIMEOUT_MS)'));
@@ -54,6 +59,7 @@ assert.match(agent, /last_gateway_heartbeat_error/);
 assert.match(agent, /lastGatewayHeartbeatAt=new Date\(\)\.toISOString\(\)/);
 assert.match(agent, /lastGatewayHeartbeatError=null/);
 
+assert.match(watchdog, /\$AgentHeartbeatStaleSeconds = 60/);
 assert.match(watchdog, /\$GatewayHeartbeatStaleSeconds = 90/);
 assert.match(watchdog, /GATEWAY_HEARTBEAT_STALE/);
 assert.match(watchdog, /GATEWAY_HEARTBEAT_RECOVERED/);
@@ -71,3 +77,62 @@ assert.ok(!gatewayBlock.includes("Stop-Process"));
 assert.ok(!gatewayBlock.includes("AGENT_KILLED_BY_WATCHDOG"));
 
 console.log("MISSION_WONDER_2_A6_WINDOWS_HEARTBEAT=PASS");
+
+
+// Exercise the scheduler: failed ACKs retry at 2s then 4s; a success resets
+// the cadence to 30s. Calls are awaited serially, never overlapped.
+{
+  let stopped = false;
+  let sends = 0;
+  const sleeps = [];
+  const retries = [];
+  const result = await runHeartbeatLoop({
+    sendHeartbeat: async () => {
+      sends += 1;
+      return sends === 3;
+    },
+    shouldStop: () => stopped,
+    sleep: async (ms) => {
+      sleeps.push(ms);
+      if (sends === 3) stopped = true;
+    },
+    intervalMs: 30_000,
+    retryBaseMs: 2_000,
+    retryMaxMs: 15_000,
+    onRetry: (event) => retries.push(event)
+  });
+  assert.equal(sends, 3);
+  assert.deepEqual(sleeps, [2_000, 4_000, 30_000]);
+  assert.deepEqual(retries, [
+    { consecutiveFailures: 1, delayMs: 2_000 },
+    { consecutiveFailures: 2, delayMs: 4_000 }
+  ]);
+  assert.deepEqual(result, { consecutiveFailures: 0 });
+}
+
+{
+  let stopped = false;
+  let active = 0;
+  let maxActive = 0;
+  let sends = 0;
+  await runHeartbeatLoop({
+    sendHeartbeat: async () => {
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      await Promise.resolve();
+      active -= 1;
+      sends += 1;
+      return true;
+    },
+    shouldStop: () => stopped,
+    sleep: async () => { stopped = true; },
+    intervalMs: 30_000
+  });
+  assert.equal(sends, 1);
+  assert.equal(maxActive, 1);
+}
+
+assert.match(installer, /'heartbeat-scheduler\.cjs' = Join-Path \$AgentRoot/);
+assert.match(runtimeUpdater, /'heartbeat-scheduler\.cjs'; destination = Join-Path \$RuntimeDir/);
+
+console.log("MISSION_WONDER_2_A6_WINDOWS_HEARTBEAT_SERIAL_RETRY=PASS");
