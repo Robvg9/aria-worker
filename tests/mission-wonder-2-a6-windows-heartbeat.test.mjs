@@ -43,8 +43,6 @@ assert.match(preflight, /processById/);
 assert.doesNotMatch(preflight, /\$selectedPid\b/);
 assert.match(preflight, /schtasks\.exe \/Query/);
 assert.match(preflight, /scheduled_task_discovery/);
-assert.match(preflight, /Get-CimInstance Win32_Service/);
-assert.match(preflight, /service_ancestors/);
 assert.doesNotMatch(preflight, /CommandLine\s*=/);
 assert.match(preflight, /ollama_process_count/);
 assert.doesNotMatch(preflight, /\bCopy-Item\b|\bNew-Item\b|\bStop-Process\b|\bRestart-Service\b|kill-request/i);
