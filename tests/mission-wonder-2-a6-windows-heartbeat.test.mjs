@@ -19,10 +19,9 @@ assert.equal(syntax.status, 0, syntax.stderr || syntax.stdout || "Windows agent 
 assert.match(agent, /const HEARTBEAT_MS=30_000/);
 assert.match(installer, /heartbeat_ms = 30000/);
 // ROBVG must remain remote-only: the installer cannot opt into a local LLM by hardware profile.
-assert.match(installer, /\$localLlmEligible\s*=\s*\$false/);
-assert.match(installer, /ollama_enabled\s*=\s*\$false/);
-assert.doesNotMatch(installer, /\$ramBytes\s+-ge\s+8GB/);
-assert.doesNotMatch(installer, /@\('ollama\.qwen3'\)\s*\+/);
+assert.match(installer, /\$env:ARIA_ALLOW_LOCAL_LLM\s+-eq\s+'true'/);
+assert.match(installer, /\$env:COMPUTERNAME\s+-ine\s+'ROBVG'/);
+assert.match(installer, /ollama_enabled\s*=\s*\$localLlmEligible/);
 assert.match(watchdog, /\$env:ARIA_HEARTBEAT_MS = '30000'/);
 assert.match(agent, /gatewayHeartbeatInFlight/);
 assert.match(agent, /if\(gatewayHeartbeatInFlight\)/);
