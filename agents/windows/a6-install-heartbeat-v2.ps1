@@ -1,4 +1,6 @@
 $ErrorActionPreference = 'Stop'
+$repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+if (-not (Test-Path -LiteralPath (Join-Path $repoRoot 'package.json') -PathType Leaf)) { throw 'A6_SOURCE_REPOSITORY_ROOT_NOT_FOUND' }
 $expectedDevice = 'windows-fe722cc6681e4f9c9cc35f5ebbb0a089'
 if ($env:COMPUTERNAME -ine 'ROBVG') { throw "A6_HOST_MISMATCH=$env:COMPUTERNAME" }
 
@@ -66,7 +68,7 @@ try {
   if (@(Get-Process -Name ollama -ErrorAction SilentlyContinue).Count -gt 0) { throw 'A6_OLLAMA_PROCESS_PRESENT' }
 
   foreach ($item in $map) {
-    $source = Join-Path $env:GITHUB_WORKSPACE $item.source
+    $source = Join-Path $repoRoot $item.source
     if (-not (Test-Path -LiteralPath $source -PathType Leaf)) { throw "A6_SOURCE_FILE_MISSING=$($item.source)" }
   }
 
@@ -85,7 +87,7 @@ try {
   $changed = $true
 
   foreach ($item in $map) {
-    $source = Join-Path $env:GITHUB_WORKSPACE $item.source
+    $source = Join-Path $repoRoot $item.source
     $stage = $item.target + '.a6-stage-' + $env:GITHUB_RUN_ID
     Copy-Item -LiteralPath $source -Destination $stage -Force
     if ((Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash -ne (Get-FileHash -LiteralPath $stage -Algorithm SHA256).Hash) { throw "A6_STAGING_HASH_MISMATCH=$($item.source)" }
@@ -99,7 +101,7 @@ try {
   [System.IO.File]::WriteAllText($configStage,($config | ConvertTo-Json -Depth 20),[System.Text.UTF8Encoding]::new($false))
   Move-Item -LiteralPath $configStage -Destination $configPath -Force
   foreach ($item in $map) {
-    $source = Join-Path $env:GITHUB_WORKSPACE $item.source
+    $source = Join-Path $repoRoot $item.source
     if ((Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash -ne (Get-FileHash -LiteralPath $item.target -Algorithm SHA256).Hash) { throw "A6_RUNTIME_HASH_MISMATCH=$($item.source)" }
   }
   $readback = Get-Content -Raw -LiteralPath $configPath | ConvertFrom-Json
