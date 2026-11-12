@@ -106,6 +106,8 @@ jobs:
                 try { $heartbeatHash = [BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($rawHeartbeat))).Replace('-', '') } finally { $sha.Dispose() }
                 $result.heartbeat = [ordered]@{
                   schema_version = [string]$hb.version
+                  heartbeat_scheduler_version = [string]$hb.heartbeat_scheduler_version
+                  gateway_dns_fallback_version = [string]$hb.gateway_dns_fallback_version
                   fields = @($hb.PSObject.Properties.Name | Sort-Object)
                   device_id = [string]$hb.device_id
                   process_heartbeat_at_utc = $heartbeatTimestamp
@@ -181,6 +183,8 @@ jobs:
                   $samples.Add([ordered]@{
                     sampled_at_utc = $sampleAt.ToString('o')
                     schema_version = [string]$sampleHb.version
+                    heartbeat_scheduler_version = [string]$sampleHb.heartbeat_scheduler_version
+                    gateway_dns_fallback_version = [string]$sampleHb.gateway_dns_fallback_version
                     device_id = [string]$sampleHb.device_id
                     process_heartbeat_at_utc = $processAtText
                     gateway_ack_at_utc = $ackAtText
@@ -236,13 +240,42 @@ jobs:
               gateway_error_count = @($sampleRows | Where-Object { $_.has_gateway_error -eq $true }).Count
               device_id_mismatch_count = @($sampleRows | Where-Object { $_.device_id -ne $expectedDevice }).Count
               schema_mismatch_count = @($sampleRows | Where-Object { $_.schema_version -ne 'aria-windows-agent-heartbeat-v2' }).Count
+              scheduler_mismatch_count = @($sampleRows | Where-Object { $_.heartbeat_scheduler_version -ne 'serial-retry-v1' }).Count
+              dns_fallback_mismatch_count = @($sampleRows | Where-Object { $_.gateway_dns_fallback_version -ne 'supabase-scoped-public-fallback-v1' }).Count
               samples = $sampleRows
             }
 
-            if ($result.config -and $result.heartbeat -and $result.config.device_id -eq $expectedDevice -and $result.heartbeat.device_id -eq $expectedDevice) {
-              $result.status = 'CAPTURED'
+            $preflightFailures = [System.Collections.Generic.List[string]]::new()
+            if ($result.host -ine 'ROBVG') { $preflightFailures.Add('HOST_MISMATCH') }
+            if (-not $result.config -or $result.config.device_id -ne $expectedDevice) { $preflightFailures.Add('CONFIG_DEVICE_MISMATCH') }
+            if (-not $result.config -or [int]$result.config.heartbeat_ms -ne 30000) { $preflightFailures.Add('CONFIG_HEARTBEAT_NOT_30S') }
+            if (-not $result.config -or $result.config.ollama_enabled -ne $false) { $preflightFailures.Add('LOCAL_OLLAMA_NOT_DISABLED') }
+            if (-not $result.heartbeat -or $result.heartbeat.device_id -ne $expectedDevice) { $preflightFailures.Add('HEARTBEAT_DEVICE_MISMATCH') }
+            if (-not $result.heartbeat -or $result.heartbeat.schema_version -ne 'aria-windows-agent-heartbeat-v2') { $preflightFailures.Add('HEARTBEAT_SCHEMA_NOT_V2') }
+            if (-not $result.heartbeat -or $result.heartbeat.heartbeat_scheduler_version -ne 'serial-retry-v1') { $preflightFailures.Add('SERIAL_RETRY_SCHEDULER_NOT_INSTALLED') }
+            if (-not $result.heartbeat -or $result.heartbeat.gateway_dns_fallback_version -ne 'supabase-scoped-public-fallback-v1') { $preflightFailures.Add('SCOPED_DNS_FALLBACK_NOT_INSTALLED') }
+            if ($result.ollama_process_count -ne 0) { $preflightFailures.Add('OLLAMA_PROCESS_PRESENT') }
+            if ($result.observation.window_seconds -lt 890) { $preflightFailures.Add('OBSERVATION_SHORTER_THAN_890S') }
+            if ($result.observation.sample_count -lt 150) { $preflightFailures.Add('FEWER_THAN_150_SAMPLES') }
+            if ($result.observation.distinct_gateway_ack_count -lt 26) { $preflightFailures.Add('FEWER_THAN_26_DISTINCT_GATEWAY_ACKS') }
+            if ($null -eq $result.observation.max_gateway_ack_gap_ms -or $result.observation.max_gateway_ack_gap_ms -gt 90000) { $preflightFailures.Add('GATEWAY_ACK_GAP_OVER_90S') }
+            if ($null -eq $result.observation.max_process_heartbeat_age_ms -or $result.observation.max_process_heartbeat_age_ms -gt 90000) { $preflightFailures.Add('PROCESS_HEARTBEAT_STALE') }
+            if ($null -eq $result.observation.max_gateway_ack_age_ms -or $result.observation.max_gateway_ack_age_ms -gt 90000) { $preflightFailures.Add('GATEWAY_ACK_STALE') }
+            if ($null -eq $result.observation.max_sample_gap_ms -or $result.observation.max_sample_gap_ms -gt 15000) { $preflightFailures.Add('SAMPLING_GAP_OVER_15S') }
+            if ($result.observation.missing_sample_count -ne 0) { $preflightFailures.Add('MISSING_SAMPLES') }
+            if ($result.observation.read_error_count -ne 0) { $preflightFailures.Add('READ_ERRORS') }
+            if ($result.observation.gateway_error_count -ne 0) { $preflightFailures.Add('GATEWAY_ERRORS') }
+            if ($result.observation.device_id_mismatch_count -ne 0) { $preflightFailures.Add('DEVICE_ID_MISMATCHES') }
+            if ($result.observation.schema_mismatch_count -ne 0) { $preflightFailures.Add('SCHEMA_MISMATCHES') }
+            if ($result.observation.scheduler_mismatch_count -ne 0) { $preflightFailures.Add('SCHEDULER_VERSION_MISMATCHES') }
+            if ($result.observation.dns_fallback_mismatch_count -ne 0) { $preflightFailures.Add('DNS_FALLBACK_VERSION_MISMATCHES') }
+
+            if ($preflightFailures.Count -eq 0) {
+              $result.status = 'PASS'
+              $result.reason = 'ALL_A6_HOST_PRECHECKS_PASSED'
             } else {
-              $result.reason = 'CONFIG_OR_HEARTBEAT_MISSING_OR_DEVICE_MISMATCH'
+              $result.status = 'BLOCKED'
+              $result.reason = $preflightFailures -join ','
             }
 
             $result | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $resultPath -Encoding UTF8
@@ -258,6 +291,10 @@ jobs:
             Write-Host "A6_GATEWAY_ERRORS=$($result.observation.gateway_error_count)"
             Write-Host "A6_DEVICE_ID_MISMATCHES=$($result.observation.device_id_mismatch_count)"
             Write-Host "A6_SCHEMA_MISMATCHES=$($result.observation.schema_mismatch_count)"
+            Write-Host "A6_SCHEDULER_MISMATCHES=$($result.observation.scheduler_mismatch_count)"
+            Write-Host "A6_DNS_FALLBACK_MISMATCHES=$($result.observation.dns_fallback_mismatch_count)"
+            Write-Host "A6_PREFLIGHT_STATUS=$($result.status)"
+            Write-Host "A6_PREFLIGHT_REASON=$($result.reason)"
             Write-Host "A6_OLLAMA_PROCESS_COUNT=$($result.ollama_process_count)"
           } catch {
             $result.reason = [string]$_.Exception.Message
@@ -267,6 +304,7 @@ jobs:
             Write-Host "A6_READ_ONLY_REASON=$($result.reason)"
             throw
           }
+          if ($result.status -ne 'PASS') { throw "A6_PREFLIGHT_BLOCKED=$($result.reason)" }
 
       - name: Upload read-only diagnostic evidence
         if: always()
