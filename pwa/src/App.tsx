@@ -2335,7 +2335,7 @@ function Chat({
       cancelAnimationFrame(firstFrame);
       cancelAnimationFrame(secondFrame);
     };
-  }, [screen, messages.length, messages[messages.length - 1]?.id, sending]);
+  }, [screen, messages, sending]);
 
   useEffect(() => {
     if (screen !== 1) return;
