@@ -417,3 +417,21 @@ assert.ok(projectsRwht.includes("visualBadge.innerText()).toLowerCase().includes
 assert.ok(projectsRwht.includes("badge.innerText()).toLowerCase().includes('requiere sesión')"), 'ARTIA overview preview auth-required assertion must accept the product badge regardless of text case');
 assert.ok(!projectsRwht.includes("innerText()).includes('requiere sesión')"), 'no case-sensitive lowercase-only auth-required badge assertion may remain');
 console.log('ARTIA AUTH-REQUIRED BADGE CASE-INSENSITIVE CONTRACT: PASS');
+
+
+// Mobile app-shell and keyboard behavior: the fixed global nav must not jump
+// above Android's soft keyboard, and the shell must provide a bounded viewport.
+assert.match(app,/document\.addEventListener\('focusin'/,'PWA must detect when a text editor receives focus');
+assert.match(app,/document\.addEventListener\('focusout'/,'PWA must restore navigation after the editor loses focus');
+assert.match(app,/keyboardOpen \? ' keyboardOpen' : ''/,'the global frame must expose keyboard-open state to CSS');
+assert.match(app,/\.projectShell/,'project content must opt out of global horizontal route swipes');
+assert.match(css,/\.globalPageFrame\{[^}]*height:100dvh[^}]*overflow:hidden[^}]*display:flex[^}]*flex-direction:column/,'mobile app frame must be viewport-bounded and flex-based');
+assert.match(css,/\.globalPageFrame>\.appShell\{[^}]*height:100%[^}]*min-height:0[^}]*overflow:hidden/,'each PWA screen must fit the bounded app frame');
+assert.match(css,/\.globalPageFrame\.keyboardOpen \.bottomNav\{display:none!important\}/,'bottom navigation must hide while Android text entry is active');
+assert.match(css,/\.globalPageFrame\.keyboardOpen>\.appShell\{padding-bottom:[^}]*!important\}/,'chat and project viewports must reclaim the nav reserve while the keyboard is open');
+assert.match(css,/\.projectShell\{[^}]*display:flex[^}]*flex-direction:column[^}]*height:100%[^}]*min-height:0[^}]*overflow:hidden/,'project shell must have a bounded column layout');
+assert.match(css,/\.projectBodyViewport\{[^}]*overflow-x:hidden;overflow-y:auto/,'project body must be the single vertical scroll owner');
+assert.match(project,/projectSummary/,'project hero must use the compact description instead of the long technical context');
+assert.match(project,/<details className='projectContextDetails'>/,'full project context must remain available in a collapsed details section');
+assert.match(project,/\{project\.context\}/,'collapsing project context must not discard its source information');
+console.log('MOBILE KEYBOARD + SINGLE PROJECT SCROLL + COMPACT CONTEXT CONTRACT: PASS');
