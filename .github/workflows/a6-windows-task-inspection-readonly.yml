@@ -73,15 +73,22 @@ jobs:
                 $nameProperty = $properties | Where-Object { $_.Name -match 'TaskName|Nombre de tarea|Tarea' } | Select-Object -First 1
                 if (-not $nameProperty) { continue }
                 $name = [string]$nameProperty.Value
-                if ($name -notmatch '(?i)SpaceAgent|ARIA|Windows.*Agent|Agent.*Windows') { continue }
-                $actionProperty = $properties | Where-Object { $_.Name -match 'Task To Run|Tarea que se ejecutará|Acción' } | Select-Object -First 1
+                $rowText = (($properties | ForEach-Object { [string]$_.Value }) -join '|')
+                if ($rowText -notmatch '(?i)SpaceAgent|ARIA|Windows.*Agent|Agent.*Windows|D:\\\\ARIA-Windows-Agent|run-agent\.ps1|aria-agent\.js') { continue }
+                $actionProperty = $properties | Where-Object { $_.Name -match 'Task To Run|Tarea.*ejecutar|Acción|Accion' } | Select-Object -First 1
                 $statusProperty = $properties | Where-Object { $_.Name -match 'Status|Estado' } | Select-Object -First 1
-                $userProperty = $properties | Where-Object { $_.Name -match 'Run As User|Ejecutar como usuario' } | Select-Object -First 1
+                $userProperty = $properties | Where-Object { $_.Name -match 'Run As User|Ejecutar como usuario|Iniciar como' } | Select-Object -First 1
+                $safeFields = @($properties | ForEach-Object {
+                  $value = [string]$_.Value
+                  $value = $value -replace '(?i)(token|secret|password|authorization)(\s*[:=]\s*|\s+)[^\s;"]+','$1$2[REDACTED]'
+                  @{ name=[string]$_.Name; value=$value.Substring(0,[Math]::Min(700,$value.Length)) }
+                })
                 $result.task_list_matches += @{
                   task_name=$name
                   action=if($actionProperty){([string]$actionProperty.Value -replace '(?i)(token|secret|password|authorization)(\s*[:=]\s*|\s+)[^\s;]+','$1$2[REDACTED]')}else{$null}
                   status=if($statusProperty){[string]$statusProperty.Value}else{$null}
                   run_as=if($userProperty){[string]$userProperty.Value}else{$null}
+                  raw_fields=$safeFields
                 }
               }
             } catch {
@@ -116,6 +123,10 @@ jobs:
           $all = @(Get-CimInstance Win32_Process -ErrorAction Stop)
           $byId = @{}
           foreach ($p in $all) { $byId[[int]$p.ProcessId] = $p }
+          $watchdogParentPid = $null
+          if ($watchdogPid -and $byId.ContainsKey([int]$watchdogPid)) {
+            $watchdogParentPid = [int]$byId[[int]$watchdogPid].ParentProcessId
+          }
           foreach ($id in @($agentPid,$watchdogPid) | Where-Object { $_ -is [int] -and $_ -gt 0 }) {
             $p = $byId[[int]$id]
             if ($p) {
@@ -130,12 +141,37 @@ jobs:
             }
           }
           try {
-            $ids = @($agentPid,$watchdogPid) | Where-Object { $_ -is [int] -and $_ -gt 0 }
+            $ids = @($agentPid,$watchdogPid,$watchdogParentPid) | Where-Object { $_ -is [int] -and $_ -gt 0 }
             $result.services_for_pid = @(Get-CimInstance Win32_Service -ErrorAction Stop |
               Where-Object { $ids -contains [int]$_.ProcessId } |
               Select-Object Name,DisplayName,State,StartMode,StartName,ProcessId)
           } catch {
             $result.services_query_error = $_.Exception.GetType().Name
+          }
+          $result.watchdog_parent_pid = $watchdogParentPid
+          $result.task_scheduler_process_events = @()
+          if ($watchdogPid) {
+            try {
+              $pidPattern = '(?<!\d)' + [regex]::Escape([string]$watchdogPid) + '(?!\d)'
+              $recentEvents = @(Get-WinEvent -FilterHashtable @{
+                LogName='Microsoft-Windows-TaskScheduler/Operational'
+                StartTime=(Get-Date).AddDays(-3)
+              } -MaxEvents 5000 -ErrorAction Stop |
+                Where-Object { $_.Id -eq 129 -and $_.Message -match $pidPattern } |
+                Select-Object -First 20)
+              foreach ($event in $recentEvents) {
+                $message = [string]$event.Message
+                $message = $message -replace '(?i)(token|secret|password|authorization)(\s*[:=]\s*|\s+)[^\s;]+','$1$2[REDACTED]'
+                $result.task_scheduler_process_events += @{
+                  time_utc=$event.TimeCreated.ToUniversalTime().ToString('o')
+                  event_id=[int]$event.Id
+                  provider=[string]$event.ProviderName
+                  message=$message.Substring(0,[Math]::Min(700,$message.Length))
+                }
+              }
+            } catch {
+              $result.task_scheduler_query_error = $_.Exception.GetType().Name
+            }
           }
           $out = Join-Path $env:GITHUB_WORKSPACE 'a6-windows-task-inspection.json'
           $result | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $out -Encoding UTF8
@@ -144,6 +180,11 @@ jobs:
           Write-Host "A6_WATCHDOG_PID=$watchdogPid"
           Write-Host "A6_TASK_LIST_EXIT=$($result.task_list_exit_code)"
           Write-Host "A6_TASK_MATCHES=$(@($result.task_list_matches).Count)"
+          Write-Host "A6_WATCHDOG_PARENT_PID=$watchdogParentPid"
+          Write-Host "A6_TASK_SCHEDULER_EVENTS=$(@($result.task_scheduler_process_events).Count)"
+          foreach ($task in @($result.task_list_matches)) {
+            Write-Host "A6_TASK_MATCH name=$($task.task_name) status=$($task.status) run_as=$($task.run_as) fields=$($task.raw_fields | ConvertTo-Json -Compress -Depth 4)"
+          }
           foreach ($task in @($result.task_list_matches)) {
             Write-Host "A6_TASK_MATCH name=$($task.task_name) status=$($task.status) run_as=$($task.run_as) action=$($task.action)"
           }
