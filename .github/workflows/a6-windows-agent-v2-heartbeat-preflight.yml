@@ -182,9 +182,25 @@ jobs:
               samples = @($samples.ToArray())
             }
 
-            # Hash process command lines without storing their contents or secrets.
+            # Capture process ancestry and command-line hashes, never command-line text.
+            $allProcessSnapshot = @(Get-CimInstance Win32_Process -ErrorAction Stop)
+            $processById = @{}
+            foreach ($candidate in $allProcessSnapshot) {
+              $processById[[int]$candidate.ProcessId] = $candidate
+            }
+            $selectedIds = @($allProcessSnapshot | Where-Object { $_.Name -match '^(node|powershell|pwsh|ollama)(\.exe)?$' } | ForEach-Object { [int]$_.ProcessId })
+            for ($depth = 0; $depth -lt 4; $depth++) {
+              $parentIds = @()
+              foreach ($selectedPid in $selectedIds) {
+                $entry = $processById[[int]$selectedPid]
+                if ($entry -and [int]$entry.ParentProcessId -gt 0) { $parentIds += [int]$entry.ParentProcessId }
+              }
+              $selectedIds = @($selectedIds + $parentIds | Select-Object -Unique)
+            }
             $processIdentity = @()
-            foreach ($proc in Get-CimInstance Win32_Process -ErrorAction Stop | Where-Object { $_.Name -match '^(node|powershell|pwsh)(\.exe)?$' }) {
+            foreach ($selectedPid in $selectedIds) {
+              $proc = $processById[[int]$selectedPid]
+              if (-not $proc) { continue }
               $commandHash = $null
               if (-not [string]::IsNullOrWhiteSpace([string]$proc.CommandLine)) {
                 $sha = [Security.Cryptography.SHA256]::Create()
@@ -193,15 +209,38 @@ jobs:
                   $commandHash = [BitConverter]::ToString($sha.ComputeHash($bytes)).Replace('-', '')
                 } finally { $sha.Dispose() }
               }
+              $ownerName = $null
+              try {
+                $ownerResult = Invoke-CimMethod -InputObject $proc -MethodName GetOwner -ErrorAction Stop
+                if ($ownerResult.ReturnValue -eq 0) { $ownerName = "$($ownerResult.Domain)\\$($ownerResult.User)" }
+              } catch {}
               $processIdentity += [ordered]@{
                 pid = [int]$proc.ProcessId
                 parent_pid = [int]$proc.ParentProcessId
                 name = [string]$proc.Name
                 session_id = [int]$proc.SessionId
+                owner = $ownerName
+                executable_path = [string]$proc.ExecutablePath
                 command_line_sha256 = $commandHash
               }
             }
             $result.process_identity_hashes = $processIdentity
+            $taskDiscovery = @()
+            try {
+              $taskOutput = & schtasks.exe /Query /FO CSV /NH 2>$null
+              $taskExitCode = $LASTEXITCODE
+              if ($taskExitCode -eq 0) {
+                $taskRows = @($taskOutput | ConvertFrom-Csv -Header TaskName,NextRunTime,Status)
+                $taskDiscovery = @($taskRows | Where-Object { $_.TaskName -match 'ARIA|Agent' } | ForEach-Object {
+                  [ordered]@{ task_name = [string]$_.TaskName; status = [string]$_.Status }
+                })
+              } else {
+                $taskDiscovery = @([ordered]@{ inspection_error = "SCHTASKS_QUERY_EXIT=$taskExitCode" })
+              }
+            } catch {
+              $taskDiscovery = @([ordered]@{ inspection_error = [string]$_.Exception.Message })
+            }
+            $result.scheduled_task_discovery = $taskDiscovery
 
             try {
               $task = Get-ScheduledTask -TaskName 'ARIA-Windows-Local-Agent' -ErrorAction Stop
