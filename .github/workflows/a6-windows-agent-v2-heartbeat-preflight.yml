@@ -302,8 +302,8 @@ jobs:
                   session_id = [int]$agentProcess.SessionId
                 })
                 Write-Host "A6_SCHEMA_MISMATCH observed=$schemaVersion fields=$schemaFields last_write_utc=$($heartbeatFile.LastWriteTimeUtc.ToString('o')) sha256=$schemaHash"
-                $schemaProcesses = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
-                  $_.Name -match '^node(\.exe)?
+                throw "HEARTBEAT_SCHEMA_NOT_V2 observed=$schemaVersion"
+              }
               $localTimestamp = [DateTimeOffset]::Parse([string]$state.timestamp).ToUniversalTime()
               $localAge = [long]($now - $localTimestamp).TotalMilliseconds
               if ($localAge -lt 0 -or $localAge -gt 45000) { throw "LOCAL_PROCESS_HEARTBEAT_STALE_MS=$localAge" }
