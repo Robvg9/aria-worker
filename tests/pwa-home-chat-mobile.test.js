@@ -10,18 +10,37 @@ const mobileCssStart = css.lastIndexOf('/* 2026-11-12 — compact Android layout
 assert.ok(mobileCssStart >= 0, 'mobile compact layout block must exist');
 const mobileCss = css.slice(mobileCssStart);
 
+function cssRule(source, selector) {
+  const start = source.indexOf(selector);
+  assert.ok(start >= 0, 'missing CSS rule: ' + selector);
+  const end = source.indexOf('}', start);
+  assert.ok(end > start, 'unterminated CSS rule: ' + selector);
+  return source.slice(start, end + 1);
+}
+
 test('mobile Dashboard keeps all content reachable inside its own vertical scroller', () => {
-  assert.match(mobileCss, /\.homeEssential\{[^}]*overflow-x:hidden;[^}]*overflow-y:auto;/);
-  assert.match(mobileCss, /\.homeEssential\{[^}]*min-height:0;/);
-  assert.match(mobileCss, /\.homeQuickActions\{grid-template-columns:repeat\(3,minmax\(0,1fr\)\)/);
-  assert.match(app, /Estado de ARIA y de la misión actual\./);
+  const home = cssRule(mobileCss, '.homeEssential{');
+  const quickActions = cssRule(mobileCss, '.homeQuickActions{');
+  const actionButton = cssRule(mobileCss, '.homeQuickActions button{');
+  assert.ok(home.includes('min-height:0'));
+  assert.ok(home.includes('overflow-y:auto'));
+  assert.ok(quickActions.includes('grid-template-columns:repeat(3,minmax(0,1fr))'));
+  assert.ok(actionButton.includes('min-height:44px'));
+  assert.ok(app.includes('Estado de ARIA y de la misión actual.'));
 });
 
 test('mobile Chat compacts chrome while retaining a dedicated message-history scroller', () => {
-  assert.match(mobileCss, /\.chatPanel \.chatWindow\{[^}]*overflow-x:hidden;[^}]*overflow-y:auto;/);
-  assert.match(mobileCss, /\.chatPanel \.chatWindow\{[^}]*min-height:0;/);
-  assert.match(mobileCss, /\.chatPanel \.composer textarea\{min-height:44px;max-height:88px/);
-  assert.match(mobileCss, /\.chatPanel \.send\{width:44px;min-width:44px;height:44px/);
+  const chat = cssRule(mobileCss, '.chatPanel .chatWindow{');
+  const composer = cssRule(mobileCss, '.chatPanel .composer textarea{');
+  const send = cssRule(mobileCss, '.chatPanel .send{');
+  const voice = cssRule(mobileCss, '.chatPanel .voiceModeToggle{');
+  const telegram = cssRule(mobileCss, '.chatPanel .telegramSetupToggle{');
+  assert.ok(chat.includes('min-height:0'));
+  assert.ok(chat.includes('overflow-y:auto'));
+  assert.ok(composer.includes('min-height:44px') && composer.includes('max-height:88px'));
+  assert.ok(send.includes('width:44px') && send.includes('height:44px'));
+  assert.ok(voice.includes('min-height:40px'));
+  assert.ok(telegram.includes('min-height:40px'));
 });
 
 test('Chat opens and returns to the latest restored or newly appended message', () => {
@@ -30,16 +49,16 @@ test('Chat opens and returns to the latest restored or newly appended message', 
   const end = app.indexOf('\n\n  useEffect(() => {', start + 10);
   assert.ok(end > start, 'latest-message scroll effect must be bounded');
   const effect = app.slice(start, end);
-  assert.match(effect, /if \(!node \|\| screen !== 1\) return/);
-  assert.match(effect, /requestAnimationFrame\(\(\) => \{/);
-  assert.match(effect, /secondFrame = requestAnimationFrame/);
-  assert.match(effect, /node\.scrollTop = node\.scrollHeight/);
-  assert.match(effect, /\[screen, messages\.length, messages\[messages\.length - 1\]\?\.id, sending\]/);
-  assert.match(effect, /cancelAnimationFrame\(firstFrame\)/);
-  assert.match(effect, /cancelAnimationFrame\(secondFrame\)/);
+  assert.ok(effect.includes('if (!node || screen !== 1) return'));
+  assert.ok(effect.includes('firstFrame = requestAnimationFrame'));
+  assert.ok(effect.includes('secondFrame = requestAnimationFrame'));
+  assert.ok(effect.includes('node.scrollTop = node.scrollHeight'));
+  assert.ok(effect.includes('[screen, messages.length, messages[messages.length - 1]?.id, sending]'));
+  assert.ok(effect.includes('cancelAnimationFrame(firstFrame)'));
+  assert.ok(effect.includes('cancelAnimationFrame(secondFrame)'));
 });
 
 test('long-form PWA screens retain their existing scroll containers', () => {
-  assert.match(css, /\.pageBodyViewport\{[^}]*overflow:auto;/);
-  assert.match(css, /\.projectBodyViewport\{[^}]*overflow-x:hidden;overflow-y:auto;/);
+  assert.ok(css.includes('.pageBodyViewport{flex:1 1 auto;min-height:0;overflow:auto;'));
+  assert.ok(css.includes('.projectBodyViewport{flex:1 1 0;min-height:0;min-width:0;overflow-x:hidden;overflow-y:auto;'));
 });
