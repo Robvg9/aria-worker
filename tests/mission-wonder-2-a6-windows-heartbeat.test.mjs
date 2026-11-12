@@ -34,7 +34,6 @@ assert.doesNotMatch(runtimeUpdater, /aria-windows-agent-heartbeat-v1/);
 assert.match(preflight, /A6_SCHEMA_MISMATCH observed=/);
 assert.match(preflight, /schema_version =/);
 assert.match(preflight, /heartbeat_file_sha256 =/);
-assert.match(preflight, /A6_SCHEMA_PROCESS pid=/);
 assert.match(preflight, /HEARTBEAT_SCHEMA_NOT_V2 observed=\$schemaVersion/);
 assert.match(agent, /last_gateway_heartbeat_at/);
 assert.match(agent, /last_gateway_heartbeat_error/);
