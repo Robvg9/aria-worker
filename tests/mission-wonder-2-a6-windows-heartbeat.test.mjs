@@ -6,6 +6,7 @@ const agent = fs.readFileSync("agents/windows/aria-agent.js", "utf8");
 const installer = fs.readFileSync("agents/windows/install-v2.ps1", "utf8");
 const watchdog = fs.readFileSync("agents/windows/run-agent.ps1", "utf8");
 const runtimeUpdater = fs.readFileSync("agents/windows/update-runtime-v3.ps1", "utf8");
+const preflight = fs.readFileSync(".github/workflows/a6-windows-agent-v2-heartbeat-preflight.yml", "utf8");
 const syntax = spawnSync(process.execPath, ["--check", "agents/windows/aria-agent.js"], { encoding: "utf8" });
 assert.equal(syntax.status, 0, syntax.stderr || syntax.stdout || "Windows agent JavaScript syntax check failed");
 
@@ -29,6 +30,12 @@ assert.match(agent, /aria-windows-agent-heartbeat-v2/);
 assert.match(runtimeUpdater, /\$payload\.version -eq 'aria-windows-agent-heartbeat-v2'/);
 assert.match(runtimeUpdater, /ARIA_PROCESS_HEARTBEAT_V2=PASS/);
 assert.doesNotMatch(runtimeUpdater, /aria-windows-agent-heartbeat-v1/);
+// A schema failure must preserve enough sanitized evidence to identify an unexpected writer.
+assert.match(preflight, /A6_SCHEMA_MISMATCH observed=/);
+assert.match(preflight, /schema_version =/);
+assert.match(preflight, /heartbeat_file_sha256 =/);
+assert.match(preflight, /A6_SCHEMA_PROCESS pid=/);
+assert.match(preflight, /HEARTBEAT_SCHEMA_NOT_V2 observed=\$schemaVersion/);
 assert.match(agent, /last_gateway_heartbeat_at/);
 assert.match(agent, /last_gateway_heartbeat_error/);
 assert.match(agent, /lastGatewayHeartbeatAt=new Date\(\)\.toISOString\(\)/);
