@@ -1,10 +1,9 @@
 $ErrorActionPreference = 'Stop'
-$repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
-if (-not (Test-Path -LiteralPath (Join-Path $repoRoot 'package.json') -PathType Leaf)) { throw 'A6_SOURCE_REPOSITORY_ROOT_NOT_FOUND' }
-$gitRoot = (& git -C $repoRoot rev-parse --show-toplevel 2>$null)
-$gitHead = (& git -C $repoRoot rev-parse HEAD 2>$null)
-if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace([string]$gitRoot)) { throw 'A6_SOURCE_GIT_ROOT_UNAVAILABLE' }
-if ((Resolve-Path -LiteralPath $gitRoot).Path -ne $repoRoot) { throw 'A6_SOURCE_GIT_ROOT_MISMATCH' }
+$gitRoot = (& git -C $PSScriptRoot rev-parse --show-toplevel 2>$null)
+$gitHead = (& git -C $PSScriptRoot rev-parse HEAD 2>$null)
+if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace([string]$gitRoot)) { throw "A6_SOURCE_GIT_ROOT_UNAVAILABLE script_root=$PSScriptRoot" }
+$repoRoot = (Resolve-Path -LiteralPath ([string]$gitRoot).Trim()).Path
+if (-not (Test-Path -LiteralPath (Join-Path $repoRoot 'package.json') -PathType Leaf)) { throw "A6_SOURCE_REPOSITORY_ROOT_NOT_FOUND root=$repoRoot script_root=$PSScriptRoot" }
 if ([string]$gitHead -ne [string]$env:GITHUB_SHA) { throw "A6_SOURCE_SHA_MISMATCH expected=$env:GITHUB_SHA actual=$gitHead" }
 function Materialize-ExactGitBlob {
   param([string]$RelativePath,[string]$DestinationPath,[string]$ExpectedBlob)
