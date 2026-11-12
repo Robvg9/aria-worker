@@ -2318,22 +2318,54 @@ function Chat({
     writeChatHistory(session.userId, conversationId, messages, pendingMissionConfirmation);
   }, [session.userId, conversationId, messages, pendingMissionConfirmation]);
 
-  // Always open the active conversation at its newest message. Two animation
-  // frames allow restored history, markdown and WebView layout to settle before
-  // measuring the real scroll height.
+  // Pin the active conversation to its newest message after history restore,
+  // message streaming, the horizontal page transition and late text reflow.
+  // A MutationObserver catches appended/streamed markdown; ResizeObserver catches
+  // wrapping changes after the WebView finishes its layout.
   useEffect(() => {
     const node = chatWindowRef.current;
     if (!node || screen !== 1) return;
+    let active = true;
     let firstFrame = 0;
     let secondFrame = 0;
+    let settleTimer = 0;
+    let resizeObserver: ResizeObserver | null = null;
+    const scrollLatest = () => {
+      if (!active || chatWindowRef.current !== node) return;
+      node.scrollTop = node.scrollHeight;
+    };
+    const observeChildren = () => {
+      if (!resizeObserver) return;
+      resizeObserver.disconnect();
+      resizeObserver.observe(node);
+      Array.from(node.children).forEach(child => resizeObserver?.observe(child));
+    };
     firstFrame = requestAnimationFrame(() => {
-      secondFrame = requestAnimationFrame(() => {
-        if (chatWindowRef.current === node) node.scrollTop = node.scrollHeight;
-      });
+      scrollLatest();
+      secondFrame = requestAnimationFrame(scrollLatest);
     });
+    // The screenTrack transition is 350ms; align once more after it has settled.
+    settleTimer = window.setTimeout(scrollLatest, 420);
+    if (typeof ResizeObserver !== 'undefined') {
+      resizeObserver = new ResizeObserver(scrollLatest);
+      observeChildren();
+    }
+    const mutationObserver = typeof MutationObserver !== 'undefined'
+      ? new MutationObserver(() => {
+          observeChildren();
+          scrollLatest();
+        })
+      : null;
+    mutationObserver?.observe(node, { childList: true, subtree: true, characterData: true });
+    node.addEventListener('load', scrollLatest, true);
     return () => {
+      active = false;
       cancelAnimationFrame(firstFrame);
       cancelAnimationFrame(secondFrame);
+      window.clearTimeout(settleTimer);
+      mutationObserver?.disconnect();
+      resizeObserver?.disconnect();
+      node.removeEventListener('load', scrollLatest, true);
     };
   }, [screen, messages, sending]);
 
