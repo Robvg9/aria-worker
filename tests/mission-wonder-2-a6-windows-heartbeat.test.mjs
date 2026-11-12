@@ -40,6 +40,7 @@ assert.match(preflight, /Start-Sleep -Seconds 5/);
 assert.match(preflight, /distinct_gateway_ack_count/);
 assert.match(preflight, /command_line_sha256/);
 assert.match(preflight, /processById/);
+assert.doesNotMatch(preflight, /\$selectedPid\b/);
 assert.match(preflight, /schtasks\.exe \/Query/);
 assert.match(preflight, /scheduled_task_discovery/);
 assert.doesNotMatch(preflight, /CommandLine\s*=/);
