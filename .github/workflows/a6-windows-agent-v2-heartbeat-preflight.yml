@@ -12,10 +12,11 @@ permissions:
 
 concurrency:
   group: a6-windows-agent-v2-heartbeat-preflight
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   update-and-observe:
+    if: false # Safety hold: prevent host mutation until explicit approval.
     name: Update only ARIA Windows agent and observe gateway ACKs
     runs-on: [self-hosted, Windows, X64]
     timeout-minutes: 24
