@@ -18,7 +18,7 @@ jobs:
   read-only-diagnostic:
     name: Read Windows agent state without changing runtime
     runs-on: [self-hosted, Windows, X64]
-    timeout-minutes: 5
+    timeout-minutes: 25
     defaults:
       run:
         shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
@@ -148,11 +148,11 @@ jobs:
             }
             $result.ollama_process_count = @($result.processes | Where-Object { $_.name -match '^ollama(\.exe)?$' }).Count
 
-            # Two-minute read-only observation. No runtime/config/process changes.
+            # Fifteen-minute read-only observation. No runtime/config/process changes.
             $samples = [System.Collections.Generic.List[object]]::new()
             $ackTimes = [System.Collections.Generic.List[DateTimeOffset]]::new()
             $observationStarted = [DateTimeOffset]::UtcNow
-            for ($sampleIndex = 0; $sampleIndex -lt 24; $sampleIndex++) {
+            for ($sampleIndex = 0; $sampleIndex -lt 180; $sampleIndex++) {
               $sampleAt = [DateTimeOffset]::UtcNow
               if (Test-Path -LiteralPath $heartbeatPath -PathType Leaf) {
                 try {
@@ -196,7 +196,7 @@ jobs:
               } else {
                 $samples.Add([ordered]@{ sampled_at_utc = $sampleAt.ToString('o'); missing = $true })
               }
-              if ($sampleIndex -lt 23) { Start-Sleep -Seconds 5 }
+              if ($sampleIndex -lt 179) { Start-Sleep -Seconds 5 }
             }
             $ackGaps = @()
             for ($ackIndex = 1; $ackIndex -lt $ackTimes.Count; $ackIndex++) {
@@ -280,6 +280,37 @@ jobs:
             foreach ($service in $result.service_host_inventory) {
               if ($service.service_name) { Write-Host ('A6_SVCHOST_SERVICE pid=' + $service.host_pid + ' name=' + $service.service_name + ' state=' + $service.state + ' start_mode=' + $service.start_mode) }
               else { Write-Host ('A6_SVCHOST_SERVICE_UNAVAILABLE pid=' + $service.host_pid + ' error=' + $service.inspection_error) }
+            }
+            # Find scheduled tasks by name or runtime reference without exposing raw action arguments.
+            $result.aria_task_inventory = @()
+            try {
+              $allScheduledTasks = @(Get-ScheduledTask -ErrorAction Stop)
+              foreach ($task in $allScheduledTasks) {
+                $matchingActions = @()
+                foreach ($action in $task.Actions) {
+                  $actionText = [string]$action.Execute + ' ' + [string]$action.Arguments
+                  $targetsRuntime = $actionText.IndexOf('D:\ARIA-Windows-Agent', [StringComparison]::OrdinalIgnoreCase) -ge 0 -or
+                    $actionText.IndexOf('run-agent.ps1', [StringComparison]::OrdinalIgnoreCase) -ge 0 -or
+                    $actionText.IndexOf('aria-agent.js', [StringComparison]::OrdinalIgnoreCase) -ge 0
+                  if ($targetsRuntime) { $matchingActions += [string](Split-Path -Leaf ([string]$action.Execute)) }
+                }
+                $namedAria = ([string]$task.TaskName).IndexOf('ARIA', [StringComparison]::OrdinalIgnoreCase) -ge 0 -or
+                  ([string]$task.TaskPath).IndexOf('ARIA', [StringComparison]::OrdinalIgnoreCase) -ge 0
+                if ($namedAria -or $matchingActions.Count -gt 0) {
+                  $result.aria_task_inventory += [ordered]@{
+                    task_name = [string]$task.TaskName
+                    task_path = [string]$task.TaskPath
+                    state = [string]$task.State
+                    matching_action_count = $matchingActions.Count
+                    action_executable_leaves = @($matchingActions)
+                  }
+                }
+              }
+            } catch {
+              $result.aria_task_inventory = @([ordered]@{ inspection_error = $_.Exception.GetType().Name })
+            }
+            foreach ($task in $result.aria_task_inventory) {
+              if ($task.task_name) { Write-Host ('A6_TASK name=' + $task.task_path + $task.task_name + ' state=' + $task.state + ' matching_actions=' + $task.matching_action_count) }
             }
             $taskDiscovery = @()
             try {
