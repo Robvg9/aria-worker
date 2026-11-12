@@ -34,7 +34,7 @@ jobs:
           $heartbeatPath = Join-Path $logDir 'agent-heartbeat.json'
           $agentPidPath = Join-Path $logDir 'agent.pid'
           $watchdogPidPath = Join-Path $logDir 'watchdog.pid'
-          $resultPath = Join-Path $env:GITHUB_WORKSPACE 'a6-windows-readonly-diagnostic.json'
+          $resultPath = Join-Path $env:GITHUB_WORKSPACE ('a6-windows-readonly-diagnostic-' + $env:GITHUB_RUN_ID + '.json')
           $capturedAt = [DateTimeOffset]::UtcNow
           function Read-SharedTextFile {
             param([Parameter(Mandatory=$true)][string]$Path, [int]$Attempts = 12, [int]$DelayMs = 200)
@@ -259,13 +259,21 @@ jobs:
             Write-Host "A6_DEVICE_ID_MISMATCHES=$($result.observation.device_id_mismatch_count)"
             Write-Host "A6_SCHEMA_MISMATCHES=$($result.observation.schema_mismatch_count)"
             Write-Host "A6_OLLAMA_PROCESS_COUNT=$($result.ollama_process_count)"
+          } catch {
+            $result.reason = [string]$_.Exception.Message
+            $result.status = 'BLOCKED'
+            $result | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $resultPath -Encoding UTF8
+            Write-Host "A6_READ_ONLY_STATUS=$($result.status)"
+            Write-Host "A6_READ_ONLY_REASON=$($result.reason)"
+            throw
+          }
 
       - name: Upload read-only diagnostic evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: a6-windows-readonly-diagnostic-${{ github.sha }}
-          path: a6-windows-readonly-diagnostic.json
+          path: a6-windows-readonly-diagnostic-${{ github.run_id }}.json
           if-no-files-found: warn
           retention-days: 14
 
