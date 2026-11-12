@@ -428,7 +428,7 @@ assert.match(app,/\.projectShell/,'project content must opt out of global horizo
 assert.match(css,/\.globalPageFrame\{[^}]*height:100dvh[^}]*overflow:hidden[^}]*display:flex[^}]*flex-direction:column/,'mobile app frame must be viewport-bounded and flex-based');
 assert.match(css,/\.globalPageFrame>\.appShell\{[^}]*height:100%[^}]*min-height:0[^}]*overflow:hidden/,'each PWA screen must fit the bounded app frame');
 assert.match(css,/\.globalPageFrame\.keyboardOpen \.bottomNav\{display:none!important\}/,'bottom navigation must hide while Android text entry is active');
-assert.match(css,/\.globalPageFrame\.keyboardOpen>\.appShell\{padding-bottom:[^}]*!important\}/,'chat and project viewports must reclaim the nav reserve while the keyboard is open');
+assert.match(css,/\.globalPageFrame\.keyboardOpen>\.appShell\{padding-bottom:[^}]*!important;?\}/,'chat and project viewports must reclaim the nav reserve while the keyboard is open');
 assert.match(css,/\.projectShell\{[^}]*display:flex[^}]*flex-direction:column[^}]*height:100%[^}]*min-height:0[^}]*overflow:hidden/,'project shell must have a bounded column layout');
 assert.match(css,/\.projectBodyViewport\{[^}]*overflow-x:hidden;overflow-y:auto/,'project body must be the single vertical scroll owner');
 assert.match(project,/projectSummary/,'project hero must use the compact description instead of the long technical context');
