@@ -194,15 +194,35 @@ jobs:
           } catch {
             $networkPowerManagement = @(@{ query_error=$_.Exception.GetType().Name; message=$_.Exception.Message })
           }
+          $ethernetPowerManagement = @()
+          try {
+            if (Get-Command Get-NetAdapterPowerManagement -ErrorAction SilentlyContinue) {
+              $ethernetPowerManagement = @(Get-NetAdapterPowerManagement -Name 'Ethernet' -ErrorAction Stop |
+                Select-Object Name,AllowComputerToTurnOffDevice,SelectiveSuspend,DeviceSleepOnDisconnect,WakeOnMagicPacket,WakeOnPattern)
+            } else {
+              $ethernetPowerManagement = @(@{ unavailable='Get-NetAdapterPowerManagement cmdlet not present' })
+            }
+          } catch {
+            $ethernetPowerManagement = @(@{ query_error=$_.Exception.GetType().Name; message=$_.Exception.Message })
+          }
           $networkAdvancedProperties = @()
           try {
             if (Get-Command Get-NetAdapterAdvancedProperty -ErrorAction SilentlyContinue) {
-              $networkAdvancedProperties = @(Get-NetAdapterAdvancedProperty -Name '*' -AllProperties -ErrorAction Stop |
-                Where-Object { $_.Name -match 'Realtek|Ethernet' -and $_.DisplayName -match 'Power Saving Mode|Energy|Green|EEE|Speed|Suspend' } |
+              $networkAdvancedProperties = @(Get-NetAdapterAdvancedProperty -Name 'Ethernet' -AllProperties -ErrorAction Stop |
                 Select-Object Name,DisplayName,DisplayValue,RegistryKeyword,RegistryValue,ValidDisplayValues,ValidRegistryValues,DefaultDisplayValue,DefaultRegistryValue)
             }
           } catch {
             $networkAdvancedProperties = @(@{ query_error=$_.Exception.GetType().Name; message=$_.Exception.Message })
+          }
+          $ethernetPnpPowerProperties = @()
+          try {
+            if (Get-Command Get-PnpDeviceProperty -ErrorAction SilentlyContinue) {
+              $ethernetPnpPowerProperties = @(Get-PnpDeviceProperty -InstanceId 'PCI\VEN_10EC&DEV_8136&SUBSYS_078B1028&REV_07\01000000364CE00000' -ErrorAction Stop |
+                Where-Object { $_.KeyName -match 'Power|DeviceSleep|SelectiveSuspend' } |
+                Select-Object KeyName,Type,Data)
+            }
+          } catch {
+            $ethernetPnpPowerProperties = @(@{ query_error=$_.Exception.GetType().Name; message=$_.Exception.Message })
           }
 
           $watchdogIncidentLines = @()
@@ -298,6 +318,8 @@ jobs:
             network_adapters=@($networkAdapters)
             network_drivers=@($networkDrivers)
             network_power_management=@($networkPowerManagement)
+            ethernet_power_management=@($ethernetPowerManagement)
+            ethernet_pnp_power_properties=@($ethernetPnpPowerProperties)
             network_advanced_properties=@($networkAdvancedProperties)
             watchdog_log_info=$watchdogLogInfo
             restrictions=@('NO_RUNTIME_WRITES','NO_CONFIG_CHANGES','NO_PROCESS_RESTARTS','NO_TASK_CHANGES','NO_GATEWAY_CALLS','NO_MISSIONS_OR_JOBS')
@@ -323,3 +345,5 @@ jobs:
 # Post-user-change verification checkpoint: Ethernet power-saving state and default route.
 
 # Read-only correlation refresh for the 2026-11-12 16:03 UTC A6 heartbeat continuity block.
+
+# Narrow read-only query for Ethernet power management and all Realtek advanced properties.
