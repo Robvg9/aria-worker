@@ -107,14 +107,18 @@ jobs:
 
           # Historical read-only incident evidence: correlate the A6 heartbeat gap
           # with Windows power, boot, service and Task Scheduler events.
-          $incidentStart = [DateTimeOffset]::Parse('2026-11-12T06:20:00Z').UtcDateTime
-          $incidentEnd = [DateTimeOffset]::Parse('2026-11-12T06:28:00Z').UtcDateTime
+          $incidentStart = [DateTimeOffset]::Parse('2026-11-12T06:20:00Z')
+          $incidentEnd = [DateTimeOffset]::Parse('2026-11-12T06:28:00Z')
           $incidentEvents = @()
           foreach ($logName in @('System','Microsoft-Windows-TaskScheduler/Operational')) {
             try {
-              $events = @(Get-WinEvent -FilterHashtable @{ LogName=$logName; StartTime=$incidentStart; EndTime=$incidentEnd } -ErrorAction Stop |
-                Where-Object { $_.Id -in @(1,12,13,41,42,107,109,100,102,106,129,200,201,203,6005,6006,6008) } |
-                Select-Object -First 120)
+              $events = @(Get-WinEvent -FilterHashtable @{
+                LogName=$logName
+                StartTime=$incidentStart.LocalDateTime
+                EndTime=$incidentEnd.LocalDateTime
+              } -ErrorAction Stop | Where-Object {
+                $_.Id -in @(1,12,13,41,42,107,109,100,102,106,129,200,201,203,6005,6006,6008)
+              } | Select-Object -First 120)
               foreach ($event in $events) {
                 $message = [string]$event.Message
                 $message = $message -replace '(?i)Bearer\s+[^\s]+','Bearer [REDACTED]'
@@ -129,7 +133,9 @@ jobs:
                 }
               }
             } catch {
-              $incidentEvents += @{ log=$logName; query_error=$_.Exception.GetType().Name }
+              $queryError = [string]$_.Exception.Message
+              $queryError = $queryError -replace '(?i)(token|secret|password|authorization)(\s*[:=]\s*|\s+)[^\s;]+','$1$2[REDACTED]'
+              $incidentEvents += @{ log=$logName; query_error_type=$_.Exception.GetType().Name; query_error=$queryError.Substring(0,[Math]::Min(500,$queryError.Length)) }
             }
           }
 
@@ -138,14 +144,39 @@ jobs:
           if (Test-Path -LiteralPath $watchdogLog -PathType Leaf) {
             try {
               $watchdogIncidentLines = @(Get-Content -LiteralPath $watchdogLog -Tail 12000 |
-                Where-Object { $_ -match '^\[ARIA-WATCHDOG\] 2026-11-12T06:(1[5-9]|2[0-9]):' } |
                 ForEach-Object {
-                  ([string]$_ -replace '(?i)(token|secret|password|authorization)(\s*[:=]\s*|\s+)[^\s;]+','$1$2[REDACTED]').Substring(0,[Math]::Min(600,([string]$_).Length))
-                } |
-                Select-Object -Last 160)
+                  $line = [string]$_
+                  if ($line -match '^\[ARIA-WATCHDOG\]\s+(?<stamp>\S+)\s+(?<message>.*)$') {
+                    try {
+                      $stamp = [DateTimeOffset]::Parse($Matches.stamp).ToUniversalTime()
+                      if ($stamp -ge $incidentStart -and $stamp -le $incidentEnd) {
+                        $message = [string]$Matches.message
+                        $message = $message -replace '(?i)(token|secret|password|authorization)(\s*[:=]\s*|\s+)[^\s;]+','$1$2[REDACTED]'
+                        [pscustomobject]@{ time_utc=$stamp.ToString('o'); message=$message.Substring(0,[Math]::Min(600,$message.Length)) }
+                      }
+                    } catch {}
+                  }
+                } | Where-Object { $null -ne $_ } | Select-Object -Last 160)
             } catch {
-              $watchdogIncidentLines = @('WATCHDOG_LOG_READ_FAILED:' + $_.Exception.GetType().Name)
+              $watchdogIncidentLines = @(@{ read_error_type=$_.Exception.GetType().Name; read_error=$_.Exception.Message })
             }
+          }
+
+          $powerSettings = @()
+          try {
+            $powerSettings += '--- POWER PLAN / SLEEP ---'
+            $powerSettings += @(& powercfg.exe /query SCHEME_CURRENT SUB_SLEEP 2>&1 | Select-Object -First 100 | ForEach-Object { [string]$_ })
+            $powerSettings += '--- POWER REQUESTS ---'
+            $powerSettings += @(& powercfg.exe /requests 2>&1 | Select-Object -First 80 | ForEach-Object { [string]$_ })
+          } catch {
+            $powerSettings += 'POWERCFG_READ_FAILED:' + $_.Exception.GetType().Name
+          }
+          $osBoot = $null
+          try {
+            $os = Get-CimInstance Win32_OperatingSystem -ErrorAction Stop
+            $osBoot = @{ last_boot_utc=$os.LastBootUpTime.ToUniversalTime().ToString('o'); local_datetime=[string]$os.LocalDateTime }
+          } catch {
+            $osBoot = @{ query_error=$_.Exception.GetType().Name }
           }
           for ($i=0; $i -lt 31; $i++) {
             $snap = Get-HeartbeatSnapshot
@@ -190,6 +221,8 @@ jobs:
             incident_events=@($incidentEvents)
             watchdog_incident_lines=@($watchdogIncidentLines)
             incident_window_utc=@($incidentStart.ToString('o'),$incidentEnd.ToString('o'))
+            power_settings=@($powerSettings)
+            operating_system=$osBoot
             restrictions=@('NO_RUNTIME_WRITES','NO_CONFIG_CHANGES','NO_PROCESS_RESTARTS','NO_TASK_CHANGES','NO_GATEWAY_CALLS','NO_MISSIONS_OR_JOBS')
           }
           $result | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $out -Encoding UTF8
