@@ -904,9 +904,9 @@ button{touch-action:manipulation;}
   .homeMissionCard{padding:10px;margin-bottom:0;}
   .homeMissionCard h3{font-size:16px;margin:3px 0 2px;}
   .homeMissionCard p{font-size:10px;line-height:1.3;margin:4px 0;}
-  .wideHomeAction{margin-top:6px;min-height:40px;}
+  .wideHomeAction{margin-top:6px;min-height:44px;}
   .homeQuickActions{grid-template-columns:repeat(3,minmax(0,1fr));gap:5px;}
-  .homeQuickActions button{min-height:40px;padding:6px 4px;font-size:9px;line-height:1.15;white-space:normal;}
+  .homeQuickActions button{min-height:44px;padding:6px 4px;font-size:9px;line-height:1.15;white-space:normal;}
   .homeOperationalWarning{gap:6px;padding:8px 10px;font-size:10px;line-height:1.3;}
   .homeOperationalWarning strong{white-space:normal;}
 
@@ -914,7 +914,7 @@ button{touch-action:manipulation;}
   .chatPanel{height:100%;min-height:0!important;flex:1 1 0;display:flex;flex-direction:column;gap:7px;padding:9px;overflow:hidden;}
   .chatPanel .panelHeading{gap:6px;margin-bottom:0;flex:0 0 auto;}
   .chatPanel .panelHeading h2{font-size:15px;margin:2px 0;}
-  .chatPanel .voiceModeToggle{min-height:36px;padding:7px 9px;font-size:10px;}
+  .chatPanel .voiceModeToggle{min-height:40px;padding:7px 9px;font-size:10px;}
   .chatPanel .chatWindow{flex:1 1 0;min-height:0;max-height:none;overflow-x:hidden;overflow-y:auto;overscroll-behavior-y:contain;-webkit-overflow-scrolling:touch;padding:2px;}
   .chatPanel .bubble{max-width:96%;padding:8px 10px;font-size:13px;}
   .chatPanel .markdownBody{font-size:12px;line-height:1.4;}
@@ -922,7 +922,7 @@ button{touch-action:manipulation;}
   .chatPanel .composer textarea{min-height:44px;max-height:88px;padding:8px 10px;font-size:13px;}
   .chatPanel .send{width:44px;min-width:44px;height:44px;}
   .chatPanel .telegramSetupPanel{margin:3px 0 4px;}
-  .chatPanel .telegramSetupToggle{min-height:36px;padding:7px 9px;font-size:10px;}
+  .chatPanel .telegramSetupToggle{min-height:40px;padding:7px 9px;font-size:10px;}
   .chatPanel .emptyState{min-height:72px;padding:10px;font-size:11px;line-height:1.4;}
 
   /* Existing long-form sections keep their bounded vertical scroll. */
