@@ -27,6 +27,7 @@ foreach ($dir in @($RuntimeRoot, $RuntimeDir, $DataDir, $LogDir)) { New-Item -It
 
 $requiredSources = @{
     'aria-agent.js' = Join-Path $AgentRoot 'aria-agent.js'
+    'heartbeat-scheduler.cjs' = Join-Path $AgentRoot 'heartbeat-scheduler.cjs'
     'resource-profile.js' = Join-Path $AgentRoot 'resource-profile.js'
     'autonomous-rwht-controller.js' = Join-Path $AgentRoot 'autonomous-rwht-controller.js'
     'run-agent.ps1' = Join-Path $AgentRoot 'run-agent.ps1'
