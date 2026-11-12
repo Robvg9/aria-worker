@@ -404,7 +404,7 @@ const projectReturn=project.slice(project.indexOf("return <main className='appSh
 const selectorIndex=projectReturn.indexOf("className='projectGrid'");
 const tabsIndex=projectReturn.indexOf("className='capTabs projectTabs'");
 const connectionIndex=projectReturn.indexOf("ProjectResourceConnections");
-const viewportIndex=projectReturn.indexOf("className='projectBodyViewport'");
+const viewportIndex=projectReturn.indexOf("projectBodyViewport");
 assert.ok(selectorIndex>=0 && tabsIndex>selectorIndex && connectionIndex>tabsIndex && viewportIndex>tabsIndex, 'project selector and tabs must precede the long BC connections pane');
 assert.ok(viewportIndex>tabsIndex && connectionIndex>viewportIndex, 'BC connections must be owned by the scrollable project body, not placed above tabs');
 assert.ok(projectsRwht.includes("projects_tabs_must_remain_visible"), 'RWHT must keep project section tabs in the initial viewport');
