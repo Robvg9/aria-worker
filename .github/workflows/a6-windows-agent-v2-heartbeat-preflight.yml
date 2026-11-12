@@ -84,6 +84,7 @@ jobs:
             $process = New-Object System.Diagnostics.Process
             $process.StartInfo = $startInfo
             if (-not $process.Start()) { throw 'A6_INSTALLER_BLOB_PROCESS_START_FAILED' }
+            New-Item -ItemType Directory -Force -Path (Split-Path -Parent $installer) | Out-Null
             $outputFile = $null
             try {
               $outputFile = [System.IO.File]::Open($installer,[System.IO.FileMode]::Create,[System.IO.FileAccess]::Write,[System.IO.FileShare]::None)
