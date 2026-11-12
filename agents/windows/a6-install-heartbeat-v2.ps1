@@ -172,17 +172,19 @@ try {
     # the exact commit blob before hashing so idempotency never calls Get-FileHash
     # on a path that has not been materialized.
     $sourcePath = Join-Path $repoRoot $item.source
-    $sourceBlob = (& git -C $repoRoot rev-parse ("HEAD:" + $item.source) 2>$null)
+    # Git tree paths are slash-separated; Windows destination paths stay native.
+    $gitRelativePath = ([string]$item.source).Replace('\','/')
+    $sourceBlob = (& git -C $repoRoot rev-parse ("HEAD:" + $gitRelativePath) 2>$null)
     if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace([string]$sourceBlob)) {
-      throw "A6_SOURCE_NOT_TRACKED_AT_EXACT_SHA=$($item.source)"
+      throw "A6_SOURCE_NOT_TRACKED_AT_EXACT_SHA=$gitRelativePath"
     }
     if (-not (Test-Path -LiteralPath $sourcePath -PathType Leaf)) {
-      Materialize-ExactGitBlob -RelativePath $item.source -DestinationPath $sourcePath -ExpectedBlob ([string]$sourceBlob)
+      Materialize-ExactGitBlob -RelativePath $gitRelativePath -DestinationPath $sourcePath -ExpectedBlob ([string]$sourceBlob)
     }
-    $workingBlob = (& git -C $repoRoot hash-object --path $item.source $sourcePath 2>$null)
+    $workingBlob = (& git -C $repoRoot hash-object --path $gitRelativePath $sourcePath 2>$null)
     if ($LASTEXITCODE -ne 0 -or [string]$workingBlob -ne [string]$sourceBlob) {
-      Materialize-ExactGitBlob -RelativePath $item.source -DestinationPath $sourcePath -ExpectedBlob ([string]$sourceBlob)
-      $workingBlob = (& git -C $repoRoot hash-object --path $item.source $sourcePath 2>$null)
+      Materialize-ExactGitBlob -RelativePath $gitRelativePath -DestinationPath $sourcePath -ExpectedBlob ([string]$sourceBlob)
+      $workingBlob = (& git -C $repoRoot hash-object --path $gitRelativePath $sourcePath 2>$null)
     }
     if ($LASTEXITCODE -ne 0 -or [string]$workingBlob -ne [string]$sourceBlob) {
       throw "A6_SOURCE_WORKTREE_HASH_MISMATCH=$($item.source)"
@@ -239,15 +241,15 @@ try {
 
   foreach ($item in $map) {
     $source = Join-Path $repoRoot $item.source
-    $blob = (& git -C $repoRoot rev-parse ("HEAD:" + $item.source) 2>$null)
-    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace([string]$blob)) { throw "A6_SOURCE_NOT_TRACKED_AT_EXACT_SHA=$($item.source)" }
+    $gitRelativePath = ([string]$item.source).Replace('\','/')
+    $blob = (& git -C $repoRoot rev-parse ("HEAD:" + $gitRelativePath) 2>$null)
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace([string]$blob)) { throw "A6_SOURCE_NOT_TRACKED_AT_EXACT_SHA=$gitRelativePath" }
     if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
-      # Write the blob directly: this NetworkService checkout can resolve HEAD:path
-      # while its sparse index rejects checkout-by-path.
-      Materialize-ExactGitBlob -RelativePath $item.source -DestinationPath $source -ExpectedBlob ([string]$blob)
+      # Write the exact Git blob directly; the sparse worktree may omit this file.
+      Materialize-ExactGitBlob -RelativePath $gitRelativePath -DestinationPath $source -ExpectedBlob ([string]$blob)
     }
-    $workingBlob = (& git -C $repoRoot hash-object --path $item.source $source 2>$null)
-    if ($LASTEXITCODE -ne 0 -or [string]$workingBlob -ne [string]$blob) { throw "A6_SOURCE_WORKTREE_HASH_MISMATCH=$($item.source)" }
+    $workingBlob = (& git -C $repoRoot hash-object --path $gitRelativePath $source 2>$null)
+    if ($LASTEXITCODE -ne 0 -or [string]$workingBlob -ne [string]$blob) { throw "A6_SOURCE_WORKTREE_HASH_MISMATCH=$gitRelativePath" }
   }
 
   New-Item -ItemType Directory -Force -Path $backup,(Join-Path $backup 'Runtime\windows'),(Join-Path $backup 'Runtime\shared'),(Join-Path $backup 'Data'),$shared | Out-Null
