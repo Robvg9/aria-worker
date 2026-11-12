@@ -125,28 +125,21 @@ assert.match(a6Installer, /preinstallGatewayAckAgeMs -lt 90000/);
 assert.match(a6Installer, /A6_PREINSTALL_HEARTBEAT_NOT_FRESH/);
 assert.match(a6Installer, /A6_PROCESS_IDENTITY_CHECK=/);
 
-const restartStart = a6Installer.indexOf("$newPid = 0");
-const restartEnd = a6Installer.indexOf("A6_WATCHDOG_MEDIATED_RESTART_NOT_CONFIRMED", restartStart);
-assert.ok(restartStart >= 0 && restartEnd > restartStart, "A6 watchdog restart attestation must remain explicit");
-const restartBlock = a6Installer.slice(restartStart, restartEnd);
-assert.match(restartBlock, /candidateCommandLineAvailable/);
-assert.match(restartBlock, /candidateCommandLineCompatible/);
-assert.match(restartBlock, /candidateStatusMatches/);
-assert.match(restartBlock, /statusPath/);
-assert.match(restartBlock, /candidateStatus\.agent_path/);
-assert.match(restartBlock, /candidateStatus\.runtime_root/);
-assert.match(restartBlock, /candidateStatus\.node_path/);
-assert.match(restartBlock, /candidateStatus\.watchdog_pid/);
-assert.match(restartBlock, /A6_RESTART_CANDIDATE=/);
-assert.match(restartBlock, /restart_observations/);
-assert.ok(
-  restartBlock.includes("(-not $candidateCommandLineAvailable -or $candidateCommandLineMatches)"),
-  "A missing WMI CommandLine may be accepted only with the full status-backed process identity"
-);
-assert.ok(
-  restartBlock.indexOf("candidateStatusMatches") < restartBlock.indexOf("if ($newPid -eq 0)"),
-  "The new PID must be corroborated by status.json before acceptance"
-);
+const restartBlockStart = a6Installer.indexOf("  $newPid = 0");
+const restartBlockEnd = a6Installer.indexOf("  $manifest.new_agent_pid = $newPid", restartBlockStart);
+assert.ok(restartBlockStart >= 0 && restartBlockEnd > restartBlockStart, "A6 restart identity block must be complete");
+const restartBlock = a6Installer.slice(restartBlockStart, restartBlockEnd);
+assert.ok(restartBlock.includes("candidateCommandLineAvailable"));
+assert.ok(restartBlock.includes("$candidateCommandLineCompatible = (-not $candidateCommandLineAvailable -or $candidateCommandLineMatches)"));
+assert.ok(restartBlock.includes("[string]$candidateStatus.agent_path -ieq $expectedAgentPath"));
+assert.ok(restartBlock.includes("[string]$candidateStatus.runtime_root -ieq $root"));
+assert.ok(restartBlock.includes("[string]$candidateStatus.node_path -ieq $nodePath"));
+assert.ok(restartBlock.includes("[int]$candidateStatus.watchdog_pid -eq $watchdogPid"));
+assert.ok(restartBlock.includes("A6_RESTART_CANDIDATE="));
+assert.ok(restartBlock.includes("$manifest.restart_observations = @($restartObservations.ToArray())"));
+assert.ok(restartBlock.includes("$candidateCommandLineCompatible -and"));
+assert.ok(restartBlock.includes("$candidateStatusMatches"));
+assert.doesNotMatch(restartBlock, /\$child\.CommandLine\s+-match\s+'aria-agent/);
 assert.match(a6Installer, /process_identity = \$identityDiagnostic/);
 assert.doesNotMatch(a6Installer, /Test-Path -LiteralPath \(\[string\]\$processStatus\.node_path\)/);
 assert.match(a6Installer, /agent_command_line_matches = \$agentCommandLineMatches/);
