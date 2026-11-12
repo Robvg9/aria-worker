@@ -255,6 +255,99 @@ jobs:
               }
             }
             $result.process_identity_hashes = $processIdentity
+
+            # Resolve Windows services hosting the svchost ancestors of the agent/watchdog.
+            # This is read-only and deliberately excludes service command lines and binary paths.
+            $serviceHostPids = @($processIdentity |
+              Where-Object { $_.name -match '^svchost(\\.exe)?            $taskDiscovery = @()
+            try {
+              $taskOutput = & schtasks.exe /Query /FO CSV /NH 2>$null
+              $taskExitCode = $LASTEXITCODE
+              if ($taskExitCode -eq 0) {
+                $taskRows = @($taskOutput | ConvertFrom-Csv -Header TaskName,NextRunTime,Status)
+                $taskDiscovery = @($taskRows | Where-Object { $_.TaskName -match 'ARIA|Agent' } | ForEach-Object {
+                  [ordered]@{ task_name = [string]$_.TaskName; status = [string]$_.Status }
+                })
+              } else {
+                $taskDiscovery = @([ordered]@{ inspection_error = "SCHTASKS_QUERY_EXIT=$taskExitCode" })
+              }
+            } catch {
+              $taskDiscovery = @([ordered]@{ inspection_error = [string]$_.Exception.Message })
+            }
+            $result.scheduled_task_discovery = $taskDiscovery
+
+            try {
+              $task = Get-ScheduledTask -TaskName 'ARIA-Windows-Local-Agent' -ErrorAction Stop
+              $taskInfo = Get-ScheduledTaskInfo -TaskName 'ARIA-Windows-Local-Agent' -ErrorAction Stop
+              $result.scheduled_task = [ordered]@{
+                state = [string]$task.State
+                task_path = [string]$task.TaskPath
+                last_run_time = $taskInfo.LastRunTime.ToString('o')
+                last_task_result = [int]$taskInfo.LastTaskResult
+              }
+            } catch {
+              $result.scheduled_task = [ordered]@{ inspection_error = [string]$_.Exception.Message }
+            }
+
+            if ($result.config -and $result.heartbeat -and $result.config.device_id -eq $expectedDevice -and $result.heartbeat.device_id -eq $expectedDevice) {
+              $result.status = 'CAPTURED'
+            } else {
+              $result.reason = 'CONFIG_OR_HEARTBEAT_MISSING_OR_DEVICE_MISMATCH'
+            }
+          } catch {
+            $result.reason = [string]$_.Exception.Message
+          }
+
+          $result | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $resultPath -Encoding UTF8
+          Write-Host "A6_READ_ONLY_STATUS=$($result.status)"
+          Write-Host "A6_READ_ONLY_REASON=$($result.reason)"
+          Write-Host "A6_READ_ONLY_HOST=$($result.host)"
+          if ($result.heartbeat) {
+            Write-Host "A6_HEARTBEAT_SCHEMA=$($result.heartbeat.schema_version)"
+            Write-Host "A6_HEARTBEAT_AGE_MS=$($result.heartbeat.age_ms)"
+          }
+          Write-Host "A6_OLLAMA_PROCESS_COUNT=$($result.ollama_process_count)"
+
+      - name: Upload read-only diagnostic evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: a6-windows-readonly-diagnostic-${{ github.sha }}
+          path: a6-windows-readonly-diagnostic.json
+          if-no-files-found: warn
+          retention-days: 14
+ } |
+              ForEach-Object { [int]$_.pid } |
+              Select-Object -Unique)
+            $serviceHostInventory = @()
+            foreach ($serviceHostPid in $serviceHostPids) {
+              try {
+                $hostedServices = @(Get-CimInstance -ClassName Win32_Service -Filter ("ProcessId = {0}" -f $serviceHostPid) -ErrorAction Stop)
+                foreach ($service in $hostedServices) {
+                  $serviceHostInventory += [ordered]@{
+                    host_pid = [int]$serviceHostPid
+                    service_name = [string]$service.Name
+                    display_name = [string]$service.DisplayName
+                    state = [string]$service.State
+                    start_mode = [string]$service.StartMode
+                    process_id = [int]$service.ProcessId
+                  }
+                }
+              } catch {
+                $serviceHostInventory += [ordered]@{
+                  host_pid = [int]$serviceHostPid
+                  inspection_error = $_.Exception.GetType().Name
+                }
+              }
+            }
+            $result.service_host_inventory = $serviceHostInventory
+            foreach ($service in $serviceHostInventory) {
+              if ($service.service_name) {
+                Write-Host "A6_SVCHOST_SERVICE pid=$($service.host_pid) name=$($service.service_name) state=$($service.state) start_mode=$($service.start_mode)"
+              } else {
+                Write-Host "A6_SVCHOST_SERVICE_UNAVAILABLE pid=$($service.host_pid) error=$($service.inspection_error)"
+              }
+            }
             $taskDiscovery = @()
             try {
               $taskOutput = & schtasks.exe /Query /FO CSV /NH 2>$null
