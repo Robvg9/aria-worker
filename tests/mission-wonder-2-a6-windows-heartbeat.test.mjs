@@ -35,7 +35,7 @@ assert.match(preflight, /name: A6 Windows Agent Read-Only Diagnostic/);
 assert.match(preflight, /if \(\[string\]\$env:COMPUTERNAME -ine 'ROBVG'\)/);
 assert.match(preflight, /Get-CimInstance Win32_Process/);
 assert.match(preflight, /Get-ScheduledTask -TaskName/);
-assert.match(preflight, /for \(\$sampleIndex = 0; \$sampleIndex -lt 24; \$sampleIndex\+\+\)/);
+assert.match(preflight, /for \(\$sampleIndex = 0; \$sampleIndex -lt 180; \$sampleIndex\+\+\)/);
 assert.match(preflight, /Start-Sleep -Seconds 5/);
 assert.match(preflight, /distinct_gateway_ack_count/);
 assert.match(preflight, /command_line_sha256/);
