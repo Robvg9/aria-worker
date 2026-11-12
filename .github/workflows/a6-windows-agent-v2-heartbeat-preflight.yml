@@ -26,8 +26,26 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  contract:
+    name: Full regression + A6 exact-source contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout exact source
+        uses: actions/checkout@v4
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Run full regression suite, including A6 installer contract
+        run: npm test
+
   qualify:
     name: Install exact runtime and qualify heartbeat continuity
+    needs: contract
     runs-on: [self-hosted, Windows, X64]
     timeout-minutes: 25
     defaults:
@@ -64,6 +82,14 @@ jobs:
           Write-Host "A6_INSTALLER_BLOB=$blob"
           Write-Host "A6_INSTALLER_PATH=$installer"
           Write-Host "A6_INSTALLER_HASH_VERIFIED=true"
+          $tokens = $null
+          $parseErrors = $null
+          [void][System.Management.Automation.Language.Parser]::ParseFile($installer,[ref]$tokens,[ref]$parseErrors)
+          if ($parseErrors.Count -gt 0) {
+            $parseErrors | ForEach-Object { Write-Host "A6_INSTALLER_PARSE_ERROR=$($_.Message)" }
+            throw 'A6_INSTALLER_POWERSHELL_SYNTAX_INVALID'
+          }
+          Write-Host "A6_INSTALLER_POWERSHELL_SYNTAX=PASS"
           Set-Location -LiteralPath $repoRoot
           & $installer
       - name: Upload installed-runtime evidence
