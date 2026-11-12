@@ -995,3 +995,61 @@ button{touch-action:manipulation;}
   .projectBodyViewport .statCard{padding:8px;min-height:54px;}
   .projectBodyViewport .actions button{min-height:44px;}
 }
+
+
+/* 2026-11-12 — harden mobile scroll ownership after physical Android QA. */
+@media(max-width:700px){
+  /* Establish a real fixed-height flex viewport inside Android WebView. */
+  .appShell{
+    display:flex!important;
+    flex-direction:column!important;
+    width:100%;
+    height:100dvh!important;
+    min-height:0!important;
+    max-height:100dvh!important;
+    overflow:hidden!important;
+    box-sizing:border-box;
+  }
+  .topBar{flex:0 0 auto!important;}
+  .screenViewport{
+    position:relative;
+    flex:1 1 0!important;
+    height:auto!important;
+    min-height:0!important;
+    overflow:hidden!important;
+  }
+  .screenTrack{height:100%!important;min-height:0;}
+  .appScreen{height:100%!important;min-height:0!important;overflow:hidden!important;}
+
+  /* One clear scroll owner for the entire Dashboard: no nested/clipped home pane. */
+  .dashboardScreen{
+    display:block!important;
+    overflow-x:hidden!important;
+    overflow-y:auto!important;
+    overscroll-behavior-y:contain;
+    -webkit-overflow-scrolling:touch;
+    touch-action:pan-y;
+    padding-bottom:calc(18px + env(safe-area-inset-bottom));
+  }
+  .homeEssential{
+    height:auto!important;
+    min-height:100%;
+    flex:none!important;
+    overflow:visible!important;
+    justify-content:flex-start;
+  }
+
+  /* The chat history is the only scrollable part of the conversation screen. */
+  .chatScreen{height:100%;min-height:0;overflow:hidden;}
+  .chatPanel{height:100%;min-height:0!important;overflow:hidden;}
+  .chatPanel .chatWindow{
+    flex:1 1 0;
+    min-height:0!important;
+    max-height:none!important;
+    overflow-x:hidden!important;
+    overflow-y:auto!important;
+    overscroll-behavior-y:contain;
+    -webkit-overflow-scrolling:touch;
+    touch-action:pan-y;
+  }
+}
