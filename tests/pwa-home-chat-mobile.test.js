@@ -62,3 +62,17 @@ test('long-form PWA screens retain their existing scroll containers', () => {
   assert.ok(css.includes('.pageBodyViewport{flex:1 1 auto;min-height:0;overflow:auto;'));
   assert.ok(css.includes('.projectBodyViewport{flex:1 1 0;min-height:0;min-width:0;overflow-x:hidden;overflow-y:auto;'));
 });
+
+test('remaining PWA sections use compact mobile density while preserving scroll', () => {
+  const compactStart = css.lastIndexOf('/* 2026-11-12 — shared compact density for the remaining PWA sections.');
+  assert.ok(compactStart >= 0);
+  const compact = css.slice(compactStart);
+  assert.ok(compact.includes('.pageBodyViewport{gap:8px;'));
+  assert.ok(compact.includes('.capabilitiesViewport .capTabs{flex-wrap:nowrap;overflow-x:auto;'));
+  assert.ok(compact.includes('.capabilitiesViewport .capGrid{grid-template-columns:repeat(2,minmax(0,1fr));'));
+  assert.ok(compact.includes('.meditationViewport{gap:8px;}'));
+  assert.ok(compact.includes('.settingsViewport{gap:8px;'));
+  assert.ok(compact.includes('.projectBodyViewport>.panel{padding:10px;'));
+  assert.ok(css.includes('.pageBodyViewport{flex:1 1 auto;min-height:0;overflow:auto;'));
+  assert.ok(css.includes('.projectBodyViewport{flex:1 1 0;min-height:0;min-width:0;overflow-x:hidden;overflow-y:auto;'));
+});
