@@ -2,6 +2,7 @@
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const { runHeartbeatLoop } = require('./heartbeat-scheduler.cjs');
+const { createGatewayLookup } = require('./gateway-dns-lookup.cjs');
 const os = require('node:os');
 const { parseShellJob, executePowerShell } = require('./windows-shell-executor');
 const { createWindowsMeditationController } = require('./aria-meditation-controller');
@@ -13,6 +14,10 @@ const { executeWindowsDesktop } = (() => {
   catch (error) { if (error?.code !== 'MODULE_NOT_FOUND') throw error; return require('../../computer-use/windows-desktop-adapter'); }
 })();
 const GATEWAY_URL=process.env.ARIA_DEVICE_GATEWAY_URL, DEVICE_TOKEN=process.env.ARIA_DEVICE_TOKEN, DEVICE_ID=process.env.ARIA_DEVICE_ID;
+const gatewayLookup=createGatewayLookup({
+  onFallbackStart:({hostname,systemErrorCode,servers})=>log(`GATEWAY_DNS_FALLBACK start host=${hostname} system_error=${systemErrorCode} servers=${servers.join(',')}`),
+  onFallbackResult:({hostname,status,family,addressCount,errorCode})=>log(`GATEWAY_DNS_FALLBACK result host=${hostname} status=${status} family=${family} address_count=${addressCount||0} error=${errorCode||'none'}`)
+});
 // Keep the A6 device heartbeat capped at 30 seconds even when a legacy config.json still says 60000.
 const HEARTBEAT_MS=30_000, POLL_MS=Math.max(5_000,Number(process.env.ARIA_POLL_MS||12_000));
 const GATEWAY_TIMEOUT_MS=Math.max(3_000,Number(process.env.ARIA_GATEWAY_TIMEOUT_MS||15_000)), GATEWAY_RETRIES=Math.max(0,Number(process.env.ARIA_GATEWAY_RETRIES||1));
@@ -121,6 +126,7 @@ function nativeGatewayRequest(url, options = {}) {
       path: u.pathname + u.search,
       method: options.method || 'GET',
       family: 4,
+      lookup: gatewayLookup,
       headers: {
         ...(options.headers || {}),
         ...(requestBody ? { 'content-length': Buffer.byteLength(requestBody) } : {}),
