@@ -191,15 +191,15 @@ jobs:
             $selectedIds = @($allProcessSnapshot | Where-Object { $_.Name -match '^(node|powershell|pwsh|ollama)(\.exe)?$' } | ForEach-Object { [int]$_.ProcessId })
             for ($depth = 0; $depth -lt 4; $depth++) {
               $parentIds = @()
-              foreach ($selectedPid in $selectedIds) {
-                $entry = $processById[[int]$selectedPid]
+              foreach ($selectedProcessId in $selectedIds) {
+                $entry = $processById[[int]$selectedProcessId]
                 if ($entry -and [int]$entry.ParentProcessId -gt 0) { $parentIds += [int]$entry.ParentProcessId }
               }
               $selectedIds = @($selectedIds + $parentIds | Select-Object -Unique)
             }
             $processIdentity = @()
-            foreach ($selectedPid in $selectedIds) {
-              $proc = $processById[[int]$selectedPid]
+            foreach ($selectedProcessId in $selectedIds) {
+              $proc = $processById[[int]$selectedProcessId]
               if (-not $proc) { continue }
               $commandHash = $null
               if (-not [string]::IsNullOrWhiteSpace([string]$proc.CommandLine)) {
