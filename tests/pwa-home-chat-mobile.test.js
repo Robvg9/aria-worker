@@ -53,7 +53,7 @@ test('Chat opens and returns to the latest restored or newly appended message', 
   assert.ok(effect.includes('firstFrame = requestAnimationFrame'));
   assert.ok(effect.includes('secondFrame = requestAnimationFrame'));
   assert.ok(effect.includes('node.scrollTop = node.scrollHeight'));
-  assert.ok(effect.includes('[screen, messages.length, messages[messages.length - 1]?.id, sending]'));
+  assert.ok(effect.includes('[screen, messages, sending]'));
   assert.ok(effect.includes('cancelAnimationFrame(firstFrame)'));
   assert.ok(effect.includes('cancelAnimationFrame(secondFrame)'));
 });
