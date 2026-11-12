@@ -51,7 +51,7 @@ assert.ok(preflight.includes("name: A6 Windows Agent v2 Install + 15-minute ACK 
 assert.ok(preflight.includes("a6-install-heartbeat-v2.ps1"));
 assert.match(preflight, /rev-parse HEAD/);
 assert.match(preflight, /rev-parse \("HEAD:" \+ \$relative\)/);
-assert.ok(preflight.includes('show "HEAD:'), "installer must restore the exact Git blob without sparse-index checkout");
+assert.ok(preflight.includes("cat-file blob"), "installer must stream the exact Git blob without sparse-index path checkout");
 assert.match(preflight, /RedirectStandardOutput = \$true/);
 assert.match(preflight, /cat-file blob .*\+ \$blob/);
 assert.match(preflight, /StandardOutput\.BaseStream\.CopyTo\(\$outputFile\)/);
@@ -74,7 +74,7 @@ assert.match(a6Installer, /COMPUTERNAME -ine 'ROBVG'/);
 assert.match(a6Installer, /rev-parse HEAD/);
 assert.match(a6Installer, /SOURCE_SHA_MISMATCH/);
 assert.match(a6Installer, /Materialize-ExactGitBlob/);
-assert.ok(a6Installer.includes('show "HEAD:'), "runtime sources must be materialized from exact Git blobs");
+assert.ok(a6Installer.includes("cat-file blob"), "runtime sources must stream exact Git blobs");
 assert.match(a6Installer, /RedirectStandardOutput = \$true/);
 assert.match(a6Installer, /cat-file blob .*\+ \$ExpectedBlob/);
 assert.match(a6Installer, /StandardOutput\.BaseStream\.CopyTo\(\$outputFile\)/);
