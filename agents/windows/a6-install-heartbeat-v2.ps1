@@ -6,6 +6,21 @@ $gitHead = (& git -C $repoRoot rev-parse HEAD 2>$null)
 if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace([string]$gitRoot)) { throw 'A6_SOURCE_GIT_ROOT_UNAVAILABLE' }
 if ((Resolve-Path -LiteralPath $gitRoot).Path -ne $repoRoot) { throw 'A6_SOURCE_GIT_ROOT_MISMATCH' }
 if ([string]$gitHead -ne [string]$env:GITHUB_SHA) { throw "A6_SOURCE_SHA_MISMATCH expected=$env:GITHUB_SHA actual=$gitHead" }
+function Materialize-ExactGitBlob {
+  param([string]$RelativePath,[string]$DestinationPath,[string]$ExpectedBlob)
+  $parent = Split-Path -Parent $DestinationPath
+  New-Item -ItemType Directory -Force -Path $parent | Out-Null
+  $native = 'git -C "' + $repoRoot + '" show "HEAD:' + $RelativePath + '" > "' + $DestinationPath + '"'
+  & $env:ComSpec /d /c $native
+  $nativeExit = $LASTEXITCODE
+  if ($nativeExit -ne 0 -or -not (Test-Path -LiteralPath $DestinationPath -PathType Leaf)) {
+    throw "A6_GIT_BLOB_MATERIALIZATION_FAILED=$RelativePath"
+  }
+  $workingBlob = (& git -C $repoRoot hash-object --path $RelativePath $DestinationPath 2>$null)
+  if ($LASTEXITCODE -ne 0 -or [string]$workingBlob -ne [string]$ExpectedBlob) {
+    throw "A6_GIT_BLOB_HASH_MISMATCH=$RelativePath"
+  }
+}
 $expectedDevice = 'windows-fe722cc6681e4f9c9cc35f5ebbb0a089'
 if ($env:COMPUTERNAME -ine 'ROBVG') { throw "A6_HOST_MISMATCH=$env:COMPUTERNAME" }
 
@@ -72,17 +87,67 @@ try {
   if (-not $watchdog -or $watchdog.Name -notmatch '^(powershell|powershell\.exe|pwsh|pwsh\.exe)$' -or [string]$watchdog.CommandLine -notmatch 'run-agent\.ps1') { throw 'A6_WATCHDOG_IDENTITY_MISMATCH' }
   if (@(Get-Process -Name ollama -ErrorAction SilentlyContinue).Count -gt 0) { throw 'A6_OLLAMA_PROCESS_PRESENT' }
 
+  # Idempotent reuse: a later A6 qualification run must not restart Node again
+  # when the exact source SHA and its fresh serial-heartbeat runtime are already live.
+  $runtimeExact = $true
+  foreach ($item in $map) {
+    $sourcePath = Join-Path $repoRoot $item.source
+    if (-not (Test-Path -LiteralPath $item.target -PathType Leaf)) { $runtimeExact = $false; break }
+    if ((Get-FileHash -LiteralPath $sourcePath -Algorithm SHA256).Hash -ne (Get-FileHash -LiteralPath $item.target -Algorithm SHA256).Hash) { $runtimeExact = $false; break }
+  }
+  $configExact = (
+    [int]$config.heartbeat_ms -eq 30000 -and
+    $config.ollama_enabled -eq $false -and
+    @($config.capabilities | Where-Object { $_ -eq 'ollama.qwen3' }).Count -eq 0
+  )
+  if ($runtimeExact -and $configExact -and (Test-Path -LiteralPath $heartbeatPath -PathType Leaf)) {
+    try {
+      $currentHeartbeat = Get-Content -Raw -LiteralPath $heartbeatPath | ConvertFrom-Json
+      $processAgeMs = ([DateTimeOffset]::UtcNow - [DateTimeOffset]::Parse([string]$currentHeartbeat.timestamp).ToUniversalTime()).TotalMilliseconds
+      $gatewayAckAgeMs = ([DateTimeOffset]::UtcNow - [DateTimeOffset]::Parse([string]$currentHeartbeat.last_gateway_heartbeat_at).ToUniversalTime()).TotalMilliseconds
+      $heartbeatExact = (
+        [string]$currentHeartbeat.device_id -eq $expectedDevice -and
+        [string]$currentHeartbeat.version -eq 'aria-windows-agent-heartbeat-v2' -and
+        [string]$currentHeartbeat.heartbeat_scheduler_version -eq 'serial-retry-v1' -and
+        [string]$currentHeartbeat.gateway_dns_fallback_version -eq 'supabase-scoped-public-fallback-v1' -and
+        $processAgeMs -ge 0 -and $processAgeMs -lt 90000 -and
+        $gatewayAckAgeMs -ge 0 -and $gatewayAckAgeMs -lt 90000 -and
+        $null -eq $currentHeartbeat.last_gateway_heartbeat_error
+      )
+      if ($heartbeatExact) {
+        $manifest.status = 'ALREADY_INSTALLED'
+        $manifest.old_agent_pid = $oldPid
+        $manifest.new_agent_pid = $oldPid
+        $manifest.watchdog_pid = $watchdogPid
+        $manifest.restart_requested = $false
+        $manifest.scheduler_version = [string]$currentHeartbeat.heartbeat_scheduler_version
+        $manifest.dns_fallback_version = [string]$currentHeartbeat.gateway_dns_fallback_version
+        $manifest.process_heartbeat_age_ms = [long]$processAgeMs
+        $manifest.gateway_ack_age_ms = [long]$gatewayAckAgeMs
+        $manifest.finished_at_utc = [DateTimeOffset]::UtcNow.ToString('o')
+        $manifest | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $resultPath -Encoding UTF8
+        Write-Host 'A6_INSTALL_STATUS=ALREADY_INSTALLED'
+        Write-Host "A6_REUSED_AGENT_PID=$oldPid"
+        Write-Host "A6_WATCHDOG_PID=$watchdogPid"
+        Write-Host "A6_HEARTBEAT_SCHEDULER=$($manifest.scheduler_version)"
+        Write-Host "A6_DNS_FALLBACK=$($manifest.dns_fallback_version)"
+        Write-Host "A6_PROCESS_HEARTBEAT_AGE_MS=$([long]$processAgeMs)"
+        Write-Host "A6_GATEWAY_ACK_AGE_MS=$([long]$gatewayAckAgeMs)"
+        return
+      }
+    } catch {
+      Write-Host "A6_REUSE_CHECK_REJECTED=$($_.Exception.GetType().Name)"
+    }
+  }
+
   foreach ($item in $map) {
     $source = Join-Path $repoRoot $item.source
     $blob = (& git -C $repoRoot rev-parse ("HEAD:" + $item.source) 2>$null)
     if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace([string]$blob)) { throw "A6_SOURCE_NOT_TRACKED_AT_EXACT_SHA=$($item.source)" }
     if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
-      # Some self-hosted checkouts retain sparse-worktree exclusions. Materialize
-      # only the exact files required by this installer from the already checked-out commit.
-      & git -C $repoRoot checkout HEAD -- $item.source
-      if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $source -PathType Leaf)) {
-        throw "A6_SOURCE_MATERIALIZATION_FAILED=$($item.source)"
-      }
+      # Write the blob directly: this NetworkService checkout can resolve HEAD:path
+      # while its sparse index rejects checkout-by-path.
+      Materialize-ExactGitBlob -RelativePath $item.source -DestinationPath $source -ExpectedBlob ([string]$blob)
     }
     $workingBlob = (& git -C $repoRoot hash-object --path $item.source $source 2>$null)
     if ($LASTEXITCODE -ne 0 -or [string]$workingBlob -ne [string]$blob) { throw "A6_SOURCE_WORKTREE_HASH_MISMATCH=$($item.source)" }
