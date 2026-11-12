@@ -30,11 +30,20 @@ assert.match(agent, /aria-windows-agent-heartbeat-v2/);
 assert.match(runtimeUpdater, /\$payload\.version -eq 'aria-windows-agent-heartbeat-v2'/);
 assert.match(runtimeUpdater, /ARIA_PROCESS_HEARTBEAT_V2=PASS/);
 assert.doesNotMatch(runtimeUpdater, /aria-windows-agent-heartbeat-v1/);
-// A schema failure must preserve enough sanitized evidence to identify an unexpected writer.
-assert.match(preflight, /A6_SCHEMA_MISMATCH observed=/);
-assert.match(preflight, /schema_version =/);
-assert.match(preflight, /heartbeat_file_sha256 =/);
-assert.match(preflight, /HEARTBEAT_SCHEMA_NOT_V2 observed=\$schemaVersion/);
+// The A6 host probe is read-only: it observes runtime state and never repairs it.
+assert.match(preflight, /name: A6 Windows Agent Read-Only Diagnostic/);
+assert.match(preflight, /if \(\[string\]\$env:COMPUTERNAME -ine 'ROBVG'\)/);
+assert.match(preflight, /Get-CimInstance Win32_Process/);
+assert.match(preflight, /Get-ScheduledTask -TaskName/);
+assert.match(preflight, /for \(\$sampleIndex = 0; \$sampleIndex -lt 24; \$sampleIndex\+\+\)/);
+assert.match(preflight, /Start-Sleep -Seconds 5/);
+assert.match(preflight, /distinct_gateway_ack_count/);
+assert.match(preflight, /command_line_sha256/);
+assert.match(preflight, /ollama_process_count/);
+assert.doesNotMatch(preflight, /\bCopy-Item\b|\bNew-Item\b|\bStop-Process\b|\bRestart-Service\b|kill-request/i);
+assert.doesNotMatch(preflight, /Set-Content\s+-LiteralPath\s+\$configPath/i);
+const setContentTargets = [...preflight.matchAll(/Set-Content\s+-LiteralPath\s+(\$[A-Za-z_][A-Za-z0-9_]*)/g)].map((match) => match[1]);
+assert.deepEqual(setContentTargets, ["$resultPath"]);
 assert.match(agent, /last_gateway_heartbeat_at/);
 assert.match(agent, /last_gateway_heartbeat_error/);
 assert.match(agent, /lastGatewayHeartbeatAt=new Date\(\)\.toISOString\(\)/);
