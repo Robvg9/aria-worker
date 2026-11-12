@@ -225,6 +225,50 @@ jobs:
             $ethernetPnpPowerProperties = @(@{ query_error=$_.Exception.GetType().Name; message=$_.Exception.Message })
           }
 
+          # Read-only DNS and local gateway probes. Never modifies resolver, route, or adapter settings.
+          $dnsResolverState = @()
+          try {
+            $dnsResolverState = @(Get-DnsClientServerAddress -InterfaceAlias 'Ethernet' -AddressFamily IPv4 -ErrorAction Stop |
+              Select-Object InterfaceAlias,InterfaceIndex,AddressFamily,ServerAddresses)
+          } catch {
+            $dnsResolverState = @(@{ query_error=$_.Exception.GetType().Name; message=$_.Exception.Message })
+          }
+          $dnsTests = @()
+          foreach ($target in @(
+            @{ label='system_default'; server=$null },
+            @{ label='cloudflare_1_1_1_1'; server='1.1.1.1' },
+            @{ label='google_8_8_8_8'; server='8.8.8.8' }
+          )) {
+            $entry = @{ label=$target.label; server=$target.server; status='BLOCKED'; addresses=@(); error=$null; elapsed_ms=$null }
+            $dnsStarted = [DateTimeOffset]::UtcNow
+            try {
+              $dnsArgs = @{ Name='icuqsstxfdbvjytkhlog.supabase.co'; Type='A'; DnsOnly=$true; QuickTimeout=$true; ErrorAction='Stop' }
+              if ($target.server) { $dnsArgs.Server = $target.server }
+              $answer = @(Resolve-DnsName @dnsArgs)
+              $entry.addresses = @($answer | Where-Object { $_.Type -eq 'A' } | ForEach-Object { [string]$_.IPAddress })
+              $entry.status = if ($entry.addresses.Count) { 'PASS' } else { 'NO_A_RECORD' }
+            } catch {
+              $entry.error = [string]$_.Exception.Message
+              $entry.status = 'ERROR'
+            }
+            $entry.elapsed_ms = [long]([DateTimeOffset]::UtcNow - $dnsStarted).TotalMilliseconds
+            $dnsTests += $entry
+          }
+          $gatewayProbe = @()
+          try {
+            $gatewayProbe = @(Test-Connection -ComputerName '192.168.1.1' -Count 2 -Quiet -ErrorAction SilentlyContinue)
+          } catch {
+            $gatewayProbe = @(@{ query_error=$_.Exception.GetType().Name; message=$_.Exception.Message })
+          }
+          $httpsNameProbe = @{ status='BLOCKED'; error=$null }
+          try {
+            $httpsResult = Test-NetConnection -ComputerName 'icuqsstxfdbvjytkhlog.supabase.co' -Port 443 -InformationLevel Quiet -WarningAction SilentlyContinue -ErrorAction Stop
+            $httpsNameProbe.status = if ($httpsResult) { 'PASS' } else { 'FAILED' }
+          } catch {
+            $httpsNameProbe.status = 'ERROR'
+            $httpsNameProbe.error = [string]$_.Exception.Message
+          }
+
           $watchdogIncidentLines = @()
           $watchdogLog = Join-Path $logs 'watchdog.log'
           $watchdogLogInfo = @{ exists=(Test-Path -LiteralPath $watchdogLog -PathType Leaf) }
@@ -321,6 +365,10 @@ jobs:
             ethernet_power_management=@($ethernetPowerManagement)
             ethernet_pnp_power_properties=@($ethernetPnpPowerProperties)
             network_advanced_properties=@($networkAdvancedProperties)
+            dns_resolvers=@($dnsResolverState)
+            dns_tests=@($dnsTests)
+            default_gateway_probe=@($gatewayProbe)
+            supabase_https_name_probe=$httpsNameProbe
             watchdog_log_info=$watchdogLogInfo
             restrictions=@('NO_RUNTIME_WRITES','NO_CONFIG_CHANGES','NO_PROCESS_RESTARTS','NO_TASK_CHANGES','NO_GATEWAY_CALLS','NO_MISSIONS_OR_JOBS')
           }
@@ -347,3 +395,5 @@ jobs:
 # Read-only correlation refresh for the 2026-11-12 16:03 UTC A6 heartbeat continuity block.
 
 # Narrow read-only query for Ethernet power management and all Realtek advanced properties.
+
+# Read-only DNS resolver comparison for the A6 ENOTFOUND incident.
