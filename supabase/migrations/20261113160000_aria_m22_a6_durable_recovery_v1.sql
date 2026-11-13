@@ -1100,7 +1100,7 @@ begin
     v_definition := replace(v_definition,v_old,v_new);
   end if;
 
-  v_old := $old$max_sample_gap_ms<=r.max_recovery_ms and$new$;
+  v_old := $old$max_sample_gap_ms<=r.max_recovery_ms and$old$;
   v_new := $new$max_sample_gap_ms<=r.max_recovery_ms and
        max_observed_heartbeat_gap_ms<=r.max_recovery_ms and$new$;
   if position(v_new in v_definition)=0 then
