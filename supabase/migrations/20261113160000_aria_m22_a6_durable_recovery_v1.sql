@@ -4,7 +4,7 @@
 begin;
 
 alter table aria_internal.mission_wonder_2_a6_runs
-  add column if not exists max_recovery_attempts smallint not null default 1;
+  add column if not exists max_recovery_attempts smallint not null default 0;
 
 do $constraints$
 begin
