@@ -29,6 +29,8 @@ declare
   v_old_lease_owner text;
   v_claim_2 jsonb;
   v_stale_complete jsonb;
+  v_legacy_start jsonb;
+  v_legacy_complete jsonb;
   v_count integer;
 begin
   -- The fixture must begin under the same frozen/disabled baseline as LIVE.
@@ -305,6 +307,27 @@ begin
     raise exception 'A6_TEST_ATTEMPT_2_NOT_AUTHORIZED';
   end if;
 
+  -- Old gateway binaries may still use the 2-/7-argument RPC overloads during
+  -- a rolling deploy. Both must reject A6 without a lease token, while remaining
+  -- available for legacy non-A6 execution lanes.
+  v_legacy_start:=public.start_execution_job_gateway(v_job_id,v_device_id);
+  if v_legacy_start is not null then
+    raise exception 'A6_TEST_LEGACY_START_RPC_BYPASSED_FENCE';
+  end if;
+  v_legacy_complete:=public.complete_execution_job_gateway(
+    v_job_id,v_device_id,'succeeded',0,'A6_ARTIFACT_VERIFIED;mode=identical','',
+    jsonb_build_object('status','succeeded','exit_code',0,'stdout','A6_ARTIFACT_VERIFIED;mode=identical')
+  );
+  if v_legacy_complete is not null then
+    raise exception 'A6_TEST_LEGACY_COMPLETE_RPC_BYPASSED_FENCE';
+  end if;
+  select count(*) into v_count from aria_internal.execution_job_events
+   where job_id=v_job_id and event_type='job.legacy_start_rpc_rejected';
+  if v_count<>1 then raise exception 'A6_TEST_LEGACY_START_RPC_REJECTION_MISSING'; end if;
+  select count(*) into v_count from aria_internal.execution_job_events
+   where job_id=v_job_id and event_type='job.legacy_completion_rpc_rejected';
+  if v_count<>1 then raise exception 'A6_TEST_LEGACY_COMPLETE_RPC_REJECTION_MISSING'; end if;
+
   v_stale_complete:=public.complete_execution_job_gateway(
     v_job_id,v_device_id,'succeeded',0,'A6_ARTIFACT_VERIFIED;mode=identical','',
     jsonb_build_object('status','succeeded','exit_code',0,'stdout','A6_ARTIFACT_VERIFIED;mode=identical',
@@ -340,6 +363,7 @@ begin
   raise notice 'A6_HEARTBEAT_RECOVERY_GATE=PASS';
   raise notice 'A6_SAME_JOB_IDEMPOTENT_RECOVERY=PASS';
   raise notice 'A6_STALE_LEASE_FENCING=PASS';
+  raise notice 'A6_LEGACY_RPC_FENCING=PASS';
   raise notice 'A6_FROZEN_CLAIM_NEGATIVE_CASES=PASS';
   raise notice 'A6_FROZEN_CLAIM_IDEMPOTENCY=PASS';
   raise notice 'A6_GLOBAL_FREEZE_PRESERVED=true';
