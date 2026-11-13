@@ -46,6 +46,26 @@ function Materialize-ExactGitBlob {
 $expectedDevice = 'windows-fe722cc6681e4f9c9cc35f5ebbb0a089'
 if ($env:COMPUTERNAME -ine 'ROBVG') { throw "A6_HOST_MISMATCH=$env:COMPUTERNAME" }
 
+# The physical qualification observed a 5m28s host/agent heartbeat outage.
+# Prevent automatic AC idle sleep for this always-on worker; keep display sleep enabled.
+$powerBefore = @(& powercfg.exe /query SCHEME_CURRENT SUB_SLEEP STANDBYIDLE 2>&1)
+if ($LASTEXITCODE -ne 0) { throw 'A6_POWER_POLICY_READ_FAILED' }
+$powerBeforeText = $powerBefore -join [Environment]::NewLine
+$standbyBefore = $null
+if ($powerBeforeText -match '(?i)Current AC Power Setting Index:\\s*0x([0-9a-f]{8})') { $standbyBefore = $Matches[1] }
+& powercfg.exe /change standby-timeout-ac 0
+if ($LASTEXITCODE -ne 0) { throw 'A6_DISABLE_AC_IDLE_SLEEP_FAILED' }
+& powercfg.exe /change hibernate-timeout-ac 0
+if ($LASTEXITCODE -ne 0) { throw 'A6_DISABLE_AC_IDLE_HIBERNATE_FAILED' }
+$powerAfter = @(& powercfg.exe /query SCHEME_CURRENT SUB_SLEEP STANDBYIDLE 2>&1)
+if ($LASTEXITCODE -ne 0 -or (($powerAfter -join [Environment]::NewLine) -notmatch '(?i)Current AC Power Setting Index:\\s*0x00000000')) {
+  throw 'A6_AC_IDLE_SLEEP_READBACK_FAILED'
+}
+Write-Host "A6_POWER_POLICY_AC_STANDBY_BEFORE=$standbyBefore"
+Write-Host 'A6_POWER_POLICY_AC_STANDBY_AFTER=00000000'
+Write-Host 'A6_POWER_POLICY_AC_HIBERNATE_AFTER=00000000'
+Write-Host 'A6_POWER_POLICY_DISPLAY_SLEEP=UNCHANGED'
+
 $root = 'D:\ARIA-Windows-Agent'
 $runtime = Join-Path $root 'Runtime\windows'
 $shared = Join-Path $root 'Runtime\shared'
