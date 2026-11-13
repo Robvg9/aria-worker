@@ -977,6 +977,8 @@ begin
   execute 'revoke all on function public.complete_execution_job_gateway(text,text,text,integer,text,text,jsonb,text) from public,anon,authenticated';
 end;
 $gateway_privileges$;
+grant execute on function public.start_execution_job_gateway(text,text) to postgres,service_role;
+grant execute on function public.complete_execution_job_gateway(text,text,text,integer,text,text,jsonb) to postgres,service_role;
 grant execute on function public.start_execution_job_gateway(text,text,text) to postgres,service_role;
 grant execute on function public.complete_execution_job_gateway(text,text,text,integer,text,text,jsonb,text) to postgres,service_role;
 revoke all on function aria_internal.aria_m22_a6_recover_running_job_v1(text,text,text,text) from public,anon,authenticated;
