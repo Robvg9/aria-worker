@@ -6,6 +6,7 @@ on:
       - ops/a6-windows-agent-v2-heartbeat-preflight-v1
     paths:
       - '.github/workflows/a6-windows-agent-v2-heartbeat-preflight.yml'
+      - '.github/workflows/a6-windows-heartbeat-live-readonly-diagnostic.yml'
       - 'agents/windows/a6-install-heartbeat-v2.ps1'
       - 'agents/windows/aria-agent.js'
       - 'agents/windows/heartbeat-scheduler.cjs'

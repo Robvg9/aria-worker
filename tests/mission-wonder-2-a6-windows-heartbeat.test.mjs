@@ -49,6 +49,7 @@ assert.match(agent, /lastGatewayHeartbeatError=null/);
 // the following 45-minute qualification phase is read-only.
 assert.ok(preflight.includes("name: A6 Windows Agent v2 Install + 45-minute ACK Qualification"));
 assert.ok(preflight.includes("a6-install-heartbeat-v2.ps1"));
+assert.ok(preflight.includes("a6-windows-heartbeat-live-readonly-diagnostic.yml"));
 assert.match(preflight, /rev-parse HEAD/);
 assert.match(preflight, /rev-parse \("HEAD:" \+ \$relative\)/);
 assert.ok(preflight.includes("cat-file blob"), "installer must stream the exact Git blob without sparse-index path checkout");
