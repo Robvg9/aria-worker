@@ -116,6 +116,20 @@ let lastGatewayHeartbeatAt=null;
 let lastGatewayHeartbeatError=null;
 let heartbeatSequence=0;
 const processStartedAt=new Date(Date.now()-process.uptime()*1000).toISOString();
+const processStartId=crypto.randomUUID();
+const processStartedMonotonicNs=process.hrtime.bigint();
+function processMonotonicUptimeMs(){
+  return Number((process.hrtime.bigint()-processStartedMonotonicNs)/1000000n);
+}
+function runtimeEvidenceMetadata(){
+  return {
+    process_start_id:processStartId,
+    process_started_at:processStartedAt,
+    process_uptime_monotonic_ms:processMonotonicUptimeMs(),
+    heartbeat_sequence:heartbeatSequence,
+    event_loop_delay:eventLoopDelaySnapshot()
+  };
+}
 const eventLoopDelayMonitor=monitorEventLoopDelay({resolution:20});
 eventLoopDelayMonitor.enable();
 function eventLoopDelaySnapshot(){
@@ -137,8 +151,10 @@ function touchProcessHeartbeat(network='unknown'){
     device_id:DEVICE_ID,
     network,
     process_id:process.pid,
+    process_start_id:processStartId,
     process_started_at:processStartedAt,
     process_uptime_ms:Math.round(process.uptime()*1000),
+    process_uptime_monotonic_ms:processMonotonicUptimeMs(),
     heartbeat_sequence:heartbeatSequence,
     heartbeat_scheduler_version:'serial-retry-v1',
     gateway_dns_fallback_version:'supabase-scoped-public-fallback-v1',
@@ -165,7 +181,7 @@ async function api(p,options={}){
       log(`GATEWAY_REQUEST_START id=${requestId} path=${p} attempt=${attempt+1}`);
       const response=await nativeGatewayRequest(endpoint(p),{
         ...options,
-        headers:{...headers(),...(options.headers||{}),'x-aria-request-id':requestId}
+        headers:{...headers(),...(options.headers||{}),'x-aria-request-id':requestId,'x-aria-process-start-id':processStartId}
       });
       let body=null;
       try{body=response.text?JSON.parse(response.text):null}catch{body={raw:response.text}}
@@ -291,7 +307,14 @@ async function rejectClaimedJob(job,reason,operation=job?.operation){
 }
 async function readJobAuthorization(job){
   const path='/v1/jobs/'+encodeURIComponent(job.job_id)+'/status';
-  const response=await nativeGatewayRequest(endpoint(path),{method:'GET',headers:headers(),timeoutMs:2500});
+  const requestId=crypto.randomUUID();
+  log(`JOB_AUTH_CHECK_START id=${requestId} job_id=${job.job_id}`);
+  const response=await nativeGatewayRequest(endpoint(path),{
+    method:'GET',
+    headers:{...headers(),'x-aria-request-id':requestId,'x-aria-process-start-id':processStartId},
+    timeoutMs:2500
+  });
+  log(`JOB_AUTH_CHECK_ACK id=${requestId} job_id=${job.job_id} status=${response.status}`);
   let body=null;try{body=response.text?JSON.parse(response.text):null}catch{body=null}
   if(response.status<200||response.status>=300||body?.authorized!==true)throw new Error(String(body?.error||'mission_authorization_revoked'));
   if(job?.lease_owner&&body.lease_owner!==job.lease_owner)throw new Error('execution_lease_lost');
@@ -328,7 +351,7 @@ async function executeShellJob(job){
   }finally{guard.stop()}
   if(guard.signal.aborted&&result.status!=='cancelled')result={...result,status:'cancelled',exit_code:null,stderr:'mission_authorization_revoked'};
   result.stdout=redact(result.stdout);result.stderr=redact(result.stderr);
-  result.metadata={...result.metadata,agent_version:'aria-windows-agent-v2',platform:`windows/${os.release()}`,request_nonce:crypto.randomUUID(),operation:SHELL_OPERATION,lease_owner:job?.lease_owner||null,...(job?.policy?.mission_wonder_2_a5_recovery===true?{mission_wonder_2_a5_attempt:Math.max(1,Number(job?.metadata?.mission_wonder_2_a5_attempt||1))}:{}),...(job?.policy?.mission_wonder_2_a6_continuity===true?{mission_wonder_2_a6_attempt:Math.max(1,Number(job?.metadata?.mission_wonder_2_a6_attempt||1))}:{})};
+  result.metadata={...result.metadata,agent_version:'aria-windows-agent-v2',platform:`windows/${os.release()}`,request_nonce:crypto.randomUUID(),operation:SHELL_OPERATION,lease_owner:job?.lease_owner||null,...runtimeEvidenceMetadata(),...(job?.policy?.mission_wonder_2_a5_recovery===true?{mission_wonder_2_a5_attempt:Math.max(1,Number(job?.metadata?.mission_wonder_2_a5_attempt||1))}:{}),...(job?.policy?.mission_wonder_2_a6_continuity===true?{mission_wonder_2_a6_attempt:Math.max(1,Number(job?.metadata?.mission_wonder_2_a6_attempt||1))}:{})};
   log(`JOB RESULT id=${job.job_id} status=${result.status} exit_code=${result.exit_code} duration_ms=${result.duration_ms}`);
   try{await api(`/v1/jobs/${encodeURIComponent(job.job_id)}/result`,{method:'POST',body:JSON.stringify({device_id:DEVICE_ID,lease_owner:job?.lease_owner||null,result})})}
   catch(error){if(!guard.signal.aborted&&error.status!==409)throw error;log(`JOB RESULT already terminal id=${job.job_id}`)}
@@ -394,7 +417,7 @@ if(job.operation===AUTONOMOUS_COMPUTER_OPERATION){await executeAutonomousRwhtJob
 let stopping=false;
 const meditationController=createWindowsMeditationController();
 process.on('SIGTERM',()=>{stopping=true;void meditationController.shutdown();log('STOP requested')});process.on('SIGINT',()=>{stopping=true;void meditationController.shutdown();log('STOP requested')});
-(async()=>{log(`START device=${DEVICE_ID} platform=windows-local node=${process.version} resource_profile=${RESOURCE_PROFILE.profile} ram_gb=${RESOURCE_PROFILE.ram_gb} logical_cpus=${RESOURCE_PROFILE.logical_cpus} ollama_enabled=${OLLAMA_ENABLED} guard=${RESOURCE_PROFILE.guard_reason}`);try{await Promise.race([enroll(),sleep(5000).then(()=>{throw new Error('enroll_timeout')})]);log(`ENROLLED device=${DEVICE_ID}`)}catch(error){console.error(`[enroll] ${error.message}`)}const heartbeatLoop=runHeartbeatLoop({
+(async()=>{log(`START device=${DEVICE_ID} process_start_id=${processStartId} process_started_at=${processStartedAt} platform=windows-local node=${process.version} resource_profile=${RESOURCE_PROFILE.profile} ram_gb=${RESOURCE_PROFILE.ram_gb} logical_cpus=${RESOURCE_PROFILE.logical_cpus} ollama_enabled=${OLLAMA_ENABLED} guard=${RESOURCE_PROFILE.guard_reason}`);try{await Promise.race([enroll(),sleep(5000).then(()=>{throw new Error('enroll_timeout')})]);log(`ENROLLED device=${DEVICE_ID}`)}catch(error){console.error(`[enroll] ${error.message}`)}const heartbeatLoop=runHeartbeatLoop({
   sendHeartbeat:heartbeat,
   shouldStop:()=>stopping,
   sleep,
