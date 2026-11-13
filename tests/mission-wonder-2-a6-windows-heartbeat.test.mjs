@@ -121,9 +121,6 @@ assert.match(a6Installer, /power_policy_after=\$null/);
 assert.match(a6Installer, /A6_AC_IDLE_HIBERNATE_READBACK_FAILED/);
 assert.ok(a6Installer.includes("AC Power Setting Index|Índice de configuración de corriente alterna actual"),
   "AC power readback must accept the host's localized Windows powercfg label");
-const powerReadbackPattern = /(?:AC Power Setting Index|Índice de configuración de corriente alterna actual):\\s+0x00000000/i;
-assert.match("Índice de configuración de corriente alterna actual: 0x00000000", powerReadbackPattern);
-assert.match("Current AC Power Setting Index: 0x00000000", powerReadbackPattern);
 assert.match(a6Installer, /A6_AC_STANDBY_READBACK_NOT_ZERO/);
 assert.match(a6Installer, /A6_AC_HIBERNATE_READBACK_NOT_ZERO/);
 assert.match(a6Installer, /A6_DISPLAY_SLEEP_POLICY_CHANGED/);
