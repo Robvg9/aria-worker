@@ -46,25 +46,6 @@ function Materialize-ExactGitBlob {
 $expectedDevice = 'windows-fe722cc6681e4f9c9cc35f5ebbb0a089'
 if ($env:COMPUTERNAME -ine 'ROBVG') { throw "A6_HOST_MISMATCH=$env:COMPUTERNAME" }
 
-# The physical qualification observed a 5m28s host/agent heartbeat outage.
-# Prevent automatic AC idle sleep for this always-on worker; keep display sleep enabled.
-$powerBefore = @(& powercfg.exe /query SCHEME_CURRENT SUB_SLEEP STANDBYIDLE 2>&1)
-if ($LASTEXITCODE -ne 0) { throw 'A6_POWER_POLICY_READ_FAILED' }
-$powerBeforeText = $powerBefore -join [Environment]::NewLine
-$standbyBefore = $null
-$manifest.power_policy_before = $powerBeforeText
-& powercfg.exe /change standby-timeout-ac 0
-if ($LASTEXITCODE -ne 0) { throw 'A6_DISABLE_AC_IDLE_SLEEP_FAILED' }
-& powercfg.exe /change hibernate-timeout-ac 0
-if ($LASTEXITCODE -ne 0) { throw 'A6_DISABLE_AC_IDLE_HIBERNATE_FAILED' }
-$powerAfter = @(& powercfg.exe /query SCHEME_CURRENT SUB_SLEEP STANDBYIDLE 2>&1)
-if ($LASTEXITCODE -ne 0) { throw 'A6_AC_IDLE_SLEEP_READBACK_FAILED' }
-$manifest.power_policy_after = $powerAfter -join [Environment]::NewLine
-Write-Host "A6_POWER_POLICY_AC_STANDBY_BEFORE_CAPTURED=$([bool]$manifest.power_policy_before)"
-Write-Host 'A6_POWER_POLICY_AC_STANDBY_AFTER=00000000'
-Write-Host 'A6_POWER_POLICY_AC_HIBERNATE_AFTER=00000000'
-Write-Host 'A6_POWER_POLICY_DISPLAY_SLEEP=UNCHANGED'
-
 $root = 'D:\ARIA-Windows-Agent'
 $runtime = Join-Path $root 'Runtime\windows'
 $shared = Join-Path $root 'Runtime\shared'
@@ -96,6 +77,8 @@ $map = @(
 )
 
 $manifest = [ordered]@{
+  power_policy_before=$null
+  power_policy_after=$null
   status='BLOCKED'
   host=$env:COMPUTERNAME
   source_sha=$env:GITHUB_SHA
@@ -182,6 +165,44 @@ try {
   if (-not $watchdog -or $watchdog.Name -notmatch '^(powershell|powershell\.exe|pwsh|pwsh\.exe)$' -or -not $watchdogStatusMatches) { throw 'A6_WATCHDOG_IDENTITY_MISMATCH' }
   if (-not $commandLineCompatible) { throw 'A6_PROCESS_COMMAND_LINE_CONFLICT' }
   if (@(Get-Process -Name ollama -ErrorAction SilentlyContinue).Count -gt 0) { throw 'A6_OLLAMA_PROCESS_PRESENT' }
+
+  # The physical qualification observed a 5m28s host/agent heartbeat outage.
+  # Prevent automatic AC idle sleep for this always-on worker; keep display sleep enabled.
+  $powerBeforeStandby = @(& powercfg.exe /query SCHEME_CURRENT SUB_SLEEP STANDBYIDLE 2>&1)
+  if ($LASTEXITCODE -ne 0) { throw 'A6_POWER_POLICY_STANDBY_READ_FAILED' }
+  $powerBeforeHibernate = @(& powercfg.exe /query SCHEME_CURRENT SUB_SLEEP HIBERNATEIDLE 2>&1)
+  if ($LASTEXITCODE -ne 0) { throw 'A6_POWER_POLICY_HIBERNATE_READ_FAILED' }
+  $powerBeforeDisplay = @(& powercfg.exe /query SCHEME_CURRENT SUB_VIDEO VIDEOIDLE 2>&1)
+  if ($LASTEXITCODE -ne 0) { throw 'A6_POWER_POLICY_DISPLAY_READ_FAILED' }
+  $manifest.power_policy_before = [ordered]@{
+    standby = ($powerBeforeStandby -join [Environment]::NewLine)
+    hibernate = ($powerBeforeHibernate -join [Environment]::NewLine)
+    display = ($powerBeforeDisplay -join [Environment]::NewLine)
+  }
+  & powercfg.exe /change standby-timeout-ac 0
+  if ($LASTEXITCODE -ne 0) { throw 'A6_DISABLE_AC_IDLE_SLEEP_FAILED' }
+  & powercfg.exe /change hibernate-timeout-ac 0
+  if ($LASTEXITCODE -ne 0) { throw 'A6_DISABLE_AC_IDLE_HIBERNATE_FAILED' }
+  $powerAfterStandby = @(& powercfg.exe /query SCHEME_CURRENT SUB_SLEEP STANDBYIDLE 2>&1)
+  if ($LASTEXITCODE -ne 0) { throw 'A6_AC_IDLE_SLEEP_READBACK_FAILED' }
+  $powerAfterHibernate = @(& powercfg.exe /query SCHEME_CURRENT SUB_SLEEP HIBERNATEIDLE 2>&1)
+  if ($LASTEXITCODE -ne 0) { throw 'A6_AC_IDLE_HIBERNATE_READBACK_FAILED' }
+  $powerAfterDisplay = @(& powercfg.exe /query SCHEME_CURRENT SUB_VIDEO VIDEOIDLE 2>&1)
+  if ($LASTEXITCODE -ne 0) { throw 'A6_DISPLAY_SLEEP_READBACK_FAILED' }
+  $standbyAfterText = $powerAfterStandby -join [Environment]::NewLine
+  $hibernateAfterText = $powerAfterHibernate -join [Environment]::NewLine
+  $displayAfterText = $powerAfterDisplay -join [Environment]::NewLine
+  if ($standbyAfterText -notmatch '(?im)AC Power Setting Index:\s+0x00000000') { throw 'A6_AC_STANDBY_READBACK_NOT_ZERO' }
+  if ($hibernateAfterText -notmatch '(?im)AC Power Setting Index:\s+0x00000000') { throw 'A6_AC_HIBERNATE_READBACK_NOT_ZERO' }
+  if ($displayAfterText -ne ($powerBeforeDisplay -join [Environment]::NewLine)) { throw 'A6_DISPLAY_SLEEP_POLICY_CHANGED' }
+  $manifest.power_policy_after = [ordered]@{
+    standby = $standbyAfterText
+    hibernate = $hibernateAfterText
+    display = $displayAfterText
+  }
+  Write-Host 'A6_POWER_POLICY_AC_STANDBY_AFTER=00000000'
+  Write-Host 'A6_POWER_POLICY_AC_HIBERNATE_AFTER=00000000'
+  Write-Host 'A6_POWER_POLICY_DISPLAY_SLEEP=UNCHANGED'
 
   # Idempotent reuse: a later A6 qualification run must not restart Node again
   # when the exact source SHA and its fresh serial-heartbeat runtime are already live.
