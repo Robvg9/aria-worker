@@ -12,6 +12,7 @@ $files = @(
     @{ source = Join-Path $AgentSourceRoot 'atomic-heartbeat-writer.cjs'; destination = Join-Path $RuntimeDir 'atomic-heartbeat-writer.cjs' },
     @{ source = Join-Path $AgentSourceRoot 'heartbeat-scheduler.cjs'; destination = Join-Path $RuntimeDir 'heartbeat-scheduler.cjs' },
     @{ source = Join-Path $AgentSourceRoot 'gateway-dns-lookup.cjs'; destination = Join-Path $RuntimeDir 'gateway-dns-lookup.cjs' },
+    @{ source = Join-Path $AgentSourceRoot 'gateway-http-client.cjs'; destination = Join-Path $RuntimeDir 'gateway-http-client.cjs' },
     @{ source = Join-Path $AgentSourceRoot 'aria-meditation-controller.js'; destination = Join-Path $RuntimeDir 'aria-meditation-controller.js' },
     @{ source = Join-Path $AgentSourceRoot 'autonomous-rwht-controller.js'; destination = Join-Path $RuntimeDir 'autonomous-rwht-controller.js' },
     @{ source = Join-Path $AgentSourceRoot 'run-agent.ps1'; destination = Join-Path $RuntimeDir 'run-agent.ps1' },
