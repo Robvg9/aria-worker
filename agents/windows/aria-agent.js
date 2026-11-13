@@ -143,7 +143,7 @@ function eventLoopDelaySnapshot(){
   eventLoopDelayMonitor.reset();
   return snapshot;
 }
-function touchProcessHeartbeat(network='unknown'){
+async function touchProcessHeartbeat(network='unknown'){
   if(!writeHeartbeatSnapshot)return;
   const payload=JSON.stringify({
     version:'aria-windows-agent-heartbeat-v2',
@@ -162,7 +162,9 @@ function touchProcessHeartbeat(network='unknown'){
     last_gateway_heartbeat_at:lastGatewayHeartbeatAt,
     last_gateway_heartbeat_error:lastGatewayHeartbeatError
   });
-  void writeHeartbeatSnapshot(payload).catch(error=>console.error(`[heartbeat-file] ${error.message}`));
+  // Local persistence is part of liveness: never acknowledge a remote heartbeat
+  // while the canonical Windows heartbeat snapshot is still blocked in the FS queue.
+  await writeHeartbeatSnapshot(payload);
 }
 function normalizeQwenResponse(value){return typeof value==='string'?value.replace(/<think>[\s\S]*?<\/think>/gi,'').trim().slice(0,MAX_OUTPUT):''}
 if(!GATEWAY_URL||!DEVICE_TOKEN||!DEVICE_ID){console.error('ARIA agent requires ARIA_DEVICE_GATEWAY_URL, ARIA_DEVICE_TOKEN and ARIA_DEVICE_ID');process.exit(2)}
@@ -255,27 +257,40 @@ async function callOllama({prompt,model,timeout_ms,signal}){
 }
 async function enroll(){return api('/v1/devices/enroll',{method:'POST',body:JSON.stringify({device_id:DEVICE_ID,token:DEVICE_TOKEN})})}
 async function heartbeat(){
-  if(gatewayHeartbeatInFlight){touchProcessHeartbeat('overlap_skipped');return false}
+  if(gatewayHeartbeatInFlight){
+    try{await touchProcessHeartbeat('overlap_skipped')}
+    catch(error){console.error(`[heartbeat-file] ${error.message}`)}
+    return false;
+  }
   gatewayHeartbeatInFlight=true;
   heartbeatSequence+=1;
-  touchProcessHeartbeat('attempt');
   const startedAt=Date.now();
   try{
+    // Publish local process liveness before making the remote ACK request. If
+    // file I/O stalls, the watchdog must see a stale local heartbeat and recover
+    // the process instead of reporting remote-online while the observer is blind.
+    await touchProcessHeartbeat('attempt');
     const capabilities=[SHELL_OPERATION,COMPUTER_OPERATION,AUTONOMOUS_COMPUTER_OPERATION];
     capabilities.push('app.open','browser.open_url');
     if(VOICE_BRIGHTNESS_ENABLED)capabilities.push('display.brightness.write');
     if(OLLAMA_ENABLED)capabilities.unshift(OLLAMA_OPERATION);
-    await api('/v1/devices/heartbeat',{method:'POST',body:JSON.stringify({device_id:DEVICE_ID,agent_type:'windows-local',capabilities})});
+    try{
+      await api('/v1/devices/heartbeat',{method:'POST',body:JSON.stringify({device_id:DEVICE_ID,agent_type:'windows-local',capabilities})});
+    }catch(error){
+      lastGatewayHeartbeatError={at:new Date().toISOString(),status:Number.isInteger(error?.status)?error.status:null,code:typeof error?.code==='string'?error.code:null,message:String(error?.message||error).slice(0,180)};
+      try{await touchProcessHeartbeat('transport_error')}
+      catch(fileError){console.error(`[heartbeat-file] ${fileError.message}`)}
+      console.error(`[heartbeat] ${error.message}`);
+      return false;
+    }
     lastGatewayHeartbeatAt=new Date().toISOString();
     lastGatewayHeartbeatError=null;
-    touchProcessHeartbeat('online');
+    await touchProcessHeartbeat('online');
     log(`ONLINE device=${DEVICE_ID} capabilities=${capabilities.join(',')}`);
     log(`HEARTBEAT_ACK device=${DEVICE_ID} sequence=${heartbeatSequence} pid=${process.pid} duration_ms=${Date.now()-startedAt} next_interval_ms=${HEARTBEAT_MS}`);
     return true;
   }catch(error){
-    lastGatewayHeartbeatError={at:new Date().toISOString(),status:Number.isInteger(error?.status)?error.status:null,code:typeof error?.code==='string'?error.code:null,message:String(error?.message||error).slice(0,180)};
-    touchProcessHeartbeat('transport_error');
-    console.error(`[heartbeat] ${error.message}`);
+    console.error(`[heartbeat-file] ${error.message}`);
     return false;
   }finally{
     gatewayHeartbeatInFlight=false;
