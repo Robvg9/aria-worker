@@ -252,6 +252,7 @@ jobs:
           Write-Host "A6_TASK_MATCHES=$(@($result.task_list_matches).Count)"
           Write-Host "A6_WATCHDOG_PARENT_PID=$watchdogParentPid"
           Write-Host "A6_TASK_SCHEDULER_EVENTS=$(@($result.task_scheduler_process_events).Count)"
+          Write-Host "A6_TASK_INSPECTION_MODE=READ_ONLY"
           foreach ($task in @($result.task_list_matches)) {
             Write-Host "A6_TASK_MATCH name=$($task.task_name) status=$($task.status) run_as=$($task.run_as) fields=$($task.raw_fields | ConvertTo-Json -Compress -Depth 4)"
           }

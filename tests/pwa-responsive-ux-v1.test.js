@@ -12,7 +12,7 @@ assert.match(css,/\.screenViewport\{[^}]*overflow:hidden;/);
 assert.match(css,/\.appShell\{height:100dvh;min-height:0;max-height:100dvh;overflow:hidden;/);
 assert.match(css,/\.pageBodyViewport\{[^}]*overflow:auto;/);
 assert.match(css,/\.chatPanel \.chatWindow[^}]*overflow:auto;/);
-assert.match(css,/\.projectBodyViewport\{[^}]*overflow:auto;/);
+assert.match(css,/\.projectBodyViewport\{[^}]*overflow-x:hidden;overflow-y:auto;/, 'project viewport must own vertical scrolling without horizontal overflow');
 assert.match(css,/\.bottomNav\{[^}]*grid-template-columns:repeat\(7,minmax\(0,1fr\)/);
 assert.match(css,/\.bottomNav button\{width:100%;min-width:0;min-height:52px/);
 assert.match(css,/\.tabButton\{min-height:40px;box-sizing:border-box;/);

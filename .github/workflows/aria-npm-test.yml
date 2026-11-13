@@ -43,6 +43,8 @@ jobs:
       - name: Install PWA dependencies
         working-directory: pwa
         run: npm install --ignore-scripts --no-audit --no-fund
+      - name: Verify compact mobile Dashboard and newest Chat contracts
+        run: node tests/pwa-home-chat-mobile.test.js
       - name: Build and verify exact PWA + catalogue SHA
         working-directory: pwa
         env:
