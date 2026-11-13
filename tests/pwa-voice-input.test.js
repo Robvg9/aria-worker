@@ -15,7 +15,7 @@ assert.match(voice, /SpeechRecognitionConstructor/);
 assert.match(voice, /webkitSpeechRecognition/);
 assert.match(voice, /recognition\.lang = locale/);
 assert.match(voice, /getNativeSpeechBridge\(\)/, 'Android WebView must discover the native voice bridge');
-assert.match(voice, /voice\.speechRecognition/, 'native recognition must be capability-gated by the host context');
+assert.match(voice, /__ariaVoiceV4NativeContext\?\.voice\?\.speechRecognition/, 'native recognition must be capability-gated by the host context');
 assert.match(voice, /audioLeavesDevice !== false/, 'native recognition must only run when audio stays on device');
 assert.match(voice, /recognizeUtterance\(\{/, 'push-to-talk must call the native one-shot recognizer');
 assert.match(voice, /max_duration_ms: 8000/, 'native push-to-talk must keep the eight-second limit');
