@@ -917,13 +917,61 @@ begin
 end;
 $function$;
 
+-- Rolling-deploy compatibility: legacy gateway versions may still call the
+-- old two-/seven-argument signatures. Keep non-A6 jobs working, but deny every
+-- unfenced legacy call for A6 until the new gateway + Windows agent are deployed.
+create or replace function public.start_execution_job_gateway(
+  p_job_id text,p_device_id text
+) returns jsonb
+language plpgsql
+security definer
+set search_path to 'pg_catalog','aria_internal','public'
+as $function$
+begin
+  if exists(
+    select 1 from aria_internal.mission_wonder_2_a6_scopes s
+     where s.job_id=p_job_id and s.allowed_device_id=p_device_id
+  ) then
+    insert into aria_internal.execution_job_events(job_id,device_id,event_type,payload)
+    values(p_job_id,p_device_id,'job.legacy_start_rpc_rejected',
+      jsonb_build_object('reason','a6_requires_fenced_start_rpc','at',clock_timestamp()));
+    return null;
+  end if;
+  return public.start_execution_job_gateway(p_job_id,p_device_id,null);
+end;
+$function$;
+
+create or replace function public.complete_execution_job_gateway(
+  p_job_id text,p_device_id text,p_status text,p_exit_code integer,
+  p_stdout text,p_stderr text,p_result jsonb
+) returns jsonb
+language plpgsql
+security definer
+set search_path to 'pg_catalog','aria_internal','public'
+as $function$
+begin
+  if exists(
+    select 1 from aria_internal.mission_wonder_2_a6_scopes s
+     where s.job_id=p_job_id and s.allowed_device_id=p_device_id
+  ) then
+    insert into aria_internal.execution_job_events(job_id,device_id,event_type,payload)
+    values(p_job_id,p_device_id,'job.legacy_completion_rpc_rejected',
+      jsonb_build_object('reason','a6_requires_fenced_completion_rpc','at',clock_timestamp()));
+    return null;
+  end if;
+  return public.complete_execution_job_gateway(
+    p_job_id,p_device_id,p_status,p_exit_code,p_stdout,p_stderr,p_result,null
+  );
+end;
+$function$;
+
 do $gateway_privileges$
 begin
   if to_regprocedure('public.start_execution_job_gateway(text,text)') is not null then
-    execute 'revoke all on function public.start_execution_job_gateway(text,text) from public,anon,authenticated,service_role';
+    execute 'revoke all on function public.start_execution_job_gateway(text,text) from public,anon,authenticated';
   end if;
   if to_regprocedure('public.complete_execution_job_gateway(text,text,text,integer,text,text,jsonb)') is not null then
-    execute 'revoke all on function public.complete_execution_job_gateway(text,text,text,integer,text,text,jsonb) from public,anon,authenticated,service_role';
+    execute 'revoke all on function public.complete_execution_job_gateway(text,text,text,integer,text,text,jsonb) from public,anon,authenticated';
   end if;
   execute 'revoke all on function public.start_execution_job_gateway(text,text,text) from public,anon,authenticated';
   execute 'revoke all on function public.complete_execution_job_gateway(text,text,text,integer,text,text,jsonb,text) from public,anon,authenticated';
