@@ -84,6 +84,8 @@ assert.match(runtimeUpdater, /atomic-heartbeat-writer\.cjs/);
 
 // Host installation is bounded to the exact ROBVG runtime and uses its watchdog;
 // the following 45-minute qualification phase is read-only.
+assert.match(preflight, /cancel-in-progress: true/,
+  "a newer exact-SHA host qualification must supersede a stale queued run");
 assert.ok(preflight.includes("name: A6 Windows Agent v2 Install + 45-minute ACK Qualification"));
 assert.ok(preflight.includes("a6-install-heartbeat-v2.ps1"));
 assert.ok(preflight.includes("a6-windows-heartbeat-live-readonly-diagnostic.yml"));
