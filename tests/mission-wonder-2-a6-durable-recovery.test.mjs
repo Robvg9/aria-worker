@@ -7,6 +7,19 @@ const agent = fs.readFileSync('agents/windows/aria-agent.js', 'utf8');
 const watchdog = fs.readFileSync('agents/windows/run-agent.ps1', 'utf8');
 const gateway = fs.readFileSync('supabase/functions/aria-device-gateway/index.ts', 'utf8');
 const httpClient = fs.readFileSync('agents/windows/gateway-http-client.cjs', 'utf8');
+const a6ScopeHelper = fs.readFileSync('supabase/functions/_shared/mission-wonder-2-a6-scope-v1.mjs', 'utf8');
+const runner = fs.readFileSync('supabase/functions/aria-mission-runner-v22/index.ts', 'utf8');
+
+// Keep the SQL checkpoint contract and the paused-runner allowlist in lockstep.
+const recoveryCheckpointReason = 'a6_same_job_reclaimed_after_interruption';
+assert.ok(migration.includes("'reason','" + recoveryCheckpointReason + "'"),
+  'durable recovery SQL must persist the canonical checkpoint recovery reason');
+assert.ok(a6ScopeHelper.includes('recovery.reason !== "' + recoveryCheckpointReason + '"'),
+  'the A6 scope validator must accept only the canonical SQL checkpoint recovery reason');
+assert.match(runner, /const planValid = await m22A6MissionPlanMatchesV1/,
+  'the paused mission runner must await its durable recovery checkpoint validator');
+assert.ok(runner.includes('current_step,completed_steps,total_steps'),
+  'the A6 mission query must select every progress field checked by the frozen scope validator');
 const androidWorkflow = fs.readFileSync('.github/workflows/rwht-android-apk.yml', 'utf8');
 
 assert.match(migration, /mission_wonder_2_a6_recovery_gates/);
