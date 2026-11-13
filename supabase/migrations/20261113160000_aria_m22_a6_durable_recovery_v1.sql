@@ -600,7 +600,8 @@ declare
   blocked_count integer:=0;
 begin
   for r in
-    select sc.run_id,sc.scope_id,sc.mission_id,sc.job_id,sc.status,j.status as job_status
+    select sc.run_id,sc.scope_id,sc.mission_id,sc.job_id,sc.status,
+           j.status as job_status,j.lease_until as job_lease_until
       from aria_internal.mission_wonder_2_a6_scopes sc
       join aria_internal.mission_wonder_2_a6_runs ru on ru.run_id=sc.run_id
       left join aria_internal.execution_jobs j on j.job_id=sc.job_id
@@ -618,7 +619,10 @@ begin
       if aria_internal.aria_m22_a6_complete_scope_v1(r.run_id,r.scope_id,r.mission_id,r.job_id) then
         completed_count:=completed_count+1;
       end if;
-    elsif r.job_status in ('queued','timeout','cancelled')
+    elsif (
+         r.job_status in ('queued','timeout','cancelled')
+         or (r.job_status='running' and r.job_lease_until is not null and r.job_lease_until<=clock_timestamp())
+       )
        and aria_internal.aria_m22_a6_recover_running_job_v1(r.run_id,r.scope_id,r.mission_id,r.job_id) then
       recovered_count:=recovered_count+1;
     elsif m.status in ('failed','blocked','cancelled','timeout')
