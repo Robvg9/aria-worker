@@ -91,8 +91,8 @@ assert.doesNotMatch(preflight, /aria-pwa-fast-deploy\.yml|a6-windows-heartbeat-l
   "CI-only deploy and diagnostic workflow edits must not trigger another physical qualification");
 assert.ok(preflight.includes("name: A6 Windows Agent v2 Install + 45-minute ACK Qualification"));
 assert.ok(preflight.includes("a6-install-heartbeat-v2.ps1"));
-assert.doesNotMatch(preflight, /a6-windows-heartbeat-live-readonly-diagnostic\\.yml/);
-assert.match(diagnosticWorkflow, /fix\\/a6-durable-recovery-v1/,
+assert.doesNotMatch(preflight, /a6-windows-heartbeat-live-readonly-diagnostic\.yml/);
+assert.ok(diagnosticWorkflow.includes("fix/a6-durable-recovery-v1"),
   "read-only diagnostics must keep their own branch trigger, outside physical qualification concurrency");
 assert.match(preflight, /rev-parse HEAD/);
 assert.match(preflight, /rev-parse \("HEAD:" \+ \$relative\)/);
