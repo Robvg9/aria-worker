@@ -147,6 +147,10 @@ jobs:
       - name: Apply A6 migration to disposable PostgreSQL and verify inactive scheduler
         run: |
           set -euo pipefail
+          # The durable A6 completion RPC calls this canonical continuation hook.
+          # Install its real prerequisite migration in the disposable DB rather than
+          # masking the dependency with a test-only stub.
+          psql -v ON_ERROR_STOP=1 -f supabase/migrations/20261004011500_fix_mission_continuation_tick_error_fallback_v1.sql
           psql -v ON_ERROR_STOP=1 -f supabase/migrations/20261106154808_aria_mission_wonder_2_a6_isolated_scope_v1.sql
           psql -v ON_ERROR_STOP=1 -f supabase/migrations/20261107100000_aria_m22_a6_cron_auth_slot_reuse_v1.sql
           psql -v ON_ERROR_STOP=1 -f supabase/migrations/20261107133800_aria_m22_a6_stdout_verification_marker_alignment_v1.sql
