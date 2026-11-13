@@ -111,6 +111,7 @@ for (let ordinal = 1; ordinal <= M22_A6_MISSION_COUNT; ordinal += 1) {
 }
 
 const ordinal = 1;
+const stepId = m22A6StepIdV1(ordinal);
 const missionId = m22A6MissionIdV1(RUN_ID, ordinal);
 const goal = m22A6GoalV1(RUN_ID, ordinal);
 const goalHash = await m22A6GoalIdentityHashV1(OWNER, goal, null);
