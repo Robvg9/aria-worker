@@ -44,7 +44,7 @@ function createGatewayRequest({
           path: parsed.pathname + parsed.search,
           method: options.method || 'GET',
           ...(lookup ? { lookup } : {}),
-          ...(options.family ? { family: options.family } : {}),
+          family: options.family || 4,
           headers: {
             ...(options.headers || {}),
             ...(body ? { 'content-length': Buffer.byteLength(body) } : {})
