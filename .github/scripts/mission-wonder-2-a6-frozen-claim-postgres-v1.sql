@@ -30,6 +30,8 @@ declare
   v_old_lease_owner text;
   v_claim_2 jsonb;
   v_stale_complete jsonb;
+  v_start jsonb;
+  v_complete jsonb;
   v_legacy_start jsonb;
   v_legacy_complete jsonb;
   v_count integer;
@@ -326,6 +328,15 @@ begin
    where job_id=v_job_id and event_type='job.legacy_completion_rpc_rejected';
   if v_count<>1 then raise exception 'A6_TEST_LEGACY_COMPLETE_RPC_REJECTION_MISSING'; end if;
 
+  -- The recovered attempt must be able to start with its newly fenced lease.
+  v_start:=public.start_execution_job_gateway(v_job_id,v_device_id,v_claim_2->>'lease_owner');
+  if v_start is null or v_start->>'status' is distinct from 'running' then
+    raise exception 'A6_TEST_FRESH_LEASE_START_FAILED';
+  end if;
+  if not aria_internal.aria_m22_a6_frozen_job_authorized_v1(v_job_id,v_device_id,'running') then
+    raise exception 'A6_TEST_ATTEMPT_2_RUNNING_AUTHORIZATION_FAILED';
+  end if;
+
   v_stale_complete:=public.complete_execution_job_gateway(
     v_job_id,v_device_id,'succeeded',0,'A6_ARTIFACT_VERIFIED;mode=identical','',
     jsonb_build_object('status','succeeded','exit_code',0,'stdout','A6_ARTIFACT_VERIFIED;mode=identical',
@@ -339,6 +350,18 @@ begin
     from aria_internal.execution_job_events
    where job_id=v_job_id and event_type='job.stale_lease_result_rejected';
   if v_count<>1 then raise exception 'A6_TEST_STALE_LEASE_REJECTION_EVENT_MISSING'; end if;
+
+  -- The current owner and attempt may complete successfully after the stale
+  -- owner has been rejected. This verifies the positive side of lease fencing.
+  v_complete:=public.complete_execution_job_gateway(
+    v_job_id,v_device_id,'succeeded',0,'A6_ARTIFACT_VERIFIED;mode=recovered','',
+    jsonb_build_object('status','succeeded','exit_code',0,'stdout','A6_ARTIFACT_VERIFIED;mode=recovered',
+      'metadata',jsonb_build_object('mission_wonder_2_a6_attempt',2,'lease_owner',v_claim_2->>'lease_owner')),
+    v_claim_2->>'lease_owner'
+  );
+  if v_complete is null or v_complete->>'status' is distinct from 'succeeded' then
+    raise exception 'A6_TEST_FRESH_LEASE_COMPLETION_FAILED';
+  end if;
 
   -- A recovered device must still be blocked when the observed heartbeat-to-heartbeat
   -- gap itself exceeds the 120s recovery ceiling, even if the latest heartbeat is fresh.
