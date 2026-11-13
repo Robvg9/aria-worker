@@ -121,7 +121,7 @@ assert.match(a6Installer, /power_policy_after=\$null/);
 assert.match(a6Installer, /A6_AC_IDLE_HIBERNATE_READBACK_FAILED/);
 assert.ok(a6Installer.includes("AC Power Setting Index|\\u00CDndice de configuraci\\u00F3n de corriente alterna actual"),
   "PowerShell 5.1 installer must use ASCII-safe Unicode regex escapes for the localized Windows label");
-const localizedAcReadbackPattern = new RegExp("(?:AC Power Setting Index|\\\\u00CDndice de configuraci\\\\u00F3n de corriente alterna actual):\\\\s+0x00000000", "i");
+const localizedAcReadbackPattern = new RegExp("(?:AC Power Setting Index|\\u00CDndice de configuraci\\u00F3n de corriente alterna actual):\\s+0x00000000", "i");
 const localizedAcReadback = String.fromCharCode(0x00CD) + "ndice de configuraci" +
   String.fromCharCode(0x00F3) + "n de corriente alterna actual: 0x00000000";
 assert.ok(localizedAcReadbackPattern.test(localizedAcReadback),
