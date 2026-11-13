@@ -3338,7 +3338,7 @@ Deno.serve(async (request) => {
             projectId: a6Mission.metadata?.project_id ?? null,
             requiredStatuses: ["bound"],
           });
-          const planValid = m22A6MissionPlanMatchesV1({
+          const planValid = await m22A6MissionPlanMatchesV1({
             mission: a6Mission,
             runId,
             ordinal: Number(scope?.ordinal),
