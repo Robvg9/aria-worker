@@ -441,3 +441,4 @@ jobs:
 # Read-only DNS resolver comparison for the A6 ENOTFOUND incident.
 
 # Bound the HTTPS hostname probe to 4 seconds so diagnostics cannot hang on DNS.
+# A6 incident 2026-11-13: correlate 20:50-20:56 UTC ACK stall with watchdog, power, NIC, and Windows events; read-only only.
