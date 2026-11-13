@@ -24,6 +24,11 @@ declare
   v_metadata jsonb;
   v_claim jsonb;
   v_event jsonb;
+  v_sample jsonb;
+  v_recovered boolean;
+  v_old_lease_owner text;
+  v_claim_2 jsonb;
+  v_stale_complete jsonb;
   v_count integer;
 begin
   -- The fixture must begin under the same frozen/disabled baseline as LIVE.
@@ -149,6 +154,32 @@ begin
     'queued',jsonb_build_object('idempotency_key',v_job_id)
   );
 
+  -- A heartbeat older than 90s enters RECOVERING but remains recoverable until
+  -- the same heartbeat stream returns within the configured 120s deadline.
+  update aria_internal.device_registry
+     set last_seen_at=clock_timestamp()-interval '95 seconds'
+   where device_id=v_device_id;
+  v_sample:=aria_internal.aria_m22_a6_sample_runtime_v1();
+  if v_sample->>'status' is distinct from 'recovering'
+     or not exists(select 1 from aria_internal.mission_wonder_2_a6_recovery_gates where run_id=v_run_id) then
+    raise exception 'A6_TEST_95S_HEARTBEAT_DID_NOT_ENTER_RECOVERING';
+  end if;
+  if aria_internal.aria_m22_a6_frozen_job_authorized_v1(v_job_id,v_device_id,'queued') then
+    raise exception 'A6_TEST_CLAIM_ALLOWED_DURING_RECOVERY_GATE';
+  end if;
+  if aria_internal.aria_m22_a6_claim_frozen_job_v1(v_device_id) is not null then
+    raise exception 'A6_TEST_JOB_CLAIMED_DURING_RECOVERY_GATE';
+  end if;
+
+  update aria_internal.device_registry
+     set last_seen_at=clock_timestamp()-interval '5 seconds'
+   where device_id=v_device_id;
+  v_sample:=aria_internal.aria_m22_a6_sample_runtime_v1();
+  if v_sample->>'status' is distinct from 'sampled'
+     or exists(select 1 from aria_internal.mission_wonder_2_a6_recovery_gates where run_id=v_run_id) then
+    raise exception 'A6_TEST_HEARTBEAT_RECOVERY_WITHIN_120S_NOT_RECOGNIZED';
+  end if;
+
   -- Negative case 1: wrong device cannot see or claim the frozen A6 job.
   if aria_internal.aria_m22_a6_has_claimable_job_v1(v_wrong_device_id) then
     raise exception 'A6_TEST_WRONG_DEVICE_SEES_CLAIMABLE_JOB';
@@ -227,6 +258,67 @@ begin
     raise exception 'A6_TEST_CLAIM_LEASE_INVALID';
   end if;
 
+  -- Simulate a worker that started and then lost its lease. Recovery must reuse
+  -- the same job row, increment the attempt, issue a fresh lease, and fence the
+  -- previous worker's late completion.
+  v_old_lease_owner:=v_claim->>'lease_owner';
+  update aria_internal.execution_jobs
+     set status='running',started_at=clock_timestamp(),updated_at=clock_timestamp()
+   where job_id=v_job_id and status='claimed';
+  update aria_internal.execution_jobs
+     set status='timeout',completed_at=clock_timestamp(),updated_at=clock_timestamp(),
+         lease_owner=null,lease_until=null,recovery_count=1,exit_code=null,
+         stderr='watchdog: a6 running lease expired'
+   where job_id=v_job_id and status='running';
+  insert into aria_internal.execution_job_events(job_id,device_id,event_type,payload)
+  values(v_job_id,v_device_id,'job.timeout',jsonb_build_object(
+    'reason','watchdog_running_lease_expired','mission_wonder_2_a6_same_job_recovery',true
+  ));
+
+  v_recovered:=aria_internal.aria_m22_a6_recover_running_job_v1(
+    v_run_id,v_scope_id,v_mission_id,v_job_id
+  );
+  if v_recovered is distinct from true then
+    raise exception 'A6_TEST_SAME_JOB_RECOVERY_REJECTED';
+  end if;
+  if not exists(
+    select 1 from aria_internal.execution_jobs
+     where job_id=v_job_id and status='queued' and recovery_count=1
+       and completed_at is null and lease_owner is null and lease_until is null
+       and metadata->>'mission_wonder_2_a6_attempt'='2'
+  ) then raise exception 'A6_TEST_SAME_JOB_NOT_REQUEUED_AS_ATTEMPT_2'; end if;
+  if not exists(
+    select 1 from aria_internal.mission_state
+     where mission_id=v_mission_id
+       and checkpoint->'pending_jobs'->v_step_id->>'attempt'='2'
+       and checkpoint->'plan'->0->>'max_attempts'='2'
+  ) then raise exception 'A6_TEST_CHECKPOINT_NOT_ADVANCED_TO_ATTEMPT_2'; end if;
+
+  v_claim_2:=aria_internal.aria_m22_a6_claim_frozen_job_v1(v_device_id);
+  if v_claim_2 is null or v_claim_2->>'job_id' is distinct from v_job_id
+     or v_claim_2->>'status' is distinct from 'claimed'
+     or coalesce(v_claim_2->>'lease_owner','')='' 
+     or v_claim_2->>'lease_owner'=v_old_lease_owner then
+    raise exception 'A6_TEST_SECOND_CLAIM_DID_NOT_FENCE_OLD_LEASE';
+  end if;
+  if not aria_internal.aria_m22_a6_frozen_job_authorized_v1(v_job_id,v_device_id,'claimed') then
+    raise exception 'A6_TEST_ATTEMPT_2_NOT_AUTHORIZED';
+  end if;
+
+  v_stale_complete:=public.complete_execution_job_gateway(
+    v_job_id,v_device_id,'succeeded',0,'A6_ARTIFACT_VERIFIED;mode=identical','',
+    jsonb_build_object('status','succeeded','exit_code',0,'stdout','A6_ARTIFACT_VERIFIED;mode=identical',
+      'metadata',jsonb_build_object('mission_wonder_2_a6_attempt',1,'lease_owner',v_old_lease_owner)),
+    v_old_lease_owner
+  );
+  if v_stale_complete is not null then
+    raise exception 'A6_TEST_STALE_ATTEMPT_COMPLETED_WITH_OLD_LEASE';
+  end if;
+  select count(*) into v_count
+    from aria_internal.execution_job_events
+   where job_id=v_job_id and event_type='job.stale_lease_result_rejected';
+  if v_count<>1 then raise exception 'A6_TEST_STALE_LEASE_REJECTION_EVENT_MISSING'; end if;
+
   -- The A6 fixture does not alter ambient non-A6 work or any cron state.
   if aria_internal.aria_m22_a6_ambient_snapshot_v1() is distinct from v_baseline then
     raise exception 'A6_TEST_AMBIENT_STATE_CHANGED';
@@ -245,6 +337,9 @@ begin
   end if;
 
   raise notice 'A6_FROZEN_CLAIM_POSTGRES=PASS';
+  raise notice 'A6_HEARTBEAT_RECOVERY_GATE=PASS';
+  raise notice 'A6_SAME_JOB_IDEMPOTENT_RECOVERY=PASS';
+  raise notice 'A6_STALE_LEASE_FENCING=PASS';
   raise notice 'A6_FROZEN_CLAIM_NEGATIVE_CASES=PASS';
   raise notice 'A6_FROZEN_CLAIM_IDEMPOTENCY=PASS';
   raise notice 'A6_GLOBAL_FREEZE_PRESERVED=true';
