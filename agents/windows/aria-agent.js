@@ -3,6 +3,8 @@ const crypto = require('node:crypto');
 const { createAtomicHeartbeatWriter } = require('./atomic-heartbeat-writer.cjs');
 const { runHeartbeatLoop } = require('./heartbeat-scheduler.cjs');
 const { createGatewayLookup } = require('./gateway-dns-lookup.cjs');
+const { createGatewayRequest } = require('./gateway-http-client.cjs');
+const { monitorEventLoopDelay } = require('node:perf_hooks');
 const os = require('node:os');
 const { parseShellJob, executePowerShell } = require('./windows-shell-executor');
 const { createWindowsMeditationController } = require('./aria-meditation-controller');
@@ -112,62 +114,74 @@ function sleep(ms){return new Promise(resolve=>setTimeout(resolve,ms))}
 let gatewayHeartbeatInFlight=false;
 let lastGatewayHeartbeatAt=null;
 let lastGatewayHeartbeatError=null;
-function touchProcessHeartbeat(network='unknown'){if(!writeHeartbeatSnapshot)return;const payload=JSON.stringify({version:'aria-windows-agent-heartbeat-v2',timestamp:new Date().toISOString(),device_id:DEVICE_ID,network,heartbeat_scheduler_version:'serial-retry-v1',gateway_dns_fallback_version:'supabase-scoped-public-fallback-v1',last_gateway_heartbeat_at:lastGatewayHeartbeatAt,last_gateway_heartbeat_error:lastGatewayHeartbeatError});void writeHeartbeatSnapshot(payload).catch(error=>console.error(`[heartbeat-file] ${error.message}`))}
+let heartbeatSequence=0;
+const processStartedAt=new Date(Date.now()-process.uptime()*1000).toISOString();
+const eventLoopDelayMonitor=monitorEventLoopDelay({resolution:20});
+eventLoopDelayMonitor.enable();
+function eventLoopDelaySnapshot(){
+  const toMs=value=>Number.isFinite(value)?Math.round(value/1e6*100)/100:null;
+  const snapshot={
+    mean_ms:toMs(eventLoopDelayMonitor.mean),
+    p95_ms:toMs(eventLoopDelayMonitor.percentile(95)),
+    p99_ms:toMs(eventLoopDelayMonitor.percentile(99)),
+    max_ms:toMs(eventLoopDelayMonitor.max)
+  };
+  eventLoopDelayMonitor.reset();
+  return snapshot;
+}
+function touchProcessHeartbeat(network='unknown'){
+  if(!writeHeartbeatSnapshot)return;
+  const payload=JSON.stringify({
+    version:'aria-windows-agent-heartbeat-v2',
+    timestamp:new Date().toISOString(),
+    device_id:DEVICE_ID,
+    network,
+    process_id:process.pid,
+    process_started_at:processStartedAt,
+    process_uptime_ms:Math.round(process.uptime()*1000),
+    heartbeat_sequence:heartbeatSequence,
+    heartbeat_scheduler_version:'serial-retry-v1',
+    gateway_dns_fallback_version:'supabase-scoped-public-fallback-v1',
+    event_loop_delay:eventLoopDelaySnapshot(),
+    last_gateway_heartbeat_at:lastGatewayHeartbeatAt,
+    last_gateway_heartbeat_error:lastGatewayHeartbeatError
+  });
+  void writeHeartbeatSnapshot(payload).catch(error=>console.error(`[heartbeat-file] ${error.message}`));
+}
 function normalizeQwenResponse(value){return typeof value==='string'?value.replace(/<think>[\s\S]*?<\/think>/gi,'').trim().slice(0,MAX_OUTPUT):''}
 if(!GATEWAY_URL||!DEVICE_TOKEN||!DEVICE_ID){console.error('ARIA agent requires ARIA_DEVICE_GATEWAY_URL, ARIA_DEVICE_TOKEN and ARIA_DEVICE_ID');process.exit(2)}
 function endpoint(p){return`${GATEWAY_URL.replace(/\/$/,'')}${p}`} function headers(){return{'content-type':'application/json',authorization:`Bearer ${DEVICE_TOKEN}`,'x-aria-device-id':DEVICE_ID}}
 const https = require('node:https');
-function nativeGatewayRequest(url, options = {}) {
-  return new Promise((resolve, reject) => {
-    const u = new URL(url);
-    const requestBody = typeof options.body === 'string' ? options.body : '';
-    const req = https.request({
-      hostname: u.hostname,
-      port: u.port ? Number(u.port) : 443,
-      path: u.pathname + u.search,
-      method: options.method || 'GET',
-      family: 4,
-      lookup: gatewayLookup,
-      headers: {
-        ...(options.headers || {}),
-        ...(requestBody ? { 'content-length': Buffer.byteLength(requestBody) } : {}),
-      },
-    }, res => {
-      let text = '';
-      res.setEncoding('utf8');
-      res.on('data', chunk => { text += chunk; });
-      res.on('end', () => resolve({ status: Number(res.statusCode || 0), text }));
-    });
-    const requestDeadlineMs=Math.max(1000,Number(options.timeoutMs)||GATEWAY_TIMEOUT_MS);
-    // Socket inactivity timeouts alone can be extended indefinitely by a
-    // trickling response. Enforce a hard wall-clock deadline for every request.
-    const deadline=setTimeout(()=>req.destroy(new Error('gateway_timeout')),requestDeadlineMs);
-    if(typeof deadline.unref==='function')deadline.unref();
-    req.setTimeout(requestDeadlineMs, () => req.destroy(new Error('gateway_timeout')));
-    req.on('error', error => { clearTimeout(deadline); reject(error); });
-    req.on('close',()=>clearTimeout(deadline));
-    if (requestBody) req.write(requestBody);
-    req.end();
-  });
-}
+const nativeGatewayRequest=createGatewayRequest({
+  https,
+  lookup:gatewayLookup,
+  defaultTimeoutMs:GATEWAY_TIMEOUT_MS
+});
 async function api(p,options={}){
   let lastError=null;
+  const requestId=crypto.randomUUID();
   for(let attempt=0;attempt<=GATEWAY_RETRIES;attempt++){
     try{
+      log(`GATEWAY_REQUEST_START id=${requestId} path=${p} attempt=${attempt+1}`);
       const response=await nativeGatewayRequest(endpoint(p),{
         ...options,
-        headers:{...headers(),...(options.headers||{})}
+        headers:{...headers(),...(options.headers||{}),'x-aria-request-id':requestId}
       });
       let body=null;
       try{body=response.text?JSON.parse(response.text):null}catch{body={raw:response.text}}
-      if(response.status>=200&&response.status<300)return body;
+      if(response.status>=200&&response.status<300){
+        log(`GATEWAY_REQUEST_ACK id=${requestId} path=${p} status=${response.status}`);
+        return body;
+      }
       const error=new Error(`gateway ${response.status}: ${body?.error||'request failed'}`);
       error.status=response.status;
       lastError=error;
       const retryable=response.status===408||response.status===429||response.status>=500;
+      log(`GATEWAY_REQUEST_ERROR id=${requestId} path=${p} status=${response.status} retryable=${retryable}`);
       if(!retryable||attempt>=GATEWAY_RETRIES)throw error;
     }catch(error){
       lastError=error;
+      log(`GATEWAY_REQUEST_ERROR id=${requestId} path=${p} code=${error.code||'unknown'} attempt=${attempt+1}`);
       if(attempt>=GATEWAY_RETRIES)throw error;
     }
     await sleep(Math.min(5000,750*Math.pow(2,attempt))+Math.floor(Math.random()*500));
@@ -227,6 +241,7 @@ async function enroll(){return api('/v1/devices/enroll',{method:'POST',body:JSON
 async function heartbeat(){
   if(gatewayHeartbeatInFlight){touchProcessHeartbeat('overlap_skipped');return false}
   gatewayHeartbeatInFlight=true;
+  heartbeatSequence+=1;
   touchProcessHeartbeat('attempt');
   const startedAt=Date.now();
   try{
@@ -239,7 +254,7 @@ async function heartbeat(){
     lastGatewayHeartbeatError=null;
     touchProcessHeartbeat('online');
     log(`ONLINE device=${DEVICE_ID} capabilities=${capabilities.join(',')}`);
-    log(`HEARTBEAT_ACK device=${DEVICE_ID} duration_ms=${Date.now()-startedAt} next_interval_ms=${HEARTBEAT_MS}`);
+    log(`HEARTBEAT_ACK device=${DEVICE_ID} sequence=${heartbeatSequence} pid=${process.pid} duration_ms=${Date.now()-startedAt} next_interval_ms=${HEARTBEAT_MS}`);
     return true;
   }catch(error){
     lastGatewayHeartbeatError={at:new Date().toISOString(),status:Number.isInteger(error?.status)?error.status:null,code:typeof error?.code==='string'?error.code:null,message:String(error?.message||error).slice(0,180)};
