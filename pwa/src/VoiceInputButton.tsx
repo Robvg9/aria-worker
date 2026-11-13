@@ -39,6 +39,33 @@ type VoiceSession = {
   chunks: Blob[];
 };
 
+type NativeSpeechRecognitionResult = {
+  transcript: string;
+  language: string;
+  recognitionMode: 'on_device';
+  durationMs: number;
+};
+
+type NativeSpeechRecognitionBridge = {
+  recognizeUtterance(input: { max_duration_ms: number; language: string }): Promise<NativeSpeechRecognitionResult>;
+  cancelRecognition(): Promise<{ accepted: boolean }>;
+};
+
+function getNativeSpeechBridge(): NativeSpeechRecognitionBridge | null {
+  const host = window as any;
+  const capability = host.__ariaVoiceV4NativeContext?.voice?.speechRecognition;
+  const bridge = host.ariaVoiceV4;
+  if (capability?.available !== true
+      || capability?.mode !== 'on_device'
+      || capability?.explicitActivationOnly !== true
+      || capability?.audioLeavesDevice !== false
+      || typeof bridge?.recognizeUtterance !== 'function'
+      || typeof bridge?.cancelRecognition !== 'function') {
+    return null;
+  }
+  return bridge as NativeSpeechRecognitionBridge;
+}
+
 const ERROR_MESSAGES: Record<string, string> = {
   'not-allowed': 'Permite el acceso al micrófono en el navegador y vuelve a intentarlo.',
   'service-not-allowed': 'El navegador bloqueó el servicio de transcripción por voz.',
@@ -61,6 +88,7 @@ export function VoiceInputButton({
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const sessionRef = useRef<VoiceSession | null>(null);
   const activeRef = useRef(false);
+  const nativeRecognitionRef = useRef(false);
   const onTranscriptRef = useRef(onTranscript);
   const onAudioRef = useRef(onAudio);
   const [listening, setListening] = useState(false);
@@ -71,6 +99,10 @@ export function VoiceInputButton({
 
   useEffect(() => () => {
     activeRef.current = false;
+    if (nativeRecognitionRef.current) {
+      nativeRecognitionRef.current = false;
+      try { void (window as any).ariaVoiceV4?.cancelRecognition?.(); } catch {}
+    }
     const session = sessionRef.current;
     try { session?.recognition?.abort?.(); } catch {}
     try { if (session?.recorder?.state === 'recording') session.recorder.stop(); } catch {}
@@ -171,7 +203,89 @@ export function VoiceInputButton({
     }
   }
 
+  async function startNativeRecognition(bridge: NativeSpeechRecognitionBridge) {
+    nativeRecognitionRef.current = true;
+    activeRef.current = true;
+    setListening(true);
+    const language = resolveVoiceRecognitionLocale(navigator.language, navigator.languages);
+    setNotice('Reconocimiento local de Android activado. Habla ahora; el audio no sale del teléfono…');
+    try {
+      let result: NativeSpeechRecognitionResult;
+      try {
+        result = await bridge.recognizeUtterance({
+          max_duration_ms: 8000,
+          language
+        });
+      } catch (cause) {
+        const code = cause instanceof Error ? cause.message : '';
+        if (['voice_asr_language_unsupported', 'voice_asr_language_unavailable'].includes(code)
+            && language.toLowerCase() !== 'es-es'
+            && nativeRecognitionRef.current) {
+          setNotice('El motor local no admite el idioma preferido. Probando español general…');
+          result = await bridge.recognizeUtterance({
+            max_duration_ms: 8000,
+            language: 'es-ES'
+          });
+        } else {
+          throw cause;
+        }
+      }
+      if (!nativeRecognitionRef.current) return;
+      const transcript = String(result?.transcript || '').trim();
+      if (!transcript) {
+        setNotice('No se recibió una transcripción. Inténtalo otra vez.');
+        return;
+      }
+      if (autoSubmit) {
+        setNotice('Transcripción local recibida. ARIA está preparando tu respuesta…');
+        const response = await onTranscriptRef.current(transcript);
+        setNotice(response === false
+          ? 'ARIA no pudo completar la respuesta. Revisa el error del chat.'
+          : 'Respuesta recibida. Puedes hablar de nuevo.');
+      } else {
+        await onTranscriptRef.current(transcript);
+        setNotice('Transcripción local insertada. Revísala y envíala.');
+      }
+    } catch (cause) {
+      if (!nativeRecognitionRef.current) return;
+      const code = cause instanceof Error ? cause.message : '';
+      const messages: Record<string, string> = {
+        voice_asr_on_device_unavailable: 'El reconocimiento local no está disponible en este teléfono. No se envió audio a un servicio remoto.',
+        voice_asr_permission_required: 'Permite el micrófono a ARIA Unificada en los ajustes de Android.',
+        voice_asr_language_unsupported: 'El motor local no admite el español seleccionado.',
+        voice_asr_language_unavailable: 'El paquete local de español no está disponible en este teléfono.',
+        voice_asr_no_match: 'No detecté una frase clara. Inténtalo otra vez.',
+        voice_asr_speech_timeout: 'No detecté voz antes del tiempo límite.',
+        voice_asr_timeout: 'Se agotó la ventana de escucha de 8 segundos.',
+        voice_asr_busy: 'Ya hay otro reconocimiento de voz activo.',
+        voice_asr_listener_active: 'Detén primero la captura PCM del panel Voice y vuelve a pulsar Hablar.',
+        voice_asr_audio_error: 'Android no pudo acceder al micrófono.',
+        voice_asr_start_failed: 'Android no pudo iniciar el reconocimiento local.',
+        voice_asr_cancelled: 'Dictado local detenido.'
+      };
+      setNotice(messages[code] || 'Falló el reconocimiento local (' + (code || 'voice_asr_failed') + '). No se envió audio a un servicio remoto.');
+    } finally {
+      nativeRecognitionRef.current = false;
+      activeRef.current = false;
+      setListening(false);
+    }
+  }
+
   function toggleDictation() {
+    if (listening && nativeRecognitionRef.current) {
+      nativeRecognitionRef.current = false;
+      activeRef.current = false;
+      setListening(false);
+      setNotice('Deteniendo reconocimiento local…');
+      const bridge = getNativeSpeechBridge();
+      if (bridge) {
+        void bridge.cancelRecognition().then(() => setNotice('Dictado local detenido.'))
+          .catch(() => setNotice('Se solicitó detener el dictado local.'));
+      } else {
+        setNotice('Dictado local detenido.');
+      }
+      return;
+    }
     if (listening) {
       activeRef.current = false;
       const session = sessionRef.current;
@@ -194,10 +308,23 @@ export function VoiceInputButton({
       return;
     }
 
+    const nativeContext = (window as any).__ariaVoiceV4NativeContext?.voice;
+    const nativeHost = (window as any).ariaNativeBridge?.platform === 'android'
+      && typeof nativeContext?.speechRecognition?.available === 'boolean';
+    if (nativeHost) {
+      const nativeBridge = getNativeSpeechBridge();
+      if (nativeBridge) {
+        void startNativeRecognition(nativeBridge);
+      } else {
+        setNotice('El reconocimiento local no está disponible en este teléfono. No se enviará audio a un servicio remoto; puedes escribir el mensaje.');
+      }
+      return;
+    }
+
     const speechWindow = window as any;
     const SpeechRecognitionConstructor = speechWindow.SpeechRecognition || speechWindow.webkitSpeechRecognition;
     if (!SpeechRecognitionConstructor) {
-      setNotice('Este navegador no admite transcripción automática por voz. Abre ARIA en Chrome actualizado y permite el micrófono.');
+      setNotice('Este navegador no admite transcripción automática por voz. Permite el micrófono o utiliza el teclado.');
       return;
     }
 
