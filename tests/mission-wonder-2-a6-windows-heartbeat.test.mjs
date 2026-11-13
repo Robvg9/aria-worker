@@ -203,7 +203,7 @@ assert.match(watchdog, /DESKTOP_101_CHILD_CANCELLED reason=agent_worker_restart/
 
 const gatewayBlock = watchdog.slice(
   watchdog.indexOf("# Distinguish local Node liveness"),
-  watchdog.indexOf("if (Test-Path $DesktopTestRequestPath)")
+  watchdog.indexOf("# Desktop diagnostics are supervised asynchronously")
 );
 assert.ok(gatewayBlock.includes("action=observe_only"));
 assert.ok(!gatewayBlock.includes("Stop-Process"));
