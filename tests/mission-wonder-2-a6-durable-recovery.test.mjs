@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 
 const migration = fs.readFileSync('supabase/migrations/20261113160000_aria_m22_a6_durable_recovery_v1.sql', 'utf8');
+const postgresContract = fs.readFileSync('.github/scripts/mission-wonder-2-a6-frozen-claim-postgres-v1.sql', 'utf8');
 const agent = fs.readFileSync('agents/windows/aria-agent.js', 'utf8');
 const watchdog = fs.readFileSync('agents/windows/run-agent.ps1', 'utf8');
 const gateway = fs.readFileSync('supabase/functions/aria-device-gateway/index.ts', 'utf8');
@@ -24,8 +25,8 @@ assert.match(migration, /new_job_created',false/);
 assert.match(migration, /a6_requeue_job_id/);
 assert.match(migration, /p_lease_owner/);
 assert.match(migration, /job\.stale_lease_result_rejected/);
-assert.match(migration, /A6_TEST_FRESH_LEASE_START_FAILED/);
-assert.match(migration, /A6_TEST_FRESH_LEASE_COMPLETION_FAILED/);
+assert.match(postgresContract, /A6_TEST_FRESH_LEASE_START_FAILED/);
+assert.match(postgresContract, /A6_TEST_FRESH_LEASE_COMPLETION_FAILED/);
 assert.match(migration, /max_recovery_count<=r\.max_recovery_attempts/);
 assert.match(migration, /max_heartbeat_age_ms<=r\.max_recovery_ms/);
 
