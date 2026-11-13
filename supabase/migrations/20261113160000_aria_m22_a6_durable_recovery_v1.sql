@@ -332,6 +332,9 @@ begin
   v_new := $new$if not found or j.status<>p_required_status or j.completed_at is not null
      or coalesce(nullif(j.metadata->>'mission_wonder_2_a6_attempt','')::integer,1) not in (1,2)
      or coalesce(j.recovery_count,0)>(select max_recovery_attempts from aria_internal.mission_wonder_2_a6_runs where run_id=s.run_id)
+     or coalesce(j.recovery_count,0)<>(
+       coalesce(nullif(j.metadata->>'mission_wonder_2_a6_attempt','')::integer,1)-1
+     )
      then return false; end if;$new$;
   if position(v_new in v_definition)=0 then
     if position(v_old in v_definition)=0 then raise exception 'A6_AUTH_JOB_ATTEMPT_ANCHOR_MISSING'; end if;
@@ -540,6 +543,15 @@ begin
 
   if (select count(*) from aria_internal.execution_jobs where mission_id=p_mission_id)<>1 then return false; end if;
   if exists(select 1 from aria_internal.mission_wonder_2_a6_recovery_gates where run_id=p_run_id) then
+    return false;
+  end if;
+  if not exists(
+    select 1 from aria_internal.device_registry d
+     where d.device_id=s.allowed_device_id and d.agent_type='windows-local'
+       and d.status='online' and d.token_hash is not null
+       and d.capabilities @> '["shell.execute"]'::jsonb
+       and d.last_seen_at>v_now-(r.max_normal_heartbeat_gap_ms*interval '1 millisecond')
+  ) then
     return false;
   end if;
 
