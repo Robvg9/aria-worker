@@ -28,13 +28,41 @@ function resolveAndroidAmPath(env = process.env, existsSync = fs.existsSync) {
   return 'am';
 }
 
-const PACKAGE = 'com.robvg9.ariauiagent.debug'; // Backward-compatible export; local HTTP does not depend on APK package id.
-const IPC_TOKEN = '4fa3c34b8093d0ac3633fd58ade90bc224827f2a7b21cf29f26931c637e34d76';
+const PACKAGE = 'com.robvg9.aria.unified';
+const RECEIVER_COMPONENT = 'com.robvg9.ariauiagent.CommandReceiver';
+const MAIN_ACTIVITY_COMPONENT = 'com.robvg9.ariauiagent.MainActivity';
 const LOCAL_IPC_URL = 'http://127.0.0.1:45874/execute';
 const LOCAL_IPC_HEALTH_URL = 'http://127.0.0.1:45874/health';
 const SECRET_REF_PATTERN = /^secret:\/\/rwht\/[A-Za-z0-9._:-]+$/;
 const REQUIRED_IPC_PROTOCOL = 'aria-android-ui-agent-ipc-v2';
 const ANDROID_UID_PER_USER = 100000;
+const IPC_TOKEN_ENV = 'ARIA_IPC_TOKEN';
+const IPC_TOKEN_FILE_ENV = 'ARIA_IPC_TOKEN_FILE';
+const IPC_TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
+
+function resolveIpcTokenFile(env = process.env) {
+  const override = typeof env[IPC_TOKEN_FILE_ENV] === 'string' ? env[IPC_TOKEN_FILE_ENV].trim() : '';
+  if (override) return override;
+  const home = env.HOME || env.TERMUX__HOME || '/data/data/com.termux/files/home';
+  return path.join(home, '.aria', 'ipc-token');
+}
+
+/**
+ * Per-install credential paired by the owner in ARIA > Misión local.
+ * There is intentionally no embedded fallback: without a credential the
+ * bridge stays closed. The file is re-read per call so rotation does not
+ * require restarting the Termux agent.
+ */
+function loadIpcToken(env = process.env, readFileSync = fs.readFileSync) {
+  const inline = typeof env[IPC_TOKEN_ENV] === 'string' ? env[IPC_TOKEN_ENV].trim() : '';
+  if (inline) return IPC_TOKEN_PATTERN.test(inline) ? inline : null;
+  try {
+    const fromFile = String(readFileSync(resolveIpcTokenFile(env), 'utf8')).trim();
+    return IPC_TOKEN_PATTERN.test(fromFile) ? fromFile : null;
+  } catch (_) {
+    return null;
+  }
+}
 
 function localAndroidUserId() {
   try {
@@ -57,6 +85,14 @@ function executeAndroidCommandReceiver({ request, timeoutMs = 8000 } = {}) {
       metadata: { transport: 'android-command-receiver' }
     });
   }
+  const token = loadIpcToken();
+  if (!token) {
+    return Promise.resolve({
+      status: 'failed',
+      reason: 'android_ipc_credential_missing',
+      metadata: { transport: 'android-command-receiver' }
+    });
+  }
   return new Promise((resolve) => {
     const encoded = Buffer.from(JSON.stringify(request), 'utf8').toString('base64');
     const started = Date.now();
@@ -65,9 +101,9 @@ function executeAndroidCommandReceiver({ request, timeoutMs = 8000 } = {}) {
     const child = spawn(resolveAndroidAmPath(), [
       'broadcast', '--user', String(userId),
       '-a', 'com.robvg9.ariauiagent.ACTION_EXECUTE',
-      '-n', `${PACKAGE}/.CommandReceiver`,
+      '-n', `${PACKAGE}/${RECEIVER_COMPONENT}`,
       '--es', 'payload_b64', encoded,
-      '--es', 'ipc_token', IPC_TOKEN
+      '--es', 'ipc_token', token
     ], { stdio: ['ignore', 'pipe', 'pipe'], env: process.env });
     let stdout = '';
     let stderr = '';
@@ -103,7 +139,7 @@ function executeAndroidCommandReceiver({ request, timeoutMs = 8000 } = {}) {
         finish({
           status: 'failed',
           reason: code === 0 ? 'android_command_receiver_invalid_response' : 'android_command_receiver_failed',
-          metadata: { transport: 'android-command-receiver', exit_code: code, user_id: userId, stderr: stderr.slice(0, 1000), stdout: stdout.replace(/data="[A-Za-z0-9+/=]+"/g, 'data="[redacted]"').replace(new RegExp(IPC_TOKEN, 'g'), '[redacted]').slice(0, 1000), duration_ms: Date.now() - started }
+          metadata: { transport: 'android-command-receiver', exit_code: code, user_id: userId, stderr: stderr.slice(0, 1000), stdout: stdout.replace(/data="[A-Za-z0-9+/=]+"/g, 'data="[redacted]"').replace(new RegExp(token, 'g'), '[redacted]').slice(0, 1000), duration_ms: Date.now() - started }
         });
         return;
       }
@@ -141,6 +177,14 @@ async function probeAndroidCommandReceiver({ timeoutMs = 3000 } = {}) {
 
 
 async function probeLocalIpcHealth({ timeoutMs = 1500 } = {}) {
+  const token = loadIpcToken();
+  if (!token) {
+    return {
+      ok: false,
+      reason: 'android_ipc_credential_missing',
+      metadata: { transport: 'android-local-http', url: LOCAL_IPC_HEALTH_URL }
+    };
+  }
   const controller = new AbortController();
   const effectiveTimeout = Math.max(300, Math.min(Number(timeoutMs) || 1500, 5000));
   const timer = setTimeout(() => controller.abort(), effectiveTimeout);
@@ -148,7 +192,7 @@ async function probeLocalIpcHealth({ timeoutMs = 1500 } = {}) {
     const response = await fetch(LOCAL_IPC_HEALTH_URL, {
       method: 'GET',
       headers: {
-        authorization: 'Bearer ' + IPC_TOKEN,
+        authorization: 'Bearer ' + token,
         connection: 'close'
       },
       signal: controller.signal
@@ -162,6 +206,22 @@ async function probeLocalIpcHealth({ timeoutMs = 1500 } = {}) {
         reason: payload?.reason || 'android_local_ipc_health_unhealthy',
         status: response.status,
         metadata: { transport: 'android-local-http', url: LOCAL_IPC_HEALTH_URL }
+      };
+    }
+    if (payload.package !== PACKAGE) {
+      return {
+        ok: false,
+        reason: 'android_local_ipc_package_mismatch',
+        status: response.status,
+        metadata: {
+          transport: 'android-local-http',
+          url: LOCAL_IPC_HEALTH_URL,
+          expected_package: PACKAGE,
+          actual_package: payload.package || null,
+          version_name: payload.version_name || null,
+          version_code: payload.version_code || null,
+          build_id: payload.build_id || null
+        }
       };
     }
     if (payload.protocol !== REQUIRED_IPC_PROTOCOL) {
@@ -211,6 +271,14 @@ async function probeLocalIpcHealth({ timeoutMs = 1500 } = {}) {
 }
 
 async function executeLocalIpcJob({ request, timeoutMs = 12000 } = {}) {
+  const token = loadIpcToken();
+  if (!token) {
+    return {
+      status: 'failed',
+      reason: 'android_ipc_credential_missing',
+      metadata: { transport: 'android-local-http', url: LOCAL_IPC_URL }
+    };
+  }
   const effectiveTimeout = Math.max(1000, Math.min(Number(timeoutMs) || 12000, 30000));
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), effectiveTimeout);
@@ -219,7 +287,7 @@ async function executeLocalIpcJob({ request, timeoutMs = 12000 } = {}) {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
-        authorization: `Bearer ${IPC_TOKEN}`,
+        authorization: `Bearer ${token}`,
         connection: 'close'
       },
       body: JSON.stringify(request),
@@ -240,6 +308,33 @@ async function executeLocalIpcJob({ request, timeoutMs = 12000 } = {}) {
     }
     if (payload.ok !== true) {
       return { status: 'failed', reason: payload.reason || 'android_action_failed', payload, metadata: { transport: 'android-local-http', url: LOCAL_IPC_URL } };
+    }
+    if (payload.service_package !== PACKAGE) {
+      const fallback = await executeAndroidCommandReceiver({ request, timeoutMs: Math.min(effectiveTimeout, 8000) });
+      if (fallback.status === 'succeeded') {
+        return {
+          ...fallback,
+          metadata: {
+            ...(fallback.metadata || {}),
+            fallback_from: 'android-local-http-package-mismatch',
+            expected_package: PACKAGE,
+            actual_package: payload.service_package || null
+          }
+        };
+      }
+      return {
+        status: 'failed',
+        reason: 'android_local_ipc_package_mismatch',
+        payload,
+        metadata: {
+          transport: 'android-local-http',
+          url: LOCAL_IPC_URL,
+          expected_package: PACKAGE,
+          actual_package: payload.service_package || null,
+          fallback_transport: 'android-command-receiver',
+          fallback_reason: fallback.reason || null
+        }
+      };
     }
     return {
       status: 'succeeded',
@@ -273,7 +368,7 @@ function recoverAndroidUiAgentProcess({ timeoutMs = 8000 } = {}) {
     const child = spawn(resolveAndroidAmPath(), [
       'start',
       '-n',
-      `${PACKAGE}/.MainActivity`,
+      `${PACKAGE}/${MAIN_ACTIVITY_COMPONENT}`,
       '-f',
       '0x10200000'
     ], { stdio: ['ignore', 'pipe', 'pipe'], env: process.env });
@@ -372,6 +467,8 @@ module.exports = Object.freeze({
   PACKAGE,
   LOCAL_IPC_URL,
   LOCAL_IPC_HEALTH_URL,
+  loadIpcToken,
+  resolveIpcTokenFile,
   probeLocalIpcHealth,
   executeAndroidAccessibilityJob,
   executeAndroidCommandReceiver,
