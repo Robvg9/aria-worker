@@ -233,6 +233,8 @@ jobs:
         run: node tests/mission-wonder-2-a6-durable-recovery.test.mjs
       - name: Verify Windows gateway HTTP failure settlement
         run: node tests/gateway-http-client.test.mjs
+      - name: Verify Windows A6 heartbeat and installer wiring
+        run: node tests/mission-wonder-2-a6-windows-heartbeat.test.mjs
 
       - name: Run deterministic five-scenario pre-soak fault matrix
         run: node tests/mission-wonder-2-step6-a6-fault-matrix.test.mjs
