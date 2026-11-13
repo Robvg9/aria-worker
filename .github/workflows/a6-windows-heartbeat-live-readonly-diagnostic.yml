@@ -7,6 +7,8 @@ on:
     paths:
       - '.github/workflows/a6-windows-heartbeat-live-readonly-diagnostic.yml'
 
+  workflow_dispatch:
+
 permissions:
   contents: read
 
@@ -56,6 +58,13 @@ jobs:
             try { $state = $raw | ConvertFrom-Json -ErrorAction Stop } catch { $parseError = 'JSON_PARSE_FAILED' }
             $keys = @()
             if ($state) { $keys = @($state.PSObject.Properties.Name | Sort-Object) }
+            $gatewayError = if ($state) { $state.last_gateway_heartbeat_error } else { $null }
+            $gatewayErrorMessage = if ($gatewayError) { [string]$gatewayError.message } else { $null }
+            if ($gatewayErrorMessage) {
+              $gatewayErrorMessage = $gatewayErrorMessage -replace '(?i)Bearer\\s+[^\\s]+','Bearer [REDACTED]'
+              $gatewayErrorMessage = $gatewayErrorMessage -replace '(?i)(api[_-]?key|token|secret|password|authorization)(\\s*[:=]\\s*|\\s+)[^\\s;]+','$1$2[REDACTED]'
+              $gatewayErrorMessage = $gatewayErrorMessage.Substring(0,[Math]::Min(180,$gatewayErrorMessage.Length))
+            }
             return @{
               exists=$true
               length=$item.Length
@@ -68,7 +77,11 @@ jobs:
               timestamp=if($state){[string]$state.timestamp}else{$null}
               network=if($state){[string]$state.network}else{$null}
               last_gateway_heartbeat_at=if($state){[string]$state.last_gateway_heartbeat_at}else{$null}
-              has_gateway_error=if($state){$null -ne $state.last_gateway_heartbeat_error}else{$false}
+              gateway_error_at=if($gatewayError){[string]$gatewayError.at}else{$null}
+              gateway_error_status=if($gatewayError){$gatewayError.status}else{$null}
+              gateway_error_code=if($gatewayError){[string]$gatewayError.code}else{$null}
+              gateway_error_message_sanitized=$gatewayErrorMessage
+              has_gateway_error=($null -ne $gatewayError)
               property_names=$keys
             }
           }
