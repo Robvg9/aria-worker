@@ -3282,7 +3282,7 @@ Deno.serve(async (request) => {
     if (requestedMissionId && body?.action !== "human_gate_decide") {
       try {
         const { data: a4Mission, error: a4MissionError } = await sb.schema("aria_internal")
-          .from("mission_state").select("mission_id,goal,status,checkpoint,metadata").eq("mission_id", requestedMissionId).maybeSingle();
+          .from("mission_state").select("mission_id,goal,status,checkpoint,metadata,current_step,completed_steps,total_steps").eq("mission_id", requestedMissionId).maybeSingle();
         const scopeId = String(a4Mission?.metadata?.mission_wonder_2_a4_scope_id || "");
         if (!a4MissionError && scopeId) {
           const { data: scope, error: scopeError } = await sb.schema("aria_internal").from("mission_wonder_2_a4_scopes")
