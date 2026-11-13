@@ -26,6 +26,8 @@ on:
       - '.github/workflows/a6-windows-agent-v2-heartbeat-preflight.yml'
       - 'agents/windows/a6-install-heartbeat-v2.ps1'
       - 'agents/windows/aria-agent.js'
+      - 'agents/windows/gateway-http-client.cjs'
+      - 'tests/gateway-http-client.test.mjs'
       - 'agents/windows/gateway-dns-lookup.cjs'
       - 'agents/windows/heartbeat-scheduler.cjs'
       - 'agents/windows/run-agent.ps1'
@@ -203,6 +205,9 @@ jobs:
         run: node tests/mission-wonder-2-step6-a6-soak.test.mjs
       - name: Verify A6 runtime wiring and deployment isolation
         run: node tests/mission-wonder-2-step6-a6-runtime-wiring.test.mjs
+      - name: Verify Windows gateway HTTP failure settlement
+        run: node tests/gateway-http-client.test.mjs
+
       - name: Run deterministic five-scenario pre-soak fault matrix
         run: node tests/mission-wonder-2-step6-a6-fault-matrix.test.mjs
       - name: Upload deterministic fault-matrix evidence
