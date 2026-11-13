@@ -15,6 +15,7 @@ const installer = fs.readFileSync("agents/windows/install-v2.ps1", "utf8");
 const watchdog = fs.readFileSync("agents/windows/run-agent.ps1", "utf8");
 const runtimeUpdater = fs.readFileSync("agents/windows/update-runtime-v3.ps1", "utf8");
 const preflight = fs.readFileSync(".github/workflows/a6-windows-agent-v2-heartbeat-preflight.yml", "utf8");
+const diagnosticWorkflow = fs.readFileSync(".github/workflows/a6-windows-heartbeat-live-readonly-diagnostic.yml", "utf8");
 const a6Installer = fs.readFileSync("agents/windows/a6-install-heartbeat-v2.ps1", "utf8");
 const gatewayHttpClient = fs.readFileSync("agents/windows/gateway-http-client.cjs", "utf8");
 const syntax = spawnSync(process.execPath, ["--check", "agents/windows/aria-agent.js"], { encoding: "utf8" });
@@ -90,7 +91,9 @@ assert.doesNotMatch(preflight, /aria-pwa-fast-deploy\.yml|a6-windows-heartbeat-l
   "CI-only deploy and diagnostic workflow edits must not trigger another physical qualification");
 assert.ok(preflight.includes("name: A6 Windows Agent v2 Install + 45-minute ACK Qualification"));
 assert.ok(preflight.includes("a6-install-heartbeat-v2.ps1"));
-assert.ok(preflight.includes("a6-windows-heartbeat-live-readonly-diagnostic.yml"));
+assert.doesNotMatch(preflight, /a6-windows-heartbeat-live-readonly-diagnostic\\.yml/);
+assert.match(diagnosticWorkflow, /fix\\/a6-durable-recovery-v1/,
+  "read-only diagnostics must keep their own branch trigger, outside physical qualification concurrency");
 assert.match(preflight, /rev-parse HEAD/);
 assert.match(preflight, /rev-parse \("HEAD:" \+ \$relative\)/);
 assert.ok(preflight.includes("cat-file blob"), "installer must stream the exact Git blob without sparse-index path checkout");
