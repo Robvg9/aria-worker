@@ -26,6 +26,11 @@ assert.match(migration, /mission_wonder_2_a6_recovery_gates/);
 assert.match(migration, /status','recovering'/);
 assert.match(migration, /r\.max_recovery_ms/);
 assert.match(migration, /max_recovery_attempts/);
+// The 24-hour LIVE soak must default to zero job recoveries. The disposable
+// integration fixture opts into one recovery explicitly to test the mechanism.
+assert.match(migration, /max_recovery_attempts smallint not null default 0/);
+assert.match(postgresContract, /max_attempts,max_recovery_attempts,heartbeat_interval_ms/);
+assert.match(postgresContract, /v_device_id,'running',24,5,5,1,1,30000/);
 assert.match(migration, /a6_claim_lease_expired_before_start/);
 assert.match(migration, /job_lease_until/);
 assert.match(migration, /coalesce\(j\.recovery_count,0\)<>\(/);
