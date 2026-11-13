@@ -14,6 +14,14 @@ const voiceOutputSource = fs.readFileSync(path.join(root, 'pwa/src/voiceOutput.j
 assert.match(voice, /SpeechRecognitionConstructor/);
 assert.match(voice, /webkitSpeechRecognition/);
 assert.match(voice, /recognition\.lang = locale/);
+assert.match(voice, /getNativeSpeechBridge\(\)/, 'Android WebView must discover the native voice bridge');
+assert.match(voice, /voice\.speechRecognition/, 'native recognition must be capability-gated by the host context');
+assert.match(voice, /audioLeavesDevice !== false/, 'native recognition must only run when audio stays on device');
+assert.match(voice, /recognizeUtterance\(\{/, 'push-to-talk must call the native one-shot recognizer');
+assert.match(voice, /max_duration_ms: 8000/, 'native push-to-talk must keep the eight-second limit');
+assert.match(voice, /cancelRecognition\(\)/, 'native push-to-talk must be cancellable');
+assert.match(voice, /recognitionMode: 'on_device'/, 'native ASR results must identify the local recognition mode');
+assert.match(voice, /No se envió audio a un servicio remoto/, 'native recognition failures must not silently upload audio');
 assert.match(voice, /startRecognition\(resolveVoiceRecognitionLocale\(navigator\.language, navigator\.languages\)\)/);
 assert.match(voice, /code === 'language-not-supported'/);
 assert.match(voice, /startRecognition\('es-ES'\)/);
