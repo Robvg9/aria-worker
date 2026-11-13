@@ -195,13 +195,21 @@ jobs:
           psql -v ON_ERROR_STOP=1 <<'SQL'
           do $privilege_verify$
           begin
-            if to_regprocedure('public.start_execution_job_gateway(text,text)') is not null
-               and has_function_privilege('service_role','public.start_execution_job_gateway(text,text)','EXECUTE') then
-              raise exception 'A6_UNFENCED_START_RPC_REMAINS_EXECUTABLE';
+            if not has_function_privilege('service_role','public.start_execution_job_gateway(text,text)','EXECUTE')
+               or position('job.legacy_start_rpc_rejected' in
+                 pg_get_functiondef('public.start_execution_job_gateway(text,text)'::regprocedure))=0 then
+              raise exception 'A6_LEGACY_START_RPC_NOT_FAIL_CLOSED_FOR_A6';
             end if;
-            if to_regprocedure('public.complete_execution_job_gateway(text,text,text,integer,text,text,jsonb)') is not null
-               and has_function_privilege('service_role','public.complete_execution_job_gateway(text,text,text,integer,text,text,jsonb)','EXECUTE') then
-              raise exception 'A6_UNFENCED_COMPLETE_RPC_REMAINS_EXECUTABLE';
+            if not has_function_privilege('service_role','public.complete_execution_job_gateway(text,text,text,integer,text,text,jsonb)','EXECUTE')
+               or position('job.legacy_completion_rpc_rejected' in
+                 pg_get_functiondef('public.complete_execution_job_gateway(text,text,text,integer,text,text,jsonb)'::regprocedure))=0 then
+              raise exception 'A6_LEGACY_COMPLETE_RPC_NOT_FAIL_CLOSED_FOR_A6';
+            end if;
+            if has_function_privilege('anon','public.start_execution_job_gateway(text,text)','EXECUTE')
+               or has_function_privilege('authenticated','public.start_execution_job_gateway(text,text)','EXECUTE')
+               or has_function_privilege('anon','public.complete_execution_job_gateway(text,text,text,integer,text,text,jsonb)','EXECUTE')
+               or has_function_privilege('authenticated','public.complete_execution_job_gateway(text,text,text,integer,text,text,jsonb)','EXECUTE') then
+              raise exception 'A6_LEGACY_RPC_EXPOSED_TO_PUBLIC_ROLES';
             end if;
             if not has_function_privilege('service_role','public.start_execution_job_gateway(text,text,text)','EXECUTE') then
               raise exception 'A6_FENCED_START_RPC_NOT_EXECUTABLE_BY_SERVICE_ROLE';
