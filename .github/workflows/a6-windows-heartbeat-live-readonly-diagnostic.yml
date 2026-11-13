@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - ops/a6-windows-agent-v2-heartbeat-preflight-v1
+      - fix/a6-durable-recovery-v1
     paths:
       - '.github/workflows/a6-windows-heartbeat-live-readonly-diagnostic.yml'
 
@@ -76,6 +77,13 @@ jobs:
               device_id=if($state){[string]$state.device_id}else{$null}
               timestamp=if($state){[string]$state.timestamp}else{$null}
               network=if($state){[string]$state.network}else{$null}
+              process_id=if($state){$state.process_id}else{$null}
+              process_start_id=if($state){[string]$state.process_start_id}else{$null}
+              process_started_at=if($state){[string]$state.process_started_at}else{$null}
+              process_uptime_ms=if($state){$state.process_uptime_ms}else{$null}
+              process_uptime_monotonic_ms=if($state){$state.process_uptime_monotonic_ms}else{$null}
+              heartbeat_sequence=if($state){$state.heartbeat_sequence}else{$null}
+              event_loop_delay=if($state){$state.event_loop_delay}else{$null}
               last_gateway_heartbeat_at=if($state){[string]$state.last_gateway_heartbeat_at}else{$null}
               gateway_error_at=if($gatewayError){[string]$gatewayError.at}else{$null}
               gateway_error_status=if($gatewayError){$gatewayError.status}else{$null}
@@ -148,8 +156,8 @@ jobs:
               foreach ($event in $events) {
                 $message = [string]$event.Message
                 $isNetworkRelevant = $logName -ne 'System' -or
-                  $event.ProviderName -match 'rt640x64|NDIS|Tcpip|Network|Kernel-PnP|Kernel-Power' -or
-                  $event.Id -in @(27,32,41,10400,10401,4201,4202,5002,5005,5007,6008)
+                  $event.ProviderName -match 'rt640x64|NDIS|Tcpip|Network|Kernel-PnP|Kernel-Power|Power-Troubleshooter|Kernel-General|Kernel-Boot|User32|EventLog' -or
+                  $event.Id -in @(1,12,13,27,32,41,42,10400,10401,107,109,4201,4202,506,507,1074,6005,6006,6008)
                 if (-not $isNetworkRelevant) { continue }
                 $message = $message -replace '(?i)Bearer\s+[^\s]+','Bearer [REDACTED]'
                 $message = $message -replace '(?i)(token|secret|password|authorization)(\s*[:=]\s*|\s+)[^\s;]+','$1$2[REDACTED]'
@@ -434,7 +442,7 @@ jobs:
 
 # Post-user-change verification checkpoint: Ethernet power-saving state and default route.
 
-# Read-only correlation refresh for the 2026-11-12 16:03 UTC A6 heartbeat continuity block.
+# Read-only correlation refresh for the 2026-11-13 22:27-22:33 UTC A6 heartbeat interruption; event logs include sleep/resume and event-loop timing.
 
 # Narrow read-only query for Ethernet power management and all Realtek advanced properties.
 
