@@ -9,6 +9,7 @@ on:
       - '.github/workflows/a6-windows-heartbeat-live-readonly-diagnostic.yml'
       - 'agents/windows/a6-install-heartbeat-v2.ps1'
       - 'agents/windows/aria-agent.js'
+      - 'agents/windows/atomic-heartbeat-writer.cjs'
       - 'agents/windows/heartbeat-scheduler.cjs'
       - 'agents/windows/gateway-dns-lookup.cjs'
       - 'agents/windows/run-agent.ps1'

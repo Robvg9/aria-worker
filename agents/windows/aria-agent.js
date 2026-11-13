@@ -1,6 +1,6 @@
 'use strict';
 const crypto = require('node:crypto');
-const fs = require('node:fs');
+const { createAtomicHeartbeatWriter } = require('./atomic-heartbeat-writer.cjs');
 const { runHeartbeatLoop } = require('./heartbeat-scheduler.cjs');
 const { createGatewayLookup } = require('./gateway-dns-lookup.cjs');
 const os = require('node:os');
@@ -105,13 +105,14 @@ async function claimAndExecuteVoiceCommand() {
 }
 
 const AGENT_HEARTBEAT_PATH=process.env.ARIA_AGENT_HEARTBEAT_PATH||'';
+const writeHeartbeatSnapshot=AGENT_HEARTBEAT_PATH?createAtomicHeartbeatWriter(AGENT_HEARTBEAT_PATH):null;
 function log(message){console.log(`[ARIA] ${new Date().toISOString()} ${message}`)}
 function redact(text){let value=typeof text==='string'?text.slice(-DISPLAY_OUTPUT):'';for(const pattern of[/Bearer\s+[A-Za-z0-9._\-]+/g,/\bsk-[A-Za-z0-9_\-]{8,}/g,/\bor-v1-[A-Za-z0-9_\-]{8,}/g,/gh[pousr]_[A-Za-z0-9_]{20,}/g,/(api[_-]?key|token|secret|password)\s*[=:]\s*\S+/gi])value=value.replace(pattern,'[redacted]');return value}
 function sleep(ms){return new Promise(resolve=>setTimeout(resolve,ms))}
 let gatewayHeartbeatInFlight=false;
 let lastGatewayHeartbeatAt=null;
 let lastGatewayHeartbeatError=null;
-function touchProcessHeartbeat(network='unknown'){if(!AGENT_HEARTBEAT_PATH)return;const payload=JSON.stringify({version:'aria-windows-agent-heartbeat-v2',timestamp:new Date().toISOString(),device_id:DEVICE_ID,network,heartbeat_scheduler_version:'serial-retry-v1',gateway_dns_fallback_version:'supabase-scoped-public-fallback-v1',last_gateway_heartbeat_at:lastGatewayHeartbeatAt,last_gateway_heartbeat_error:lastGatewayHeartbeatError});void fs.promises.writeFile(AGENT_HEARTBEAT_PATH,payload,'utf8').catch(error=>console.error(`[heartbeat-file] ${error.message}`))}
+function touchProcessHeartbeat(network='unknown'){if(!writeHeartbeatSnapshot)return;const payload=JSON.stringify({version:'aria-windows-agent-heartbeat-v2',timestamp:new Date().toISOString(),device_id:DEVICE_ID,network,heartbeat_scheduler_version:'serial-retry-v1',gateway_dns_fallback_version:'supabase-scoped-public-fallback-v1',last_gateway_heartbeat_at:lastGatewayHeartbeatAt,last_gateway_heartbeat_error:lastGatewayHeartbeatError});void writeHeartbeatSnapshot(payload).catch(error=>console.error(`[heartbeat-file] ${error.message}`))}
 function normalizeQwenResponse(value){return typeof value==='string'?value.replace(/<think>[\s\S]*?<\/think>/gi,'').trim().slice(0,MAX_OUTPUT):''}
 if(!GATEWAY_URL||!DEVICE_TOKEN||!DEVICE_ID){console.error('ARIA agent requires ARIA_DEVICE_GATEWAY_URL, ARIA_DEVICE_TOKEN and ARIA_DEVICE_ID');process.exit(2)}
 function endpoint(p){return`${GATEWAY_URL.replace(/\/$/,'')}${p}`} function headers(){return{'content-type':'application/json',authorization:`Bearer ${DEVICE_TOKEN}`,'x-aria-device-id':DEVICE_ID}}

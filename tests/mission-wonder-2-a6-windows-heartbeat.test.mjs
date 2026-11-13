@@ -3,7 +3,10 @@ import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
 const { runHeartbeatLoop } = require("../agents/windows/heartbeat-scheduler.cjs");
 const { createGatewayLookup } = require('../agents/windows/gateway-dns-lookup.cjs');
+const { createAtomicHeartbeatWriter } = require('../agents/windows/atomic-heartbeat-writer.cjs');
 import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { spawnSync } from "node:child_process";
 
 const agent = fs.readFileSync("agents/windows/aria-agent.js", "utf8");
@@ -44,6 +47,11 @@ assert.match(agent, /last_gateway_heartbeat_at/);
 assert.match(agent, /last_gateway_heartbeat_error/);
 assert.match(agent, /lastGatewayHeartbeatAt=new Date\(\)\.toISOString\(\)/);
 assert.match(agent, /lastGatewayHeartbeatError=null/);
+assert.match(agent, /createAtomicHeartbeatWriter/);
+assert.match(agent, /writeHeartbeatSnapshot\(payload\)/);
+assert.match(a6Installer, /atomic-heartbeat-writer\.cjs/);
+assert.match(installer, /atomic-heartbeat-writer\.cjs/);
+assert.match(runtimeUpdater, /atomic-heartbeat-writer\.cjs/);
 
 // Host installation is bounded to the exact ROBVG runtime and uses its watchdog;
 // the following 45-minute qualification phase is read-only.
@@ -333,4 +341,48 @@ console.log("MISSION_WONDER_2_A6_WINDOWS_HEARTBEAT_SERIAL_RETRY=PASS");
   assert.deepEqual(results, [{ address: "104.18.38.10", family: 4 }]);
 }
 
+// Atomic heartbeat publication must never expose a truncated target to concurrent readers.
+{
+  const directory = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'aria-heartbeat-atomic-'));
+  const target = path.join(directory, 'agent-heartbeat.json');
+  try {
+    const writeSnapshot = createAtomicHeartbeatWriter(target, { retryDelayMs: 1, retryAttempts: 8 });
+    await writeSnapshot(JSON.stringify({ sequence: -1, payload: 'ready' }));
+
+    let observing = true;
+    let readFailure = null;
+    let readCount = 0;
+    const reader = (async () => {
+      while (observing) {
+        try {
+          const raw = await fs.promises.readFile(target, 'utf8');
+          const parsed = JSON.parse(raw);
+          assert.equal(typeof parsed.sequence, 'number');
+          assert.equal(typeof parsed.payload, 'string');
+          readCount += 1;
+        } catch (error) {
+          readFailure = error;
+          break;
+        }
+        await new Promise(resolve => setImmediate(resolve));
+      }
+    })();
+
+    await Promise.all(Array.from({ length: 120 }, (_, sequence) =>
+      writeSnapshot(JSON.stringify({ sequence, payload: 'x'.repeat(32768) }))
+    ));
+    observing = false;
+    await reader;
+
+    assert.equal(readFailure, null, readFailure?.message || 'reader observed an invalid heartbeat snapshot');
+    assert.ok(readCount > 0, 'concurrent reader did not observe any heartbeat snapshots');
+    const final = JSON.parse(await fs.promises.readFile(target, 'utf8'));
+    assert.equal(final.sequence, 119);
+    assert.deepEqual(await fs.promises.readdir(directory), ['agent-heartbeat.json']);
+  } finally {
+    await fs.promises.rm(directory, { recursive: true, force: true });
+  }
+}
+
 console.log("MISSION_WONDER_2_A6_GATEWAY_DNS_FALLBACK=PASS");
+

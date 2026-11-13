@@ -9,6 +9,7 @@ $TaskName = 'ARIA-Windows-Local-Agent'
 
 $files = @(
     @{ source = Join-Path $AgentSourceRoot 'aria-agent.js'; destination = Join-Path $RuntimeDir 'aria-agent.js' },
+    @{ source = Join-Path $AgentSourceRoot 'atomic-heartbeat-writer.cjs'; destination = Join-Path $RuntimeDir 'atomic-heartbeat-writer.cjs' },
     @{ source = Join-Path $AgentSourceRoot 'heartbeat-scheduler.cjs'; destination = Join-Path $RuntimeDir 'heartbeat-scheduler.cjs' },
     @{ source = Join-Path $AgentSourceRoot 'gateway-dns-lookup.cjs'; destination = Join-Path $RuntimeDir 'gateway-dns-lookup.cjs' },
     @{ source = Join-Path $AgentSourceRoot 'aria-meditation-controller.js'; destination = Join-Path $RuntimeDir 'aria-meditation-controller.js' },
