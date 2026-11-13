@@ -206,7 +206,13 @@ const gatewayBlock = watchdog.slice(
   watchdog.indexOf("# Desktop diagnostics are supervised asynchronously")
 );
 assert.ok(gatewayBlock.includes("action=observe_only"));
-assert.ok(!gatewayBlock.includes("Stop-Process"));
+assert.doesNotMatch(
+  gatewayBlock,
+  /Stop-Process\s+-Id\s+\$process\.Id/,
+  "a stale gateway ACK must never kill the worker process"
+);
+assert.match(watchdog, /Stop-Process\s+-Id\s+\$childPid\s+-Force/,
+  "the watchdog may terminate only the isolated desktop test child on timeout/restart");
 assert.ok(!gatewayBlock.includes("AGENT_KILLED_BY_WATCHDOG"));
 
 assert.match(installer, /'heartbeat-scheduler\.cjs' = Join-Path \$AgentRoot/);
