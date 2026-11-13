@@ -609,6 +609,11 @@ begin
   loop
     select * into m from aria_internal.mission_state where mission_id=r.mission_id;
     if not found then continue; end if;
+    -- Do not turn a recoverable heartbeat interruption into a terminal mission
+    -- failure while the configured recovery deadline is still open.
+    if exists(select 1 from aria_internal.mission_wonder_2_a6_recovery_gates g where g.run_id=r.run_id) then
+      continue;
+    end if;
     if m.status='succeeded' then
       if aria_internal.aria_m22_a6_complete_scope_v1(r.run_id,r.scope_id,r.mission_id,r.job_id) then
         completed_count:=completed_count+1;
@@ -940,6 +945,17 @@ begin
   select pg_get_functiondef(
     'aria_internal.aria_m22_a6_finish_run_if_due_v1()'::regprocedure
   ) into v_definition;
+
+  v_old := $old$where status='running' and started_at is not null
+       and clock_timestamp()>=started_at+interval '24 hours'$old$;
+  v_new := $new$where status='running' and started_at is not null
+       and clock_timestamp()>=started_at+interval '24 hours'
+       and not exists(select 1 from aria_internal.mission_wonder_2_a6_recovery_gates g
+                       where g.run_id=mission_wonder_2_a6_runs.run_id)$new$;
+  if position(v_new in v_definition)=0 then
+    if position(v_old in v_definition)=0 then raise exception 'A6_FINISH_ACTIVE_RECOVERY_GATE_ANCHOR_MISSING'; end if;
+    v_definition := replace(v_definition,v_old,v_new);
+  end if;
 
   v_old := $old$max_recovery_count=0 and heartbeat_sample_count>=1368 and$old$;
   v_new := $new$max_recovery_count<=r.max_recovery_attempts and heartbeat_sample_count>=1368 and$new$;
