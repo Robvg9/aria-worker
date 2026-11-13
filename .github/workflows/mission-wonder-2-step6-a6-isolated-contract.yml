@@ -17,6 +17,8 @@ on:
       - '.github/scripts/mission-wonder-2-step6-a6-isolated-scope-v1.sql'
       - 'supabase/migrations/*_aria_mission_wonder_2_a6_isolated_scope_v1.sql'
       - 'supabase/migrations/*_aria_m22_a6_frozen_job_marker_authorization_alignment_v1.sql'
+      - 'supabase/migrations/20261113160000_aria_m22_a6_durable_recovery_v1.sql'
+      - 'tests/mission-wonder-2-a6-durable-recovery.test.mjs'
       - '.github/workflows/supabase-canonical-deploy.yml'
       - '.github/workflows/aria-cloudflare-deploy.yml'
       - '.github/workflows/aria-pwa-fast-deploy.yml'
@@ -133,7 +135,7 @@ jobs:
             timeout_ms integer, policy jsonb default '{}'::jsonb, metadata jsonb default '{}'::jsonb,
             status text, requested_at timestamptz default clock_timestamp(), claimed_at timestamptz, started_at timestamptz, completed_at timestamptz, recovery_count integer default 0,
             lease_owner text, lease_until timestamptz, updated_at timestamptz default clock_timestamp(),
-            exit_code integer, stdout text
+            exit_code integer, stdout text, stderr text, result jsonb default '{}'::jsonb
           );
           create table aria_internal.execution_job_events (job_id text,device_id text,event_type text,payload jsonb default '{}'::jsonb);
           create table aria_internal.mission_events (mission_id text,event_type text,payload jsonb default '{}'::jsonb);
@@ -150,6 +152,7 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f supabase/migrations/20261107133800_aria_m22_a6_stdout_verification_marker_alignment_v1.sql
           psql -v ON_ERROR_STOP=1 -f supabase/migrations/20261110120000_aria_mission_wonder_2_a6_isolated_scope_v1.sql
           psql -v ON_ERROR_STOP=1 -f supabase/migrations/20261110135000_aria_m22_a6_frozen_job_marker_authorization_alignment_v1.sql
+          psql -v ON_ERROR_STOP=1 -f supabase/migrations/20261113160000_aria_m22_a6_durable_recovery_v1.sql
           psql -v ON_ERROR_STOP=1 <<'SQL'
           do $verify$
           declare snap jsonb; a6_total integer; a6_active integer; legacy_active integer; function_source text; auth_source text;
@@ -194,6 +197,25 @@ jobs:
           echo "A6_LEGACY_CRONS_48_49_50_STAY_DISABLED=true"
           echo "A6_NO_RUN_SCOPE_MISSION_JOB_OR_LEASE=true"
 
+      - name: Install disposable execution-job transition guard
+        run: |
+          psql -v ON_ERROR_STOP=1 <<'SQL'
+          create or replace function aria_internal.execution_job_can_transition(p_from text,p_to text)
+          returns boolean language sql immutable as $
+            select case
+              when p_from=p_to then true
+              when p_from='queued' then p_to in ('claimed','cancelled','blocked')
+              when p_from='claimed' then p_to in ('queued','running','succeeded','failed','timeout','cancelled','blocked')
+              when p_from='running' then p_to in ('succeeded','failed','timeout','cancelled','blocked')
+              when p_from in ('succeeded','failed','timeout','cancelled','blocked') then false
+              else false end;
+          $;
+          drop trigger if exists execution_jobs_status_guard on aria_internal.execution_jobs;
+          create trigger execution_jobs_status_guard
+            before update of status on aria_internal.execution_jobs
+            for each row execute function aria_internal.guard_execution_job_transition();
+          SQL
+
       - name: Exercise frozen A6 claim through PostgreSQL with the global freeze active
         run: psql -v ON_ERROR_STOP=1 -f .github/scripts/mission-wonder-2-a6-frozen-claim-postgres-v1.sql
 
@@ -205,6 +227,8 @@ jobs:
         run: node tests/mission-wonder-2-step6-a6-soak.test.mjs
       - name: Verify A6 runtime wiring and deployment isolation
         run: node tests/mission-wonder-2-step6-a6-runtime-wiring.test.mjs
+      - name: Verify A6 durable recovery and lease fencing contracts
+        run: node tests/mission-wonder-2-a6-durable-recovery.test.mjs
       - name: Verify Windows gateway HTTP failure settlement
         run: node tests/gateway-http-client.test.mjs
 
