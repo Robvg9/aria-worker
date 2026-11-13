@@ -6,43 +6,32 @@ on:
       - ops/a6-windows-agent-v2-heartbeat-preflight-v1
       - fix/a6-durable-recovery-v1
     paths:
-      - '.github/workflows/a6-windows-agent-v2-heartbeat-preflight.yml'
-      - '.github/workflows/mission-wonder-2-step6-a6-isolated-contract.yml'
-      - '.github/workflows/a6-windows-heartbeat-live-readonly-diagnostic.yml'
       - 'agents/windows/a6-install-heartbeat-v2.ps1'
       - 'agents/windows/aria-agent.js'
-      - 'supabase/functions/aria-device-gateway/index.ts'
-      - 'supabase/migrations/20261113160000_aria_m22_a6_durable_recovery_v1.sql'
-      - '.github/scripts/mission-wonder-2-a6-frozen-claim-postgres-v1.sql'
-      - 'tests/mission-wonder-2-a6-durable-recovery.test.mjs'
       - 'agents/windows/gateway-http-client.cjs'
-      - 'tests/gateway-http-client.test.mjs'
       - 'agents/windows/atomic-heartbeat-writer.cjs'
       - 'agents/windows/heartbeat-scheduler.cjs'
       - 'agents/windows/gateway-dns-lookup.cjs'
       - 'agents/windows/run-agent.ps1'
       - 'agents/windows/resource-profile.js'
       - 'agents/shared/voice-command-executor.cjs'
-      - 'supabase/functions/_shared/mission-wonder-2-a6-scope-v1.mjs'
-      - 'tests/mission-wonder-2-step6-a6-isolated-scope.test.mjs'
-      - 'tests/mission-wonder-2-step6-a6-runtime-wiring.test.mjs'
-      - 'tests/mission-wonder-2-a6-windows-heartbeat.test.mjs'
-      - '.github/workflows/aria-cloudflare-deploy.yml'
-      - '.github/workflows/aria-pwa-fast-deploy.yml'
-      - '.github/workflows/rwht-android-apk.yml'
-      - 'tests/supabase-canonical-deploy-contract.test.js'
       - 'autonomy/windows-shell-executor.js'
       - 'computer-use/windows-desktop-adapter.js'
       - 'computer-use/windows-desktop-runner.ps1'
       - 'computer-use/windows-ui-automation.ps1'
+      - 'supabase/functions/aria-device-gateway/index.ts'
+      - 'supabase/functions/aria-mission-runner-v22/index.ts'
+      - 'supabase/functions/_shared/mission-wonder-2-a6-scope-v1.mjs'
+      - 'supabase/migrations/20261113160000_aria_m22_a6_durable_recovery_v1.sql'
 
 permissions:
   contents: read
 
 concurrency:
   group: a6-windows-agent-v2-host-install-and-qualification
-  # A newer exact-SHA qualification supersedes stale queued/in-flight source checks.
-  cancel-in-progress: true
+  # A physical qualification must never be interrupted by a later CI/diagnostic-only commit.
+  # Keep at most one active qualification per ROBVG runner; newer requests wait.
+  cancel-in-progress: false
 
 jobs:
   contract:
