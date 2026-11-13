@@ -119,8 +119,12 @@ assert.match(a6Installer, /A6_POWER_POLICY_DISPLAY_SLEEP=UNCHANGED/);
 assert.match(a6Installer, /power_policy_before=\$null/);
 assert.match(a6Installer, /power_policy_after=\$null/);
 assert.match(a6Installer, /A6_AC_IDLE_HIBERNATE_READBACK_FAILED/);
-assert.ok(a6Installer.includes("AC Power Setting Index|Índice de configuración de corriente alterna actual"),
-  "AC power readback must accept the host's localized Windows powercfg label");
+assert.ok(a6Installer.includes("AC Power Setting Index|\\u00CDndice de configuraci\\u00F3n de corriente alterna actual"),
+  "PowerShell 5.1 installer must use ASCII-safe Unicode regex escapes for the localized Windows label");
+assert.match("\\u00CDndice de configuraci\\u00F3n de corriente alterna actual: 0x00000000",
+  /\\u00cdndice de configuraci\\u00f3n de corriente alterna actual:\\s+0x00000000/i);
+assert.ok(!/[\\u0080-\\uFFFF]/.test(a6Installer),
+  "Windows PowerShell 5.1 installer source must stay ASCII-only when checked out without a BOM");
 assert.match(a6Installer, /A6_AC_STANDBY_READBACK_NOT_ZERO/);
 assert.match(a6Installer, /A6_AC_HIBERNATE_READBACK_NOT_ZERO/);
 assert.match(a6Installer, /A6_DISPLAY_SLEEP_POLICY_CHANGED/);
