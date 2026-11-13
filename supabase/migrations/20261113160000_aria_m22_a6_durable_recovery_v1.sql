@@ -1066,6 +1066,47 @@ begin
     v_definition := replace(v_definition,v_old,v_new);
   end if;
 
+
+  v_old := $old$  max_sample_gap_ms bigint;$old$;
+  v_new := $new$  max_sample_gap_ms bigint;
+  max_observed_heartbeat_gap_ms bigint;$new$;
+  if position(v_new in v_definition)=0 then
+    if position(v_old in v_definition)=0 then raise exception 'A6_FINISH_OBSERVED_GAP_VARIABLE_ANCHOR_MISSING'; end if;
+    v_definition := replace(v_definition,v_old,v_new);
+  end if;
+
+  v_old := $old$    select count(*)::integer,coalesce(max(heartbeat_age_ms),0)
+      into heartbeat_sample_count,max_heartbeat_age_ms
+      from aria_internal.mission_wonder_2_a6_telemetry
+     where run_id=r.run_id and event_type='heartbeat_sample';$old$;
+  v_new := $new$    select count(*)::integer,coalesce(max(heartbeat_age_ms),0)
+      into heartbeat_sample_count,max_heartbeat_age_ms
+      from aria_internal.mission_wonder_2_a6_telemetry
+     where run_id=r.run_id and event_type='heartbeat_sample';
+    select coalesce(max((payload->>'heartbeatObservedGapMs')::bigint),0)
+      into max_observed_heartbeat_gap_ms
+      from aria_internal.mission_wonder_2_a6_telemetry
+     where run_id=r.run_id and event_type='heartbeat_sample';$new$;
+  if position(v_new in v_definition)=0 then
+    if position(v_old in v_definition)=0 then raise exception 'A6_FINISH_OBSERVED_GAP_QUERY_ANCHOR_MISSING'; end if;
+    v_definition := replace(v_definition,v_old,v_new);
+  end if;
+
+  v_old := $old$      'max_sample_gap_ms',max_sample_gap_ms,$old$;
+  v_new := $new$      'max_sample_gap_ms',max_sample_gap_ms,
+      'max_observed_heartbeat_gap_ms',max_observed_heartbeat_gap_ms,$new$;
+  if position(v_new in v_definition)=0 then
+    if position(v_old in v_definition)=0 then raise exception 'A6_FINISH_OBSERVED_GAP_METRIC_ANCHOR_MISSING'; end if;
+    v_definition := replace(v_definition,v_old,v_new);
+  end if;
+
+  v_old := $old$max_sample_gap_ms<=r.max_recovery_ms and$new$;
+  v_new := $new$max_sample_gap_ms<=r.max_recovery_ms and
+       max_observed_heartbeat_gap_ms<=r.max_recovery_ms and$new$;
+  if position(v_new in v_definition)=0 then
+    if position(v_old in v_definition)=0 then raise exception 'A6_FINISH_OBSERVED_GAP_CRITERION_ANCHOR_MISSING'; end if;
+    v_definition := replace(v_definition,v_old,v_new);
+  end if;
   execute v_definition;
 end;
 $finish_policy_patch$;
