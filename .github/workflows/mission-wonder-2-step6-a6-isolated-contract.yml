@@ -201,15 +201,14 @@ jobs:
         run: |
           psql -v ON_ERROR_STOP=1 <<'SQL'
           create or replace function aria_internal.execution_job_can_transition(p_from text,p_to text)
-          returns boolean language sql immutable as $
-            select case
-              when p_from=p_to then true
-              when p_from='queued' then p_to in ('claimed','cancelled','blocked')
-              when p_from='claimed' then p_to in ('queued','running','succeeded','failed','timeout','cancelled','blocked')
-              when p_from='running' then p_to in ('succeeded','failed','timeout','cancelled','blocked')
-              when p_from in ('succeeded','failed','timeout','cancelled','blocked') then false
-              else false end;
-          $;
+          returns boolean language sql immutable
+          as 'select case
+            when p_from=p_to then true
+            when p_from=''queued'' then p_to in (''claimed'',''cancelled'',''blocked'')
+            when p_from=''claimed'' then p_to in (''queued'',''running'',''succeeded'',''failed'',''timeout'',''cancelled'',''blocked'')
+            when p_from=''running'' then p_to in (''succeeded'',''failed'',''timeout'',''cancelled'',''blocked'')
+            when p_from in (''succeeded'',''failed'',''timeout'',''cancelled'',''blocked'') then false
+            else false end';
           drop trigger if exists execution_jobs_status_guard on aria_internal.execution_jobs;
           create trigger execution_jobs_status_guard
             before update of status on aria_internal.execution_jobs
