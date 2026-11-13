@@ -216,7 +216,7 @@ const recoveredMissionPlan = {
     },
     recovery: {
       status: "waiting_for_async_executor",
-      reason: "a6_same_job_idempotent_recovery",
+      reason: "a6_same_job_reclaimed_after_interruption",
       job_id: jobId,
       previous_attempt: 1,
       next_attempt: 2,
@@ -238,6 +238,17 @@ assert.equal(await m22A6MissionPlanMatchesV1({
   },
   runId: RUN_ID, ordinal, humanGateRef: HUMAN_GATE_REF,
 }), false, "recovery must retain the deterministic original job_id");
+
+assert.equal(await m22A6MissionPlanMatchesV1({
+  mission: {
+    ...recoveredMissionPlan,
+    checkpoint: {
+      ...recoveredMissionPlan.checkpoint,
+      recovery: { ...recoveredMissionPlan.checkpoint.recovery, reason: "a6_same_job_idempotent_recovery" },
+    },
+  },
+  runId: RUN_ID, ordinal, humanGateRef: HUMAN_GATE_REF,
+}), false, "recovery reason must match the exact durable SQL checkpoint contract");
 assert.equal(await m22A6MissionPlanMatchesV1({
   mission: {
     ...recoveredMissionPlan,
