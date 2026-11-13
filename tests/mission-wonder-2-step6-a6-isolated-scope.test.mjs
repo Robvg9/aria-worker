@@ -291,6 +291,11 @@ assert.equal(await m22A6MissionPlanMatchesV1({
 }), false);
 
 
+const a6RunnerSource = fs.readFileSync("supabase/functions/aria-mission-runner-v22/index.ts", "utf8");
+assert.ok(a6RunnerSource.includes('.from("mission_state").select("mission_id,goal,status,checkpoint,metadata,current_step,completed_steps,total_steps")'),
+  "A6 paused-scope plan validation must fetch every mission progress field it validates");
+assert.match(a6RunnerSource, /const planValid = await m22A6MissionPlanMatchesV1/);
+
 const supabaseDeployWorkflow = fs.readFileSync(".github/workflows/supabase-canonical-deploy.yml", "utf8");
 const pwaDeployWorkflow = fs.readFileSync(".github/workflows/aria-pwa-fast-deploy.yml", "utf8");
 const cloudflareDeployWorkflow = fs.readFileSync(".github/workflows/aria-cloudflare-deploy.yml", "utf8");
