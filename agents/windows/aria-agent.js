@@ -1,6 +1,8 @@
 'use strict';
 const crypto = require('node:crypto');
-const fs = require('node:fs');
+const { createAtomicHeartbeatWriter } = require('./atomic-heartbeat-writer.cjs');
+const { runHeartbeatLoop } = require('./heartbeat-scheduler.cjs');
+const { createGatewayLookup } = require('./gateway-dns-lookup.cjs');
 const os = require('node:os');
 const { parseShellJob, executePowerShell } = require('./windows-shell-executor');
 const { createWindowsMeditationController } = require('./aria-meditation-controller');
@@ -12,6 +14,10 @@ const { executeWindowsDesktop } = (() => {
   catch (error) { if (error?.code !== 'MODULE_NOT_FOUND') throw error; return require('../../computer-use/windows-desktop-adapter'); }
 })();
 const GATEWAY_URL=process.env.ARIA_DEVICE_GATEWAY_URL, DEVICE_TOKEN=process.env.ARIA_DEVICE_TOKEN, DEVICE_ID=process.env.ARIA_DEVICE_ID;
+const gatewayLookup=createGatewayLookup({
+  onFallbackStart:({hostname,systemErrorCode,servers})=>log(`GATEWAY_DNS_FALLBACK start host=${hostname} system_error=${systemErrorCode} servers=${servers.join(',')}`),
+  onFallbackResult:({hostname,status,family,addressCount,errorCode})=>log(`GATEWAY_DNS_FALLBACK result host=${hostname} status=${status} family=${family} address_count=${addressCount||0} error=${errorCode||'none'}`)
+});
 // Keep the A6 device heartbeat capped at 30 seconds even when a legacy config.json still says 60000.
 const HEARTBEAT_MS=30_000, POLL_MS=Math.max(5_000,Number(process.env.ARIA_POLL_MS||12_000));
 const GATEWAY_TIMEOUT_MS=Math.max(3_000,Number(process.env.ARIA_GATEWAY_TIMEOUT_MS||15_000)), GATEWAY_RETRIES=Math.max(0,Number(process.env.ARIA_GATEWAY_RETRIES||1));
@@ -99,13 +105,14 @@ async function claimAndExecuteVoiceCommand() {
 }
 
 const AGENT_HEARTBEAT_PATH=process.env.ARIA_AGENT_HEARTBEAT_PATH||'';
+const writeHeartbeatSnapshot=AGENT_HEARTBEAT_PATH?createAtomicHeartbeatWriter(AGENT_HEARTBEAT_PATH):null;
 function log(message){console.log(`[ARIA] ${new Date().toISOString()} ${message}`)}
 function redact(text){let value=typeof text==='string'?text.slice(-DISPLAY_OUTPUT):'';for(const pattern of[/Bearer\s+[A-Za-z0-9._\-]+/g,/\bsk-[A-Za-z0-9_\-]{8,}/g,/\bor-v1-[A-Za-z0-9_\-]{8,}/g,/gh[pousr]_[A-Za-z0-9_]{20,}/g,/(api[_-]?key|token|secret|password)\s*[=:]\s*\S+/gi])value=value.replace(pattern,'[redacted]');return value}
 function sleep(ms){return new Promise(resolve=>setTimeout(resolve,ms))}
 let gatewayHeartbeatInFlight=false;
 let lastGatewayHeartbeatAt=null;
 let lastGatewayHeartbeatError=null;
-function touchProcessHeartbeat(network='unknown'){if(!AGENT_HEARTBEAT_PATH)return;const payload=JSON.stringify({version:'aria-windows-agent-heartbeat-v2',timestamp:new Date().toISOString(),device_id:DEVICE_ID,network,last_gateway_heartbeat_at:lastGatewayHeartbeatAt,last_gateway_heartbeat_error:lastGatewayHeartbeatError});void fs.promises.writeFile(AGENT_HEARTBEAT_PATH,payload,'utf8').catch(error=>console.error(`[heartbeat-file] ${error.message}`))}
+function touchProcessHeartbeat(network='unknown'){if(!writeHeartbeatSnapshot)return;const payload=JSON.stringify({version:'aria-windows-agent-heartbeat-v2',timestamp:new Date().toISOString(),device_id:DEVICE_ID,network,heartbeat_scheduler_version:'serial-retry-v1',gateway_dns_fallback_version:'supabase-scoped-public-fallback-v1',last_gateway_heartbeat_at:lastGatewayHeartbeatAt,last_gateway_heartbeat_error:lastGatewayHeartbeatError});void writeHeartbeatSnapshot(payload).catch(error=>console.error(`[heartbeat-file] ${error.message}`))}
 function normalizeQwenResponse(value){return typeof value==='string'?value.replace(/<think>[\s\S]*?<\/think>/gi,'').trim().slice(0,MAX_OUTPUT):''}
 if(!GATEWAY_URL||!DEVICE_TOKEN||!DEVICE_ID){console.error('ARIA agent requires ARIA_DEVICE_GATEWAY_URL, ARIA_DEVICE_TOKEN and ARIA_DEVICE_ID');process.exit(2)}
 function endpoint(p){return`${GATEWAY_URL.replace(/\/$/,'')}${p}`} function headers(){return{'content-type':'application/json',authorization:`Bearer ${DEVICE_TOKEN}`,'x-aria-device-id':DEVICE_ID}}
@@ -120,6 +127,7 @@ function nativeGatewayRequest(url, options = {}) {
       path: u.pathname + u.search,
       method: options.method || 'GET',
       family: 4,
+      lookup: gatewayLookup,
       headers: {
         ...(options.headers || {}),
         ...(requestBody ? { 'content-length': Buffer.byteLength(requestBody) } : {}),
@@ -217,7 +225,7 @@ async function callOllama({prompt,model,timeout_ms,signal}){
 }
 async function enroll(){return api('/v1/devices/enroll',{method:'POST',body:JSON.stringify({device_id:DEVICE_ID,token:DEVICE_TOKEN})})}
 async function heartbeat(){
-  if(gatewayHeartbeatInFlight){touchProcessHeartbeat('overlap_skipped');return}
+  if(gatewayHeartbeatInFlight){touchProcessHeartbeat('overlap_skipped');return false}
   gatewayHeartbeatInFlight=true;
   touchProcessHeartbeat('attempt');
   const startedAt=Date.now();
@@ -231,11 +239,13 @@ async function heartbeat(){
     lastGatewayHeartbeatError=null;
     touchProcessHeartbeat('online');
     log(`ONLINE device=${DEVICE_ID} capabilities=${capabilities.join(',')}`);
-    log(`HEARTBEAT_ACK device=${DEVICE_ID} duration_ms=${Date.now()-startedAt} interval_ms=${HEARTBEAT_MS}`);
+    log(`HEARTBEAT_ACK device=${DEVICE_ID} duration_ms=${Date.now()-startedAt} next_interval_ms=${HEARTBEAT_MS}`);
+    return true;
   }catch(error){
     lastGatewayHeartbeatError={at:new Date().toISOString(),status:Number.isInteger(error?.status)?error.status:null,code:typeof error?.code==='string'?error.code:null,message:String(error?.message||error).slice(0,180)};
     touchProcessHeartbeat('transport_error');
     console.error(`[heartbeat] ${error.message}`);
+    return false;
   }finally{
     gatewayHeartbeatInFlight=false;
   }
@@ -342,4 +352,13 @@ if(job.operation===AUTONOMOUS_COMPUTER_OPERATION){await executeAutonomousRwhtJob
 let stopping=false;
 const meditationController=createWindowsMeditationController();
 process.on('SIGTERM',()=>{stopping=true;void meditationController.shutdown();log('STOP requested')});process.on('SIGINT',()=>{stopping=true;void meditationController.shutdown();log('STOP requested')});
-(async()=>{log(`START device=${DEVICE_ID} platform=windows-local node=${process.version} resource_profile=${RESOURCE_PROFILE.profile} ram_gb=${RESOURCE_PROFILE.ram_gb} logical_cpus=${RESOURCE_PROFILE.logical_cpus} ollama_enabled=${OLLAMA_ENABLED} guard=${RESOURCE_PROFILE.guard_reason}`);try{await Promise.race([enroll(),sleep(5000).then(()=>{throw new Error('enroll_timeout')})]);log(`ENROLLED device=${DEVICE_ID}`)}catch(error){console.error(`[enroll] ${error.message}`)}await heartbeat();setInterval(heartbeat,HEARTBEAT_MS);let consecutivePollFailures=0;let voiceRetryAt=0;while(!stopping){let voiceState='idle';if(Date.now()>=voiceRetryAt){voiceState=await claimAndExecuteVoiceCommand();if(voiceState==='error')voiceRetryAt=Date.now()+60_000}const state=voiceState==='worked'?'worked':await claimAndExecute();if(state==='error'){consecutivePollFailures=Math.min(consecutivePollFailures+1,6)}else{consecutivePollFailures=0}const baseDelay=state==='worked'?5_000:POLL_MS;const backoff=state==='error'?Math.min(POLL_MS*Math.pow(2,consecutivePollFailures),60_000):baseDelay;const jitter=Math.floor(Math.random()*Math.max(1,Math.min(3_000,Math.round(backoff*0.25))));await sleep(backoff+jitter)}})().catch(error=>{console.error(error);process.exit(1)})
+(async()=>{log(`START device=${DEVICE_ID} platform=windows-local node=${process.version} resource_profile=${RESOURCE_PROFILE.profile} ram_gb=${RESOURCE_PROFILE.ram_gb} logical_cpus=${RESOURCE_PROFILE.logical_cpus} ollama_enabled=${OLLAMA_ENABLED} guard=${RESOURCE_PROFILE.guard_reason}`);try{await Promise.race([enroll(),sleep(5000).then(()=>{throw new Error('enroll_timeout')})]);log(`ENROLLED device=${DEVICE_ID}`)}catch(error){console.error(`[enroll] ${error.message}`)}const heartbeatLoop=runHeartbeatLoop({
+  sendHeartbeat:heartbeat,
+  shouldStop:()=>stopping,
+  sleep,
+  intervalMs:HEARTBEAT_MS,
+  retryBaseMs:2_000,
+  retryMaxMs:15_000,
+  onRetry:({consecutiveFailures,delayMs})=>log(`HEARTBEAT_RETRY device=${DEVICE_ID} consecutive_failures=${consecutiveFailures} retry_in_ms=${delayMs}`)
+});
+void heartbeatLoop.catch(error=>{console.error(`[heartbeat-loop] ${error.message}`);stopping=true;});let consecutivePollFailures=0;let voiceRetryAt=0;while(!stopping){let voiceState='idle';if(Date.now()>=voiceRetryAt){voiceState=await claimAndExecuteVoiceCommand();if(voiceState==='error')voiceRetryAt=Date.now()+60_000}const state=voiceState==='worked'?'worked':await claimAndExecute();if(state==='error'){consecutivePollFailures=Math.min(consecutivePollFailures+1,6)}else{consecutivePollFailures=0}const baseDelay=state==='worked'?5_000:POLL_MS;const backoff=state==='error'?Math.min(POLL_MS*Math.pow(2,consecutivePollFailures),60_000):baseDelay;const jitter=Math.floor(Math.random()*Math.max(1,Math.min(3_000,Math.round(backoff*0.25))));await sleep(backoff+jitter)}})().catch(error=>{console.error(error);process.exit(1)})
