@@ -63,13 +63,13 @@ begin
 
   insert into aria_internal.mission_wonder_2_a6_runs(
     run_id,scope_id,owner_user_id,parent_request_id,allowed_device_id,status,
-    window_hours,max_missions,max_jobs,max_attempts,heartbeat_interval_ms,
+    window_hours,max_missions,max_jobs,max_attempts,max_recovery_attempts,heartbeat_interval_ms,
     max_normal_heartbeat_gap_ms,max_recovery_ms,max_p95_latency_ms,max_total_cost_usd,
     minimum_mission_span_ms,max_mission_intermission_ms,human_gate_ref,
     ambient_baseline,started_at,expires_at
   ) values (
     v_run_id,'mission_wonder_2_a6_run_'||v_run_id,v_owner_id,'a6-claim-test-parent',
-    v_device_id,'running',24,5,5,1,30000,90000,120000,90000,0,
+    v_device_id,'running',24,5,5,1,1,30000,90000,120000,90000,0,
     64800000,25200000,v_human_gate_ref,v_baseline,
     clock_timestamp()-interval '1 minute',clock_timestamp()+interval '24 hours'
   );
