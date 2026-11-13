@@ -106,6 +106,9 @@ Write-Status @{ state = 'watchdog_alive'; agent_pid = $null }
 
 $consecutiveErrors = 0
 $maxConsecutiveErrors = 6
+$DesktopTestTimeoutSeconds = 90
+$desktopTestProcess = $null
+$desktopTestStartedAt = $null
 
 while ($true) {
     try {
@@ -186,11 +189,55 @@ while ($true) {
                 Write-Log "GATEWAY_HEARTBEAT_DIAGNOSTIC_ERROR $($_.Exception.Message)"
             }
 
+            # Desktop diagnostics are supervised asynchronously. Never block this
+            # loop while a test child is running: this loop owns heartbeat checks,
+            # kill requests and recovery of the actual ARIA worker.
+            if ($desktopTestProcess) {
+                try {
+                    $desktopTestProcess.Refresh()
+                    if ($desktopTestProcess.HasExited) {
+                        $exitCode = $desktopTestProcess.ExitCode
+                        $childPid = $desktopTestProcess.Id
+                        Write-Log "DESKTOP_101_REQUEST_EXIT code=$exitCode child_pid=$childPid"
+                        $result = [ordered]@{
+                            status = if ($exitCode -eq 0) { 'succeeded' } else { 'failed' }
+                            exit_code = $exitCode
+                            child_pid = $childPid
+                            completed_at = (Get-Date -Format o)
+                        }
+                        ($result | ConvertTo-Json -Depth 10) | Set-Content -Path $DesktopTestResultPath -Encoding UTF8 -Force
+                        $desktopTestProcess.Dispose()
+                        $desktopTestProcess = $null
+                        $desktopTestStartedAt = $null
+                    }
+                    elseif ($desktopTestStartedAt -and ((Get-Date).ToUniversalTime() - $desktopTestStartedAt.ToUniversalTime()).TotalSeconds -ge $DesktopTestTimeoutSeconds) {
+                        $childPid = $desktopTestProcess.Id
+                        Stop-Process -Id $childPid -Force -ErrorAction SilentlyContinue
+                        Write-Log "DESKTOP_101_REQUEST_TIMEOUT child_pid=$childPid timeout_seconds=$DesktopTestTimeoutSeconds"
+                        $result = [ordered]@{
+                            status = 'failed'
+                            exit_code = 124
+                            child_pid = $childPid
+                            error = 'desktop_test_child_timeout'
+                            completed_at = (Get-Date -Format o)
+                        }
+                        ($result | ConvertTo-Json -Depth 10) | Set-Content -Path $DesktopTestResultPath -Encoding UTF8 -Force
+                        $desktopTestProcess.Dispose()
+                        $desktopTestProcess = $null
+                        $desktopTestStartedAt = $null
+                    }
+                }
+                catch {
+                    Write-Log "DESKTOP_101_CHILD_MONITOR_ERROR $($_.Exception.Message)"
+                }
+            }
+
             if (Test-Path $DesktopTestRequestPath) {
                 try {
                     $request = Get-Content -Raw -Path $DesktopTestRequestPath | ConvertFrom-Json
                     Remove-Item -Path $DesktopTestRequestPath -Force -ErrorAction SilentlyContinue
 
+                    if ($desktopTestProcess) { throw 'desktop-101 test child is already running' }
                     $testNode = [string]$request.node
                     $testScript = [string]$request.script
                     $testWorkingDirectory = [string]$request.working_directory
@@ -204,22 +251,10 @@ while ($true) {
                     if ([string]::IsNullOrWhiteSpace($testErrorLog)) { $testErrorLog = Join-Path $PublicDir 'desktop-101-child.err' }
 
                     Write-Log "DESKTOP_101_REQUEST_START script=$testScript"
-                    $child = Start-Process -FilePath $testNode -ArgumentList @($testScript) -WorkingDirectory $testWorkingDirectory -RedirectStandardOutput $testLog -RedirectStandardError $testErrorLog -PassThru -WindowStyle Hidden
-                    $childSessionId = [int]$child.SessionId
-                    $child.WaitForExit()
-                    $exitCode = $child.ExitCode
-                    Write-Log "DESKTOP_101_REQUEST_EXIT code=$exitCode session=$childSessionId"
-
-                    $result = [ordered]@{
-                        status = if ($exitCode -eq 0) { 'succeeded' } else { 'failed' }
-                        exit_code = $exitCode
-                        child_pid = $child.Id
-                        child_session_id = $childSessionId
-                        log = $testLog
-                        error_log = $testErrorLog
-                        completed_at = (Get-Date -Format o)
-                    }
-                    ($result | ConvertTo-Json -Depth 10) | Set-Content -Path $DesktopTestResultPath -Encoding UTF8 -Force
+                    $desktopTestProcess = Start-Process -FilePath $testNode -ArgumentList @($testScript) -WorkingDirectory $testWorkingDirectory -RedirectStandardOutput $testLog -RedirectStandardError $testErrorLog -PassThru -WindowStyle Hidden
+                    $desktopTestStartedAt = Get-Date
+                    $childSessionId = [int]$desktopTestProcess.SessionId
+                    Write-Log "DESKTOP_101_CHILD_STARTED pid=$($desktopTestProcess.Id) session=$childSessionId timeout_seconds=$DesktopTestTimeoutSeconds"
                 }
                 catch {
                     $err = [ordered]@{
@@ -248,6 +283,24 @@ while ($true) {
             }
             Start-Sleep -Milliseconds 500
             try { $process.Refresh() } catch { break }
+        }
+
+        if ($desktopTestProcess) {
+            $childPid = $desktopTestProcess.Id
+            try { Stop-Process -Id $childPid -Force -ErrorAction SilentlyContinue } catch {}
+            Write-Log "DESKTOP_101_CHILD_CANCELLED reason=agent_worker_restart child_pid=$childPid"
+            try {
+                @{
+                    status = 'failed'
+                    exit_code = 125
+                    child_pid = $childPid
+                    error = 'desktop_test_cancelled_by_agent_restart'
+                    completed_at = (Get-Date -Format o)
+                } | ConvertTo-Json -Depth 10 | Set-Content -Path $DesktopTestResultPath -Encoding UTF8 -Force
+                $desktopTestProcess.Dispose()
+            } catch {}
+            $desktopTestProcess = $null
+            $desktopTestStartedAt = $null
         }
 
         if (-not $process.HasExited) {
