@@ -210,10 +210,26 @@ export function VoiceInputButton({
     const language = resolveVoiceRecognitionLocale(navigator.language, navigator.languages);
     setNotice('Reconocimiento local de Android activado. Habla ahora; el audio no sale del teléfono…');
     try {
-      const result = await bridge.recognizeUtterance({
-        max_duration_ms: 8000,
-        language
-      });
+      let result: NativeSpeechRecognitionResult;
+      try {
+        result = await bridge.recognizeUtterance({
+          max_duration_ms: 8000,
+          language
+        });
+      } catch (cause) {
+        const code = cause instanceof Error ? cause.message : '';
+        if (['voice_asr_language_unsupported', 'voice_asr_language_unavailable'].includes(code)
+            && language.toLowerCase() !== 'es-es'
+            && nativeRecognitionRef.current) {
+          setNotice('El motor local no admite el idioma preferido. Probando español general…');
+          result = await bridge.recognizeUtterance({
+            max_duration_ms: 8000,
+            language: 'es-ES'
+          });
+        } else {
+          throw cause;
+        }
+      }
       if (!nativeRecognitionRef.current) return;
       const transcript = String(result?.transcript || '').trim();
       if (!transcript) {
