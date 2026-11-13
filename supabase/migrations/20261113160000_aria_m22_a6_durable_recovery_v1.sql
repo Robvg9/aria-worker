@@ -713,7 +713,8 @@ begin
     where s.job_id=p_job_id and s.allowed_device_id=p_device_id) into v_a6;
 
   if v_job_lease_owner is null or v_job_lease_until<=clock_timestamp()
-     or p_lease_owner is distinct from v_job_lease_owner then
+     or (v_a6 and p_lease_owner is distinct from v_job_lease_owner)
+     or (p_lease_owner is not null and p_lease_owner is distinct from v_job_lease_owner) then
     return null;
   end if;
 
@@ -744,6 +745,8 @@ begin
   update aria_internal.execution_jobs
      set status='running',started_at=clock_timestamp(),updated_at=clock_timestamp()
    where job_id=p_job_id and device_id=p_device_id and status='claimed'
+     and ((p_lease_owner is not null and lease_owner=p_lease_owner)
+       or (p_lease_owner is null and not v_a6))
    returning to_jsonb(execution_jobs.*) into r;
   return r;
 end;
@@ -793,7 +796,10 @@ begin
   if v_job_status not in ('running','claimed') then return null; end if;
 
   if v_current_lease_owner is null or v_lease_until<=clock_timestamp()
-     or p_lease_owner is distinct from v_current_lease_owner then
+     or (exists(select 1 from aria_internal.mission_wonder_2_a6_scopes s
+                 where s.job_id=p_job_id and s.allowed_device_id=p_device_id)
+         and p_lease_owner is distinct from v_current_lease_owner)
+     or (p_lease_owner is not null and p_lease_owner is distinct from v_current_lease_owner) then
     insert into aria_internal.execution_job_events(job_id,device_id,event_type,payload)
     values(p_job_id,p_device_id,'job.stale_lease_result_rejected',
       jsonb_build_object('mission_id',v_mission_id,'submitted_lease_owner_present',p_lease_owner is not null,
@@ -882,10 +888,18 @@ begin
 end;
 $function$;
 
-revoke all on function public.start_execution_job_gateway(text,text) from public,anon,authenticated;
-revoke all on function public.complete_execution_job_gateway(text,text,text,integer,text,text,jsonb) from public,anon,authenticated;
-revoke all on function public.start_execution_job_gateway(text,text,text) from public,anon,authenticated;
-revoke all on function public.complete_execution_job_gateway(text,text,text,integer,text,text,jsonb,text) from public,anon,authenticated;
+do $gateway_privileges$
+begin
+  if to_regprocedure('public.start_execution_job_gateway(text,text)') is not null then
+    execute 'revoke all on function public.start_execution_job_gateway(text,text) from public,anon,authenticated';
+  end if;
+  if to_regprocedure('public.complete_execution_job_gateway(text,text,text,integer,text,text,jsonb)') is not null then
+    execute 'revoke all on function public.complete_execution_job_gateway(text,text,text,integer,text,text,jsonb) from public,anon,authenticated';
+  end if;
+  execute 'revoke all on function public.start_execution_job_gateway(text,text,text) from public,anon,authenticated';
+  execute 'revoke all on function public.complete_execution_job_gateway(text,text,text,integer,text,text,jsonb,text) from public,anon,authenticated';
+end;
+$gateway_privileges$;
 grant execute on function public.start_execution_job_gateway(text,text,text) to postgres,service_role;
 grant execute on function public.complete_execution_job_gateway(text,text,text,integer,text,text,jsonb,text) to postgres,service_role;
 revoke all on function aria_internal.aria_m22_a6_recover_running_job_v1(text,text,text,text) from public,anon,authenticated;
