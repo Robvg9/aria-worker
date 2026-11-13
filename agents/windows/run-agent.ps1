@@ -37,6 +37,27 @@ function Write-Log([string]$Message) {
     Write-Output $line
 }
 
+# Keep the host awake while the watchdog owns the worker. This blocks automatic
+# idle sleep only; the display may turn off and user-initiated sleep is not blocked.
+try {
+    Add-Type -TypeDefinition @'
+using System.Runtime.InteropServices;
+public static class AriaSystemPowerAwareness {
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern uint SetThreadExecutionState(uint esFlags);
+}
+'@
+    $powerState = [AriaSystemPowerAwareness]::SetThreadExecutionState([uint32]0x80000001)
+    if ($powerState -eq 0) {
+        $win32Error = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
+        throw "SetThreadExecutionState failed win32=$win32Error"
+    }
+    Write-Log 'SYSTEM_AWAKE_REQUEST=ACTIVE display_sleep=allowed'
+} catch {
+    Write-Log "SYSTEM_AWAKE_REQUEST=FAILED error=$($_.Exception.Message)"
+    throw
+}
+
 function Write-Status([hashtable]$Fields) {
     try {
         $payload = [ordered]@{
