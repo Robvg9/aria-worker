@@ -16,6 +16,7 @@ const watchdog = fs.readFileSync("agents/windows/run-agent.ps1", "utf8");
 const runtimeUpdater = fs.readFileSync("agents/windows/update-runtime-v3.ps1", "utf8");
 const preflight = fs.readFileSync(".github/workflows/a6-windows-agent-v2-heartbeat-preflight.yml", "utf8");
 const a6Installer = fs.readFileSync("agents/windows/a6-install-heartbeat-v2.ps1", "utf8");
+const gatewayHttpClient = fs.readFileSync("agents/windows/gateway-http-client.cjs", "utf8");
 const syntax = spawnSync(process.execPath, ["--check", "agents/windows/aria-agent.js"], { encoding: "utf8" });
 assert.equal(syntax.status, 0, syntax.stderr || syntax.stdout || "Windows agent JavaScript syntax check failed");
 
@@ -34,8 +35,11 @@ assert.match(agent, /runHeartbeatLoop\(/);
 assert.doesNotMatch(agent, /setInterval\(heartbeat,HEARTBEAT_MS\)/);
 assert.match(agent, /HEARTBEAT_ACK device=/);
 assert.match(agent, /next_interval_ms=\$\{HEARTBEAT_MS\}/);
-assert.ok(agent.includes('const requestDeadlineMs=Math.max(1000,Number(options.timeoutMs)||GATEWAY_TIMEOUT_MS)'));
-assert.ok(agent.includes("const deadline=setTimeout(()=>req.destroy(new Error('gateway_timeout')),requestDeadlineMs)"));
+assert.match(agent, /createGatewayRequest/);
+assert.match(gatewayHttpClient, /requestTimeoutMs = Math\.max\(1_000, Number\(options\.timeoutMs\) \|\| defaultTimeoutMs\)/);
+assert.match(gatewayHttpClient, /deadline = setTimeout\(/);
+assert.match(gatewayHttpClient, /incoming\.once\('aborted'/);
+assert.match(gatewayHttpClient, /incoming\.once\('close'/);
 
 // Local process liveness and successful remote gateway ACK stay separate.
 assert.match(agent, /aria-windows-agent-heartbeat-v2/);
