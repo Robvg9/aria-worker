@@ -302,6 +302,8 @@ begin
 
   v_old := $old$or r.allowed_device_id<>p_device_id then return false; end if;$old$;
   v_new := $new$or r.allowed_device_id<>p_device_id
+     or r.started_at is null
+     or clock_timestamp()>=r.started_at+interval '24 hours'
      or exists(select 1 from aria_internal.mission_wonder_2_a6_recovery_gates g where g.run_id=r.run_id)
      then return false; end if;$new$;
   if position(v_new in v_definition)=0 then
@@ -458,11 +460,12 @@ begin
   select * into s from aria_internal.mission_wonder_2_a6_scopes
    where run_id=p_run_id and scope_id=p_scope_id and mission_id=p_mission_id and job_id=p_job_id
    for update;
-  if not found or s.status<>'bound' then return false; end if;
+  if not found or s.status<>'bound' or s.expires_at<=v_now then return false; end if;
 
   select * into r from aria_internal.mission_wonder_2_a6_runs
    where run_id=p_run_id for update;
   if not found or r.status<>'running' or r.expires_at<=v_now
+     or r.started_at is null or v_now>=r.started_at+interval '24 hours'
      or r.max_recovery_attempts<1 then return false; end if;
 
   select * into j from aria_internal.execution_jobs
