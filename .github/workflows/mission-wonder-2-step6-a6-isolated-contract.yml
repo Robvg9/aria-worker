@@ -192,6 +192,27 @@ jobs:
           end;
           $verify$;
           SQL
+          psql -v ON_ERROR_STOP=1 <<'SQL'
+          do $privilege_verify$
+          begin
+            if to_regprocedure('public.start_execution_job_gateway(text,text)') is not null
+               and has_function_privilege('service_role','public.start_execution_job_gateway(text,text)','EXECUTE') then
+              raise exception 'A6_UNFENCED_START_RPC_REMAINS_EXECUTABLE';
+            end if;
+            if to_regprocedure('public.complete_execution_job_gateway(text,text,text,integer,text,text,jsonb)') is not null
+               and has_function_privilege('service_role','public.complete_execution_job_gateway(text,text,text,integer,text,text,jsonb)','EXECUTE') then
+              raise exception 'A6_UNFENCED_COMPLETE_RPC_REMAINS_EXECUTABLE';
+            end if;
+            if not has_function_privilege('service_role','public.start_execution_job_gateway(text,text,text)','EXECUTE') then
+              raise exception 'A6_FENCED_START_RPC_NOT_EXECUTABLE_BY_SERVICE_ROLE';
+            end if;
+            if not has_function_privilege('service_role','public.complete_execution_job_gateway(text,text,text,integer,text,text,jsonb,text)','EXECUTE') then
+              raise exception 'A6_FENCED_COMPLETE_RPC_NOT_EXECUTABLE_BY_SERVICE_ROLE';
+            end if;
+          end;
+          $privilege_verify$;
+          SQL
+          echo "A6_FENCED_RPC_PRIVILEGES_PASS=true"
           echo "A6_CRON_API_MIGRATION_POSTGRES_PASS=true"
           echo "A6_CRON_CREATED_INACTIVE=true"
           echo "A6_LEGACY_CRONS_48_49_50_STAY_DISABLED=true"
