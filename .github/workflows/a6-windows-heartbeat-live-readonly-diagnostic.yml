@@ -20,7 +20,7 @@ jobs:
   inspect:
     name: Read heartbeat and process identity on ROBVG
     runs-on: [self-hosted, Windows, X64]
-    timeout-minutes: 5
+    timeout-minutes: 12
     defaults:
       run:
         shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
@@ -121,7 +121,7 @@ jobs:
           # Read-only incident window: capture the latest six hours so the
           # A6 watchdog-mediated restart and rollback at ~20:43 UTC are included.
           $incidentEnd = [DateTimeOffset]::UtcNow
-          $incidentStart = $incidentEnd.AddHours(-6)
+          $incidentStart = $incidentEnd.AddHours(-2)
           $killRequestPath = Join-Path $logs 'kill-request'
           $killRequest = @{
             exists = (Test-Path -LiteralPath $killRequestPath -PathType Leaf)
@@ -137,6 +137,7 @@ jobs:
               $killRequest.read_error_type = $_.Exception.GetType().Name
             }
           }
+          Write-Host 'A6_DIAG_STAGE=WINDOWS_EVENT_LOGS_START'
           $incidentEvents = @()
           foreach ($logName in @('System','Microsoft-Windows-NetworkProfile/Operational','Microsoft-Windows-NDIS/Operational','Microsoft-Windows-TaskScheduler/Operational')) {
             try {
@@ -144,7 +145,7 @@ jobs:
                 LogName=$logName
                 StartTime=$incidentStart.LocalDateTime
                 EndTime=$incidentEnd.LocalDateTime
-              } -ErrorAction Stop | Select-Object -First 300)
+              } -MaxEvents 300 -ErrorAction Stop)
               foreach ($event in $events) {
                 $message = [string]$event.Message
                 $isNetworkRelevant = $logName -ne 'System' -or
@@ -169,6 +170,7 @@ jobs:
             }
           }
 
+          Write-Host 'A6_DIAG_STAGE=WINDOWS_EVENT_LOGS_COMPLETE'
           $netAdaptersDetailed = @()
           try {
             $netAdaptersDetailed = @(Get-NetAdapter -IncludeHidden -ErrorAction Stop | Select-Object Name,InterfaceDescription,Status,LinkSpeed,InterfaceIndex,DriverInformation,DriverFileName,DriverVersion)
@@ -254,6 +256,7 @@ jobs:
           }
 
           # Read-only DNS and local gateway probes. Never modifies resolver, route, or adapter settings.
+          Write-Host 'A6_DIAG_STAGE=NETWORK_READONLY_START'
           $dnsResolverState = @()
           try {
             $dnsResolverState = @(Get-DnsClientServerAddress -InterfaceAlias 'Ethernet' -AddressFamily IPv4 -ErrorAction Stop |
@@ -310,6 +313,7 @@ jobs:
             if ($tcpProbe) { $tcpProbe.Dispose() }
           }
 
+          Write-Host 'A6_DIAG_STAGE=WATCHDOG_LOG_READ_START'
           $watchdogIncidentLines = @()
           $watchdogLog = Join-Path $logs 'watchdog.log'
           $watchdogLogInfo = @{ exists=(Test-Path -LiteralPath $watchdogLog -PathType Leaf) }
@@ -318,7 +322,7 @@ jobs:
               $watchdogItem = Get-Item -LiteralPath $watchdogLog
               $watchdogLogInfo.size_bytes=[long]$watchdogItem.Length
               $watchdogLogInfo.last_write_utc=$watchdogItem.LastWriteTimeUtc.ToString('o')
-              $watchdogIncidentLines = @(Get-Content -LiteralPath $watchdogLog -Tail 12000 |
+              $watchdogIncidentLines = @(Get-Content -LiteralPath $watchdogLog -Tail 6000 |
                 ForEach-Object {
                   $line = [string]$_
                   if ($line -match '^\[ARIA-WATCHDOG\]\s+(?<stamp>\S+)\s+(?<message>.*)$') {
@@ -337,6 +341,7 @@ jobs:
             }
           }
 
+          Write-Host 'A6_DIAG_STAGE=POWER_SETTINGS_READ_START'
           $powerSettings = @()
           try {
             $powerSettings += '--- POWER PLAN / SLEEP ---'
@@ -351,10 +356,11 @@ jobs:
           } catch {
             $osBoot = @{ query_error=$_.Exception.GetType().Name }
           }
-          for ($i=0; $i -lt 31; $i++) {
+          Write-Host 'A6_DIAG_STAGE=FINAL_HEARTBEAT_SAMPLES_START'
+          for ($i=0; $i -lt 7; $i++) {
             $snap = Get-HeartbeatSnapshot
             $samples.Add(@{ captured_at_utc=[DateTimeOffset]::UtcNow.ToString('o'); heartbeat=$snap })
-            if ($i -lt 30) { Start-Sleep -Seconds 2 }
+            if ($i -lt 6) { Start-Sleep -Seconds 2 }
           }
 
           $finalProcesses = @()
