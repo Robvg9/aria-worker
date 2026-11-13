@@ -185,6 +185,12 @@ assert.match(watchdog, /GATEWAY_HEARTBEAT_STALE/);
 assert.match(watchdog, /GATEWAY_HEARTBEAT_RECOVERED/);
 assert.match(watchdog, /action=observe_only/);
 assert.match(watchdog, /AGENT_STALE_HEARTBEAT action=restart/);
+assert.doesNotMatch(watchdog, /\$child\.WaitForExit\(\)/, "desktop test children must not block the watchdog loop");
+assert.match(watchdog, /\$DesktopTestTimeoutSeconds = 90/);
+assert.match(watchdog, /\$desktopTestProcess\.HasExited/);
+assert.match(watchdog, /DESKTOP_101_REQUEST_TIMEOUT/);
+assert.match(watchdog, /DESKTOP_101_CHILD_CANCELLED reason=agent_worker_restart/);
+
 const gatewayBlock = watchdog.slice(
   watchdog.indexOf("# Distinguish local Node liveness"),
   watchdog.indexOf("if (Test-Path $DesktopTestRequestPath)")
