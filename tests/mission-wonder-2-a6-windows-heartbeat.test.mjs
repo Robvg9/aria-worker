@@ -116,6 +116,18 @@ assert.match(a6Installer, /powercfg\.exe \/change standby-timeout-ac 0/);
 assert.match(a6Installer, /powercfg\.exe \/change hibernate-timeout-ac 0/);
 assert.match(a6Installer, /A6_AC_IDLE_SLEEP_READBACK_FAILED/);
 assert.match(a6Installer, /A6_POWER_POLICY_DISPLAY_SLEEP=UNCHANGED/);
+assert.match(a6Installer, /power_policy_before=\$null/);
+assert.match(a6Installer, /power_policy_after=\$null/);
+assert.match(a6Installer, /A6_AC_IDLE_HIBERNATE_READBACK_FAILED/);
+assert.match(a6Installer, /A6_AC_STANDBY_READBACK_NOT_ZERO/);
+assert.match(a6Installer, /A6_AC_HIBERNATE_READBACK_NOT_ZERO/);
+assert.match(a6Installer, /A6_DISPLAY_SLEEP_POLICY_CHANGED/);
+assert.match(a6Installer, /power_policy_before=\$null[\\s\\S]*?\$manifest\.power_policy_before = \[ordered\]@\{/,
+  "the evidence manifest must be initialized before power-policy fields are assigned");
+assert.ok(
+  a6Installer.indexOf("$manifest = [ordered]@{") < a6Installer.indexOf("$manifest.power_policy_before = [ordered]@{"),
+  "the manifest must exist before the installer records power-policy evidence"
+);
 
 assert.match(a6Installer, /COMPUTERNAME -ine 'ROBVG'/);
 assert.match(a6Installer, /rev-parse HEAD/);
