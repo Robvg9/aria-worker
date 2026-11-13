@@ -1,0 +1,52 @@
+name: A6 Cancel Stale Host Qualification
+
+on:
+  push:
+    branches:
+      - fix/a6-durable-recovery-v1
+    paths:
+      - '.github/workflows/a6-cancel-stale-qualification.yml'
+
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: a6-stale-host-qualification-canceller
+  cancel-in-progress: false
+
+jobs:
+  cancel-stale:
+    name: Cancel superseded A6 physical qualifications
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Cancel only older A6 runs on this branch
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const branch = context.ref.replace(/^refs\/heads\//, '');
+            const workflowId = 414805848;
+            const runs = await github.paginate(github.rest.actions.listWorkflowRuns, {
+              owner,
+              repo,
+              workflow_id: workflowId,
+              branch,
+              per_page: 100,
+            });
+            const active = new Set(['queued', 'in_progress', 'pending', 'waiting', 'requested']);
+            const stale = runs.filter(run =>
+              run.head_sha !== context.sha &&
+              active.has(run.status)
+            );
+            for (const run of stale) {
+              core.info(`Cancelling superseded A6 run #${run.run_number} sha=${run.head_sha} status=${run.status}`);
+              await github.rest.actions.cancelWorkflowRun({
+                owner,
+                repo,
+                run_id: run.id,
+              });
+            }
+            core.info(`A6_STALE_RUNS_CANCELLED=${stale.length}`);
