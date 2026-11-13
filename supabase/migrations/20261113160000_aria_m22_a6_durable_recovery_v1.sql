@@ -465,7 +465,7 @@ begin
   select * into j from aria_internal.execution_jobs
    where job_id=p_job_id and mission_id=p_mission_id for update;
   if not found or j.device_id<>s.allowed_device_id or j.operation<>'shell.execute'
-     or j.command<>s.command or j.cwd<>'C:\\Windows\\Temp' or j.timeout_ms<>60000
+     or j.command<>s.command or j.cwd<>'C:\Windows\Temp' or j.timeout_ms<>60000
      or j.metadata->>'idempotency_key'<>p_job_id
      or not (j.policy @> '{"mission_wonder_2_a6_continuity":true,"idempotent_artifact":true,"max_artifacts":1,"network_access":false,"external_mutations":false}'::jsonb)
      or coalesce(j.recovery_count,0)>r.max_recovery_attempts then return false; end if;
