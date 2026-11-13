@@ -23,6 +23,7 @@ assert.match(agent, /gateway-http-client\.cjs/);
 assert.match(agent, /lease_owner:job\?\.lease_owner\|\|null/);
 assert.match(agent, /mission_wonder_2_a6_attempt/);
 assert.match(agent, /execution_lease_lost/);
+assert.match(agent, /api\('\/v1\/jobs\/claim',\{method:'POST',body:JSON\.stringify\(\{device_id:DEVICE_ID\}\)\}\)/);
 assert.match(gateway, /start_execution_job_gateway\(\$\{String\(args\.jobId\)\},\$\{String\(args\.deviceId\)\},\$\{typeof args\.leaseOwner/);
 assert.match(gateway, /complete_execution_job_gateway\(/);
 assert.match(gateway, /leaseOwner:typeof b\.lease_owner/);
