@@ -308,7 +308,9 @@ export function VoiceInputButton({
       return;
     }
 
-    const nativeHost = (window as any).ariaNativeBridge?.platform === 'android';
+    const nativeContext = (window as any).__ariaVoiceV4NativeContext?.voice;
+    const nativeHost = (window as any).ariaNativeBridge?.platform === 'android'
+      && typeof nativeContext?.speechRecognition?.available === 'boolean';
     if (nativeHost) {
       const nativeBridge = getNativeSpeechBridge();
       if (nativeBridge) {
