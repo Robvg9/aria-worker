@@ -64,6 +64,20 @@ assert.match(agent, /lastGatewayHeartbeatAt=new Date\(\)\.toISOString\(\)/);
 assert.match(agent, /lastGatewayHeartbeatError=null/);
 assert.match(agent, /createAtomicHeartbeatWriter/);
 assert.match(agent, /writeHeartbeatSnapshot\(payload\)/);
+assert.match(agent, /async function touchProcessHeartbeat\(network='unknown'\)/,
+  "local heartbeat publication must be awaitable by the serial heartbeat loop");
+assert.match(agent, /await writeHeartbeatSnapshot\(payload\)/,
+  "remote ACK must not run ahead of a pending local heartbeat-file write");
+assert.doesNotMatch(agent, /void writeHeartbeatSnapshot\(payload\)/,
+  "fire-and-forget local heartbeat writes can mask a stale Windows liveness file");
+const heartbeatStart = agent.indexOf("async function heartbeat(){");
+const heartbeatEnd = agent.indexOf("\nfunction emitTelemetry", heartbeatStart);
+assert.ok(heartbeatStart >= 0 && heartbeatEnd > heartbeatStart, "heartbeat function source must remain inspectable");
+const heartbeatSource = agent.slice(heartbeatStart, heartbeatEnd);
+assert.ok(heartbeatSource.indexOf("await touchProcessHeartbeat('attempt')") < heartbeatSource.indexOf("await api('/v1/devices/heartbeat'"),
+  "the local process heartbeat must be persisted before sending the remote ACK");
+assert.match(heartbeatSource, /catch\(error\)\{console\.error\(\x60\[heartbeat-file\]/,
+  "local writer failures must remain distinguishable from gateway transport failures");
 assert.match(a6Installer, /atomic-heartbeat-writer\.cjs/);
 assert.match(installer, /atomic-heartbeat-writer\.cjs/);
 assert.match(runtimeUpdater, /atomic-heartbeat-writer\.cjs/);
