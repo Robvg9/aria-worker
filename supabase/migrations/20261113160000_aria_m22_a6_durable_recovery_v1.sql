@@ -473,6 +473,29 @@ begin
   v_attempt := coalesce(nullif(j.metadata->>'mission_wonder_2_a6_attempt','')::integer,1);
   if v_attempt<>1 then return false; end if;
 
+  -- A claimed lease that expires before START has no executed side effect. When
+  -- the global watchdog is disabled by the freeze, A6 reconciliation still
+  -- releases that lease and routes the same job into its single safe retry.
+  if j.status='claimed' and j.lease_until is not null
+     and j.lease_until<=v_now and coalesce(j.recovery_count,0)=0 then
+    update aria_internal.execution_jobs
+       set status='queued',claimed_at=null,lease_owner=null,lease_until=null,
+           recovery_count=1,updated_at=v_now,
+           stderr=concat_ws(E'\n',nullif(stderr,''),'a6: claimed lease expired before start')
+     where job_id=p_job_id and status='claimed' and completed_at is null
+       and lease_until<=v_now and coalesce(recovery_count,0)=0;
+    get diagnostics v_updated=row_count;
+    if v_updated<>1 then return false; end if;
+    insert into aria_internal.execution_job_events(job_id,device_id,event_type,payload)
+    values(p_job_id,j.device_id,'job.recovered',jsonb_build_object(
+      'reason','a6_claim_lease_expired_before_start',
+      'recovery_count',1,
+      'same_job_id',true,
+      'at',v_now
+    ));
+    select * into j from aria_internal.execution_jobs where job_id=p_job_id for update;
+  end if;
+
   if j.status='running' and j.lease_until is not null and j.lease_until<=v_now then
     update aria_internal.execution_jobs
        set status='timeout',completed_at=v_now,updated_at=v_now,
@@ -621,6 +644,7 @@ begin
       end if;
     elsif (
          r.job_status in ('queued','timeout','cancelled')
+         or (r.job_status='claimed' and r.job_lease_until is not null and r.job_lease_until<=clock_timestamp())
          or (r.job_status='running' and r.job_lease_until is not null and r.job_lease_until<=clock_timestamp())
        )
        and aria_internal.aria_m22_a6_recover_running_job_v1(r.run_id,r.scope_id,r.mission_id,r.job_id) then
