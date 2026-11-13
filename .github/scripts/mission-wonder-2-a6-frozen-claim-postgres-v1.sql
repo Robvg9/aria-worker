@@ -340,6 +340,30 @@ begin
    where job_id=v_job_id and event_type='job.stale_lease_result_rejected';
   if v_count<>1 then raise exception 'A6_TEST_STALE_LEASE_REJECTION_EVENT_MISSING'; end if;
 
+  -- A recovered device must still be blocked when the observed heartbeat-to-heartbeat
+  -- gap itself exceeds the 120s recovery ceiling, even if the latest heartbeat is fresh.
+  update aria_internal.device_registry
+     set last_seen_at=(
+       select device_last_seen_at+interval '121 seconds'
+         from aria_internal.mission_wonder_2_a6_telemetry
+        where run_id=v_run_id and event_type='heartbeat_sample'
+        order by sampled_at desc limit 1
+     )
+   where device_id=v_device_id;
+  v_sample:=aria_internal.aria_m22_a6_sample_runtime_v1();
+  if v_sample->>'status' is distinct from 'blocked'
+     or v_sample->>'reason' is distinct from 'heartbeat_observed_gap_exceeded' then
+    raise exception 'A6_TEST_OBSERVED_HEARTBEAT_GAP_OVER_120S_NOT_BLOCKED';
+  end if;
+  if not exists(
+    select 1 from aria_internal.mission_wonder_2_a6_telemetry
+     where run_id=v_run_id and event_type='fault_observed'
+       and payload->>'event'='heartbeat_observed_gap_exceeded'
+       and (payload->>'heartbeatObservedGapMs')::bigint>120000
+  ) then
+    raise exception 'A6_TEST_OBSERVED_HEARTBEAT_GAP_EVIDENCE_MISSING';
+  end if;
+
   -- The A6 fixture does not alter ambient non-A6 work or any cron state.
   if aria_internal.aria_m22_a6_ambient_snapshot_v1() is distinct from v_baseline then
     raise exception 'A6_TEST_AMBIENT_STATE_CHANGED';
