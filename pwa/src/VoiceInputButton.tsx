@@ -258,6 +258,7 @@ export function VoiceInputButton({
         voice_asr_speech_timeout: 'No detecté voz antes del tiempo límite.',
         voice_asr_timeout: 'Se agotó la ventana de escucha de 8 segundos.',
         voice_asr_busy: 'Ya hay otro reconocimiento de voz activo.',
+        voice_asr_listener_active: 'Detén primero la captura PCM del panel Voice y vuelve a pulsar Hablar.',
         voice_asr_audio_error: 'Android no pudo acceder al micrófono.',
         voice_asr_start_failed: 'Android no pudo iniciar el reconocimiento local.',
         voice_asr_cancelled: 'Dictado local detenido.'
