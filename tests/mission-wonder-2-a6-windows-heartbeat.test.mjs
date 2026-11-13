@@ -4,6 +4,7 @@ const require = createRequire(import.meta.url);
 const { runHeartbeatLoop } = require("../agents/windows/heartbeat-scheduler.cjs");
 const { createGatewayLookup } = require('../agents/windows/gateway-dns-lookup.cjs');
 const { createAtomicHeartbeatWriter } = require('../agents/windows/atomic-heartbeat-writer.cjs');
+const { createGatewayRequest } = require('../agents/windows/gateway-http-client.cjs');
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -392,3 +393,8 @@ console.log("MISSION_WONDER_2_A6_WINDOWS_HEARTBEAT_SERIAL_RETRY=PASS");
 
 console.log("MISSION_WONDER_2_A6_GATEWAY_DNS_FALLBACK=PASS");
 
+
+assert.equal(typeof createGatewayRequest, 'function');
+assert.match(a6Installer, /gateway-http-client/);
+assert.match(installer, /gateway-http-client/);
+assert.match(runtimeUpdater, /gateway-http-client/);
