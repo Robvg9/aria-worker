@@ -315,7 +315,7 @@ export function VoiceInputButton({
         void startNativeRecognition(nativeBridge);
         return;
       }
-      setNotice('Este navegador no admite transcripción automática y Android no ofrece reconocimiento local disponible. No se envió audio a un servicio remoto.');
+      setNotice('Este navegador no admite transcripción automática por voz y Android no ofrece reconocimiento local disponible. No se envió audio a un servicio remoto.');
       return;
     }
 
