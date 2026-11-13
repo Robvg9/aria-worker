@@ -307,16 +307,15 @@ export function VoiceInputButton({
       return;
     }
 
-    const nativeBridge = getNativeSpeechBridge();
-    if (nativeBridge) {
-      void startNativeRecognition(nativeBridge);
-      return;
-    }
-
     const speechWindow = window as any;
     const SpeechRecognitionConstructor = speechWindow.SpeechRecognition || speechWindow.webkitSpeechRecognition;
     if (!SpeechRecognitionConstructor) {
-      setNotice('Este navegador no admite transcripción automática por voz. Abre ARIA en Chrome actualizado y permite el micrófono.');
+      const nativeBridge = getNativeSpeechBridge();
+      if (nativeBridge) {
+        void startNativeRecognition(nativeBridge);
+        return;
+      }
+      setNotice('Este navegador no admite transcripción automática y Android no ofrece reconocimiento local disponible. No se envió audio a un servicio remoto.');
       return;
     }
 
