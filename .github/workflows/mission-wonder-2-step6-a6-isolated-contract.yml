@@ -22,6 +22,16 @@ on:
       - '.github/workflows/aria-pwa-fast-deploy.yml'
       - 'tests/mission-wonder-2-step6-a6-soak.test.mjs'
       - 'tests/mission-wonder-2-step6-a6-fault-matrix.test.mjs'
+      # Re-run the isolated A6 PostgreSQL + fault-matrix contract whenever the Windows heartbeat lane changes.
+      - '.github/workflows/a6-windows-agent-v2-heartbeat-preflight.yml'
+      - 'agents/windows/a6-install-heartbeat-v2.ps1'
+      - 'agents/windows/aria-agent.js'
+      - 'agents/windows/gateway-dns-lookup.cjs'
+      - 'agents/windows/heartbeat-scheduler.cjs'
+      - 'agents/windows/run-agent.ps1'
+      - 'tests/mission-wonder-2-a6-windows-heartbeat.test.mjs'
+      - 'tests/windows-agent-resource-guard.test.js'
+      - 'tests/windows-shell-executor.test.js'
       - '.github/scripts/mission-wonder-2-a6-frozen-claim-postgres-v1.sql'
       - '.github/workflows/mission-wonder-2-step6-a6-isolated-contract.yml'
   workflow_dispatch:
