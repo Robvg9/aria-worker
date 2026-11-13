@@ -28,6 +28,7 @@ on:
       - 'tests/mission-wonder-2-a6-windows-heartbeat.test.mjs'
       - '.github/workflows/aria-cloudflare-deploy.yml'
       - '.github/workflows/aria-pwa-fast-deploy.yml'
+      - '.github/workflows/rwht-android-apk.yml'
       - 'tests/supabase-canonical-deploy-contract.test.js'
       - 'autonomy/windows-shell-executor.js'
       - 'computer-use/windows-desktop-adapter.js'
