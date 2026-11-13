@@ -13,7 +13,7 @@ permissions:
 
 concurrency:
   group: a6-stale-host-qualification-canceller
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   cancel-stale:
