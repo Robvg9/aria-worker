@@ -32,6 +32,7 @@ assert.match(watchdog, /\$env:ARIA_HEARTBEAT_MS = '30000'/);
 assert.match(agent, /gatewayHeartbeatInFlight/);
 assert.match(agent, /if\(gatewayHeartbeatInFlight\)/);
 assert.match(agent, /runHeartbeatLoop\(/);
+assert.match(agent, /api\('\/v1\/jobs\/claim',\{method:'POST',body:JSON\.stringify\(\{device_id:DEVICE_ID\}\)\}\)/);\nassert.doesNotMatch(agent, /api\('\/v1\/jobs\/claim'.*lease_owner/s);
 assert.doesNotMatch(agent, /setInterval\(heartbeat,HEARTBEAT_MS\)/);
 assert.match(agent, /HEARTBEAT_ACK device=/);
 assert.match(agent, /next_interval_ms=\$\{HEARTBEAT_MS\}/);
