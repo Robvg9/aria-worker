@@ -266,7 +266,29 @@ async function heartbeat(){
   }
 }
 function emitTelemetry(message){try{void Promise.resolve(meditationController.event(message)).catch(error=>console.error(`[meditation] ${error.message}`))}catch(error){console.error(`[meditation] ${error.message}`)}}
-async function rejectClaimedJob(job,reason,operation=job?.operation){const result={status:'failed',exit_code:null,stdout:'',stderr:reason,duration_ms:0,metadata:{agent_version:'aria-windows-agent-v2',operation,rejected:true}};try{await api(`/v1/jobs/${encodeURIComponent(job.job_id)}/result`,{method:'POST',body:JSON.stringify({device_id:DEVICE_ID,lease_owner:job?.lease_owner||null,result})})}catch(error){console.error(`[reject] ${error.message}`)}}
+async function rejectClaimedJob(job,reason,operation=job?.operation){
+  const result={
+    status:'failed',exit_code:null,stdout:'',stderr:reason,duration_ms:0,
+    metadata:{
+      agent_version:'aria-windows-agent-v2',
+      operation,
+      rejected:true,
+      lease_owner:job?.lease_owner||null,
+      ...(job?.policy?.mission_wonder_2_a5_recovery===true
+        ? {mission_wonder_2_a5_attempt:Math.max(1,Number(job?.metadata?.mission_wonder_2_a5_attempt||1))}
+        : {}),
+      ...(job?.policy?.mission_wonder_2_a6_continuity===true
+        ? {mission_wonder_2_a6_attempt:Math.max(1,Number(job?.metadata?.mission_wonder_2_a6_attempt||1))}
+        : {})
+    }
+  };
+  try{
+    await api(`/v1/jobs/${encodeURIComponent(job.job_id)}/result`,{
+      method:'POST',
+      body:JSON.stringify({device_id:DEVICE_ID,lease_owner:job?.lease_owner||null,result})
+    });
+  }catch(error){console.error(`[reject] ${error.message}`)}
+}
 async function readJobAuthorization(job){
   const path='/v1/jobs/'+encodeURIComponent(job.job_id)+'/status';
   const response=await nativeGatewayRequest(endpoint(path),{method:'GET',headers:headers(),timeoutMs:2500});
