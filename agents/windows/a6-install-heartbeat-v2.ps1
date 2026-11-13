@@ -64,6 +64,7 @@ $map = @(
   @{ source='agents\windows\atomic-heartbeat-writer.cjs'; target=Join-Path $runtime 'atomic-heartbeat-writer.cjs' },
   @{ source='agents\windows\heartbeat-scheduler.cjs'; target=Join-Path $runtime 'heartbeat-scheduler.cjs' },
   @{ source='agents\windows\gateway-dns-lookup.cjs'; target=Join-Path $runtime 'gateway-dns-lookup.cjs' },
+  @{ source='agents\windows\gateway-http-client.cjs'; target=Join-Path $runtime 'gateway-http-client.cjs' },
   @{ source='agents\windows\aria-meditation-controller.js'; target=Join-Path $runtime 'aria-meditation-controller.js' },
   @{ source='agents\windows\autonomous-rwht-controller.js'; target=Join-Path $runtime 'autonomous-rwht-controller.js' },
   @{ source='agents\windows\resource-profile.js'; target=Join-Path $runtime 'resource-profile.js' },
