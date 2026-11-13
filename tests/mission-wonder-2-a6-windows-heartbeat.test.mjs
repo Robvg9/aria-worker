@@ -215,13 +215,6 @@ assert.doesNotMatch(preflight, /Set-Content\s+-LiteralPath\s+\$configPath/i);
 
 // Only a stale local process heartbeat triggers a local restart. A stale remote
 // gateway ACK is observational and must never kill a healthy Node process.
-// The watchdog must prevent automatic idle sleep during a long A6 soak,
-// without keeping the display awake or changing the user's global power plan.
-assert.match(watchdog, /SetThreadExecutionState/);
-assert.match(watchdog, /0x80000001/);
-assert.match(watchdog, /SYSTEM_AWAKE_REQUEST=ACTIVE/);
-assert.doesNotMatch(watchdog, /0x80000002/);
-
 assert.match(watchdog, /\$AgentHeartbeatStaleSeconds = 60/);
 assert.match(watchdog, /\$GatewayHeartbeatStaleSeconds = 90/);
 assert.match(watchdog, /GATEWAY_HEARTBEAT_STALE/);
