@@ -45,10 +45,10 @@ jobs:
         run: npm test
 
   qualify:
-    name: Install exact runtime and qualify heartbeat continuity
+    name: Install exact runtime and qualify 45-minute heartbeat continuity
     needs: contract
     runs-on: [self-hosted, Windows, X64]
-    timeout-minutes: 25
+    timeout-minutes: 60
     defaults:
       run:
         shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
@@ -253,11 +253,11 @@ jobs:
             }
             $result.ollama_process_count = @($result.processes | Where-Object { $_.name -match '^ollama(\.exe)?$' }).Count
           
-            # Fifteen-minute post-install observation. No further runtime/config/process changes.
+            # Forty-five-minute post-install observation. No further runtime/config/process changes.
             $samples = [System.Collections.Generic.List[object]]::new()
             $ackTimes = [System.Collections.Generic.List[DateTimeOffset]]::new()
             $observationStarted = [DateTimeOffset]::UtcNow
-            for ($sampleIndex = 0; $sampleIndex -lt 180; $sampleIndex++) {
+            for ($sampleIndex = 0; $sampleIndex -lt 540; $sampleIndex++) {
               $sampleAt = [DateTimeOffset]::UtcNow
               if (Test-Path -LiteralPath $heartbeatPath -PathType Leaf) {
                 try {
@@ -303,7 +303,7 @@ jobs:
               } else {
                 $samples.Add([ordered]@{ sampled_at_utc = $sampleAt.ToString('o'); missing = $true })
               }
-              if ($sampleIndex -lt 179) { Start-Sleep -Seconds 5 }
+              if ($sampleIndex -lt 539) { Start-Sleep -Seconds 5 }
             }
             $ackGaps = @()
             for ($ackIndex = 1; $ackIndex -lt $ackTimes.Count; $ackIndex++) {
@@ -358,9 +358,9 @@ jobs:
             if (-not $result.heartbeat -or $result.heartbeat.heartbeat_scheduler_version -ne 'serial-retry-v1') { $preflightFailures.Add('SERIAL_RETRY_SCHEDULER_NOT_INSTALLED') }
             if (-not $result.heartbeat -or $result.heartbeat.gateway_dns_fallback_version -ne 'supabase-scoped-public-fallback-v1') { $preflightFailures.Add('SCOPED_DNS_FALLBACK_NOT_INSTALLED') }
             if ($result.ollama_process_count -ne 0) { $preflightFailures.Add('OLLAMA_PROCESS_PRESENT') }
-            if ($result.observation.window_seconds -lt 890) { $preflightFailures.Add('OBSERVATION_SHORTER_THAN_890S') }
-            if ($result.observation.sample_count -lt 150) { $preflightFailures.Add('FEWER_THAN_150_SAMPLES') }
-            if ($result.observation.distinct_gateway_ack_count -lt 26) { $preflightFailures.Add('FEWER_THAN_26_DISTINCT_GATEWAY_ACKS') }
+            if ($result.observation.window_seconds -lt 2690) { $preflightFailures.Add('OBSERVATION_SHORTER_THAN_2690S') }
+            if ($result.observation.sample_count -lt 513) { $preflightFailures.Add('FEWER_THAN_513_SAMPLES') }
+            if ($result.observation.distinct_gateway_ack_count -lt 78) { $preflightFailures.Add('FEWER_THAN_78_DISTINCT_GATEWAY_ACKS') }
             if ($null -eq $result.observation.max_gateway_ack_gap_ms -or $result.observation.max_gateway_ack_gap_ms -gt 90000) { $preflightFailures.Add('GATEWAY_ACK_GAP_OVER_90S') }
             if ($null -eq $result.observation.max_process_heartbeat_age_ms -or $result.observation.max_process_heartbeat_age_ms -gt 90000) { $preflightFailures.Add('PROCESS_HEARTBEAT_STALE') }
             if ($null -eq $result.observation.max_gateway_ack_age_ms -or $result.observation.max_gateway_ack_age_ms -gt 90000) { $preflightFailures.Add('GATEWAY_ACK_STALE') }
