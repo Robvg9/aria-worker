@@ -44,7 +44,7 @@ assert.match(httpClient, /incoming\.once\('close'/);
 assert.match(httpClient, /requestTimeoutMs/);
 assert.match(androidWorkflow, /!startsWith\(github\.head_ref, 'fix\/a6-'\)/, 'A6 PRs must not burn an Android APK build');
 assert.doesNotMatch(androidWorkflow, /- \.github\/workflows\/rwht-android-apk\.yml/, 'workflow-only edits must not publish a new Android APK');
-assert.match(androidWorkflow, /- android-ui-agent\/\*\//, 'Android source changes must continue to trigger APK builds');
+assert.match(androidWorkflow, /- android-ui-agent\/\*\*/, 'Android source changes must continue to trigger APK builds');
 
 console.log('A6_DURABLE_HEARTBEAT_RECOVERY=PASS');
 console.log('A6_SAME_JOB_IDEMPOTENT_RETRY=PASS');
