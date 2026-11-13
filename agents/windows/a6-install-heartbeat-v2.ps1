@@ -192,8 +192,10 @@ try {
   $standbyAfterText = $powerAfterStandby -join [Environment]::NewLine
   $hibernateAfterText = $powerAfterHibernate -join [Environment]::NewLine
   $displayAfterText = $powerAfterDisplay -join [Environment]::NewLine
-  if ($standbyAfterText -notmatch '(?im)(?:AC Power Setting Index|Índice de configuración de corriente alterna actual):\s+0x00000000') { throw 'A6_AC_STANDBY_READBACK_NOT_ZERO' }
-  if ($hibernateAfterText -notmatch '(?im)(?:AC Power Setting Index|Índice de configuración de corriente alterna actual):\s+0x00000000') { throw 'A6_AC_HIBERNATE_READBACK_NOT_ZERO' }
+# Keep this script ASCII-only: Windows PowerShell 5.1 reads UTF-8 without BOM as ANSI.
+  # .NET regex Unicode escapes preserve the Spanish powercfg label on ROBVG.
+  if ($standbyAfterText -notmatch '(?im)(?:AC Power Setting Index|\u00CDndice de configuraci\u00F3n de corriente alterna actual):\s+0x00000000') { throw 'A6_AC_STANDBY_READBACK_NOT_ZERO' }
+  if ($hibernateAfterText -notmatch '(?im)(?:AC Power Setting Index|\u00CDndice de configuraci\u00F3n de corriente alterna actual):\s+0x00000000') { throw 'A6_AC_HIBERNATE_READBACK_NOT_ZERO' }
   if ($displayAfterText -ne ($powerBeforeDisplay -join [Environment]::NewLine)) { throw 'A6_DISPLAY_SLEEP_POLICY_CHANGED' }
   $manifest.power_policy_after = [ordered]@{
     standby = $standbyAfterText
