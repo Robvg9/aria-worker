@@ -308,15 +308,21 @@ export function VoiceInputButton({
       return;
     }
 
-    const speechWindow = window as any;
-    const SpeechRecognitionConstructor = speechWindow.SpeechRecognition || speechWindow.webkitSpeechRecognition;
-    if (!SpeechRecognitionConstructor) {
+    const nativeHost = (window as any).ariaNativeBridge?.platform === 'android';
+    if (nativeHost) {
       const nativeBridge = getNativeSpeechBridge();
       if (nativeBridge) {
         void startNativeRecognition(nativeBridge);
-        return;
+      } else {
+        setNotice('El reconocimiento local no está disponible en este teléfono. No se enviará audio a un servicio remoto; puedes escribir el mensaje.');
       }
-      setNotice('Este navegador no admite transcripción automática por voz y Android no ofrece reconocimiento local disponible. No se envió audio a un servicio remoto.');
+      return;
+    }
+
+    const speechWindow = window as any;
+    const SpeechRecognitionConstructor = speechWindow.SpeechRecognition || speechWindow.webkitSpeechRecognition;
+    if (!SpeechRecognitionConstructor) {
+      setNotice('Este navegador no admite transcripción automática por voz. Permite el micrófono o utiliza el teclado.');
       return;
     }
 
