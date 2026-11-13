@@ -299,7 +299,7 @@ export async function m22A6MissionPlanMatchesV1({ mission, deviceId = M22_A6_ALL
       const recovery = checkpoint.recovery;
       const pending = checkpoint.pending_jobs?.[expectedStep.id];
       if (!recovery || recovery.status !== "waiting_for_async_executor" ||
-          recovery.reason !== "a6_same_job_idempotent_recovery" ||
+          recovery.reason !== "a6_same_job_reclaimed_after_interruption" ||
           recovery.job_id !== expectedJobId ||
           recovery.previous_attempt !== 1 ||
           recovery.next_attempt !== 2 ||
