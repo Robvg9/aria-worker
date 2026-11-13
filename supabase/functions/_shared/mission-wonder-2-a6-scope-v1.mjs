@@ -276,14 +276,51 @@ function m22A6CanonicalValueV1(value) {
   return Object.fromEntries(Object.keys(value).sort().map((key) => [key, m22A6CanonicalValueV1(value[key])]));
 }
 
-export function m22A6MissionPlanMatchesV1({ mission, deviceId = M22_A6_ALLOWED_DEVICE_ID, runId, ordinal, humanGateRef }) {
+export async function m22A6MissionPlanMatchesV1({ mission, deviceId = M22_A6_ALLOWED_DEVICE_ID, runId, ordinal, humanGateRef }) {
   if (!mission || typeof mission !== "object" || Array.isArray(mission) ||
       norm(deviceId) !== M22_A6_ALLOWED_DEVICE_ID) return false;
   try {
     const expectedStep = m22A6BuildContinuityProbeStepV1(deviceId, runId, ordinal, humanGateRef);
-    const plan = mission.checkpoint?.plan;
+    const checkpoint = mission.checkpoint && typeof mission.checkpoint === "object"
+      ? mission.checkpoint : {};
+    const plan = checkpoint.plan;
     if (!Array.isArray(plan) || plan.length !== 1) return false;
-    if (JSON.stringify(m22A6CanonicalValueV1(plan[0])) !== JSON.stringify(m22A6CanonicalValueV1(expectedStep))) return false;
+
+    // Durable A6 recovery deliberately reuses the original job_id while moving
+    // only the checkpoint to attempt 2. Accept that exact state, not a generic
+    // second attempt or a newly-created job.
+    const expectedMissionId = m22A6MissionIdV1(runId, ordinal);
+    const expectedJobId = await m22A6ExpectedJobIdV1(expectedMissionId, expectedStep.id);
+    const planStep = plan[0];
+    const stepAttempts = planStep?.max_attempts;
+    let expectedPlanStep = expectedStep;
+
+    if (stepAttempts === 2) {
+      const recovery = checkpoint.recovery;
+      const pending = checkpoint.pending_jobs?.[expectedStep.id];
+      if (!recovery || recovery.status !== "waiting_for_async_executor" ||
+          recovery.reason !== "a6_same_job_idempotent_recovery" ||
+          recovery.job_id !== expectedJobId ||
+          recovery.previous_attempt !== 1 ||
+          recovery.next_attempt !== 2 ||
+          recovery.new_job_created !== false ||
+          pending?.status !== "queued" ||
+          pending?.attempt !== 2 ||
+          pending?.job_id !== expectedJobId ||
+          checkpoint.attempts?.[expectedStep.id] !== 2) return false;
+      expectedPlanStep = { ...expectedStep, max_attempts: 2 };
+    } else if (stepAttempts === 1) {
+      const pending = checkpoint.pending_jobs?.[expectedStep.id];
+      const recordedAttempt = checkpoint.attempts?.[expectedStep.id];
+      if (checkpoint.recovery?.status === "waiting_for_async_executor" ||
+          (Number.isSafeInteger(recordedAttempt) && recordedAttempt > 1) ||
+          (pending && Number(pending.attempt || 1) > 1)) return false;
+    } else {
+      return false;
+    }
+
+    if (JSON.stringify(m22A6CanonicalValueV1(planStep)) !==
+        JSON.stringify(m22A6CanonicalValueV1(expectedPlanStep))) return false;
     if (Number(mission.total_steps) !== 1) return false;
     if (!Number.isSafeInteger(Number(mission.current_step)) ||
         !Number.isSafeInteger(Number(mission.completed_steps))) return false;
