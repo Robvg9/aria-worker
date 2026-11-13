@@ -1,6 +1,19 @@
 name: Mission Wonder 2 Step 6 A6 — Isolated Scope Contract
 
 on:
+  push:
+    branches: [fix/a6-durable-recovery-v1]
+    paths:
+      - 'supabase/functions/_shared/mission-wonder-2-a6-scope-v1.mjs'
+      - 'tests/mission-wonder-2-step6-a6-isolated-scope.test.mjs'
+      - 'tests/mission-wonder-2-step6-a6-runtime-wiring.test.mjs'
+      - 'supabase/functions/aria-mission-runner-v22/index.ts'
+      - 'supabase/migrations/20261113160000_aria_m22_a6_durable_recovery_v1.sql'
+      - 'tests/mission-wonder-2-a6-durable-recovery.test.mjs'
+      - '.github/scripts/mission-wonder-2-a6-frozen-claim-postgres-v1.sql'
+      - 'tests/mission-wonder-2-step6-a6-soak.test.mjs'
+      - 'tests/mission-wonder-2-step6-a6-fault-matrix.test.mjs'
+      - '.github/workflows/mission-wonder-2-step6-a6-isolated-contract.yml'
   pull_request:
     branches: [main]
     paths:
