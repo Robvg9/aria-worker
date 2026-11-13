@@ -108,6 +108,13 @@ assert.match(preflight, /ALL_A6_HOST_PRECHECKS_PASSED/);
 assert.match(preflight, /heartbeat_scheduler_version = \[string\]\$sampleHb\.heartbeat_scheduler_version/);
 assert.match(preflight, /gateway_dns_fallback_version = \[string\]\$sampleHb\.gateway_dns_fallback_version/);
 
+// A6 installation must keep the AC-powered Windows worker from automatic
+// sleep/hibernate while leaving display sleep and manual power controls unchanged.
+assert.match(a6Installer, /powercfg\.exe \/change standby-timeout-ac 0/);
+assert.match(a6Installer, /powercfg\.exe \/change hibernate-timeout-ac 0/);
+assert.match(a6Installer, /A6_AC_IDLE_SLEEP_READBACK_FAILED/);
+assert.match(a6Installer, /A6_POWER_POLICY_DISPLAY_SLEEP=UNCHANGED/);
+
 assert.match(a6Installer, /COMPUTERNAME -ine 'ROBVG'/);
 assert.match(a6Installer, /rev-parse HEAD/);
 assert.match(a6Installer, /SOURCE_SHA_MISMATCH/);
