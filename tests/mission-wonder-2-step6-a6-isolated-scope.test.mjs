@@ -202,29 +202,90 @@ const missionPlan = {
   total_steps: 1,
   checkpoint: { plan: [step] },
 };
-assert.equal(m22A6MissionPlanMatchesV1({ mission: missionPlan, runId: RUN_ID, ordinal, humanGateRef: HUMAN_GATE_REF }), true);
+assert.equal(await m22A6MissionPlanMatchesV1({ mission: missionPlan, runId: RUN_ID, ordinal, humanGateRef: HUMAN_GATE_REF }), true);
+
+const recoveredMissionPlan = {
+  ...missionPlan,
+  status: "waiting",
+  checkpoint: {
+    plan: [{ ...step, max_attempts: 2 }],
+    attempts: { [stepId]: 2 },
+    pending_jobs: {
+      [stepId]: { status: "queued", attempt: 2, job_id: jobId },
+    },
+    recovery: {
+      status: "waiting_for_async_executor",
+      reason: "a6_same_job_idempotent_recovery",
+      job_id: jobId,
+      previous_attempt: 1,
+      next_attempt: 2,
+      new_job_created: false,
+      at: new Date(NOW).toISOString(),
+    },
+  },
+};
+assert.equal(await m22A6MissionPlanMatchesV1({
+  mission: recoveredMissionPlan, runId: RUN_ID, ordinal, humanGateRef: HUMAN_GATE_REF,
+}), true, "the exact same-job attempt-2 checkpoint must pass the frozen A6 gate");
+assert.equal(await m22A6MissionPlanMatchesV1({
+  mission: {
+    ...recoveredMissionPlan,
+    checkpoint: {
+      ...recoveredMissionPlan.checkpoint,
+      recovery: { ...recoveredMissionPlan.checkpoint.recovery, job_id: "different-job" },
+    },
+  },
+  runId: RUN_ID, ordinal, humanGateRef: HUMAN_GATE_REF,
+}), false, "recovery must retain the deterministic original job_id");
+assert.equal(await m22A6MissionPlanMatchesV1({
+  mission: {
+    ...recoveredMissionPlan,
+    checkpoint: {
+      ...recoveredMissionPlan.checkpoint,
+      pending_jobs: { [stepId]: { status: "queued", attempt: 2, job_id: "different-job" } },
+    },
+  },
+  runId: RUN_ID, ordinal, humanGateRef: HUMAN_GATE_REF,
+}), false, "pending job must match the recovered job_id");
+assert.equal(await m22A6MissionPlanMatchesV1({
+  mission: {
+    ...recoveredMissionPlan,
+    checkpoint: {
+      ...recoveredMissionPlan.checkpoint,
+      attempts: { [stepId]: 1 },
+    },
+  },
+  runId: RUN_ID, ordinal, humanGateRef: HUMAN_GATE_REF,
+}), false, "checkpoint attempt counter must be exactly 2");
+assert.equal(await m22A6MissionPlanMatchesV1({
+  mission: {
+    ...recoveredMissionPlan,
+    checkpoint: { plan: [{ ...step, max_attempts: 2 }] },
+  },
+  runId: RUN_ID, ordinal, humanGateRef: HUMAN_GATE_REF,
+}), false, "attempt 2 without durable recovery evidence must fail closed");
 assert.equal(step.authorization.evidence_ref, HUMAN_GATE_REF);
 assert.throws(() => m22A6BuildContinuityProbeStepV1(DEVICE, RUN_ID, ordinal, "not-a-human-gate"), /human_gate_ref_invalid/);
 assert.throws(() => m22A6BuildContinuityProbeStepV1(DEVICE, RUN_ID, ordinal, "a6-human-gate-1730912400x123"), /human_gate_ref_invalid/);
 const databaseOrderedStep = Object.fromEntries(Object.entries(step).reverse());
-assert.equal(m22A6MissionPlanMatchesV1({
+assert.equal(await m22A6MissionPlanMatchesV1({
   mission: { ...missionPlan, checkpoint: { plan: [databaseOrderedStep] } },
   runId: RUN_ID, ordinal, humanGateRef: HUMAN_GATE_REF,
 }), true);
-assert.equal(m22A6MissionPlanMatchesV1({
+assert.equal(await m22A6MissionPlanMatchesV1({
   mission: { ...missionPlan, checkpoint: { plan: [{ ...step, timeout_ms: 60001 }] } },
   runId: RUN_ID, ordinal, humanGateRef: HUMAN_GATE_REF,
 }), false);
-assert.equal(m22A6MissionPlanMatchesV1({
+assert.equal(await m22A6MissionPlanMatchesV1({
   mission: { ...missionPlan, total_steps: 2 }, runId: RUN_ID, ordinal, humanGateRef: HUMAN_GATE_REF,
 }), false);
-assert.equal(m22A6MissionPlanMatchesV1({
+assert.equal(await m22A6MissionPlanMatchesV1({
   mission: { ...missionPlan, checkpoint: { plan: [step, step] } }, runId: RUN_ID, ordinal, humanGateRef: HUMAN_GATE_REF,
 }), false);
-assert.equal(m22A6MissionPlanMatchesV1({
+assert.equal(await m22A6MissionPlanMatchesV1({
   mission: { ...missionPlan, status: "blocked" }, runId: RUN_ID, ordinal, humanGateRef: HUMAN_GATE_REF,
 }), false);
-assert.equal(m22A6MissionPlanMatchesV1({
+assert.equal(await m22A6MissionPlanMatchesV1({
   mission: missionPlan, deviceId: "other-device", runId: RUN_ID, ordinal, humanGateRef: HUMAN_GATE_REF,
 }), false);
 
