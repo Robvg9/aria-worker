@@ -35,6 +35,20 @@ create table if not exists aria_internal.mission_wonder_2_a6_recovery_gates (
 
 revoke all on table aria_internal.mission_wonder_2_a6_recovery_gates from public, anon, authenticated;
 
+alter table aria_internal.mission_wonder_2_a6_telemetry
+  drop constraint if exists mission_wonder_2_a6_telemetry_event_type_check;
+alter table aria_internal.mission_wonder_2_a6_telemetry
+  add constraint mission_wonder_2_a6_telemetry_event_type_check
+  check (event_type = any (array[
+    'heartbeat_sample'::text,
+    'fault_observed'::text,
+    'dispatcher_event'::text,
+    'final_reconciliation'::text,
+    'recovery_started'::text,
+    'recovery_resolved'::text,
+    'recovery_observed'::text
+  ]));
+
 create or replace function aria_internal.aria_m22_a6_sample_runtime_v1()
 returns jsonb
 language plpgsql
