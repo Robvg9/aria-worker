@@ -26,6 +26,7 @@ declare
   v_event jsonb;
   v_sample jsonb;
   v_recovered boolean;
+  v_reconcile jsonb;
   v_old_lease_owner text;
   v_claim_2 jsonb;
   v_stale_complete jsonb;
@@ -265,21 +266,18 @@ begin
   -- previous worker's late completion.
   v_old_lease_owner:=v_claim->>'lease_owner';
   update aria_internal.execution_jobs
-     set status='running',started_at=clock_timestamp(),updated_at=clock_timestamp()
+     set status='running',started_at=clock_timestamp(),
+         lease_until=clock_timestamp()-interval '1 second',
+         updated_at=clock_timestamp()
    where job_id=v_job_id and status='claimed';
-  update aria_internal.execution_jobs
-     set status='timeout',completed_at=clock_timestamp(),updated_at=clock_timestamp(),
-         lease_owner=null,lease_until=null,recovery_count=1,exit_code=null,
-         stderr='watchdog: a6 running lease expired'
-   where job_id=v_job_id and status='running';
-  insert into aria_internal.execution_job_events(job_id,device_id,event_type,payload)
-  values(v_job_id,v_device_id,'job.timeout',jsonb_build_object(
-    'reason','watchdog_running_lease_expired','mission_wonder_2_a6_same_job_recovery',true
-  ));
 
-  v_recovered:=aria_internal.aria_m22_a6_recover_running_job_v1(
-    v_run_id,v_scope_id,v_mission_id,v_job_id
-  );
+  -- The A6 minute dispatcher owns reconciliation while the global watchdog
+  -- cron remains disabled. An expired RUNNING lease must be detected directly.
+  v_reconcile:=aria_internal.aria_m22_a6_reconcile_v1();
+  if coalesce((v_reconcile->>'recovered')::integer,0)<>1 then
+    raise exception 'A6_TEST_RECONCILE_DID_NOT_RECOVER_EXPIRED_RUNNING_LEASE';
+  end if;
+  v_recovered:=true;
   if v_recovered is distinct from true then
     raise exception 'A6_TEST_SAME_JOB_RECOVERY_REJECTED';
   end if;
@@ -362,6 +360,7 @@ begin
   raise notice 'A6_FROZEN_CLAIM_POSTGRES=PASS';
   raise notice 'A6_HEARTBEAT_RECOVERY_GATE=PASS';
   raise notice 'A6_SAME_JOB_IDEMPOTENT_RECOVERY=PASS';
+  raise notice 'A6_EXPIRED_RUNNING_LEASE_RECONCILED_WITHOUT_GLOBAL_WATCHDOG=PASS';
   raise notice 'A6_STALE_LEASE_FENCING=PASS';
   raise notice 'A6_LEGACY_RPC_FENCING=PASS';
   raise notice 'A6_FROZEN_CLAIM_NEGATIVE_CASES=PASS';
