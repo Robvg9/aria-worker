@@ -266,12 +266,17 @@ async function heartbeat(){
   }
 }
 function emitTelemetry(message){try{void Promise.resolve(meditationController.event(message)).catch(error=>console.error(`[meditation] ${error.message}`))}catch(error){console.error(`[meditation] ${error.message}`)}}
-async function rejectClaimedJob(job,reason,operation=job?.operation){const result={status:'failed',exit_code:null,stdout:'',stderr:reason,duration_ms:0,metadata:{agent_version:'aria-windows-agent-v2',operation,rejected:true}};try{await api(`/v1/jobs/${encodeURIComponent(job.job_id)}/result`,{method:'POST',body:JSON.stringify({device_id:DEVICE_ID,result})})}catch(error){console.error(`[reject] ${error.message}`)}}
+async function rejectClaimedJob(job,reason,operation=job?.operation){const result={status:'failed',exit_code:null,stdout:'',stderr:reason,duration_ms:0,metadata:{agent_version:'aria-windows-agent-v2',operation,rejected:true}};try{await api(`/v1/jobs/${encodeURIComponent(job.job_id)}/result`,{method:'POST',body:JSON.stringify({device_id:DEVICE_ID,lease_owner:job?.lease_owner||null,result})})}catch(error){console.error(`[reject] ${error.message}`)}}
 async function readJobAuthorization(job){
   const path='/v1/jobs/'+encodeURIComponent(job.job_id)+'/status';
   const response=await nativeGatewayRequest(endpoint(path),{method:'GET',headers:headers(),timeoutMs:2500});
   let body=null;try{body=response.text?JSON.parse(response.text):null}catch{body=null}
   if(response.status<200||response.status>=300||body?.authorized!==true)throw new Error(String(body?.error||'mission_authorization_revoked'));
+  if(job?.lease_owner&&body.lease_owner!==job.lease_owner)throw new Error('execution_lease_lost');
+  if(job?.policy?.mission_wonder_2_a6_continuity===true){
+    const expectedAttempt=Math.max(1,Number(job?.metadata?.mission_wonder_2_a6_attempt||1));
+    if(Number(body.attempt||1)!==expectedAttempt)throw new Error('execution_attempt_fenced');
+  }
   return body;
 }
 async function startJobAuthorizationMonitor(job){
@@ -292,7 +297,7 @@ async function executeShellJob(job){
   let payload;
   try{payload=parseShellJob(job,DEVICE_ID)}catch(error){await rejectClaimedJob(job,String(error.message||'unsupported_shell_job'),SHELL_OPERATION);return}
   log(`JOB RECEIVED id=${job.job_id} operation=${SHELL_OPERATION} cwd=${JSON.stringify(payload.cwd)}`);
-  await api(`/v1/jobs/${encodeURIComponent(job.job_id)}/start`,{method:'POST',body:JSON.stringify({device_id:DEVICE_ID})});
+  await api(`/v1/jobs/${encodeURIComponent(job.job_id)}/start`,{method:'POST',body:JSON.stringify({device_id:DEVICE_ID,lease_owner:job?.lease_owner||null})});
   const guard=await startJobAuthorizationMonitor(job);let result;
   try{
     result=guard.signal.aborted
@@ -301,9 +306,9 @@ async function executeShellJob(job){
   }finally{guard.stop()}
   if(guard.signal.aborted&&result.status!=='cancelled')result={...result,status:'cancelled',exit_code:null,stderr:'mission_authorization_revoked'};
   result.stdout=redact(result.stdout);result.stderr=redact(result.stderr);
-  result.metadata={...result.metadata,agent_version:'aria-windows-agent-v2',platform:`windows/${os.release()}`,request_nonce:crypto.randomUUID(),operation:SHELL_OPERATION,...(job?.policy?.mission_wonder_2_a5_recovery===true?{mission_wonder_2_a5_attempt:Math.max(1,Number(job?.metadata?.mission_wonder_2_a5_attempt||1))}:{})};
+  result.metadata={...result.metadata,agent_version:'aria-windows-agent-v2',platform:`windows/${os.release()}`,request_nonce:crypto.randomUUID(),operation:SHELL_OPERATION,lease_owner:job?.lease_owner||null,...(job?.policy?.mission_wonder_2_a5_recovery===true?{mission_wonder_2_a5_attempt:Math.max(1,Number(job?.metadata?.mission_wonder_2_a5_attempt||1))}:{}),...(job?.policy?.mission_wonder_2_a6_continuity===true?{mission_wonder_2_a6_attempt:Math.max(1,Number(job?.metadata?.mission_wonder_2_a6_attempt||1))}:{})};
   log(`JOB RESULT id=${job.job_id} status=${result.status} exit_code=${result.exit_code} duration_ms=${result.duration_ms}`);
-  try{await api(`/v1/jobs/${encodeURIComponent(job.job_id)}/result`,{method:'POST',body:JSON.stringify({device_id:DEVICE_ID,result})})}
+  try{await api(`/v1/jobs/${encodeURIComponent(job.job_id)}/result`,{method:'POST',body:JSON.stringify({device_id:DEVICE_ID,lease_owner:job?.lease_owner||null,result})})}
   catch(error){if(!guard.signal.aborted&&error.status!==409)throw error;log(`JOB RESULT already terminal id=${job.job_id}`)}
   emitTelemetry(`JOB RESULT operation=${SHELL_OPERATION} status=${result.status} exit_code=${result.exit_code}`);
 }
@@ -311,7 +316,7 @@ async function executeOllamaJob(job){
   if(!OLLAMA_ENABLED){await rejectClaimedJob(job,'local_llm_resource_guard:'+RESOURCE_PROFILE.guard_reason,OLLAMA_OPERATION);return}
   let payload;try{payload=parseQwenPayload(job)}catch(error){await rejectClaimedJob(job,String(error.message||'unsupported_qwen_job'),OLLAMA_OPERATION);return}
   log(`JOB RECEIVED id=${job.job_id} operation=${OLLAMA_OPERATION}`);
-  await api(`/v1/jobs/${encodeURIComponent(job.job_id)}/start`,{method:'POST',body:JSON.stringify({device_id:DEVICE_ID})});
+  await api(`/v1/jobs/${encodeURIComponent(job.job_id)}/start`,{method:'POST',body:JSON.stringify({device_id:DEVICE_ID,lease_owner:job?.lease_owner||null})});
   const guard=await startJobAuthorizationMonitor(job);let result;
   try{result=guard.signal.aborted?{status:'cancelled',exit_code:null,stdout:'',stderr:'mission_authorization_revoked',duration_ms:0}:await callOllama({...payload,signal:guard.signal})}
   finally{guard.stop()}
@@ -320,7 +325,7 @@ async function executeOllamaJob(job){
   log(`JOB RESULT id=${job.job_id} status=${result.status} duration_ms=${result.duration_ms}`);
   if(result.stdout)log(`STDOUT ${JSON.stringify(redact(result.stdout))}`);
   if(result.stderr)log(`STDERR ${JSON.stringify(redact(result.stderr))}`);
-  try{await api(`/v1/jobs/${encodeURIComponent(job.job_id)}/result`,{method:'POST',body:JSON.stringify({device_id:DEVICE_ID,result})})}
+  try{await api(`/v1/jobs/${encodeURIComponent(job.job_id)}/result`,{method:'POST',body:JSON.stringify({device_id:DEVICE_ID,lease_owner:job?.lease_owner||null,result})})}
   catch(error){if(!guard.signal.aborted&&error.status!==409)throw error;log(`JOB RESULT already terminal id=${job.job_id}`)}
   emitTelemetry(`JOB RESULT operation=${OLLAMA_OPERATION} status=${result.status}`);
 }
@@ -330,7 +335,7 @@ async function executeAutonomousRwhtJob(job){
   const deterministicPwaRwht=/(RWHT_CONTROL_DISCOVERY_VERIFY|RWHT\s+PC\s+E2E|ARIA\s+PWA|PWA\s+LIVE)/i.test(payload.goal);
   if(!OLLAMA_ENABLED&&!deterministicPwaRwht){await rejectClaimedJob(job,`local_llm_resource_guard:${RESOURCE_PROFILE.guard_reason}`,AUTONOMOUS_COMPUTER_OPERATION);return}
   log(`JOB RECEIVED id=${job.job_id} operation=${AUTONOMOUS_COMPUTER_OPERATION} mode=${payload.mode}`);
-  await api(`/v1/jobs/${encodeURIComponent(job.job_id)}/start`,{method:'POST',body:JSON.stringify({device_id:DEVICE_ID})});
+  await api(`/v1/jobs/${encodeURIComponent(job.job_id)}/start`,{method:'POST',body:JSON.stringify({device_id:DEVICE_ID,lease_owner:job?.lease_owner||null})});
   const guard=await startJobAuthorizationMonitor(job);let result;
   try{
     result=guard.signal.aborted?{status:'cancelled',verified:false,verification_status:'cancelled',error:'mission_authorization_revoked'}:
@@ -340,7 +345,7 @@ async function executeAutonomousRwhtJob(job){
   if(guard.signal.aborted&&result.status!=='cancelled')result={...result,status:'cancelled',verified:false,verification_status:'cancelled',error:'mission_authorization_revoked'};
   const safeResult={...result,exit_code:result?.status==='succeeded'?0:1,stdout:typeof result?.stdout==='string'?redact(result.stdout):'',stderr:typeof result?.error==='string'?redact(result.error):'',metadata:{...(result?.metadata||{}),agent_version:'aria-windows-agent-v2',platform:`windows/${os.release()}`,request_nonce:crypto.randomUUID(),operation:AUTONOMOUS_COMPUTER_OPERATION,mode:payload.mode,capability_awareness:result?.capability_awareness||null}};
   log(`JOB RESULT id=${job.job_id} status=${safeResult.status} verified=${safeResult.verified===true}`);
-  try{await api(`/v1/jobs/${encodeURIComponent(job.job_id)}/result`,{method:'POST',body:JSON.stringify({device_id:DEVICE_ID,result:safeResult})})}
+  try{await api(`/v1/jobs/${encodeURIComponent(job.job_id)}/result`,{method:'POST',body:JSON.stringify({device_id:DEVICE_ID,lease_owner:job?.lease_owner||null,result:safeResult})})}
   catch(error){if(!guard.signal.aborted&&error.status!==409)throw error;log(`JOB RESULT already terminal id=${job.job_id}`)}
   emitTelemetry(`JOB RESULT operation=${AUTONOMOUS_COMPUTER_OPERATION} status=${safeResult.status} verified=${safeResult.verified===true}`);
 }
@@ -348,7 +353,7 @@ async function executeComputerUseJob(job){
   let payload;try{if(!job||job.device_id!==DEVICE_ID||job.operation!==COMPUTER_OPERATION)throw new Error('unsupported_job');payload=typeof job.command==='string'?JSON.parse(job.command):job.command;if(!payload||typeof payload!=='object'||Array.isArray(payload))throw new Error('computer_use_payload_invalid')}
   catch(error){await rejectClaimedJob(job,String(error.message||'invalid_computer_use_job'),COMPUTER_OPERATION);return}
   log(`JOB RECEIVED id=${job.job_id} operation=${COMPUTER_OPERATION} action=${payload.action}`);
-  await api(`/v1/jobs/${encodeURIComponent(job.job_id)}/start`,{method:'POST',body:JSON.stringify({device_id:DEVICE_ID})});
+  await api(`/v1/jobs/${encodeURIComponent(job.job_id)}/start`,{method:'POST',body:JSON.stringify({device_id:DEVICE_ID,lease_owner:job?.lease_owner||null})});
   const guard=await startJobAuthorizationMonitor(job);let result;
   try{
     result=guard.signal.aborted?{status:'cancelled',action:payload.action,error:'mission_authorization_revoked'}:
@@ -358,11 +363,11 @@ async function executeComputerUseJob(job){
   if(guard.signal.aborted&&result.status!=='cancelled')result={...result,status:'cancelled',error:'mission_authorization_revoked'};
   const safeResult={...result,stdout:typeof result.stdout==='string'?redact(result.stdout):'',stderr:typeof result.stderr==='string'?redact(result.stderr):'',metadata:{...(result.metadata||{}),agent_version:'aria-windows-agent-v2',platform:`windows/${os.release()}`,request_nonce:crypto.randomUUID(),operation:COMPUTER_OPERATION,action:payload.action}};
   log(`JOB RESULT id=${job.job_id} status=${safeResult.status} action=${payload.action}`);
-  try{await api(`/v1/jobs/${encodeURIComponent(job.job_id)}/result`,{method:'POST',body:JSON.stringify({device_id:DEVICE_ID,result:safeResult})})}
+  try{await api(`/v1/jobs/${encodeURIComponent(job.job_id)}/result`,{method:'POST',body:JSON.stringify({device_id:DEVICE_ID,lease_owner:job?.lease_owner||null,result:safeResult})})}
   catch(error){if(!guard.signal.aborted&&error.status!==409)throw error;log(`JOB RESULT already terminal id=${job.job_id}`)}
   emitTelemetry(`JOB RESULT operation=${COMPUTER_OPERATION} action=${payload.action} status=${safeResult.status}`);
 }
-async function claimAndExecute(){try{const body=await api('/v1/jobs/claim',{method:'POST',body:JSON.stringify({device_id:DEVICE_ID})});if(!body?.job)return 'idle';const job=body.job;if(job.device_id!==DEVICE_ID){await rejectClaimedJob(job,'device_id_mismatch',job.operation);return}if(job.operation===SHELL_OPERATION){await executeShellJob(job);return 'worked'}if(job.operation===OLLAMA_OPERATION){await executeOllamaJob(job);return 'worked'}if(job.operation===COMPUTER_OPERATION){await executeComputerUseJob(job);return 'worked'}
+async function claimAndExecute(){try{const body=await api('/v1/jobs/claim',{method:'POST',body:JSON.stringify({device_id:DEVICE_ID,lease_owner:job?.lease_owner||null})});if(!body?.job)return 'idle';const job=body.job;if(job.device_id!==DEVICE_ID){await rejectClaimedJob(job,'device_id_mismatch',job.operation);return}if(job.operation===SHELL_OPERATION){await executeShellJob(job);return 'worked'}if(job.operation===OLLAMA_OPERATION){await executeOllamaJob(job);return 'worked'}if(job.operation===COMPUTER_OPERATION){await executeComputerUseJob(job);return 'worked'}
 if(job.operation===AUTONOMOUS_COMPUTER_OPERATION){await executeAutonomousRwhtJob(job);return 'worked'}await rejectClaimedJob(job,`unsupported_operation:${String(job.operation||'')}`,job.operation);return 'worked'}catch(error){console.error(`[job] ${error.message}`);return 'error'}}
 let stopping=false;
 const meditationController=createWindowsMeditationController();
