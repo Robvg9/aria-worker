@@ -717,7 +717,7 @@ $function$;
 -- Keep the two-argument start function for internal compatibility, but revoke
 -- direct API execution. The physical gateway now uses the fenced three-argument form.
 create or replace function public.start_execution_job_gateway(
-  p_job_id text,p_device_id text,p_lease_owner text default null
+  p_job_id text,p_device_id text,p_lease_owner text
 ) returns jsonb
 language plpgsql
 security definer
@@ -785,7 +785,7 @@ $function$;
 -- still have network access after a recovery; it cannot commit against a new lease.
 create or replace function public.complete_execution_job_gateway(
   p_job_id text,p_device_id text,p_status text,p_exit_code integer,
-  p_stdout text,p_stderr text,p_result jsonb,p_lease_owner text default null
+  p_stdout text,p_stderr text,p_result jsonb,p_lease_owner text
 ) returns jsonb
 language plpgsql
 security definer
