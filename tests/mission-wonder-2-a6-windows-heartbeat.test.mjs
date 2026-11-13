@@ -46,8 +46,8 @@ assert.match(agent, /lastGatewayHeartbeatAt=new Date\(\)\.toISOString\(\)/);
 assert.match(agent, /lastGatewayHeartbeatError=null/);
 
 // Host installation is bounded to the exact ROBVG runtime and uses its watchdog;
-// the following 15-minute qualification phase is read-only.
-assert.ok(preflight.includes("name: A6 Windows Agent v2 Install + 15-minute ACK Qualification"));
+// the following 45-minute qualification phase is read-only.
+assert.ok(preflight.includes("name: A6 Windows Agent v2 Install + 45-minute ACK Qualification"));
 assert.ok(preflight.includes("a6-install-heartbeat-v2.ps1"));
 assert.match(preflight, /rev-parse HEAD/);
 assert.match(preflight, /rev-parse \("HEAD:" \+ \$relative\)/);
@@ -59,12 +59,12 @@ assert.doesNotMatch(preflight, /ComSpec|checkout HEAD -- \$relative/);
 assert.doesNotMatch(preflight, /checkout HEAD -- \$relative/);
 assert.match(preflight, /hash-object --path \$relative \$installer/);
 assert.match(preflight, /A6_INSTALLER_HASH_VERIFIED=true/);
-assert.match(preflight, /for \(\$sampleIndex = 0; \$sampleIndex -lt 180; \$sampleIndex\+\+\)/);
+assert.match(preflight, /for \(\$sampleIndex = 0; \$sampleIndex -lt 540; \$sampleIndex\+\+\)/);
 assert.match(preflight, /Start-Sleep -Seconds 5/);
 assert.match(preflight, /distinct_gateway_ack_count/);
 assert.match(preflight, /schema_mismatch_count/);
-assert.match(preflight, /OBSERVATION_SHORTER_THAN_890S/);
-assert.match(preflight, /FEWER_THAN_150_SAMPLES/);
+assert.match(preflight, /OBSERVATION_SHORTER_THAN_2690S/);
+assert.match(preflight, /FEWER_THAN_513_SAMPLES/);
 assert.match(preflight, /GATEWAY_ACK_GAP_OVER_90S/);
 assert.match(preflight, /ALL_A6_HOST_PRECHECKS_PASSED/);
 assert.match(preflight, /heartbeat_scheduler_version = \[string\]\$sampleHb\.heartbeat_scheduler_version/);
@@ -161,7 +161,7 @@ assert.doesNotMatch(a6Installer, /\bStop-Process\b|\bRestart-Service\b|\bRegiste
 assert.doesNotMatch(a6Installer, /MISSION_EXECUTION_PAUSED|cron.*53|aria_m22_a6_start_run/i);
 const observationStep = preflight.slice(preflight.indexOf("Capture installed Windows agent continuity evidence"));
 assert.match(observationStep, /Start-Sleep -Seconds 5/);
-assert.match(observationStep, /distinct_gateway_ack_count -lt 26/);
+assert.match(observationStep, /distinct_gateway_ack_count -lt 78/);
 assert.match(observationStep, /max_gateway_ack_gap_ms -gt 90000/);
 assert.match(observationStep, /scheduler_mismatch_count/);
 assert.match(observationStep, /dns_fallback_mismatch_count/);
