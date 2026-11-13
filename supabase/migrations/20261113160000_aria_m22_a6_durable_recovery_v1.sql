@@ -143,7 +143,7 @@ begin
       recovery_deadline := gate.deadline_at;
       suspect_since := gate.started_at;
     else
-      suspect_since := coalesce(previous_device_seen,previous_sample,r.started_at,now_at);
+      suspect_since := coalesce(previous_device_seen,d.last_seen_at,previous_sample,r.started_at,now_at);
       recovery_deadline := suspect_since + (r.max_recovery_ms * interval '1 millisecond');
       if recovery_deadline<=now_at then
         block_reason := 'heartbeat_recovery_deadline_exceeded';
@@ -663,6 +663,16 @@ begin
     from aria_internal.mission_state m
    where m.mission_id=v_mission_id
    for update;
+
+  select j.status,j.lease_owner,j.lease_until,
+         coalesce(nullif(j.metadata->>'mission_wonder_2_a6_attempt','')::integer,1)
+    into v_job_status,v_lease_owner,v_lease_until,v_attempt
+    from aria_internal.execution_jobs j
+   where j.job_id=p_job_id and j.device_id=p_device_id
+   for update;
+  if not found then
+    return jsonb_build_object('error','job_not_owned_or_missing','authorized',false);
+  end if;
 
   if v_a6 then
     v_authorized := v_job_status='running'
