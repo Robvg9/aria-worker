@@ -920,10 +920,10 @@ $function$;
 do $gateway_privileges$
 begin
   if to_regprocedure('public.start_execution_job_gateway(text,text)') is not null then
-    execute 'revoke all on function public.start_execution_job_gateway(text,text) from public,anon,authenticated';
+    execute 'revoke all on function public.start_execution_job_gateway(text,text) from public,anon,authenticated,service_role';
   end if;
   if to_regprocedure('public.complete_execution_job_gateway(text,text,text,integer,text,text,jsonb)') is not null then
-    execute 'revoke all on function public.complete_execution_job_gateway(text,text,text,integer,text,text,jsonb) from public,anon,authenticated';
+    execute 'revoke all on function public.complete_execution_job_gateway(text,text,text,integer,text,text,jsonb) from public,anon,authenticated,service_role';
   end if;
   execute 'revoke all on function public.start_execution_job_gateway(text,text,text) from public,anon,authenticated';
   execute 'revoke all on function public.complete_execution_job_gateway(text,text,text,integer,text,text,jsonb,text) from public,anon,authenticated';
