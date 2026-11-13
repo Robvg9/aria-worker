@@ -4,11 +4,16 @@ on:
   push:
     branches:
       - ops/a6-windows-agent-v2-heartbeat-preflight-v1
+      - fix/a6-durable-recovery-v1
     paths:
       - '.github/workflows/a6-windows-agent-v2-heartbeat-preflight.yml'
       - '.github/workflows/a6-windows-heartbeat-live-readonly-diagnostic.yml'
       - 'agents/windows/a6-install-heartbeat-v2.ps1'
       - 'agents/windows/aria-agent.js'
+      - 'supabase/functions/aria-device-gateway/index.ts'
+      - 'supabase/migrations/20261113160000_aria_m22_a6_durable_recovery_v1.sql'
+      - '.github/scripts/mission-wonder-2-a6-frozen-claim-postgres-v1.sql'
+      - 'tests/mission-wonder-2-a6-durable-recovery.test.mjs'
       - 'agents/windows/gateway-http-client.cjs'
       - 'tests/gateway-http-client.test.mjs'
       - 'agents/windows/atomic-heartbeat-writer.cjs'
