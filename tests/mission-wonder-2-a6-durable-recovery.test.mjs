@@ -24,6 +24,8 @@ assert.match(migration, /new_job_created',false/);
 assert.match(migration, /a6_requeue_job_id/);
 assert.match(migration, /p_lease_owner/);
 assert.match(migration, /job\.stale_lease_result_rejected/);
+assert.match(migration, /A6_TEST_FRESH_LEASE_START_FAILED/);
+assert.match(migration, /A6_TEST_FRESH_LEASE_COMPLETION_FAILED/);
 assert.match(migration, /max_recovery_count<=r\.max_recovery_attempts/);
 assert.match(migration, /max_heartbeat_age_ms<=r\.max_recovery_ms/);
 
