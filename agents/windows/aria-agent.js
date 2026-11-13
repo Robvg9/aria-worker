@@ -367,7 +367,7 @@ async function executeComputerUseJob(job){
   catch(error){if(!guard.signal.aborted&&error.status!==409)throw error;log(`JOB RESULT already terminal id=${job.job_id}`)}
   emitTelemetry(`JOB RESULT operation=${COMPUTER_OPERATION} action=${payload.action} status=${safeResult.status}`);
 }
-async function claimAndExecute(){try{const body=await api('/v1/jobs/claim',{method:'POST',body:JSON.stringify({device_id:DEVICE_ID,lease_owner:job?.lease_owner||null})});if(!body?.job)return 'idle';const job=body.job;if(job.device_id!==DEVICE_ID){await rejectClaimedJob(job,'device_id_mismatch',job.operation);return}if(job.operation===SHELL_OPERATION){await executeShellJob(job);return 'worked'}if(job.operation===OLLAMA_OPERATION){await executeOllamaJob(job);return 'worked'}if(job.operation===COMPUTER_OPERATION){await executeComputerUseJob(job);return 'worked'}
+async function claimAndExecute(){try{const body=await api('/v1/jobs/claim',{method:'POST',body:JSON.stringify({device_id:DEVICE_ID})});if(!body?.job)return 'idle';const job=body.job;if(job.device_id!==DEVICE_ID){await rejectClaimedJob(job,'device_id_mismatch',job.operation);return}if(job.operation===SHELL_OPERATION){await executeShellJob(job);return 'worked'}if(job.operation===OLLAMA_OPERATION){await executeOllamaJob(job);return 'worked'}if(job.operation===COMPUTER_OPERATION){await executeComputerUseJob(job);return 'worked'}
 if(job.operation===AUTONOMOUS_COMPUTER_OPERATION){await executeAutonomousRwhtJob(job);return 'worked'}await rejectClaimedJob(job,`unsupported_operation:${String(job.operation||'')}`,job.operation);return 'worked'}catch(error){console.error(`[job] ${error.message}`);return 'error'}}
 let stopping=false;
 const meditationController=createWindowsMeditationController();
