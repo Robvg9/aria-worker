@@ -36,6 +36,11 @@ assert.match(agent, /api\('\/v1\/jobs\/claim',\{method:'POST',body:JSON\.stringi
 assert.doesNotMatch(agent, /api\('\/v1\/jobs\/claim'.*lease_owner/s);
 assert.doesNotMatch(agent, /setInterval\(heartbeat,HEARTBEAT_MS\)/);
 assert.match(agent, /HEARTBEAT_ACK device=/);
+assert.match(agent, /process_start_id:processStartId/);
+assert.match(agent, /process_uptime_monotonic_ms:processMonotonicUptimeMs\(\)/);
+assert.match(agent, /x-aria-process-start-id/);
+assert.match(agent, /JOB_AUTH_CHECK_START id=/);
+assert.match(agent, /process_start_id=\$\{processStartId\}/);
 assert.match(agent, /async function rejectClaimedJob\(job,reason/);
 assert.match(agent, /lease_owner:job\?\.lease_owner\|\|null/);
 assert.match(agent, /mission_wonder_2_a6_attempt:Math\.max\(1,Number\(job\?\.metadata\?\.mission_wonder_2_a6_attempt\|\|1\)\)/);
