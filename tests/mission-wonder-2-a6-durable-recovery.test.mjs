@@ -6,6 +6,7 @@ const agent = fs.readFileSync('agents/windows/aria-agent.js', 'utf8');
 const watchdog = fs.readFileSync('agents/windows/run-agent.ps1', 'utf8');
 const gateway = fs.readFileSync('supabase/functions/aria-device-gateway/index.ts', 'utf8');
 const httpClient = fs.readFileSync('agents/windows/gateway-http-client.cjs', 'utf8');
+const androidWorkflow = fs.readFileSync('.github/workflows/rwht-android-apk.yml', 'utf8');
 
 assert.match(migration, /mission_wonder_2_a6_recovery_gates/);
 assert.match(migration, /status','recovering'/);
@@ -41,6 +42,9 @@ assert.match(watchdog, /DESKTOP_101_REQUEST_TIMEOUT/);
 assert.match(httpClient, /incoming\.once\('aborted'/);
 assert.match(httpClient, /incoming\.once\('close'/);
 assert.match(httpClient, /requestTimeoutMs/);
+assert.match(androidWorkflow, /!startsWith\(github\.head_ref, 'fix\/a6-'\)/, 'A6 PRs must not burn an Android APK build');
+assert.doesNotMatch(androidWorkflow, /- \.github\/workflows\/rwht-android-apk\.yml/, 'workflow-only edits must not publish a new Android APK');
+assert.match(androidWorkflow, /- android-ui-agent\/\*\//, 'Android source changes must continue to trigger APK builds');
 
 console.log('A6_DURABLE_HEARTBEAT_RECOVERY=PASS');
 console.log('A6_SAME_JOB_IDEMPOTENT_RETRY=PASS');
