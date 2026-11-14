@@ -40,6 +40,9 @@ jobs:
             content_type = $null
             page_title = $null
             model_or_firmware_hints = @()
+            public_meta_tags = @()
+            public_script_assets = @()
+            public_version_hints = @()
             request_error = $null
           }
 
