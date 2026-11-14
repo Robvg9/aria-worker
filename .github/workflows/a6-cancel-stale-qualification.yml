@@ -92,6 +92,26 @@ jobs:
             }
 
 
+
+            // Cancel only the read-only capture that scans a growing watchdog log without a snapshot.
+            if (branch === 'ops/a6-windows-agent-v2-heartbeat-preflight-v1') {
+              const growingLogRunId = 43598440701;
+              const { data: growingLogRun } = await github.rest.actions.getWorkflowRun({ owner, repo, run_id: growingLogRunId });
+              if (growingLogRun.head_branch === branch && growingLogRun.event === 'push' && active.has(growingLogRun.status)) {
+                const { data: growingLogJobs } = await github.rest.actions.listJobsForWorkflowRun({ owner, repo, run_id: growingLogRunId, per_page: 100 });
+                const growingLogJob = growingLogJobs.jobs.find(job => job.name === 'Minimal heartbeat and watchdog state (read-only)');
+                const growingLogStep = growingLogJob?.steps?.find(step => step.name === 'Capture bounded process and heartbeat state');
+                const growingLogAgeMs = growingLogStep?.started_at ? Date.now() - Date.parse(growingLogStep.started_at) : 0;
+                if (growingLogJob?.status === 'in_progress' && growingLogStep?.status === 'in_progress' && growingLogAgeMs > 60000) {
+                  core.info(`Force-cancelling only growing-log read-only capture #${growingLogRun.run_number}; step_age_ms=${growingLogAgeMs}`);
+                  await github.rest.actions.cancelWorkflowRun({ owner, repo, run_id: growingLogRunId });
+                  await github.request('POST /repos/{owner}/{repo}/actions/runs/{run_id}/force-cancel', { owner, repo, run_id: growingLogRunId });
+                } else {
+                  core.info(`Keeping read-only capture #${growingLogRun.run_number}; step_status=${growingLogStep?.status}; step_age_ms=${growingLogAgeMs}`);
+                }
+              }
+            }
+
             // Cancel only the bounded read-only capture if its file-tail step stalls.
             if (branch === 'ops/a6-windows-agent-v2-heartbeat-preflight-v1') {
               const captureRunId = 43596400455;
