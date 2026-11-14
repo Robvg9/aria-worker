@@ -106,7 +106,7 @@ jobs:
             $reader = [System.IO.StreamReader]::new($logStream,[System.Text.Encoding]::UTF8,$true,4096,$true)
             try {
               while (($line = $reader.ReadLine()) -ne $null) {
-                if ($line -match 'KILL_REQUEST_SEEN|AGENT_KILLED_BY_WATCHDOG|AGENT_KILL_FAILED|AGENT_EXIT|AGENT_STARTED|AGENT_STALE_HEARTBEAT') {
+                if ($line -match 'KILL_REQUEST_SEEN|AGENT_KILLED_BY_WATCHDOG|AGENT_KILL_FAILED|AGENT_EXIT|AGENT_STARTED|AGENT_STALE_HEARTBEAT|GATEWAY_HEARTBEAT_STALE|GATEWAY_HEARTBEAT_RECOVERED|GATEWAY_HEARTBEAT_DIAGNOSTIC_ERROR') {
                   if ($markerHits.Count -ge 120) { $markerHits.RemoveAt(0) }
                   $markerHits.Add($line)
                 }
@@ -125,7 +125,19 @@ jobs:
             watchdog_process_name = if ($watchdogProcess) { [string]$watchdogProcess.ProcessName } else { $null }
             kill_request_present = Test-Path -LiteralPath $killPath -PathType Leaf
             status = if ($status) { [ordered]@{ state=[string]$status.state; agent_pid=[int]$status.agent_pid; watchdog_pid=[int]$status.watchdog_pid; updated_at=[string]$status.updated_at; agent_path=[string]$status.agent_path; runtime_root=[string]$status.runtime_root } } else { $null }
-            heartbeat = if ($heartbeat) { [ordered]@{ device_id=[string]$heartbeat.device_id; version=[string]$heartbeat.version; scheduler_version=[string]$heartbeat.heartbeat_scheduler_version; timestamp=[string]$heartbeat.timestamp; gateway_ack=[string]$heartbeat.last_gateway_heartbeat_at; gateway_error_present=($null -ne $heartbeat.last_gateway_heartbeat_error) } } else { $null }
+            heartbeat = if ($heartbeat) { [ordered]@{
+              device_id=[string]$heartbeat.device_id
+              device_id_matches_expected=([string]$heartbeat.device_id -eq 'windows-fe722cc6681e4f9c9cc35f5ebbb0a089')
+              version=[string]$heartbeat.version
+              version_matches_expected=([string]$heartbeat.version -eq 'aria-windows-agent-heartbeat-v2')
+              scheduler_version=[string]$heartbeat.heartbeat_scheduler_version
+              timestamp=[string]$heartbeat.timestamp
+              gateway_ack=[string]$heartbeat.last_gateway_heartbeat_at
+              gateway_ack_age_ms=if ($heartbeat.last_gateway_heartbeat_at) { [long]([DateTimeOffset]::UtcNow - [DateTimeOffset]::Parse([string]$heartbeat.last_gateway_heartbeat_at).ToUniversalTime()).TotalMilliseconds } else { $null }
+              gateway_error_present=($null -ne $heartbeat.last_gateway_heartbeat_error)
+              gateway_error_code=if ($heartbeat.last_gateway_heartbeat_error) { [string]$heartbeat.last_gateway_heartbeat_error.code } else { $null }
+              gateway_error_message=if ($heartbeat.last_gateway_heartbeat_error) { ([string]$heartbeat.last_gateway_heartbeat_error.message).Substring(0,[Math]::Min(160,([string]$heartbeat.last_gateway_heartbeat_error.message).Length)) } else { $null }
+            } } else { $null }
             heartbeat_samples = @($samples)
             watchdog_log_bytes = $watchdogLogBytes
             watchdog_log_tail = @($tail)
