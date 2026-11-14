@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - ops/a6-windows-agent-v2-heartbeat-preflight-v1
+      - fix/a6-durable-recovery-v1
     paths:
       - '.github/workflows/a6-windows-task-inspection-readonly.yml'
 
@@ -136,7 +137,7 @@ jobs:
                 if (-not $nameProperty) { continue }
                 $name = [string]$nameProperty.Value
                 $rowText = (($properties | ForEach-Object { [string]$_.Value }) -join '|')
-                if ($rowText -notmatch '(?i)SpaceAgent|ARIA|Windows.*Agent|Agent.*Windows|D:\\\\ARIA-Windows-Agent|run-agent\.ps1|aria-agent\.js') { continue }
+                if ($rowText -notmatch '(?i)SpaceAgent|ARIA|Windows.*Agent|Agent.*Windows|BattleCruiser.*Self-Heal|Self-Heal|GitHub Actions Runner Watchdog|D:\\\\ARIA-Windows-Agent|run-agent\.ps1|aria-agent\.js') { continue }
                 $actionProperty = $properties | Where-Object { $_.Name -match 'Task To Run|Tarea.*ejecutar|Acción|Accion' } | Select-Object -First 1
                 $statusProperty = $properties | Where-Object { $_.Name -match 'Status|Estado' } | Select-Object -First 1
                 $userProperty = $properties | Where-Object { $_.Name -match 'Run As User|Ejecutar como usuario|Iniciar como' } | Select-Object -First 1
@@ -171,6 +172,24 @@ jobs:
                 $entry.user = [string]$taskXml.SelectSingleNode("//*[local-name()='Principals']/*[local-name()='Principal']/*[local-name()='UserId']").InnerText
                 $entry.logon_type = [string]$taskXml.SelectSingleNode("//*[local-name()='Principals']/*[local-name()='Principal']/*[local-name()='LogonType']").InnerText
                 $entry.run_level = [string]$taskXml.SelectSingleNode("//*[local-name()='Principals']/*[local-name()='Principal']/*[local-name()='RunLevel']").InnerText
+                $entry.execution_time_limit = [string]$taskXml.SelectSingleNode("//*[local-name()='Settings']/*[local-name()='ExecutionTimeLimit']").InnerText
+                $entry.multiple_instances_policy = [string]$taskXml.SelectSingleNode("//*[local-name()='Settings']/*[local-name()='MultipleInstancesPolicy']").InnerText
+                $entry.start_when_available = [string]$taskXml.SelectSingleNode("//*[local-name()='Settings']/*[local-name()='StartWhenAvailable']").InnerText
+                $entry.wake_to_run = [string]$taskXml.SelectSingleNode("//*[local-name()='Settings']/*[local-name()='WakeToRun']").InnerText
+                $entry.disallow_start_if_on_batteries = [string]$taskXml.SelectSingleNode("//*[local-name()='Settings']/*[local-name()='DisallowStartIfOnBatteries']").InnerText
+                $entry.stop_if_going_on_batteries = [string]$taskXml.SelectSingleNode("//*[local-name()='Settings']/*[local-name()='StopIfGoingOnBatteries']").InnerText
+                $entry.restart_on_failure_count = [string]$taskXml.SelectSingleNode("//*[local-name()='Settings']/*[local-name()='RestartOnFailure']/*[local-name()='Count']").InnerText
+                $entry.restart_on_failure_interval = [string]$taskXml.SelectSingleNode("//*[local-name()='Settings']/*[local-name()='RestartOnFailure']/*[local-name()='Interval']").InnerText
+                $entry.triggers = @($taskXml.SelectNodes("//*[local-name()='Triggers']/*") | ForEach-Object {
+                  @{
+                    type=$_.LocalName
+                    start_boundary=[string]$_.SelectSingleNode("./*[local-name()='StartBoundary']").InnerText
+                    enabled=[string]$_.SelectSingleNode("./*[local-name()='Enabled']").InnerText
+                    repetition_interval=[string]$_.SelectSingleNode("./*[local-name()='Repetition']/*[local-name()='Interval']").InnerText
+                    repetition_duration=[string]$_.SelectSingleNode("./*[local-name()='Repetition']/*[local-name()='Duration']").InnerText
+                    repetition_stop_at_duration_end=[string]$_.SelectSingleNode("./*[local-name()='Repetition']/*[local-name()='StopAtDurationEnd']").InnerText
+                  }
+                })
                 $entry.arguments = $entry.arguments -replace '(?i)(token|secret|password|authorization)(\s*[:=]\s*|\s+)[^\s;]+','$1$2[REDACTED]'
                 $entry.xml_read = $true
               } catch {
@@ -212,23 +231,38 @@ jobs:
           }
           $result.watchdog_parent_pid = $watchdogParentPid
           $result.task_scheduler_process_events = @()
-          if ($watchdogPid) {
+          $nodeLauncherPids = @()
+          foreach ($nodeProcess in @($all | Where-Object { $_.Name -ieq 'node.exe' })) {
+            $parent = $byId[[int]$nodeProcess.ParentProcessId]
+            if ($parent -and [string]$parent.Name -match '^(powershell|pwsh)\.exe$') {
+              $nodeLauncherPids += [int]$parent.ProcessId
+            }
+          }
+          $eventPids = @()
+          $eventPids += @($nodeLauncherPids)
+          $eventPids += @($watchdogPid,$watchdogParentPid)
+          $eventPids = @($eventPids | Where-Object { $_ -is [int] -and $_ -gt 0 } | Sort-Object -Unique)
+          $result.task_scheduler_event_target_pids = $eventPids
+          if ($eventPids.Count -gt 0) {
             try {
-              $pidPattern = '(?<!\d)' + [regex]::Escape([string]$watchdogPid) + '(?!\d)'
-              $recentEvents = @(Get-WinEvent -FilterHashtable @{
+              $taskStartEvents = @(Get-WinEvent -FilterHashtable @{
                 LogName='Microsoft-Windows-TaskScheduler/Operational'
-                StartTime=(Get-Date).AddDays(-3)
-              } -MaxEvents 5000 -ErrorAction Stop |
-                Where-Object { $_.Id -eq 129 -and $_.Message -match $pidPattern } |
-                Select-Object -First 20)
-              foreach ($event in $recentEvents) {
-                $message = [string]$event.Message
-                $message = $message -replace '(?i)(token|secret|password|authorization)(\s*[:=]\s*|\s+)[^\s;]+','$1$2[REDACTED]'
-                $result.task_scheduler_process_events += @{
-                  time_utc=$event.TimeCreated.ToUniversalTime().ToString('o')
-                  event_id=[int]$event.Id
-                  provider=[string]$event.ProviderName
-                  message=$message.Substring(0,[Math]::Min(700,$message.Length))
+                Id=129
+                StartTime=(Get-Date).AddDays(-7)
+              } -MaxEvents 4000 -ErrorAction Stop)
+              foreach ($candidatePid in $eventPids) {
+                $pidPattern = '(?<!\d)' + [regex]::Escape([string]$candidatePid) + '(?!\d)'
+                $matches = @($taskStartEvents | Where-Object { [string]$_.Message -match $pidPattern } | Select-Object -First 10)
+                foreach ($event in $matches) {
+                  $message = [string]$event.Message
+                  $message = $message -replace '(?i)(token|secret|password|authorization)(\s*[:=]\s*|\s+)[^\s;]+','$1$2[REDACTED]'
+                  $result.task_scheduler_process_events += @{
+                    matched_process_pid=[int]$candidatePid
+                    time_utc=$event.TimeCreated.ToUniversalTime().ToString('o')
+                    event_id=[int]$event.Id
+                    provider=[string]$event.ProviderName
+                    message=$message.Substring(0,[Math]::Min(700,$message.Length))
+                  }
                 }
               }
             } catch {
@@ -270,3 +304,4 @@ jobs:
           path: a6-windows-task-inspection.json
           if-no-files-found: warn
           retention-days: 14
+# Correlate Node launcher PIDs with Task Scheduler event 129 using read-only queries.

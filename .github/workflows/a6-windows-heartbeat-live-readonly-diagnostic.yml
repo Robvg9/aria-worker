@@ -1,9 +1,11 @@
 name: A6 Windows heartbeat live read-only diagnostic
+# Read-only incident capture rerun: investigate the 2026-11-13 22:27 UTC heartbeat gap from A6 qualification run 136.
 
 on:
   push:
     branches:
       - ops/a6-windows-agent-v2-heartbeat-preflight-v1
+      - fix/a6-durable-recovery-v1
     paths:
       - '.github/workflows/a6-windows-heartbeat-live-readonly-diagnostic.yml'
 
@@ -20,7 +22,7 @@ jobs:
   inspect:
     name: Read heartbeat and process identity on ROBVG
     runs-on: [self-hosted, Windows, X64]
-    timeout-minutes: 12
+    timeout-minutes: 5
     defaults:
       run:
         shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
@@ -76,6 +78,13 @@ jobs:
               device_id=if($state){[string]$state.device_id}else{$null}
               timestamp=if($state){[string]$state.timestamp}else{$null}
               network=if($state){[string]$state.network}else{$null}
+              process_id=if($state){$state.process_id}else{$null}
+              process_start_id=if($state){[string]$state.process_start_id}else{$null}
+              process_started_at=if($state){[string]$state.process_started_at}else{$null}
+              process_uptime_ms=if($state){$state.process_uptime_ms}else{$null}
+              process_uptime_monotonic_ms=if($state){$state.process_uptime_monotonic_ms}else{$null}
+              heartbeat_sequence=if($state){$state.heartbeat_sequence}else{$null}
+              event_loop_delay=if($state){$state.event_loop_delay}else{$null}
               last_gateway_heartbeat_at=if($state){[string]$state.last_gateway_heartbeat_at}else{$null}
               gateway_error_at=if($gatewayError){[string]$gatewayError.at}else{$null}
               gateway_error_status=if($gatewayError){$gatewayError.status}else{$null}
@@ -121,7 +130,7 @@ jobs:
           # Read-only incident window: capture the latest six hours so the
           # A6 watchdog-mediated restart and rollback at ~20:43 UTC are included.
           $incidentEnd = [DateTimeOffset]::UtcNow
-          $incidentStart = $incidentEnd.AddHours(-2)
+          $incidentStart = $incidentEnd.AddHours(-6)
           $killRequestPath = Join-Path $logs 'kill-request'
           $killRequest = @{
             exists = (Test-Path -LiteralPath $killRequestPath -PathType Leaf)
@@ -137,7 +146,6 @@ jobs:
               $killRequest.read_error_type = $_.Exception.GetType().Name
             }
           }
-          Write-Host 'A6_DIAG_STAGE=WINDOWS_EVENT_LOGS_START'
           $incidentEvents = @()
           foreach ($logName in @('System','Microsoft-Windows-NetworkProfile/Operational','Microsoft-Windows-NDIS/Operational','Microsoft-Windows-TaskScheduler/Operational')) {
             try {
@@ -145,12 +153,12 @@ jobs:
                 LogName=$logName
                 StartTime=$incidentStart.LocalDateTime
                 EndTime=$incidentEnd.LocalDateTime
-              } -MaxEvents 300 -ErrorAction Stop)
+              } -ErrorAction Stop | Select-Object -First 300)
               foreach ($event in $events) {
                 $message = [string]$event.Message
                 $isNetworkRelevant = $logName -ne 'System' -or
-                  $event.ProviderName -match 'rt640x64|NDIS|Tcpip|Network|Kernel-PnP|Kernel-Power' -or
-                  $event.Id -in @(27,32,41,10400,10401,4201,4202,5002,5005,5007,6008)
+                  $event.ProviderName -match 'rt640x64|NDIS|Tcpip|Network|Kernel-PnP|Kernel-Power|Power-Troubleshooter|Kernel-General|Kernel-Boot|User32|EventLog' -or
+                  $event.Id -in @(1,12,13,27,32,41,42,10400,10401,107,109,4201,4202,506,507,1074,6005,6006,6008)
                 if (-not $isNetworkRelevant) { continue }
                 $message = $message -replace '(?i)Bearer\s+[^\s]+','Bearer [REDACTED]'
                 $message = $message -replace '(?i)(token|secret|password|authorization)(\s*[:=]\s*|\s+)[^\s;]+','$1$2[REDACTED]'
@@ -170,7 +178,6 @@ jobs:
             }
           }
 
-          Write-Host 'A6_DIAG_STAGE=WINDOWS_EVENT_LOGS_COMPLETE'
           $netAdaptersDetailed = @()
           try {
             $netAdaptersDetailed = @(Get-NetAdapter -IncludeHidden -ErrorAction Stop | Select-Object Name,InterfaceDescription,Status,LinkSpeed,InterfaceIndex,DriverInformation,DriverFileName,DriverVersion)
@@ -256,7 +263,6 @@ jobs:
           }
 
           # Read-only DNS and local gateway probes. Never modifies resolver, route, or adapter settings.
-          Write-Host 'A6_DIAG_STAGE=NETWORK_READONLY_START'
           $dnsResolverState = @()
           try {
             $dnsResolverState = @(Get-DnsClientServerAddress -InterfaceAlias 'Ethernet' -AddressFamily IPv4 -ErrorAction Stop |
@@ -313,7 +319,6 @@ jobs:
             if ($tcpProbe) { $tcpProbe.Dispose() }
           }
 
-          Write-Host 'A6_DIAG_STAGE=WATCHDOG_LOG_READ_START'
           $watchdogIncidentLines = @()
           $watchdogLog = Join-Path $logs 'watchdog.log'
           $watchdogLogInfo = @{ exists=(Test-Path -LiteralPath $watchdogLog -PathType Leaf) }
@@ -322,7 +327,7 @@ jobs:
               $watchdogItem = Get-Item -LiteralPath $watchdogLog
               $watchdogLogInfo.size_bytes=[long]$watchdogItem.Length
               $watchdogLogInfo.last_write_utc=$watchdogItem.LastWriteTimeUtc.ToString('o')
-              $watchdogIncidentLines = @(Get-Content -LiteralPath $watchdogLog -Tail 6000 |
+              $watchdogIncidentLines = @(Get-Content -LiteralPath $watchdogLog -Tail 12000 |
                 ForEach-Object {
                   $line = [string]$_
                   if ($line -match '^\[ARIA-WATCHDOG\]\s+(?<stamp>\S+)\s+(?<message>.*)$') {
@@ -341,7 +346,6 @@ jobs:
             }
           }
 
-          Write-Host 'A6_DIAG_STAGE=POWER_SETTINGS_READ_START'
           $powerSettings = @()
           try {
             $powerSettings += '--- POWER PLAN / SLEEP ---'
@@ -356,11 +360,10 @@ jobs:
           } catch {
             $osBoot = @{ query_error=$_.Exception.GetType().Name }
           }
-          Write-Host 'A6_DIAG_STAGE=FINAL_HEARTBEAT_SAMPLES_START'
-          for ($i=0; $i -lt 7; $i++) {
+          for ($i=0; $i -lt 31; $i++) {
             $snap = Get-HeartbeatSnapshot
             $samples.Add(@{ captured_at_utc=[DateTimeOffset]::UtcNow.ToString('o'); heartbeat=$snap })
-            if ($i -lt 6) { Start-Sleep -Seconds 2 }
+            if ($i -lt 30) { Start-Sleep -Seconds 2 }
           }
 
           $finalProcesses = @()
@@ -440,11 +443,10 @@ jobs:
 
 # Post-user-change verification checkpoint: Ethernet power-saving state and default route.
 
-# Read-only correlation refresh for the 2026-11-12 16:03 UTC A6 heartbeat continuity block.
+# Read-only correlation refresh for the 2026-11-13 22:27-22:33 UTC A6 heartbeat interruption; event logs include sleep/resume and event-loop timing.
 
 # Narrow read-only query for Ethernet power management and all Realtek advanced properties.
 
 # Read-only DNS resolver comparison for the A6 ENOTFOUND incident.
 
 # Bound the HTTPS hostname probe to 4 seconds so diagnostics cannot hang on DNS.
-# A6 incident 2026-11-13: correlate 20:50-20:56 UTC ACK stall with watchdog, power, NIC, and Windows events; read-only only.

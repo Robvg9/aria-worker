@@ -1,6 +1,19 @@
 name: Mission Wonder 2 Step 6 A6 — Isolated Scope Contract
 
 on:
+  push:
+    branches: [fix/a6-durable-recovery-v1]
+    paths:
+      - 'supabase/functions/_shared/mission-wonder-2-a6-scope-v1.mjs'
+      - 'tests/mission-wonder-2-step6-a6-isolated-scope.test.mjs'
+      - 'tests/mission-wonder-2-step6-a6-runtime-wiring.test.mjs'
+      - 'supabase/functions/aria-mission-runner-v22/index.ts'
+      - 'supabase/migrations/20261113160000_aria_m22_a6_durable_recovery_v1.sql'
+      - 'tests/mission-wonder-2-a6-durable-recovery.test.mjs'
+      - '.github/scripts/mission-wonder-2-a6-frozen-claim-postgres-v1.sql'
+      - 'tests/mission-wonder-2-step6-a6-soak.test.mjs'
+      - 'tests/mission-wonder-2-step6-a6-fault-matrix.test.mjs'
+      - '.github/workflows/mission-wonder-2-step6-a6-isolated-contract.yml'
   pull_request:
     branches: [main]
     paths:
@@ -17,6 +30,8 @@ on:
       - '.github/scripts/mission-wonder-2-step6-a6-isolated-scope-v1.sql'
       - 'supabase/migrations/*_aria_mission_wonder_2_a6_isolated_scope_v1.sql'
       - 'supabase/migrations/*_aria_m22_a6_frozen_job_marker_authorization_alignment_v1.sql'
+      - 'supabase/migrations/20261113160000_aria_m22_a6_durable_recovery_v1.sql'
+      - 'tests/mission-wonder-2-a6-durable-recovery.test.mjs'
       - '.github/workflows/supabase-canonical-deploy.yml'
       - '.github/workflows/aria-cloudflare-deploy.yml'
       - '.github/workflows/aria-pwa-fast-deploy.yml'
@@ -26,6 +41,8 @@ on:
       - '.github/workflows/a6-windows-agent-v2-heartbeat-preflight.yml'
       - 'agents/windows/a6-install-heartbeat-v2.ps1'
       - 'agents/windows/aria-agent.js'
+      - 'agents/windows/gateway-http-client.cjs'
+      - 'tests/gateway-http-client.test.mjs'
       - 'agents/windows/gateway-dns-lookup.cjs'
       - 'agents/windows/heartbeat-scheduler.cjs'
       - 'agents/windows/run-agent.ps1'
@@ -124,14 +141,14 @@ jobs:
             mission_id text primary key, goal text, status text, checkpoint jsonb default '{}'::jsonb,
             current_step integer default 0, completed_steps integer default 0, total_steps integer,
             lease_owner text, lease_until timestamptz, metadata jsonb default '{}'::jsonb,
-            updated_at timestamptz default clock_timestamp(), finished_at timestamptz, next_action text
+            updated_at timestamptz default clock_timestamp(), finished_at timestamptz, last_stderr text, next_action text
           );
           create table aria_internal.execution_jobs (
             job_id text primary key, mission_id text, device_id text, operation text, command text, cwd text,
             timeout_ms integer, policy jsonb default '{}'::jsonb, metadata jsonb default '{}'::jsonb,
             status text, requested_at timestamptz default clock_timestamp(), claimed_at timestamptz, started_at timestamptz, completed_at timestamptz, recovery_count integer default 0,
             lease_owner text, lease_until timestamptz, updated_at timestamptz default clock_timestamp(),
-            exit_code integer, stdout text
+            exit_code integer, stdout text, stderr text, result jsonb default '{}'::jsonb
           );
           create table aria_internal.execution_job_events (job_id text,device_id text,event_type text,payload jsonb default '{}'::jsonb);
           create table aria_internal.mission_events (mission_id text,event_type text,payload jsonb default '{}'::jsonb);
@@ -143,11 +160,16 @@ jobs:
       - name: Apply A6 migration to disposable PostgreSQL and verify inactive scheduler
         run: |
           set -euo pipefail
+          # The durable A6 completion RPC calls this canonical continuation hook.
+          # Install its real prerequisite migration in the disposable DB rather than
+          # masking the dependency with a test-only stub.
+          psql -v ON_ERROR_STOP=1 -f supabase/migrations/20261004011500_fix_mission_continuation_tick_error_fallback_v1.sql
           psql -v ON_ERROR_STOP=1 -f supabase/migrations/20261106154808_aria_mission_wonder_2_a6_isolated_scope_v1.sql
           psql -v ON_ERROR_STOP=1 -f supabase/migrations/20261107100000_aria_m22_a6_cron_auth_slot_reuse_v1.sql
           psql -v ON_ERROR_STOP=1 -f supabase/migrations/20261107133800_aria_m22_a6_stdout_verification_marker_alignment_v1.sql
           psql -v ON_ERROR_STOP=1 -f supabase/migrations/20261110120000_aria_mission_wonder_2_a6_isolated_scope_v1.sql
           psql -v ON_ERROR_STOP=1 -f supabase/migrations/20261110135000_aria_m22_a6_frozen_job_marker_authorization_alignment_v1.sql
+          psql -v ON_ERROR_STOP=1 -f supabase/migrations/20261113160000_aria_m22_a6_durable_recovery_v1.sql
           psql -v ON_ERROR_STOP=1 <<'SQL'
           do $verify$
           declare snap jsonb; a6_total integer; a6_active integer; legacy_active integer; function_source text; auth_source text;
@@ -187,10 +209,60 @@ jobs:
           end;
           $verify$;
           SQL
+          psql -v ON_ERROR_STOP=1 <<'SQL'
+          do $privilege_verify$
+          begin
+            if not has_function_privilege('service_role','public.start_execution_job_gateway(text,text)','EXECUTE')
+               or position('job.legacy_start_rpc_rejected' in
+                 pg_get_functiondef('public.start_execution_job_gateway(text,text)'::regprocedure))=0 then
+              raise exception 'A6_LEGACY_START_RPC_NOT_FAIL_CLOSED_FOR_A6';
+            end if;
+            if not has_function_privilege('service_role','public.complete_execution_job_gateway(text,text,text,integer,text,text,jsonb)','EXECUTE')
+               or position('job.legacy_completion_rpc_rejected' in
+                 pg_get_functiondef('public.complete_execution_job_gateway(text,text,text,integer,text,text,jsonb)'::regprocedure))=0 then
+              raise exception 'A6_LEGACY_COMPLETE_RPC_NOT_FAIL_CLOSED_FOR_A6';
+            end if;
+            if has_function_privilege('anon','public.start_execution_job_gateway(text,text)','EXECUTE')
+               or has_function_privilege('authenticated','public.start_execution_job_gateway(text,text)','EXECUTE')
+               or has_function_privilege('anon','public.complete_execution_job_gateway(text,text,text,integer,text,text,jsonb)','EXECUTE')
+               or has_function_privilege('authenticated','public.complete_execution_job_gateway(text,text,text,integer,text,text,jsonb)','EXECUTE') then
+              raise exception 'A6_LEGACY_RPC_EXPOSED_TO_PUBLIC_ROLES';
+            end if;
+            if not has_function_privilege('service_role','public.start_execution_job_gateway(text,text,text)','EXECUTE') then
+              raise exception 'A6_FENCED_START_RPC_NOT_EXECUTABLE_BY_SERVICE_ROLE';
+            end if;
+            if not has_function_privilege('service_role','public.complete_execution_job_gateway(text,text,text,integer,text,text,jsonb,text)','EXECUTE') then
+              raise exception 'A6_FENCED_COMPLETE_RPC_NOT_EXECUTABLE_BY_SERVICE_ROLE';
+            end if;
+          end;
+          $privilege_verify$;
+          SQL
+          echo "A6_FENCED_RPC_PRIVILEGES_PASS=true"
           echo "A6_CRON_API_MIGRATION_POSTGRES_PASS=true"
           echo "A6_CRON_CREATED_INACTIVE=true"
           echo "A6_LEGACY_CRONS_48_49_50_STAY_DISABLED=true"
           echo "A6_NO_RUN_SCOPE_MISSION_JOB_OR_LEASE=true"
+
+      - name: Install disposable execution-job transition guard
+        run: |
+          psql -v ON_ERROR_STOP=1 <<'SQL'
+          create table if not exists aria_internal.mission_wonder_2_a5_scopes (
+            scope_id text, mission_id text, job_id text, status text, recovery_used boolean
+          );
+          create or replace function aria_internal.execution_job_can_transition(p_from text,p_to text)
+          returns boolean language sql immutable
+          as 'select case
+            when p_from=p_to then true
+            when p_from=''queued'' then p_to in (''claimed'',''cancelled'',''blocked'')
+            when p_from=''claimed'' then p_to in (''queued'',''running'',''succeeded'',''failed'',''timeout'',''cancelled'',''blocked'')
+            when p_from=''running'' then p_to in (''succeeded'',''failed'',''timeout'',''cancelled'',''blocked'')
+            when p_from in (''succeeded'',''failed'',''timeout'',''cancelled'',''blocked'') then false
+            else false end';
+          drop trigger if exists execution_jobs_status_guard on aria_internal.execution_jobs;
+          create trigger execution_jobs_status_guard
+            before update of status on aria_internal.execution_jobs
+            for each row execute function aria_internal.guard_execution_job_transition();
+          SQL
 
       - name: Exercise frozen A6 claim through PostgreSQL with the global freeze active
         run: psql -v ON_ERROR_STOP=1 -f .github/scripts/mission-wonder-2-a6-frozen-claim-postgres-v1.sql
@@ -203,6 +275,13 @@ jobs:
         run: node tests/mission-wonder-2-step6-a6-soak.test.mjs
       - name: Verify A6 runtime wiring and deployment isolation
         run: node tests/mission-wonder-2-step6-a6-runtime-wiring.test.mjs
+      - name: Verify A6 durable recovery and lease fencing contracts
+        run: node tests/mission-wonder-2-a6-durable-recovery.test.mjs
+      - name: Verify Windows gateway HTTP failure settlement
+        run: node tests/gateway-http-client.test.mjs
+      - name: Verify Windows A6 heartbeat and installer wiring
+        run: node tests/mission-wonder-2-a6-windows-heartbeat.test.mjs
+
       - name: Run deterministic five-scenario pre-soak fault matrix
         run: node tests/mission-wonder-2-step6-a6-fault-matrix.test.mjs
       - name: Upload deterministic fault-matrix evidence

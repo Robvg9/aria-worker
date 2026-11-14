@@ -64,6 +64,7 @@ $map = @(
   @{ source='agents\windows\atomic-heartbeat-writer.cjs'; target=Join-Path $runtime 'atomic-heartbeat-writer.cjs' },
   @{ source='agents\windows\heartbeat-scheduler.cjs'; target=Join-Path $runtime 'heartbeat-scheduler.cjs' },
   @{ source='agents\windows\gateway-dns-lookup.cjs'; target=Join-Path $runtime 'gateway-dns-lookup.cjs' },
+  @{ source='agents\windows\gateway-http-client.cjs'; target=Join-Path $runtime 'gateway-http-client.cjs' },
   @{ source='agents\windows\aria-meditation-controller.js'; target=Join-Path $runtime 'aria-meditation-controller.js' },
   @{ source='agents\windows\autonomous-rwht-controller.js'; target=Join-Path $runtime 'autonomous-rwht-controller.js' },
   @{ source='agents\windows\resource-profile.js'; target=Join-Path $runtime 'resource-profile.js' },
@@ -76,6 +77,8 @@ $map = @(
 )
 
 $manifest = [ordered]@{
+  power_policy_before=$null
+  power_policy_after=$null
   status='BLOCKED'
   host=$env:COMPUTERNAME
   source_sha=$env:GITHUB_SHA
@@ -162,6 +165,46 @@ try {
   if (-not $watchdog -or $watchdog.Name -notmatch '^(powershell|powershell\.exe|pwsh|pwsh\.exe)$' -or -not $watchdogStatusMatches) { throw 'A6_WATCHDOG_IDENTITY_MISMATCH' }
   if (-not $commandLineCompatible) { throw 'A6_PROCESS_COMMAND_LINE_CONFLICT' }
   if (@(Get-Process -Name ollama -ErrorAction SilentlyContinue).Count -gt 0) { throw 'A6_OLLAMA_PROCESS_PRESENT' }
+
+  # The physical qualification observed a 5m28s host/agent heartbeat outage.
+  # Prevent automatic AC idle sleep for this always-on worker; keep display sleep enabled.
+  $powerBeforeStandby = @(& powercfg.exe /query SCHEME_CURRENT SUB_SLEEP STANDBYIDLE 2>&1)
+  if ($LASTEXITCODE -ne 0) { throw 'A6_POWER_POLICY_STANDBY_READ_FAILED' }
+  $powerBeforeHibernate = @(& powercfg.exe /query SCHEME_CURRENT SUB_SLEEP HIBERNATEIDLE 2>&1)
+  if ($LASTEXITCODE -ne 0) { throw 'A6_POWER_POLICY_HIBERNATE_READ_FAILED' }
+  $powerBeforeDisplay = @(& powercfg.exe /query SCHEME_CURRENT SUB_VIDEO VIDEOIDLE 2>&1)
+  if ($LASTEXITCODE -ne 0) { throw 'A6_POWER_POLICY_DISPLAY_READ_FAILED' }
+  $manifest.power_policy_before = [ordered]@{
+    standby = ($powerBeforeStandby -join [Environment]::NewLine)
+    hibernate = ($powerBeforeHibernate -join [Environment]::NewLine)
+    display = ($powerBeforeDisplay -join [Environment]::NewLine)
+  }
+  & powercfg.exe /change standby-timeout-ac 0
+  if ($LASTEXITCODE -ne 0) { throw 'A6_DISABLE_AC_IDLE_SLEEP_FAILED' }
+  & powercfg.exe /change hibernate-timeout-ac 0
+  if ($LASTEXITCODE -ne 0) { throw 'A6_DISABLE_AC_IDLE_HIBERNATE_FAILED' }
+  $powerAfterStandby = @(& powercfg.exe /query SCHEME_CURRENT SUB_SLEEP STANDBYIDLE 2>&1)
+  if ($LASTEXITCODE -ne 0) { throw 'A6_AC_IDLE_SLEEP_READBACK_FAILED' }
+  $powerAfterHibernate = @(& powercfg.exe /query SCHEME_CURRENT SUB_SLEEP HIBERNATEIDLE 2>&1)
+  if ($LASTEXITCODE -ne 0) { throw 'A6_AC_IDLE_HIBERNATE_READBACK_FAILED' }
+  $powerAfterDisplay = @(& powercfg.exe /query SCHEME_CURRENT SUB_VIDEO VIDEOIDLE 2>&1)
+  if ($LASTEXITCODE -ne 0) { throw 'A6_DISPLAY_SLEEP_READBACK_FAILED' }
+  $standbyAfterText = $powerAfterStandby -join [Environment]::NewLine
+  $hibernateAfterText = $powerAfterHibernate -join [Environment]::NewLine
+  $displayAfterText = $powerAfterDisplay -join [Environment]::NewLine
+# Keep this script ASCII-only: Windows PowerShell 5.1 reads UTF-8 without BOM as ANSI.
+  # .NET regex Unicode escapes preserve the Spanish powercfg label on ROBVG.
+  if ($standbyAfterText -notmatch '(?im)(?:AC Power Setting Index|\u00CDndice de configuraci\u00F3n de corriente alterna actual):\s+0x00000000') { throw 'A6_AC_STANDBY_READBACK_NOT_ZERO' }
+  if ($hibernateAfterText -notmatch '(?im)(?:AC Power Setting Index|\u00CDndice de configuraci\u00F3n de corriente alterna actual):\s+0x00000000') { throw 'A6_AC_HIBERNATE_READBACK_NOT_ZERO' }
+  if ($displayAfterText -ne ($powerBeforeDisplay -join [Environment]::NewLine)) { throw 'A6_DISPLAY_SLEEP_POLICY_CHANGED' }
+  $manifest.power_policy_after = [ordered]@{
+    standby = $standbyAfterText
+    hibernate = $hibernateAfterText
+    display = $displayAfterText
+  }
+  Write-Host 'A6_POWER_POLICY_AC_STANDBY_AFTER=00000000'
+  Write-Host 'A6_POWER_POLICY_AC_HIBERNATE_AFTER=00000000'
+  Write-Host 'A6_POWER_POLICY_DISPLAY_SLEEP=UNCHANGED'
 
   # Idempotent reuse: a later A6 qualification run must not restart Node again
   # when the exact source SHA and its fresh serial-heartbeat runtime are already live.

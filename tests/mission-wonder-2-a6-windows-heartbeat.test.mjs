@@ -4,6 +4,7 @@ const require = createRequire(import.meta.url);
 const { runHeartbeatLoop } = require("../agents/windows/heartbeat-scheduler.cjs");
 const { createGatewayLookup } = require('../agents/windows/gateway-dns-lookup.cjs');
 const { createAtomicHeartbeatWriter } = require('../agents/windows/atomic-heartbeat-writer.cjs');
+const { createGatewayRequest } = require('../agents/windows/gateway-http-client.cjs');
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -14,7 +15,9 @@ const installer = fs.readFileSync("agents/windows/install-v2.ps1", "utf8");
 const watchdog = fs.readFileSync("agents/windows/run-agent.ps1", "utf8");
 const runtimeUpdater = fs.readFileSync("agents/windows/update-runtime-v3.ps1", "utf8");
 const preflight = fs.readFileSync(".github/workflows/a6-windows-agent-v2-heartbeat-preflight.yml", "utf8");
+const diagnosticWorkflow = fs.readFileSync(".github/workflows/a6-windows-heartbeat-live-readonly-diagnostic.yml", "utf8");
 const a6Installer = fs.readFileSync("agents/windows/a6-install-heartbeat-v2.ps1", "utf8");
+const gatewayHttpClient = fs.readFileSync("agents/windows/gateway-http-client.cjs", "utf8");
 const syntax = spawnSync(process.execPath, ["--check", "agents/windows/aria-agent.js"], { encoding: "utf8" });
 assert.equal(syntax.status, 0, syntax.stderr || syntax.stdout || "Windows agent JavaScript syntax check failed");
 
@@ -30,11 +33,35 @@ assert.match(watchdog, /\$env:ARIA_HEARTBEAT_MS = '30000'/);
 assert.match(agent, /gatewayHeartbeatInFlight/);
 assert.match(agent, /if\(gatewayHeartbeatInFlight\)/);
 assert.match(agent, /runHeartbeatLoop\(/);
+assert.match(agent, /api\('\/v1\/jobs\/claim',\{method:'POST',body:JSON\.stringify\(\{device_id:DEVICE_ID\}\)\}\)/);
+assert.doesNotMatch(agent, /api\('\/v1\/jobs\/claim'.*lease_owner/s);
 assert.doesNotMatch(agent, /setInterval\(heartbeat,HEARTBEAT_MS\)/);
 assert.match(agent, /HEARTBEAT_ACK device=/);
+assert.match(agent, /process_start_id:processStartId/);
+assert.match(agent, /process_uptime_monotonic_ms:processMonotonicUptimeMs\(\)/);
+assert.match(agent, /x-aria-process-start-id/);
+assert.match(agent, /JOB_AUTH_CHECK_START id=/);
+assert.match(agent, /process_start_id=\$\{processStartId\}/);
+assert.match(agent, /async function rejectClaimedJob\(job,reason/);
+assert.match(agent, /lease_owner:job\?\.lease_owner\|\|null/);
+assert.match(agent, /mission_wonder_2_a6_attempt:Math\.max\(1,Number\(job\?\.metadata\?\.mission_wonder_2_a6_attempt\|\|1\)\)/);
 assert.match(agent, /next_interval_ms=\$\{HEARTBEAT_MS\}/);
-assert.ok(agent.includes('const requestDeadlineMs=Math.max(1000,Number(options.timeoutMs)||GATEWAY_TIMEOUT_MS)'));
-assert.ok(agent.includes("const deadline=setTimeout(()=>req.destroy(new Error('gateway_timeout')),requestDeadlineMs)"));
+assert.match(agent, /createGatewayRequest/);
+assert.match(gatewayHttpClient, /requestTimeoutMs = Math\.max\(1_000, Number\(options\.timeoutMs\) \|\| defaultTimeoutMs\)/);
+assert.match(gatewayHttpClient, /deadline = setTimeout\(/);
+assert.match(gatewayHttpClient, /incoming\.once\('aborted'/);
+assert.match(gatewayHttpClient, /incoming\.once\('close'/);
+assert.match(gatewayHttpClient, /socket\.once\('lookup'/);
+assert.match(gatewayHttpClient, /socket\.once\('connect'/);
+assert.match(gatewayHttpClient, /socket\.once\('secureConnect'/);
+assert.match(gatewayHttpClient, /timeout_kind: 'hard_deadline'/);
+assert.match(gatewayHttpClient, /timeout_kind: 'socket_inactivity'/);
+assert.match(agent, /last_gateway_heartbeat_transport:lastGatewayHeartbeatTransport/);
+assert.match(agent, /phase:typeof error\?\.phase==='string'\?error\.phase:null/);
+assert.match(agent, /failed_attempts:failedHeartbeatAttempts\.slice\(-2\)/);
+assert.match(preflight, /gateway_error_phase =/);
+assert.match(preflight, /gateway_transport_phase =/);
+assert.match(preflight, /event_loop_delay_max_ms =/);
 
 // Local process liveness and successful remote gateway ACK stay separate.
 assert.match(agent, /aria-windows-agent-heartbeat-v2/);
@@ -49,15 +76,35 @@ assert.match(agent, /lastGatewayHeartbeatAt=new Date\(\)\.toISOString\(\)/);
 assert.match(agent, /lastGatewayHeartbeatError=null/);
 assert.match(agent, /createAtomicHeartbeatWriter/);
 assert.match(agent, /writeHeartbeatSnapshot\(payload\)/);
+assert.match(agent, /async function touchProcessHeartbeat\(network='unknown'\)/,
+  "local heartbeat publication must be awaitable by the serial heartbeat loop");
+assert.match(agent, /await writeHeartbeatSnapshot\(payload\)/,
+  "remote ACK must not run ahead of a pending local heartbeat-file write");
+assert.doesNotMatch(agent, /void writeHeartbeatSnapshot\(payload\)/,
+  "fire-and-forget local heartbeat writes can mask a stale Windows liveness file");
+const heartbeatStart = agent.indexOf("async function heartbeat(){");
+const heartbeatEnd = agent.indexOf("\nfunction emitTelemetry", heartbeatStart);
+assert.ok(heartbeatStart >= 0 && heartbeatEnd > heartbeatStart, "heartbeat function source must remain inspectable");
+const heartbeatSource = agent.slice(heartbeatStart, heartbeatEnd);
+assert.ok(heartbeatSource.indexOf("await touchProcessHeartbeat('attempt')") < heartbeatSource.indexOf("await api('/v1/devices/heartbeat'"),
+  "the local process heartbeat must be persisted before sending the remote ACK");
+assert.match(heartbeatSource, /catch\(error\)\{console\.error\(\x60\[heartbeat-file\]/,
+  "local writer failures must remain distinguishable from gateway transport failures");
 assert.match(a6Installer, /atomic-heartbeat-writer\.cjs/);
 assert.match(installer, /atomic-heartbeat-writer\.cjs/);
 assert.match(runtimeUpdater, /atomic-heartbeat-writer\.cjs/);
 
 // Host installation is bounded to the exact ROBVG runtime and uses its watchdog;
 // the following 45-minute qualification phase is read-only.
+assert.match(preflight, /cancel-in-progress: false/,
+  "a newer exact-SHA request must never cancel an active physical qualification");
+assert.doesNotMatch(preflight, /aria-pwa-fast-deploy\.yml|a6-windows-heartbeat-live-readonly-diagnostic\.yml|a6-windows-agent-v2-heartbeat-preflight\.yml/,
+  "CI-only deploy and diagnostic workflow edits must not trigger another physical qualification");
 assert.ok(preflight.includes("name: A6 Windows Agent v2 Install + 45-minute ACK Qualification"));
 assert.ok(preflight.includes("a6-install-heartbeat-v2.ps1"));
-assert.ok(preflight.includes("a6-windows-heartbeat-live-readonly-diagnostic.yml"));
+assert.doesNotMatch(preflight, /a6-windows-heartbeat-live-readonly-diagnostic\.yml/);
+assert.ok(diagnosticWorkflow.includes("fix/a6-durable-recovery-v1"),
+  "read-only diagnostics must keep their own branch trigger, outside physical qualification concurrency");
 assert.match(preflight, /rev-parse HEAD/);
 assert.match(preflight, /rev-parse \("HEAD:" \+ \$relative\)/);
 assert.ok(preflight.includes("cat-file blob"), "installer must stream the exact Git blob without sparse-index path checkout");
@@ -78,6 +125,34 @@ assert.match(preflight, /GATEWAY_ACK_GAP_OVER_90S/);
 assert.match(preflight, /ALL_A6_HOST_PRECHECKS_PASSED/);
 assert.match(preflight, /heartbeat_scheduler_version = \[string\]\$sampleHb\.heartbeat_scheduler_version/);
 assert.match(preflight, /gateway_dns_fallback_version = \[string\]\$sampleHb\.gateway_dns_fallback_version/);
+
+// A6 installation must keep the AC-powered Windows worker from automatic
+// sleep/hibernate while leaving display sleep and manual power controls unchanged.
+assert.match(a6Installer, /powercfg\.exe \/change standby-timeout-ac 0/);
+assert.match(a6Installer, /powercfg\.exe \/change hibernate-timeout-ac 0/);
+assert.match(a6Installer, /A6_AC_IDLE_SLEEP_READBACK_FAILED/);
+assert.match(a6Installer, /A6_POWER_POLICY_DISPLAY_SLEEP=UNCHANGED/);
+assert.match(a6Installer, /power_policy_before=\$null/);
+assert.match(a6Installer, /power_policy_after=\$null/);
+assert.match(a6Installer, /A6_AC_IDLE_HIBERNATE_READBACK_FAILED/);
+assert.ok(a6Installer.includes("AC Power Setting Index|\\u00CDndice de configuraci\\u00F3n de corriente alterna actual"),
+  "PowerShell 5.1 installer must use ASCII-safe Unicode regex escapes for the localized Windows label");
+const localizedAcReadbackPattern = new RegExp("(?:AC Power Setting Index|\\u00CDndice de configuraci\\u00F3n de corriente alterna actual):\\s+0x00000000", "i");
+const localizedAcReadback = String.fromCharCode(0x00CD) + "ndice de configuraci" +
+  String.fromCharCode(0x00F3) + "n de corriente alterna actual: 0x00000000";
+assert.ok(localizedAcReadbackPattern.test(localizedAcReadback),
+  "ASCII Unicode escapes must match the Spanish powercfg AC label");
+assert.ok(localizedAcReadbackPattern.test("AC Power Setting Index: 0x00000000"),
+  "ASCII Unicode escapes must preserve English powercfg compatibility");
+assert.ok([...a6Installer].every(character => character.charCodeAt(0) <= 0x7f),
+  "Windows PowerShell 5.1 installer source must stay ASCII-only when checked out without a BOM");
+assert.match(a6Installer, /A6_AC_STANDBY_READBACK_NOT_ZERO/);
+assert.match(a6Installer, /A6_AC_HIBERNATE_READBACK_NOT_ZERO/);
+assert.match(a6Installer, /A6_DISPLAY_SLEEP_POLICY_CHANGED/);
+assert.ok(
+  a6Installer.indexOf("$manifest = [ordered]@{") < a6Installer.indexOf("$manifest.power_policy_before = [ordered]@{"),
+  "the manifest must exist before the installer records power-policy evidence"
+);
 
 assert.match(a6Installer, /COMPUTERNAME -ine 'ROBVG'/);
 assert.match(a6Installer, /rev-parse HEAD/);
@@ -185,12 +260,24 @@ assert.match(watchdog, /GATEWAY_HEARTBEAT_STALE/);
 assert.match(watchdog, /GATEWAY_HEARTBEAT_RECOVERED/);
 assert.match(watchdog, /action=observe_only/);
 assert.match(watchdog, /AGENT_STALE_HEARTBEAT action=restart/);
+assert.doesNotMatch(watchdog, /\$child\.WaitForExit\(\)/, "desktop test children must not block the watchdog loop");
+assert.match(watchdog, /\$DesktopTestTimeoutSeconds = 90/);
+assert.match(watchdog, /\$desktopTestProcess\.HasExited/);
+assert.match(watchdog, /DESKTOP_101_REQUEST_TIMEOUT/);
+assert.match(watchdog, /DESKTOP_101_CHILD_CANCELLED reason=agent_worker_restart/);
+
 const gatewayBlock = watchdog.slice(
   watchdog.indexOf("# Distinguish local Node liveness"),
-  watchdog.indexOf("if (Test-Path $DesktopTestRequestPath)")
+  watchdog.indexOf("# Desktop diagnostics are supervised asynchronously")
 );
 assert.ok(gatewayBlock.includes("action=observe_only"));
-assert.ok(!gatewayBlock.includes("Stop-Process"));
+assert.doesNotMatch(
+  gatewayBlock,
+  /Stop-Process\s+-Id\s+\$process\.Id/,
+  "a stale gateway ACK must never kill the worker process"
+);
+assert.match(watchdog, /Stop-Process\s+-Id\s+\$childPid\s+-Force/,
+  "the watchdog may terminate only the isolated desktop test child on timeout/restart");
 assert.ok(!gatewayBlock.includes("AGENT_KILLED_BY_WATCHDOG"));
 
 assert.match(installer, /'heartbeat-scheduler\.cjs' = Join-Path \$AgentRoot/);
@@ -386,3 +473,8 @@ console.log("MISSION_WONDER_2_A6_WINDOWS_HEARTBEAT_SERIAL_RETRY=PASS");
 
 console.log("MISSION_WONDER_2_A6_GATEWAY_DNS_FALLBACK=PASS");
 
+
+assert.equal(typeof createGatewayRequest, 'function');
+assert.match(a6Installer, /gateway-http-client/);
+assert.match(installer, /gateway-http-client/);
+assert.match(runtimeUpdater, /gateway-http-client/);

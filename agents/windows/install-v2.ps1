@@ -30,6 +30,7 @@ $requiredSources = @{
     'atomic-heartbeat-writer.cjs' = Join-Path $AgentRoot 'atomic-heartbeat-writer.cjs'
     'heartbeat-scheduler.cjs' = Join-Path $AgentRoot 'heartbeat-scheduler.cjs'
     'gateway-dns-lookup.cjs' = Join-Path $AgentRoot 'gateway-dns-lookup.cjs'
+    'gateway-http-client.cjs' = Join-Path $AgentRoot 'gateway-http-client.cjs'
     'resource-profile.js' = Join-Path $AgentRoot 'resource-profile.js'
     'autonomous-rwht-controller.js' = Join-Path $AgentRoot 'autonomous-rwht-controller.js'
     'run-agent.ps1' = Join-Path $AgentRoot 'run-agent.ps1'
