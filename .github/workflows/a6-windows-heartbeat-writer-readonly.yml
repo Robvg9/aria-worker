@@ -1,5 +1,5 @@
 name: A6 Windows Heartbeat Writer Read-Only Diagnostic
-# Retry after GitHub force-cancel released the previously stuck runner setup.
+# Recheck Windows Node ACK after watchdog completed its delayed restart at 08:08 local.
 
 on:
   push:
