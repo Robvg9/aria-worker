@@ -1,4 +1,4 @@
-// A6 host qualification retrigger marker: documentation only; no runtime behavior change.
+// A6 host qualification retrigger marker: isolated sparse workspace; no runtime behavior change.
 // Canonical deploy trigger: mission recovery policy v8 / Android-aware fallback routing.
 // Human Gate post-hardening regression trigger: keep the LIVE E2E battery attached to this canonical runner.
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
