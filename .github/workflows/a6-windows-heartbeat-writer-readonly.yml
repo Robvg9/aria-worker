@@ -1,4 +1,5 @@
 name: A6 Windows Heartbeat Writer Read-Only Diagnostic
+# Retry after GitHub force-cancel released the previously stuck runner setup.
 
 on:
   push:
