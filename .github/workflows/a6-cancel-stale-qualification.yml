@@ -171,3 +171,17 @@ jobs:
                 }
               }
             }
+
+
+            // Cancel the duplicate queued physical qualification; #43598920888 is the sole active 45m run.
+            if (branch === 'ops/a6-windows-agent-v2-heartbeat-preflight-v1') {
+              const duplicateRunId = 43599096603;
+              const { data: duplicateRun } = await github.rest.actions.getWorkflowRun({ owner, repo, run_id: duplicateRunId });
+              if (duplicateRun.head_branch === branch && duplicateRun.event === 'push'
+                  && duplicateRun.head_sha === '05d99c54a952f59cbea694d4392900efacde0795'
+                  && (duplicateRun.status === 'pending' || active.has(duplicateRun.status))) {
+                core.info(`Cancelling duplicate A6 physical qualification #${duplicateRun.run_number}; active qualification #43598920888 remains untouched`);
+                await github.rest.actions.cancelWorkflowRun({ owner, repo, run_id: duplicateRunId });
+                await github.request('POST /repos/{owner}/{repo}/actions/runs/{run_id}/force-cancel', { owner, repo, run_id: duplicateRunId });
+              }
+            }
