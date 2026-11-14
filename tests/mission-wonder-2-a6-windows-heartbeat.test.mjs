@@ -205,7 +205,8 @@ assert.match(a6Installer, /nodePathSource/);
 assert.match(a6Installer, /nodePathIsNodeExe/);
 assert.match(a6Installer, /A6_NODE_RUNTIME_PATH_INVALID/);
 assert.match(a6Installer, /commandLineCompatible/);
-assert.match(a6Installer, /preinstallGatewayAckAgeMs -lt 90000/);
+assert.match(a6Installer, /preinstallGatewayAckMaxAgeMs = 300000/);
+assert.match(a6Installer, /preinstallGatewayAckAgeMs -lt \$preinstallGatewayAckMaxAgeMs/);
 assert.match(a6Installer, /A6_PREINSTALL_HEARTBEAT_NOT_FRESH/);
 assert.match(a6Installer, /A6_PROCESS_IDENTITY_CHECK=/);
 
