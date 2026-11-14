@@ -286,6 +286,70 @@ jobs:
             }
           }
 
+          $powerDiagnostic = [ordered]@{
+            pnp_power_devices = @()
+            win32_portable_battery = @()
+            root_wmi_power_classes = @()
+            dell_management_namespace = [ordered]@{ available = $false; relevant_classes = @(); error = $null }
+            additional_system_events = @()
+            read_errors = @()
+          }
+
+          try {
+            $powerDiagnostic.pnp_power_devices = @(Get-CimInstance -ClassName Win32_PnPEntity -ErrorAction Stop |
+              Where-Object { $_.Name -match '(?i)AC Adapter|Battery|Power Supply|Adaptador de CA|Bater[ií]a' } |
+              Select-Object Name,Manufacturer,Status,ConfigManagerErrorCode,Service)
+          } catch {
+            $powerDiagnostic.read_errors += [pscustomobject]@{ source='Win32_PnPEntity'; error=$_.Exception.GetType().Name }
+          }
+
+          try {
+            $powerDiagnostic.win32_portable_battery = @(Get-CimInstance -ClassName Win32_PortableBattery -ErrorAction Stop |
+              Select-Object Name,Availability,BatteryStatus,DesignCapacity,FullChargeCapacity,DesignVoltage,EstimatedChargeRemaining,Status)
+          } catch {
+            $powerDiagnostic.read_errors += [pscustomobject]@{ source='Win32_PortableBattery'; error=$_.Exception.GetType().Name }
+          }
+
+          try {
+            $powerDiagnostic.root_wmi_power_classes = @(Get-CimClass -Namespace 'root/wmi' -ErrorAction Stop |
+              Where-Object { $_.CimClassName -match '(?i)Battery|Power|Adapter|ACPI|Charger' } |
+              Select-Object -ExpandProperty CimClassName)
+          } catch {
+            $powerDiagnostic.read_errors += [pscustomobject]@{ source='root/wmi class inventory'; error=$_.Exception.GetType().Name }
+          }
+
+          try {
+            $dellPowerClasses = @(Get-CimClass -Namespace 'root/dcim/sysman' -ErrorAction Stop |
+              Where-Object { $_.CimClassName -match '(?i)Battery|Power|Adapter|Supply|Charger|SystemView' } |
+              Select-Object -ExpandProperty CimClassName)
+            $powerDiagnostic.dell_management_namespace.available = $true
+            $powerDiagnostic.dell_management_namespace.relevant_classes = $dellPowerClasses
+          } catch {
+            $powerDiagnostic.dell_management_namespace.error = $_.Exception.GetType().Name
+          }
+
+          try {
+            $powerDiagnostic.additional_system_events = @($systemEvents |
+              Where-Object {
+                $_.Id -in @(42,43,105,107,109,219,400,410,411,506,507) -and
+                $_.ProviderName -match 'Kernel-Power|Kernel-PnP|ACPI|Battery|Power-Troubleshooter|UserModePowerService|DriverFrameworks-UserMode'
+              } |
+              Select-Object -First 100 |
+              ForEach-Object {
+                $message = [string]$_.Message
+                if ($message.Length -gt 500) { $message = $message.Substring(0,500) }
+                [ordered]@{
+                  time_utc = $_.TimeCreated.ToUniversalTime().ToString('o')
+                  provider = $_.ProviderName
+                  event_id = $_.Id
+                  record_id = $_.RecordId
+                  message = $message
+                }
+              })
+          } catch {
+            $powerDiagnostic.read_errors += [pscustomobject]@{ source='additional System event inventory'; error=$_.Exception.GetType().Name }
+          }
+
           $result = [ordered]@{
             status = 'READ_ONLY_PHYSICAL_REALTEK_DIAGNOSTIC_COMPLETE'
             host = [string]$env:COMPUTERNAME
@@ -312,6 +376,7 @@ jobs:
             kernel_power_source_read_error = $powerSourceError
             current_battery_state = @($batteryState)
             battery_wmi_read_only = $batteryWmi
+            power_diagnostics_read_only = $powerDiagnostic
             battery_read_error = $batteryReadError
             correlated_non_realtek_events_around_rt640x64 = @($correlatedLinkEvents)
             event_correlation_read_error = $correlationError
