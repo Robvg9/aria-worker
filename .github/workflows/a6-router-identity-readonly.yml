@@ -1,0 +1,67 @@
+name: A6 router identity probe (read-only GET only)
+
+on:
+  push:
+    branches:
+      - ops/a6-ethernet-readonly-diagnostics-v1
+    paths:
+      - '.github/workflows/a6-router-identity-readonly.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: a6-router-identity-readonly
+  cancel-in-progress: false
+
+jobs:
+  inspect:
+    name: Read gateway landing page metadata on ROBVG
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 2
+    steps:
+      - name: HTTP GET gateway landing page without authentication
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ([string]$env:COMPUTERNAME -ine 'ROBVG') { throw 'A6_HOST_MISMATCH' }
+
+          $gateway = '192.168.1.1'
+          $result = [pscustomobject]@{
+            status = 'READ_ONLY_GATEWAY_HTTP_PROBE'
+            host = [string]$env:COMPUTERNAME
+            gateway = $gateway
+            method = 'GET'
+            authentication_used = $false
+            cookies_or_credentials_saved = $false
+            http_status = $null
+            final_uri = $null
+            server_header = $null
+            content_type = $null
+            page_title = $null
+            model_or_firmware_hints = @()
+            request_error = $null
+          }
+
+          try {
+            $response = Invoke-WebRequest -Uri ("http://" + $gateway + "/") -Method Get -MaximumRedirection 2 -TimeoutSec 5 -UseBasicParsing
+            $result.http_status = [int]$response.StatusCode
+            $result.final_uri = [string]$response.BaseResponse.ResponseUri.AbsoluteUri
+            if ($response.Headers['Server']) { $result.server_header = [string]$response.Headers['Server'] }
+            if ($response.Headers['Content-Type']) { $result.content_type = [string]$response.Headers['Content-Type'] }
+            $html = [string]$response.Content
+            if ($html -match '(?is)<title[^>]*>(.*?)</title>') {
+              $result.page_title = [System.Net.WebUtility]::HtmlDecode(([string]$Matches[1]).Trim())
+            }
+            $hints = @()
+            foreach ($pattern in @('(?i)OLAX','(?i)Scorpio','(?i)MTN','(?i)firmware','(?i)model')) {
+              if ($html -match $pattern) { $hints += $pattern.Trim('(?i)') }
+            }
+            $result.model_or_firmware_hints = @($hints | Select-Object -Unique)
+          } catch {
+            $result.request_error = $_.Exception.GetType().Name
+          }
+
+          Write-Output 'A6_ROUTER_IDENTITY_BEGIN'
+          Write-Output ($result | ConvertTo-Json -Depth 5 -Compress)
+          Write-Output 'A6_ROUTER_IDENTITY_END'
