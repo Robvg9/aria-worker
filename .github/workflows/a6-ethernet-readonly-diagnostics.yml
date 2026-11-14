@@ -126,6 +126,41 @@ jobs:
             $connectionProfiles = @()
           }
 
+          $gatewayProbe = [pscustomobject]@{
+            gateway = $null
+            method = 'GET'
+            http_status = $null
+            server_header = $null
+            page_title = $null
+            model_hints = @()
+            error = $null
+            authentication_used = $false
+          }
+          try {
+            $ipcfg = Get-NetIPConfiguration -InterfaceIndex $nic.InterfaceIndex -ErrorAction Stop
+            if ($ipcfg.IPv4DefaultGateway) {
+              $gatewayProbe.gateway = [string]$ipcfg.IPv4DefaultGateway.NextHop
+              $response = Invoke-WebRequest -Uri ("http://" + $gatewayProbe.gateway + "/") -Method Get -MaximumRedirection 0 -TimeoutSec 5 -UseBasicParsing
+              $gatewayProbe.http_status = [int]$response.StatusCode
+              if ($response.Headers['Server']) { $gatewayProbe.server_header = [string]$response.Headers['Server'] }
+              $html = [string]$response.Content
+              if ($html -match '(?is)<title[^>]*>(.*?)</title>') {
+                $gatewayProbe.page_title = [System.Net.WebUtility]::HtmlDecode(([string]$Matches[1]).Trim())
+              }
+              $hints = @()
+              foreach ($token in @('OLAX','Scorpio','MTN','ZTE','Huawei','Sercomm','Fiberhome','firmware','model')) {
+                if ($html -match [regex]::Escape($token)) { $hints += $token }
+              }
+              $gatewayProbe.model_hints = @($hints | Select-Object -Unique)
+            }
+          } catch {
+            if ($_.Exception.Response -and $_.Exception.Response.StatusCode) {
+              $gatewayProbe.http_status = [int]$_.Exception.Response.StatusCode
+            } else {
+              $gatewayProbe.error = $_.Exception.GetType().Name
+            }
+          }
+
           $result = [ordered]@{
             status = 'READ_ONLY_PHYSICAL_REALTEK_DIAGNOSTIC_COMPLETE'
             host = [string]$env:COMPUTERNAME
@@ -146,6 +181,7 @@ jobs:
             default_routes_on_ethernet = @($routes)
             routes_read_error = $routeError
             network_profiles = @($connectionProfiles)
+            gateway_http_metadata = $gatewayProbe
             recent_link_and_network_events_48h = @($events)
             event_log_read_error = $eventsError
             other_adapter_summaries = @($allAdapters | Where-Object { $_.InterfaceDescription -notmatch '^Realtek PCIe FE Family Controller$' } | Select-Object Name,InterfaceDescription,Status,LinkSpeed)
