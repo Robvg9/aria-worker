@@ -118,6 +118,29 @@ jobs:
             $eventsError = $_.Exception.GetType().Name
           }
 
+          $wheaEvents = @()
+          $wheaError = $null
+          try {
+            $wheaSince = (Get-Date).AddDays(-7)
+            $wheaEvents = @(Get-WinEvent -FilterHashtable @{ LogName='System'; Id=17; StartTime=$wheaSince } -MaxEvents 1000 -ErrorAction SilentlyContinue |
+              Where-Object { $_.ProviderName -match 'WHEA' } |
+              Select-Object -First 100 |
+              ForEach-Object {
+                $message = [string]$_.Message
+                if ($message.Length -gt 1200) { $message = $message.Substring(0,1200) }
+                [ordered]@{
+                  time_utc = $_.TimeCreated.ToUniversalTime().ToString('o')
+                  provider = $_.ProviderName
+                  event_id = $_.Id
+                  level = $_.LevelDisplayName
+                  pcie_root_port_1c4_match = [bool]($message -match '(?i)0x0:0x1C:0x4|PCI Express Root Port')
+                  message = $message
+                }
+              })
+          } catch {
+            $wheaError = $_.Exception.GetType().Name
+          }
+
           $connectionProfiles = @()
           try {
             $connectionProfiles = @(Get-NetConnectionProfile -ErrorAction Stop |
@@ -183,6 +206,8 @@ jobs:
             network_profiles = @($connectionProfiles)
             gateway_http_metadata = $gatewayProbe
             recent_link_and_network_events_48h = @($events)
+            whea_corrected_pcie_event17_last_7d = @($wheaEvents)
+            whea_read_error = $wheaError
             event_log_read_error = $eventsError
             other_adapter_summaries = @($allAdapters | Where-Object { $_.InterfaceDescription -notmatch '^Realtek PCIe FE Family Controller$' } | Select-Object Name,InterfaceDescription,Status,LinkSpeed)
             restrictions = @('READ_ONLY','NO_NIC_OR_DRIVER_CHANGES','NO_EEE_OR_POWER_CHANGES','NO_ROUTE_DNS_OR_WIFI_CHANGES','NO_MISSION_OR_CRON_CHANGES')
