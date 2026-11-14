@@ -4,7 +4,35 @@ const fs=require('node:fs');
 const path=require('node:path');
 const source=fs.readFileSync('.github/workflows/supabase-canonical-deploy.yml','utf8');
 const pwaDeploy=fs.readFileSync('.github/workflows/aria-cloudflare-deploy.yml','utf8');
+const pwaFastDeploy=fs.readFileSync('.github/workflows/aria-pwa-fast-deploy.yml','utf8');
 assert.ok(pwaDeploy.includes("'tests/supabase-canonical-deploy-contract.test.js'"), 'changing the Supabase deploy contract must not trigger a legacy Worker deployment');
+assert.ok(pwaDeploy.includes("'supabase/migrations/20261113160000_aria_m22_a6_durable_recovery_v1.sql'"), 'the A6 durable recovery migration must not trigger a legacy Cloudflare Worker deploy');
+assert.ok(pwaFastDeploy.includes("'supabase/migrations/20261113160000_aria_m22_a6_durable_recovery_v1.sql'"), 'the A6 durable recovery migration must not trigger a PWA deploy');
+assert.ok(pwaFastDeploy.includes("'supabase/functions/aria-device-gateway/**'"), 'backend-only gateway recovery must not trigger a PWA deploy');
+assert.ok(pwaFastDeploy.includes("'tests/supabase-canonical-deploy-contract.test.js'"), 'changing the deploy contract test itself must not publish the PWA');
+
+const a6NonReleasePaths=[
+  'agents/windows/**',
+  '.github/scripts/mission-wonder-2-a6-frozen-claim-postgres-v1.sql',
+  '.github/workflows/a6-windows-agent-v2-heartbeat-preflight.yml',
+  '.github/workflows/a6-windows-heartbeat-live-readonly-diagnostic.yml',
+  '.github/workflows/a6-windows-heartbeat-writer-readonly.yml',
+  '.github/workflows/a6-windows-task-inspection-readonly.yml',
+  '.github/workflows/mission-wonder-2-step6-a6-isolated-contract.yml',
+  '.github/workflows/rwht-android-apk.yml',
+  'tests/gateway-http-client.test.mjs',
+  'tests/mission-wonder-2-a6-durable-recovery.test.mjs',
+  'tests/mission-wonder-2-a6-windows-heartbeat.test.mjs',
+  'tests/windows-agent-resource-guard.test.js',
+  'tests/windows-shell-executor.test.js',
+];
+for(const file of a6NonReleasePaths){
+  assert.ok(pwaDeploy.includes(`- '${file}'`), `A6 support file ${file} must not trigger the legacy Cloudflare deploy`);
+  assert.ok(pwaFastDeploy.includes(`- '${file}'`), `A6 support file ${file} must not trigger the PWA deploy`);
+}
+assert.ok(pwaDeploy.includes("'supabase/migrations/20261113160000_aria_m22_a6_durable_recovery_v1.sql'"), 'A6 durable migration must not trigger the legacy Cloudflare deploy');
+assert.ok(pwaFastDeploy.includes("'supabase/migrations/20261113160000_aria_m22_a6_durable_recovery_v1.sql'"), 'A6 durable migration must not trigger PWA');
+assert.ok(pwaFastDeploy.includes("'supabase/functions/aria-device-gateway/**'"), 'A6 backend gateway source must not trigger PWA');
 assert.ok(pwaDeploy.includes("'scripts/aria-mcp-chatbending-context-contract.cjs'"), 'the static OpenCode MCP contract helper must not trigger a Cloudflare Worker deployment');
 const deliveryGate=fs.readFileSync('.github/workflows/aria-delivery-deterministic-gate.yml','utf8');
 const workerPwa=fs.readFileSync('worker.js','utf8');
