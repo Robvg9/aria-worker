@@ -1246,7 +1246,6 @@ begin
     'max_mission_intermission_ms',25200000,'human_gate_ref',run_row.human_gate_ref
   );
 end;
-$function$
-
+$function$;
 
 commit;
