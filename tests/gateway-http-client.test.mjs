@@ -82,7 +82,7 @@ try {
   });
   await assert.rejects(
     () => rejectsWithoutHanging(dnsFailureRequest('http://gateway.invalid/ok'), 'dns_failure'),
-    error => error.code === 'EAI_AGAIN' && error.phase === 'dns_lookup_failed' && Number.isFinite(error.elapsed_ms)
+    error => error.code === 'EAI_AGAIN' && error.phase === 'dns_lookup_failed' && error.socket_reused === false && Number.isFinite(error.elapsed_ms)
   );
 
   console.log('A6_GATEWAY_HTTP_COMPLETE_RESPONSE=PASS');
