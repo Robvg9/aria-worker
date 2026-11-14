@@ -338,7 +338,10 @@ try {
   $newPid = 0
   $restartObservations = [System.Collections.Generic.List[object]]::new()
   $expectedAgentPath = Join-Path $runtime 'aria-agent.js'
-  $deadline = (Get-Date).AddSeconds(90)
+  $restartTimeoutSeconds = 240
+  $manifest.restart_timeout_seconds = $restartTimeoutSeconds
+  Write-Host "A6_RESTART_WAIT_TIMEOUT_SECONDS=$restartTimeoutSeconds"
+  $deadline = (Get-Date).AddSeconds($restartTimeoutSeconds)
   while ((Get-Date) -lt $deadline -and $newPid -eq 0) {
     if (Test-Path -LiteralPath $agentPidPath) {
       $candidate = 0
