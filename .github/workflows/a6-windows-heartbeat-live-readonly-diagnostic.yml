@@ -48,8 +48,8 @@ jobs:
           $wlanLines = @()
           try { $wlanLines = @(& netsh.exe wlan show interfaces 2>&1 | ForEach-Object { [string]$_ }) }
           catch { $wlanLines = @('READ_ERROR:' + $_.Exception.GetType().Name) }
-          $stateLine = $wlanLines | Where-Object { $_ -match '^\s*(State|Estado)\s*:' } | Select-Object -First 1
-          $ssidLine = $wlanLines | Where-Object { $_ -match '^\s*SSID\s*:' -and $_ -notmatch 'BSSID' } | Select-Object -First 1
+          $stateLine = $wlanLines | Where-Object { $_ -match '^\\s*(State|Estado)\\s*:' } | Select-Object -First 1
+          $ssidLine = $wlanLines | Where-Object { $_ -match '^\\s*SSID\\s*:' -and $_ -notmatch 'BSSID' } | Select-Object -First 1
           Write-Host 'A6_WIFI_STAGE=interfaces'
 
           $profileLines = @()
@@ -57,8 +57,51 @@ jobs:
           catch { $profileLines = @('READ_ERROR:' + $_.Exception.GetType().Name) }
           $profiles = @()
           foreach ($line in $profileLines) {
-            if ($line -match '(?i)(All User Profile|Perfil de todos los usuarios|Perfil de usuario)\s*:\s*(?<name>.+)
+            if ($line -match '(?i)(All User Profile|Perfil de todos los usuarios|Perfil de usuario)\\s*:\\s*(?<name>.+)$') {
+              $profiles += [string]$Matches.name.Trim()
+            }
+          }
+          Write-Host "A6_WIFI_STAGE=profiles count=$($profiles.Count)"
+
+          $networkLines = @()
+          try { $networkLines = @(& netsh.exe wlan show networks mode=bssid 2>&1 | ForEach-Object { [string]$_ }) }
+          catch { $networkLines = @('READ_ERROR:' + $_.Exception.GetType().Name) }
+          $visible = @()
+          foreach ($line in $networkLines) {
+            if ($line -match '^\\s*SSID\\s+\\d+\\s*:\\s*(?<name>.+)$') {
+              $name = [string]$Matches.name.Trim()
+              if ($name) { $visible += $name }
+            }
+          }
+          $visible = @($visible | Select-Object -Unique | Select-Object -First 20)
+          Write-Host "A6_WIFI_STAGE=visible_networks count=$($visible.Count)"
+
+          $result = @{
+            status='READ_ONLY_WIFI_INVENTORY_COMPLETE'
+            host=[string]$env:COMPUTERNAME
+            captured_at_utc=[DateTimeOffset]::UtcNow.ToString('o')
+            source_sha=[string]$env:GITHUB_SHA
+            wifi_adapters=@($adapters)
+            wlan_interface_state=[string]$stateLine
+            wlan_current_ssid=[string]$ssidLine
+            wlan_saved_profiles=@($profiles)
+            wlan_visible_networks=@($visible)
+            restrictions=@('NO_ADAPTER_ENABLE_DISABLE','NO_WIFI_CONNECT_DISCONNECT','NO_PROFILE_OR_CREDENTIAL_READ','NO_ROUTE_DNS_OR_POWER_CHANGES','NO_RUNTIME_OR_MISSION_CHANGES')
+          }
+          $result | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $env:GITHUB_WORKSPACE 'a6-wifi-failover-readonly.json') -Encoding UTF8
+          Write-Host 'A6_WIFI_INVENTORY=PASS'
+
+      - name: Upload read-only Wi-Fi evidence
+        if: ${{ github.event_name == 'push' && contains(github.event.head_commit.message, '[wifi-only]') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: a6-wifi-failover-readonly-${{ github.sha }}
+          path: a6-wifi-failover-readonly.json
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Capture live state without modifying runtime
+        if: ${{ github.event_name != 'push' || !contains(github.event.head_commit.message, '[wifi-only]') }}
         if: ${{ github.event_name != 'push' || !contains(github.event.head_commit.message, '[wifi-only]') }}
         run: |
           $ErrorActionPreference = 'Stop'
