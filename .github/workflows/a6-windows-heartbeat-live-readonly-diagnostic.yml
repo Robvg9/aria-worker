@@ -450,3 +450,4 @@ jobs:
 # Read-only DNS resolver comparison for the A6 ENOTFOUND incident.
 
 # Bound the HTTPS hostname probe to 4 seconds so diagnostics cannot hang on DNS.
+# A6 incident capture refresh: 2026-11-14 heartbeat recovery investigation; read-only, no runtime changes.
