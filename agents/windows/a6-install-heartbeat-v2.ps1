@@ -129,7 +129,8 @@ try {
   $commandLineCompatible = ((-not $agentCommandLineAvailable -or $agentCommandLineMatches) -and (-not $watchdogCommandLineAvailable -or $watchdogCommandLineMatches))
   $preinstallProcessAgeMs = ([DateTimeOffset]::UtcNow - [DateTimeOffset]::Parse([string]$preflightHeartbeat.timestamp).ToUniversalTime()).TotalMilliseconds
   $preinstallGatewayAckAgeMs = ([DateTimeOffset]::UtcNow - [DateTimeOffset]::Parse([string]$preflightHeartbeat.last_gateway_heartbeat_at).ToUniversalTime()).TotalMilliseconds
-  $preinstallHeartbeatSafe = ([string]$preflightHeartbeat.device_id -eq $expectedDevice -and [string]$preflightHeartbeat.version -eq 'aria-windows-agent-heartbeat-v2' -and $preinstallProcessAgeMs -ge 0 -and $preinstallProcessAgeMs -lt 90000 -and $preinstallGatewayAckAgeMs -ge 0 -and $preinstallGatewayAckAgeMs -lt 90000 -and $null -eq $preflightHeartbeat.last_gateway_heartbeat_error)
+  $preinstallGatewayAckMaxAgeMs = 300000
+  $preinstallHeartbeatSafe = ([string]$preflightHeartbeat.device_id -eq $expectedDevice -and [string]$preflightHeartbeat.version -eq 'aria-windows-agent-heartbeat-v2' -and $preinstallProcessAgeMs -ge 0 -and $preinstallProcessAgeMs -lt 90000 -and $preinstallGatewayAckAgeMs -ge 0 -and $preinstallGatewayAckAgeMs -lt $preinstallGatewayAckMaxAgeMs -and $null -eq $preflightHeartbeat.last_gateway_heartbeat_error)
   $identityDiagnostic = [ordered]@{
     runner_identity = [string]$manifest.runner_identity
     process_snapshot_count = [int]$processes.Count
@@ -153,6 +154,9 @@ try {
     command_line_compatible = $commandLineCompatible
     preinstall_process_heartbeat_age_ms = [long]$preinstallProcessAgeMs
     preinstall_gateway_ack_age_ms = [long]$preinstallGatewayAckAgeMs
+    preinstall_gateway_ack_max_age_ms = $preinstallGatewayAckMaxAgeMs
+    preinstall_gateway_error_present = ($null -ne $preflightHeartbeat.last_gateway_heartbeat_error)
+    preinstall_gateway_error_code = $(if ($preflightHeartbeat.last_gateway_heartbeat_error) { [string]$preflightHeartbeat.last_gateway_heartbeat_error.code } else { $null })
     preinstall_heartbeat_safe = $preinstallHeartbeatSafe
   }
   $manifest.old_agent_pid = $oldPid
