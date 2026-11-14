@@ -29,6 +29,7 @@ jobs:
           }
 
           $started = [DateTimeOffset]::UtcNow
+          $operatingSystem = Get-CimInstance Win32_OperatingSystem -ErrorAction Stop | Select-Object Caption,Version,BuildNumber,OSArchitecture
           $allAdapters = @(Get-NetAdapter -IncludeHidden -ErrorAction Stop)
           $nic = $allAdapters |
             Where-Object { $_.InterfaceDescription -match '^Realtek PCIe FE Family Controller$' } |
@@ -49,7 +50,7 @@ jobs:
           try {
             $driver = Get-CimInstance Win32_PnPSignedDriver -ErrorAction Stop |
               Where-Object { $_.DeviceName -match '^Realtek PCIe FE Family Controller$' } |
-              Select-Object -First 1 DeviceName,DriverVersion,DriverDate,Manufacturer
+              Select-Object -First 1 DeviceName,DriverVersion,DriverDate,Manufacturer,InfName
           } catch {
             $driverError = $_.Exception.GetType().Name
           }
@@ -59,7 +60,7 @@ jobs:
           try {
             $pnp = Get-CimInstance Win32_NetworkAdapter -ErrorAction Stop |
               Where-Object { $_.Name -match '^Realtek PCIe FE Family Controller$' } |
-              Select-Object -First 1 Name,NetEnabled,NetConnectionStatus,Speed,ConfigManagerErrorCode
+              Select-Object -First 1 Name,NetEnabled,NetConnectionStatus,Speed,ConfigManagerErrorCode,PNPDeviceID
           } catch {
             $pnpError = $_.Exception.GetType().Name
           }
@@ -127,6 +128,7 @@ jobs:
             status = 'READ_ONLY_PHYSICAL_REALTEK_DIAGNOSTIC_COMPLETE'
             host = [string]$env:COMPUTERNAME
             captured_at_utc = [DateTimeOffset]::UtcNow.ToString('o')
+            operating_system = $operatingSystem
             duration_seconds = [math]::Round(([DateTimeOffset]::UtcNow - $started).TotalSeconds,1)
             ethernet_adapter = $nic | Select-Object Name,InterfaceDescription,Status,LinkSpeed,MediaConnectionState,InterfaceIndex,DriverInformation
             ethernet_statistics = $statistics
