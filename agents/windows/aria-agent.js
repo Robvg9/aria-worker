@@ -211,6 +211,7 @@ async function api(p,options={}){
       error.phase='http_response';
       error.elapsed_ms=Number.isFinite(response.diagnostics?.elapsed_ms)?response.diagnostics.elapsed_ms:null;
       error.socket_reused=typeof response.diagnostics?.socket_reused==='boolean'?response.diagnostics.socket_reused:null;
+      error.phase_history=Array.isArray(response.diagnostics?.phase_history)?response.diagnostics.phase_history.slice(-8):[];
       error.timeout_kind=null;
       lastError=error;
       const retryable=response.status===408||response.status===429||response.status>=500;
@@ -229,6 +230,7 @@ async function api(p,options={}){
           elapsed_ms:Number.isFinite(error?.elapsed_ms)?error.elapsed_ms:null,
           socket_reused:typeof error?.socket_reused==='boolean'?error.socket_reused:null,
           timeout_kind:typeof error?.timeout_kind==='string'?error.timeout_kind:null,
+          phase_history:Array.isArray(error?.phase_history)?error.phase_history.slice(-8):[],
           status:Number.isInteger(error?.status)?error.status:null
         };
         failedHeartbeatAttempts.push(failedAttempt);
@@ -236,6 +238,7 @@ async function api(p,options={}){
           at:new Date().toISOString(),outcome:attempt>=GATEWAY_RETRIES?'failure':'retrying',
           attempts:attempt+1,phase:failedAttempt.phase,elapsed_ms:failedAttempt.elapsed_ms,
           socket_reused:failedAttempt.socket_reused,timeout_kind:failedAttempt.timeout_kind,
+          phase_history:failedAttempt.phase_history,
           failed_attempts:failedHeartbeatAttempts.slice(-2)
         };
       }
