@@ -431,6 +431,203 @@ jobs:
           Write-Host "DC_LOG_FILES_READ=$(@($desktopCommander.logs).Count)"
           Write-Host "DC_RELATED_PROCESS_COUNT=$(@($desktopCommander.related_processes).Count)"
 
+          # A6 post-install rollback diagnosis: read-only PID, watchdog log, state, kill request and backup verification.
+          $installRunId = '43556141461'
+          $agentPidFile = Join-Path $logs 'agent.pid'
+          $watchdogPidFile = Join-Path $logs 'watchdog.pid'
+          $statusFile = Join-Path $logs 'status.json'
+          $killRequestFile = Join-Path $logs 'kill-request'
+          $watchdogLogFile = Join-Path $logs 'watchdog.log'
+          $backupRoot = Join-Path $runtime 'Backups'
+          $expectedBackup = Join-Path $backupRoot ('a6-heartbeat-v2-' + $installRunId)
+          $installDiagnosis = [ordered]@{
+            captured_at_utc = [DateTimeOffset]::UtcNow.ToString('o')
+            agent_pid_file = $null
+            watchdog_pid_file = $null
+            status = $null
+            kill_request = @{ exists=$false; kind='ABSENT' }
+            heartbeat = $null
+            relevant_processes = @()
+            watchdog_log = @{ exists=$false; line_count=0; event_counts=@{}; last_events=@() }
+            backup = @{ exists=$false; path=$expectedBackup; file_count=0; runtime_matches=@() }
+          }
+
+          foreach ($entry in @(
+            @{ name='agent_pid_file'; path=$agentPidFile },
+            @{ name='watchdog_pid_file'; path=$watchdogPidFile }
+          )) {
+            if (Test-Path -LiteralPath $entry.path -PathType Leaf) {
+              try {
+                $value = (Get-Content -Raw -LiteralPath $entry.path -ErrorAction Stop).Trim()
+                $number = 0
+                if ([int]::TryParse($value,[ref]$number) -and $number -gt 0) {
+                  $installDiagnosis[$entry.name] = $number
+                } else {
+                  $installDiagnosis[$entry.name] = 'INVALID'
+                }
+              } catch { $installDiagnosis[$entry.name] = 'READ_ERROR:' + $_.Exception.GetType().Name }
+            } else {
+              $installDiagnosis[$entry.name] = 'MISSING'
+            }
+          }
+
+          if (Test-Path -LiteralPath $statusFile -PathType Leaf) {
+            try {
+              $statusJson = Get-Content -Raw -LiteralPath $statusFile -ErrorAction Stop | ConvertFrom-Json
+              $statusError = [string]$statusJson.error
+              $statusError = $statusError -replace '(?i)(token|secret|password|authorization)(\s*[:=]\s*|\s+)[^\s;]+','$1$2[REDACTED]'
+              $installDiagnosis.status = @{
+                modified_utc=(Get-Item -LiteralPath $statusFile).LastWriteTimeUtc.ToString('o')
+                state=[string]$statusJson.state
+                agent_pid=if ($null -ne $statusJson.agent_pid) { [int]$statusJson.agent_pid } else { $null }
+                watchdog_pid=if ($null -ne $statusJson.watchdog_pid) { [int]$statusJson.watchdog_pid } else { $null }
+                agent_path=[string]$statusJson.agent_path
+                runtime_root=[string]$statusJson.runtime_root
+                node_path=[string]$statusJson.node_path
+                last_exit_code=$statusJson.last_exit_code
+                consecutive_errors=$statusJson.consecutive_errors
+                error=$statusError
+              }
+            } catch { $installDiagnosis.status = @{ read_error=$_.Exception.GetType().Name } }
+          } else {
+            $installDiagnosis.status = @{ exists=$false }
+          }
+
+          if (Test-Path -LiteralPath $killRequestFile -PathType Leaf) {
+            try {
+              $killPayload = (Get-Content -Raw -LiteralPath $killRequestFile -ErrorAction Stop).Trim()
+              $installDiagnosis.kill_request = @{
+                exists=$true
+                kind=if ($killPayload -like 'A6_HEARTBEAT_V2:*') { 'A6_HEARTBEAT_V2' } elseif ($killPayload -eq 'A6_ROLLBACK_RESTART') { 'A6_ROLLBACK_RESTART' } else { 'OTHER' }
+                modified_utc=(Get-Item -LiteralPath $killRequestFile).LastWriteTimeUtc.ToString('o')
+              }
+            } catch { $installDiagnosis.kill_request = @{ exists=$true; read_error=$_.Exception.GetType().Name } }
+          }
+
+          if (Test-Path -LiteralPath $heartbeat -PathType Leaf) {
+            try {
+              $hbNow = Get-Content -Raw -LiteralPath $heartbeat -ErrorAction Stop | ConvertFrom-Json
+              $heartbeatFile = Get-Item -LiteralPath $heartbeat
+              $installDiagnosis.heartbeat = @{
+                version=[string]$hbNow.version
+                device_id=[string]$hbNow.device_id
+                process_id=$hbNow.process_id
+                timestamp=[string]$hbNow.timestamp
+                last_gateway_heartbeat_at=[string]$hbNow.last_gateway_heartbeat_at
+                process_age_ms=[long]([DateTimeOffset]::UtcNow - $heartbeatFile.LastWriteTimeUtc).TotalMilliseconds
+                last_error_code=[string]$hbNow.last_gateway_heartbeat_error.code
+                last_error_phase=[string]$hbNow.last_gateway_heartbeat_error.phase
+                last_error_timeout_kind=[string]$hbNow.last_gateway_heartbeat_error.timeout_kind
+              }
+            } catch { $installDiagnosis.heartbeat = @{ read_error=$_.Exception.GetType().Name } }
+          }
+
+          $targetPids = @()
+          foreach ($pidValue in @($installDiagnosis.agent_pid_file,$installDiagnosis.watchdog_pid_file)) {
+            if ($pidValue -is [int]) { $targetPids += [int]$pidValue }
+          }
+          $targetPids = @($targetPids | Sort-Object -Unique)
+          foreach ($processId in $targetPids) {
+            try {
+              $process = Get-CimInstance Win32_Process -Filter "ProcessId=$processId" -ErrorAction Stop
+              if ($process) {
+                $owner = $null
+                try {
+                  $ownerResult = Invoke-CimMethod -InputObject $process -MethodName GetOwner -ErrorAction Stop
+                  if ($ownerResult.ReturnValue -eq 0) { $owner = [string]$ownerResult.Domain + '\' + [string]$ownerResult.User }
+                } catch {}
+                $installDiagnosis.relevant_processes += @{
+                  pid=[int]$process.ProcessId
+                  parent_pid=[int]$process.ParentProcessId
+                  name=[string]$process.Name
+                  session_id=[int]$process.SessionId
+                  owner=$owner
+                  command_line_available=(-not [string]::IsNullOrWhiteSpace([string]$process.CommandLine))
+                  executable_path=[string]$process.ExecutablePath
+                  creation_date=[string]$process.CreationDate
+                }
+              } else {
+                $installDiagnosis.relevant_processes += @{ pid=$processId; found=$false }
+              }
+            } catch { $installDiagnosis.relevant_processes += @{ pid=$processId; read_error=$_.Exception.GetType().Name } }
+          }
+
+          $watchdogEventPatterns = [ordered]@{
+            start='(?i)WATCHDOG_START'
+            kill_request_seen='(?i)KILL_REQUEST_SEEN'
+            agent_killed='(?i)AGENT_KILLED_BY_WATCHDOG|AGENT_KILLED_BY_WATCHDOG_STALE_HEARTBEAT'
+            agent_started='(?i)AGENT_STARTED'
+            agent_exit='(?i)AGENT_EXIT'
+            agent_stale='(?i)AGENT_STALE_HEARTBEAT'
+            watchdog_error='(?i)WATCHDOG_ERROR|WATCHDOG_EXIT'
+            gateway_stale='(?i)GATEWAY_HEARTBEAT_STALE|GATEWAY_HEARTBEAT_RECOVERED'
+          }
+          if (Test-Path -LiteralPath $watchdogLogFile -PathType Leaf) {
+            try {
+              $watchdogLines = @(Get-Content -LiteralPath $watchdogLogFile -Tail 300 -ErrorAction Stop)
+              $eventCounts = [ordered]@{}
+              $selectedEvents = [System.Collections.Generic.List[string]]::new()
+              foreach ($eventName in $watchdogEventPatterns.Keys) {
+                $eventMatches = @($watchdogLines | Where-Object { $_ -match $watchdogEventPatterns[$eventName] })
+                $eventCounts[$eventName] = $eventMatches.Count
+                foreach ($line in @($eventMatches | Select-Object -Last 8)) {
+                  $safeLine = [string]$line
+                  $safeLine = $safeLine -replace '(?i)(token|secret|password|authorization)(\s*[:=]\s*|\s+)[^\s;]+','$1$2[REDACTED]'
+                  if ($selectedEvents.Count -lt 50 -and -not $selectedEvents.Contains($safeLine)) { $selectedEvents.Add($safeLine) }
+                }
+              }
+              $installDiagnosis.watchdog_log = @{
+                exists=$true
+                size=[long](Get-Item -LiteralPath $watchdogLogFile).Length
+                modified_utc=(Get-Item -LiteralPath $watchdogLogFile).LastWriteTimeUtc.ToString('o')
+                sampled_tail_lines=$watchdogLines.Count
+                event_counts=$eventCounts
+                selected_events=@($selectedEvents.ToArray())
+              }
+            } catch { $installDiagnosis.watchdog_log = @{ exists=$true; read_error=$_.Exception.GetType().Name } }
+          }
+
+          if (Test-Path -LiteralPath $expectedBackup -PathType Container) {
+            $backupFiles = @(Get-ChildItem -LiteralPath $expectedBackup -File -Recurse -Force -ErrorAction SilentlyContinue |
+              Where-Object { $_.FullName -notmatch '(?i)(device-token|config\.json|\.dpapi|token)' } |
+              Select-Object -First 100)
+            $installDiagnosis.backup = @{
+              exists=$true
+              path=$expectedBackup
+              modified_utc=(Get-Item -LiteralPath $expectedBackup).LastWriteTimeUtc.ToString('o')
+              file_count=$backupFiles.Count
+              files=@($backupFiles | ForEach-Object {
+                @{ relative_path=$_.FullName.Substring($expectedBackup.Length).TrimStart('\'); size=[long]$_.Length; sha256=(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash }
+              })
+              runtime_matches=@()
+            }
+            foreach ($relative in @(
+              'Runtime\windows\aria-agent.js',
+              'Runtime\windows\gateway-http-client.cjs',
+              'Runtime\windows\heartbeat-scheduler.cjs',
+              'Runtime\windows\run-agent.ps1',
+              'Runtime\shared\voice-command-executor.cjs'
+            )) {
+              $backupFile = Join-Path $expectedBackup $relative
+              $runtimeFile = Join-Path $runtime $relative.Substring('Runtime\'.Length)
+              if ((Test-Path -LiteralPath $backupFile -PathType Leaf) -and (Test-Path -LiteralPath $runtimeFile -PathType Leaf)) {
+                $backupHash = (Get-FileHash -LiteralPath $backupFile -Algorithm SHA256).Hash
+                $runtimeHash = (Get-FileHash -LiteralPath $runtimeFile -Algorithm SHA256).Hash
+                $installDiagnosis.backup.runtime_matches += @{ file=$relative; backup_sha256=$backupHash; current_sha256=$runtimeHash; restored_match=($backupHash -eq $runtimeHash) }
+              }
+            }
+          }
+
+          Write-Host "A6_POSTINSTALL_AGENT_PID=$($installDiagnosis.agent_pid_file)"
+          Write-Host "A6_POSTINSTALL_WATCHDOG_PID=$($installDiagnosis.watchdog_pid_file)"
+          Write-Host "A6_POSTINSTALL_STATUS=$($installDiagnosis.status.state)"
+          Write-Host "A6_POSTINSTALL_HEARTBEAT_VERSION=$($installDiagnosis.heartbeat.version)"
+          Write-Host "A6_POSTINSTALL_HEARTBEAT_AGE_MS=$($installDiagnosis.heartbeat.process_age_ms)"
+          Write-Host "A6_POSTINSTALL_KILL_REQUEST=$($installDiagnosis.kill_request.kind)"
+          Write-Host "A6_POSTINSTALL_WATCHDOG_EVENTS=$(@($installDiagnosis.watchdog_log.selected_events).Count)"
+          Write-Host "A6_POSTINSTALL_BACKUP_PRESENT=$($installDiagnosis.backup.exists)"
+          Write-Host "A6_POSTINSTALL_BACKUP_FILE_COUNT=$($installDiagnosis.backup.file_count)"
+
           # Observe heartbeat schema for 60 seconds, without writing to or deleting it.
           $lastSignature = ''
           for ($i=0; $i -lt 12; $i++) {
@@ -470,6 +667,7 @@ jobs:
             samples=@($samples.ToArray())
             runtime_files=@($scriptCandidates.ToArray())
             desktop_commander=$desktopCommander
+            postinstall_diagnosis=$installDiagnosis
             desktop_commander_package_entry=$desktopCommander.package_entry
             persistent_worker_script=$desktopCommander.persistent_worker_script
             task_files=$desktopCommander.task_files
@@ -494,3 +692,4 @@ jobs:
 # Re-run from the A6 recovery PR branch for full read-only writer attribution.
 # Read-only evidence for Desktop Commander supervisor, local metadata and sanitized log counters.
 # Read-only follow-up: inspect desktop package entry, task XML paths and sanitized Security 4688 process identity.
+# Read-only diagnosis of A6 watchdog restart/rollback after run 43556141461.
