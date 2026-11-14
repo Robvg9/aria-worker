@@ -54,10 +54,31 @@ jobs:
               $result.page_title = [System.Net.WebUtility]::HtmlDecode(([string]$Matches[1]).Trim())
             }
             $hints = @()
-            foreach ($pattern in @('(?i)OLAX','(?i)Scorpio','(?i)MTN','(?i)firmware','(?i)model')) {
+            foreach ($pattern in @('(?i)OLAX','(?i)Scorpio','(?i)MTN','(?i)firmware','(?i)model','(?i)build','(?i)version')) {
               if ($html -match $pattern) { $hints += $pattern.Trim('(?i)') }
             }
             $result.model_or_firmware_hints = @($hints | Select-Object -Unique)
+
+            $metaTags = @([regex]::Matches($html,'(?is)<meta[^>]+>') | ForEach-Object { $_.Value.Substring(0,[Math]::Min(240,$_.Value.Length)) } | Select-Object -First 20)
+            $scriptRefs = @([regex]::Matches($html,'(?is)<script[^>]+src=["''](?<src>[^"'']+)["'']') | ForEach-Object { $_.Groups['src'].Value } | Select-Object -Unique | Select-Object -First 8)
+            $publicAssets = @()
+            $publicVersionHints = @()
+            foreach ($ref in $scriptRefs) {
+              try {
+                $assetUri = [Uri]::new($response.BaseResponse.ResponseUri,$ref)
+                if ($assetUri.Host -ne $gateway) { continue }
+                $asset = Invoke-WebRequest -Uri $assetUri.AbsoluteUri -Method Get -TimeoutSec 3 -UseBasicParsing
+                $publicAssets += [pscustomobject]@{ path=$assetUri.AbsolutePath; status=[int]$asset.StatusCode; bytes=([string]$asset.Content).Length }
+                $assetText = [string]$asset.Content
+                $snippets = @([regex]::Matches($assetText,'(?i).{0,60}(firmware|softwareversion|sw_version|hardwareversion|buildversion|productmodel|device_model|version).{0,100}') | ForEach-Object { $_.Value -replace '[\r\n]+',' ' } | Select-Object -First 6)
+                foreach ($snippet in $snippets) {
+                  $publicVersionHints += [pscustomobject]@{ path=$assetUri.AbsolutePath; snippet=$snippet }
+                }
+              } catch {}
+            }
+            $result.public_meta_tags = @($metaTags)
+            $result.public_script_assets = @($publicAssets)
+            $result.public_version_hints = @($publicVersionHints | Select-Object -First 20)
           } catch {
             $result.request_error = $_.Exception.GetType().Name
           }
