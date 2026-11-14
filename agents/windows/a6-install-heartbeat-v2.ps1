@@ -129,8 +129,9 @@ try {
   $commandLineCompatible = ((-not $agentCommandLineAvailable -or $agentCommandLineMatches) -and (-not $watchdogCommandLineAvailable -or $watchdogCommandLineMatches))
   $preinstallProcessAgeMs = ([DateTimeOffset]::UtcNow - [DateTimeOffset]::Parse([string]$preflightHeartbeat.timestamp).ToUniversalTime()).TotalMilliseconds
   $preinstallGatewayAckAgeMs = ([DateTimeOffset]::UtcNow - [DateTimeOffset]::Parse([string]$preflightHeartbeat.last_gateway_heartbeat_at).ToUniversalTime()).TotalMilliseconds
-  $preinstallProcessMaxAgeMs = 180000
-  $preinstallGatewayAckMaxAgeMs = 300000
+  # Bootstrap exception: old Windows Node ACKs can be stale while the independent Windows-local heartbeat remains online.
+  $preinstallProcessMaxAgeMs = 600000
+  $preinstallGatewayAckMaxAgeMs = 600000
   $preinstallHeartbeatSafe = ([string]$preflightHeartbeat.device_id -eq $expectedDevice -and [string]$preflightHeartbeat.version -eq 'aria-windows-agent-heartbeat-v2' -and $preinstallProcessAgeMs -ge 0 -and $preinstallProcessAgeMs -lt $preinstallProcessMaxAgeMs -and $preinstallGatewayAckAgeMs -ge 0 -and $preinstallGatewayAckAgeMs -lt $preinstallGatewayAckMaxAgeMs -and $null -eq $preflightHeartbeat.last_gateway_heartbeat_error)
   $identityDiagnostic = [ordered]@{
     runner_identity = [string]$manifest.runner_identity
