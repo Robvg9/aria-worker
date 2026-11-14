@@ -18,18 +18,45 @@ function createGatewayRequest({
       let responseBytes = 0;
       let deadline = null;
       let request = null;
+      const startedAt = Date.now();
+      let phase = 'request_setup';
+      let phaseStartedAt = startedAt;
+      let socketReused = null;
+      const phaseHistory = [];
+
+      const transition = nextPhase => {
+        if (nextPhase === phase) return;
+        const now = Date.now();
+        phaseHistory.push({ phase, duration_ms: Math.max(0, now - phaseStartedAt) });
+        phase = nextPhase;
+        phaseStartedAt = now;
+      };
+
+      const diagnostics = () => ({
+        phase,
+        elapsed_ms: Math.max(0, Date.now() - startedAt),
+        socket_reused: socketReused,
+        phase_history: phaseHistory.slice(-8)
+      });
 
       const settle = (error, value) => {
         if (settled) return;
         settled = true;
         if (deadline) clearTimeout(deadline);
-        if (error) reject(error);
-        else resolve(value);
+        if (error) {
+          if (error && typeof error === 'object') {
+            if (typeof error.phase !== 'string') Object.assign(error, diagnostics());
+          }
+          reject(error);
+        } else {
+          resolve(value);
+        }
       };
 
-      const gatewayError = (message, code) => {
+      const gatewayError = (message, code, extra = {}) => {
         const error = new Error(message);
         error.code = code;
+        Object.assign(error, diagnostics(), extra);
         return error;
       };
 
@@ -51,6 +78,7 @@ function createGatewayRequest({
           }
         }, incoming => {
           response = incoming;
+          transition('response_body');
           incoming.setEncoding('utf8');
 
           incoming.on('data', chunk => {
@@ -76,7 +104,12 @@ function createGatewayRequest({
               settle(gatewayError('gateway_response_incomplete', 'gateway_response_incomplete'));
               return;
             }
-            settle(null, { status: Number(incoming.statusCode || 0), text: responseText });
+            transition('complete');
+            settle(null, {
+              status: Number(incoming.statusCode || 0),
+              text: responseText,
+              diagnostics: diagnostics()
+            });
           });
 
           incoming.once('close', () => {
@@ -86,17 +119,40 @@ function createGatewayRequest({
           });
         });
 
+        request.once('socket', socket => {
+          socketReused = !socket.connecting;
+          if (socketReused) {
+            transition('awaiting_response_headers');
+            return;
+          }
+
+          transition('dns_lookup');
+          socket.once('lookup', error => {
+            transition(error ? 'dns_lookup_failed' : 'tcp_connect');
+          });
+          socket.once('connect', () => {
+            transition(parsed.protocol === 'https:' ? 'tls_handshake' : 'awaiting_response_headers');
+          });
+          if (parsed.protocol === 'https:') {
+            socket.once('secureConnect', () => transition('awaiting_response_headers'));
+          }
+        });
+
         // This is a hard deadline, not an inactivity timer. It remains armed
         // until the whole response settles, including its body.
         deadline = setTimeout(() => {
-          const error = gatewayError('gateway_timeout', 'gateway_timeout');
+          const error = gatewayError('gateway_timeout', 'gateway_timeout', {
+            timeout_kind: 'hard_deadline'
+          });
           request.destroy(error);
           settle(error);
         }, requestTimeoutMs);
         if (typeof deadline.unref === 'function') deadline.unref();
 
         request.setTimeout(requestTimeoutMs, () => {
-          const error = gatewayError('gateway_timeout', 'gateway_timeout');
+          const error = gatewayError('gateway_timeout', 'gateway_timeout', {
+            timeout_kind: 'socket_inactivity'
+          });
           request.destroy(error);
           settle(error);
         });
