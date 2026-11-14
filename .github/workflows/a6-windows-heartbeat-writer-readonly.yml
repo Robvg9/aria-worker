@@ -247,6 +247,128 @@ jobs:
               } catch { $desktopCommander.packages += @{ path=$packagePath; read_error=$_.Exception.GetType().Name } }
             }
           }
+          # Inspect the installed Desktop Commander entry point and the historical persistent worker script by signature only.
+          $dcEntryPath = Join-Path $runtime 'Tools\DesktopCommanderRemote-0.3.0\node_modules\@wonderwhy-er\desktop-commander\dist\index.js'
+          if (Test-Path -LiteralPath $dcEntryPath -PathType Leaf) {
+            try {
+              $dcEntryItem = Get-Item -LiteralPath $dcEntryPath
+              $dcEntryText = Get-Content -Raw -LiteralPath $dcEntryPath -ErrorAction Stop
+              $desktopCommander.package_entry = @{
+                path=$dcEntryPath
+                size=[long]$dcEntryItem.Length
+                modified_utc=$dcEntryItem.LastWriteTimeUtc.ToString('o')
+                sha256=(Get-FileHash -LiteralPath $dcEntryPath -Algorithm SHA256).Hash
+                references_aria_device_heartbeat=($dcEntryText -match '(?i)/v1/devices/heartbeat')
+                references_aria_gateway=($dcEntryText -match '(?i)ARIA_DEVICE_GATEWAY_URL|aria-device-gateway')
+                references_agent_heartbeat_file=($dcEntryText -match '(?i)agent-heartbeat\.json')
+                references_aria_device_identity=($dcEntryText -match '(?i)ARIA_DEVICE_ID|x-aria-device-id')
+                references_node_fetch=($dcEntryText -match '(?i)\bfetch\s*\(')
+                references_http2=($dcEntryText -match '(?i)http2|node:http2')
+              }
+            } catch { $desktopCommander.package_entry = @{ path=$dcEntryPath; read_error=$_.Exception.GetType().Name } }
+          } else {
+            $desktopCommander.package_entry = @{ path=$dcEntryPath; exists=$false }
+          }
+          $desktopCommander.persistent_worker_script = @()
+          foreach ($workerScriptPath in @(
+            (Join-Path $runtime 'scripts\aria-persistent-windows-worker-v1.js'),
+            (Join-Path $sourceRoot 'scripts\aria-persistent-windows-worker-v1.js')
+          )) {
+            if (Test-Path -LiteralPath $workerScriptPath -PathType Leaf) {
+              try {
+                $workerText = Get-Content -Raw -LiteralPath $workerScriptPath -ErrorAction Stop
+                $workerItem = Get-Item -LiteralPath $workerScriptPath
+                $desktopCommander.persistent_worker_script += @{
+                  path=$workerScriptPath
+                  size=[long]$workerItem.Length
+                  modified_utc=$workerItem.LastWriteTimeUtc.ToString('o')
+                  sha256=(Get-FileHash -LiteralPath $workerScriptPath -Algorithm SHA256).Hash
+                  references_aria_device_heartbeat=($workerText -match '(?i)/v1/devices/heartbeat')
+                  references_local_worker_presence=($workerText -match '(?i)/api/worker/presence')
+                  references_local_heartbeat_file=($workerText -match '(?i)agent-heartbeat\.json')
+                  references_gateway_config=($workerText -match '(?i)ARIA_DEVICE_GATEWAY_URL')
+                }
+              } catch { $desktopCommander.persistent_worker_script += @{ path=$workerScriptPath; read_error=$_.Exception.GetType().Name } }
+            }
+          }
+          # Read task XML from the canonical filesystem paths where accessible; never emit raw action arguments.
+          $desktopCommander.task_files = @()
+          foreach ($taskFile in @(
+            'C:\Windows\System32\Tasks\ARIA-Desktop-Commander-Remote',
+            'C:\Windows\System32\Tasks\ARIA-Windows-Local-Agent',
+            'C:\Windows\System32\Tasks\ARIA Persistent Windows Worker'
+          )) {
+            if (Test-Path -LiteralPath $taskFile -PathType Leaf) {
+              try {
+                [xml]$taskDoc = Get-Content -Raw -LiteralPath $taskFile -ErrorAction Stop
+                $cmdNode = $taskDoc.SelectSingleNode("//*[local-name()='Command']")
+                $argsNode = $taskDoc.SelectSingleNode("//*[local-name()='Arguments']")
+                $principalNode = $taskDoc.SelectSingleNode("//*[local-name()='Principal']")
+                $argValue = if ($argsNode) { [string]$argsNode.InnerText } else { '' }
+                $scriptValue = $null
+                if ($argValue -match '(?i)([A-Z]:\\[^"]+\.(?:js|ps1))') { $scriptValue = $Matches[1] }
+                $desktopCommander.task_files += @{
+                  path=$taskFile
+                  exists=$true
+                  size=[long](Get-Item -LiteralPath $taskFile).Length
+                  command=[string]$cmdNode.InnerText
+                  script_path=$scriptValue
+                  principal_user=[string]($principalNode.SelectSingleNode("./*[local-name()='UserId']").InnerText)
+                  logon_type=[string]($principalNode.SelectSingleNode("./*[local-name()='LogonType']").InnerText)
+                  run_level=[string]($principalNode.SelectSingleNode("./*[local-name()='RunLevel']").InnerText)
+                }
+              } catch { $desktopCommander.task_files += @{ path=$taskFile; exists=$true; read_error=$_.Exception.GetType().Name } }
+            } else {
+              $desktopCommander.task_files += @{ path=$taskFile; exists=$false }
+            }
+          }
+          # Query process-creation audit events for current Node/task PIDs, extracting only executable/script identity.
+          $desktopCommander.security_process_creation = @{ status='NOT_AVAILABLE'; matched_events=@() }
+          $targetPidMap = @{}
+          foreach ($process in $before) {
+            if ($process.name -ieq 'node.exe' -or ($process.name -match '^(powershell|pwsh)\.exe$' -and $process.parent_pid -eq 2636)) {
+              $targetPidMap[('0x{0:x}' -f [int]$process.pid)] = [int]$process.pid
+            }
+          }
+          try {
+            $securityEvents = @(Get-WinEvent -FilterHashtable @{
+              LogName='Security'
+              Id=4688
+              StartTime=(Get-Date).AddDays(-3)
+            } -MaxEvents 5000 -ErrorAction Stop)
+            $desktopCommander.security_process_creation.status='READ'
+            foreach ($securityEvent in $securityEvents) {
+              try {
+                [xml]$eventXml = $securityEvent.ToXml()
+                $eventData = @{}
+                foreach ($eventField in $eventXml.Event.EventData.Data) {
+                  $eventData[[string]$eventField.GetAttribute('Name')] = [string]$eventField.InnerText
+                }
+                $newPidHex = [string]$eventData['NewProcessId']
+                if (-not $targetPidMap.ContainsKey($newPidHex)) { continue }
+                $commandLine = [string]$eventData['CommandLine']
+                $scriptValue = $null
+                if ($commandLine -match '(?i)([A-Z]:\\[^"]+\.(?:js|ps1))') { $scriptValue = $Matches[1] }
+                $newProcessName = [string]$eventData['NewProcessName']
+                $parentProcessName = [string]$eventData['ParentProcessName']
+                $desktopCommander.security_process_creation.matched_events += @{
+                  time_utc=$securityEvent.TimeCreated.ToUniversalTime().ToString('o')
+                  pid=[int]$targetPidMap[$newPidHex]
+                  executable=[System.IO.Path]::GetFileName($newProcessName)
+                  parent_executable=[System.IO.Path]::GetFileName($parentProcessName)
+                  script_path=$scriptValue
+                  has_command_line=(-not [string]::IsNullOrWhiteSpace($commandLine))
+                  remote_mode_argument=($commandLine -match '(?i)index\.js\s+remote')
+                  aria_agent_argument=($commandLine -match '(?i)aria-agent\.js')
+                  persistent_worker_argument=($commandLine -match '(?i)aria-persistent-windows-worker-v1\.js')
+                }
+              } catch {}
+            }
+          } catch {
+            $desktopCommander.security_process_creation.status='UNAVAILABLE'
+            $desktopCommander.security_process_creation.read_error=$_.Exception.GetType().Name
+          }
+
           $dcStatePath = Join-Path $logs 'desktop-commander-supervisor.json'
           if (Test-Path -LiteralPath $dcStatePath -PathType Leaf) {
             try {
@@ -348,6 +470,10 @@ jobs:
             samples=@($samples.ToArray())
             runtime_files=@($scriptCandidates.ToArray())
             desktop_commander=$desktopCommander
+            desktop_commander_package_entry=$desktopCommander.package_entry
+            persistent_worker_script=$desktopCommander.persistent_worker_script
+            task_files=$desktopCommander.task_files
+            security_process_creation=$desktopCommander.security_process_creation
             processes_start=@($before)
             processes_end=@($after)
           }
@@ -367,3 +493,4 @@ jobs:
 # Re-qualify active Windows heartbeat writers and task ownership after serial retry scheduler correction.
 # Re-run from the A6 recovery PR branch for full read-only writer attribution.
 # Read-only evidence for Desktop Commander supervisor, local metadata and sanitized log counters.
+# Read-only follow-up: inspect desktop package entry, task XML paths and sanitized Security 4688 process identity.
