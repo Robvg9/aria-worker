@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 
 const migration = fs.readFileSync('supabase/migrations/20261113160000_aria_m22_a6_durable_recovery_v1.sql', 'utf8');
+const heartbeatGapMigration = fs.readFileSync('supabase/migrations/20261114160000_aria_m22_a6_exact_heartbeat_gap_v1.sql', 'utf8');
 const postgresContract = fs.readFileSync('.github/scripts/mission-wonder-2-a6-frozen-claim-postgres-v1.sql', 'utf8');
 const agent = fs.readFileSync('agents/windows/aria-agent.js', 'utf8');
 const watchdog = fs.readFileSync('agents/windows/run-agent.ps1', 'utf8');
@@ -53,6 +54,13 @@ assert.match(postgresContract, /A6_TEST_FRESH_LEASE_START_FAILED/);
 assert.match(postgresContract, /A6_TEST_FRESH_LEASE_COMPLETION_FAILED/);
 assert.match(migration, /max_recovery_count<=r\.max_recovery_attempts/);
 assert.match(migration, /max_heartbeat_age_ms<=r\.max_recovery_ms/);
+assert.match(heartbeatGapMigration, /create table if not exists aria_internal\.mission_wonder_2_a6_heartbeat_events/i);
+assert.match(heartbeatGapMigration, /create or replace function public\.heartbeat_device_gateway/i);
+assert.match(heartbeatGapMigration, /max\(observed_gap_ms\)/i);
+assert.match(heartbeatGapMigration, /previous_received_at>=r\.started_at/);
+assert.match(heartbeatGapMigration, /heartbeat_gap_recovered_within_window/);
+assert.match(postgresContract, /A6_TEST_98S_HEARTBEAT_GAP_RECOVERED_WITHIN_WINDOW/);
+assert.match(postgresContract, /A6_TEST_121S_HEARTBEAT_GAP_BLOCKED/);
 
 assert.match(agent, /gateway-http-client\.cjs/);
 assert.match(agent, /lease_owner:job\?\.lease_owner\|\|null/);
@@ -78,3 +86,4 @@ console.log('A6_SAME_JOB_IDEMPOTENT_RETRY=PASS');
 console.log('A6_LEASE_OWNER_FENCING=PASS');
 console.log('A6_WATCHDOG_NONBLOCKING_CHILD=PASS');
 console.log('A6_DURABLE_RECOVERY_CONTRACT=PASS');
+console.log('A6_EXACT_HEARTBEAT_GAP_MEASUREMENT=PASS');
