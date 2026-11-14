@@ -118,6 +118,41 @@ jobs:
             $eventsError = $_.Exception.GetType().Name
           }
 
+          $powerSourceEvents = @()
+          $powerSourceError = $null
+          try {
+            $rawPowerEvents = @($systemEvents |
+              Where-Object { $_.ProviderName -match 'Microsoft-Windows-Kernel-Power' -and $_.Id -eq 105 } |
+              Select-Object -First 100)
+            foreach ($powerEvent in $rawPowerEvents) {
+              $powerData = @{}
+              try {
+                [xml]$powerXml = $powerEvent.ToXml()
+                foreach ($field in $powerXml.Event.EventData.Data) {
+                  $fieldName = [string]$field.GetAttribute('Name')
+                  if ($fieldName) { $powerData[$fieldName] = [string]$field.InnerText }
+                }
+              } catch {}
+              $powerSourceEvents += [pscustomobject]@{
+                time_utc = $powerEvent.TimeCreated.ToUniversalTime().ToString('o')
+                ac_online = $powerData['AcOnline']
+                remaining_capacity_mwh = $powerData['RemainingCapacity']
+                full_charge_capacity_mwh = $powerData['FullChargeCapacity']
+              }
+            }
+          } catch {
+            $powerSourceError = $_.Exception.GetType().Name
+          }
+
+          $batteryState = @()
+          $batteryReadError = $null
+          try {
+            $batteryState = @(Get-CimInstance Win32_Battery -ErrorAction Stop |
+              Select-Object Name,BatteryStatus,EstimatedChargeRemaining,Status,DesignCapacity,FullChargeCapacity)
+          } catch {
+            $batteryReadError = $_.Exception.GetType().Name
+          }
+
           $correlatedLinkEvents = @()
           $correlationError = $null
           try {
@@ -248,6 +283,10 @@ jobs:
             network_profiles = @($connectionProfiles)
             gateway_http_metadata = $gatewayProbe
             recent_link_and_network_events_48h = @($events)
+            kernel_power_source_events_105 = @($powerSourceEvents)
+            kernel_power_source_read_error = $powerSourceError
+            current_battery_state = @($batteryState)
+            battery_read_error = $batteryReadError
             correlated_non_realtek_events_around_rt640x64 = @($correlatedLinkEvents)
             event_correlation_read_error = $correlationError
             ndis_operational_logs = @($ndisLogs)
