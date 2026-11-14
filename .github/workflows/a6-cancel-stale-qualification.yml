@@ -90,3 +90,24 @@ jobs:
                 }
               }
             }
+
+            // Cancel only the timed-out read-only watchdog capture (never an install/qualification).
+            if (branch === 'ops/a6-windows-agent-v2-heartbeat-preflight-v1') {
+              const readOnlyRunId = 43556653509;
+              const { data: readOnlyRun } = await github.rest.actions.getWorkflowRun({ owner, repo, run_id: readOnlyRunId });
+              if (readOnlyRun.head_branch === branch && readOnlyRun.event === 'push' && active.has(readOnlyRun.status)) {
+                const { data: readOnlyJobs } = await github.rest.actions.listJobsForWorkflowRun({ owner, repo, run_id: readOnlyRunId, per_page: 100 });
+                const diagnosticJob = readOnlyJobs.jobs.find(job => job.name === 'Inspect heartbeat writers without touching runtime');
+                const diagnosticStep = diagnosticJob?.steps?.find(step => step.name === 'Bounded process, task and heartbeat inspection (read-only)');
+                const diagnosticAgeMs = diagnosticStep?.started_at ? Date.now() - Date.parse(diagnosticStep.started_at) : 0;
+                const safeReadOnlyCancel = diagnosticJob?.status === 'in_progress'
+                  && diagnosticStep?.status === 'in_progress'
+                  && diagnosticAgeMs > 360000;
+                if (safeReadOnlyCancel) {
+                  core.info(`Cancelling stuck read-only watchdog capture #${readOnlyRun.run_number}; step_age_ms=${diagnosticAgeMs}`);
+                  await github.rest.actions.cancelWorkflowRun({ owner, repo, run_id: readOnlyRunId });
+                } else {
+                  core.info(`Keeping read-only capture #${readOnlyRun.run_number}; job_status=${diagnosticJob?.status}; step_status=${diagnosticStep?.status}; step_age_ms=${diagnosticAgeMs}`);
+                }
+              }
+            }
