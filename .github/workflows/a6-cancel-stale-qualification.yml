@@ -28,7 +28,7 @@ jobs:
           script: |
             const owner = context.repo.owner;
             const repo = context.repo.repo;
-            const branch = context.ref.replace(/^refs\\/heads\\//, '');
+            const branch = context.ref.startsWith('refs/heads/') ? context.ref.slice('refs/heads/'.length) : context.ref;
             const active = new Set(['queued', 'in_progress', 'pending', 'waiting', 'requested']);
 
             // Legacy fix branch: keep its original stale-run cleanup behavior.
