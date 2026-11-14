@@ -1,4 +1,4 @@
-name: A6 Ethernet stability diagnostics (read-only)
+name: A6 Ethernet stability diagnostics (read-only, physical Realtek only)
 
 on:
   push:
@@ -16,11 +16,11 @@ concurrency:
 
 jobs:
   inspect:
-    name: Inspect Ethernet link and recent Windows events on ROBVG
+    name: Inspect physical Realtek Ethernet and link events on ROBVG
     runs-on: [self-hosted, Windows, X64]
     timeout-minutes: 6
     steps:
-      - name: Read Ethernet health and event history
+      - name: Read physical Ethernet health and event history
         shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         run: |
           $ErrorActionPreference = 'Stop'
@@ -29,16 +29,11 @@ jobs:
           }
 
           $started = [DateTimeOffset]::UtcNow
-          $nic = Get-NetAdapter -IncludeHidden -ErrorAction Stop |
-            Where-Object {
-              $_.InterfaceDescription -match 'Realtek PCIe FE|Realtek.*Ethernet' -or
-              ($_.Name -match 'Ethernet|Conexi' -and $_.InterfaceDescription -notmatch 'Virtual|Tailscale')
-            } |
+          $allAdapters = @(Get-NetAdapter -IncludeHidden -ErrorAction Stop)
+          $nic = $allAdapters |
+            Where-Object { $_.InterfaceDescription -match '^Realtek PCIe FE Family Controller$' } |
             Select-Object -First 1
-
-          if (-not $nic) {
-            throw 'A6_ETHERNET_ADAPTER_NOT_FOUND'
-          }
+          if (-not $nic) { throw 'A6_PHYSICAL_REALTEK_ADAPTER_NOT_FOUND' }
 
           $statistics = $null
           $statisticsError = $null
@@ -53,10 +48,20 @@ jobs:
           $driverError = $null
           try {
             $driver = Get-CimInstance Win32_PnPSignedDriver -ErrorAction Stop |
-              Where-Object { $_.DeviceName -match 'Realtek PCIe FE|Realtek.*Ethernet' } |
+              Where-Object { $_.DeviceName -match '^Realtek PCIe FE Family Controller$' } |
               Select-Object -First 1 DeviceName,DriverVersion,DriverDate,Manufacturer
           } catch {
             $driverError = $_.Exception.GetType().Name
+          }
+
+          $pnp = $null
+          $pnpError = $null
+          try {
+            $pnp = Get-CimInstance Win32_NetworkAdapter -ErrorAction Stop |
+              Where-Object { $_.Name -match '^Realtek PCIe FE Family Controller$' } |
+              Select-Object -First 1 Name,NetEnabled,NetConnectionStatus,Speed,ConfigManagerErrorCode
+          } catch {
+            $pnpError = $_.Exception.GetType().Name
           }
 
           $advanced = @()
@@ -86,9 +91,11 @@ jobs:
           $eventsError = $null
           try {
             $since = (Get-Date).AddHours(-48)
-            $events = @(Get-WinEvent -FilterHashtable @{ LogName='System'; StartTime=$since } -MaxEvents 1500 -ErrorAction Stop |
+            $systemEvents = @(Get-WinEvent -FilterHashtable @{ LogName='System'; StartTime=$since } -MaxEvents 3000 -ErrorAction Stop)
+            $events = @($systemEvents |
               Where-Object {
-                $_.ProviderName -match 'Realtek|NDIS|Tcpip|NetworkProfile|Kernel-PnP|Dhcp-Client'
+                $_.ProviderName -match 'Realtek|rt640|NDIS|Tcpip|NetworkProfile|Kernel-PnP|Dhcp-Client|WLAN-AutoConfig' -or
+                $_.Message -match '(?i)Realtek PCIe FE|Ethernet.{0,40}(disconnect|connect)|network link|media disconnected|enlace de red|medio desconectado'
               } |
               Select-Object -First 100 |
               ForEach-Object {
@@ -117,7 +124,7 @@ jobs:
           }
 
           $result = [ordered]@{
-            status = 'READ_ONLY_ETHERNET_DIAGNOSTIC_COMPLETE'
+            status = 'READ_ONLY_PHYSICAL_REALTEK_DIAGNOSTIC_COMPLETE'
             host = [string]$env:COMPUTERNAME
             captured_at_utc = [DateTimeOffset]::UtcNow.ToString('o')
             duration_seconds = [math]::Round(([DateTimeOffset]::UtcNow - $started).TotalSeconds,1)
@@ -126,6 +133,8 @@ jobs:
             statistics_read_error = $statisticsError
             ethernet_driver = $driver
             driver_read_error = $driverError
+            pnp_adapter_state = $pnp
+            pnp_read_error = $pnpError
             relevant_advanced_properties = @($advanced)
             advanced_properties_read_error = $advancedError
             default_routes_on_ethernet = @($routes)
@@ -133,6 +142,7 @@ jobs:
             network_profiles = @($connectionProfiles)
             recent_link_and_network_events_48h = @($events)
             event_log_read_error = $eventsError
+            other_adapter_summaries = @($allAdapters | Where-Object { $_.InterfaceDescription -notmatch '^Realtek PCIe FE Family Controller$' } | Select-Object Name,InterfaceDescription,Status,LinkSpeed)
             restrictions = @('READ_ONLY','NO_NIC_OR_DRIVER_CHANGES','NO_EEE_OR_POWER_CHANGES','NO_ROUTE_DNS_OR_WIFI_CHANGES','NO_MISSION_OR_CRON_CHANGES')
           }
 
