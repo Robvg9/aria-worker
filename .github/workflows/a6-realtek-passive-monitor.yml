@@ -1,0 +1,86 @@
+name: A6 Realtek passive link monitor (no network changes)
+
+on:
+  push:
+    branches:
+      - ops/a6-ethernet-readonly-diagnostics-v1
+    paths:
+      - '.github/workflows/a6-realtek-passive-monitor.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: a6-realtek-passive-link-monitor
+  cancel-in-progress: false
+
+jobs:
+  monitor:
+    name: Observe Realtek link passively on ROBVG
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    steps:
+      - name: Sample physical Ethernet without changing connectivity
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ([string]$env:COMPUTERNAME -ine 'ROBVG') { throw 'A6_HOST_MISMATCH' }
+          $nicName = 'Ethernet'
+          $started = [DateTimeOffset]::UtcNow
+          $rows = New-Object System.Collections.Generic.List[object]
+          for ($i = 0; $i -lt 25; $i++) {
+            try {
+              $n = Get-NetAdapter -Name $nicName -ErrorAction Stop
+              $s = Get-NetAdapterStatistics -Name $nicName -ErrorAction Stop
+              $rows.Add([ordered]@{
+                time_utc = [DateTimeOffset]::UtcNow.ToString('o')
+                status = [string]$n.Status
+                media_state = [string]$n.MediaConnectionState
+                link_speed = [string]$n.LinkSpeed
+                rx_errors = [long]$s.ReceivedPacketErrors
+                tx_errors = [long]$s.OutboundPacketErrors
+                rx_discarded = [long]$s.ReceivedDiscardedPackets
+                tx_discarded = [long]$s.OutboundDiscardedPackets
+              })
+            } catch {
+              $rows.Add([ordered]@{
+                time_utc = [DateTimeOffset]::UtcNow.ToString('o')
+                status = 'READ_ERROR'
+                error = $_.Exception.GetType().Name
+              })
+            }
+            if ($i -lt 24) { Start-Sleep -Seconds 5 }
+          }
+
+          $events = @()
+          try {
+            $since = $started.LocalDateTime
+            $events = @(Get-WinEvent -FilterHashtable @{LogName='System'; StartTime=$since} -MaxEvents 200 -ErrorAction Stop |
+              Where-Object { $_.ProviderName -match 'rt640x64' -and $_.Id -eq 1 } |
+              Select-Object TimeCreated,ProviderName,Id,LevelDisplayName)
+          } catch {}
+
+          $first = $rows[0]
+          $last = $rows[$rows.Count - 1]
+          $linkDrops = @($rows | Where-Object { $_.status -ne 'Up' -or $_.media_state -ne '1' }).Count
+          $result = [ordered]@{
+            status = 'PASSIVE_ETHERNET_MONITOR_COMPLETE'
+            host = [string]$env:COMPUTERNAME
+            started_at_utc = $started.ToString('o')
+            ended_at_utc = [DateTimeOffset]::UtcNow.ToString('o')
+            sample_count = $rows.Count
+            interval_seconds = 5
+            samples_with_link_down_or_read_error = $linkDrops
+            tx_error_delta = [long]$last.tx_errors - [long]$first.tx_errors
+            rx_error_delta = [long]$last.rx_errors - [long]$first.rx_errors
+            tx_discard_delta = [long]$last.tx_discarded - [long]$first.tx_discarded
+            rx_discard_delta = [long]$last.rx_discarded - [long]$first.rx_discarded
+            first_sample = $first
+            last_sample = $last
+            samples = @($rows)
+            rt640x64_disconnect_events_during_window = @($events)
+            restrictions = @('READ_ONLY','NO_LINK_DISCONNECT','NO_WIFI_USE','NO_NIC_DRIVER_EEE_POWER_OR_ROUTE_CHANGES')
+          }
+          Write-Output 'A6_PASSIVE_ETHERNET_EVIDENCE_BEGIN'
+          Write-Output ($result | ConvertTo-Json -Depth 8 -Compress)
+          Write-Output 'A6_PASSIVE_ETHERNET_EVIDENCE_END'
