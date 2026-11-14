@@ -1,0 +1,141 @@
+name: A6 Ethernet stability diagnostics (read-only)
+
+on:
+  push:
+    branches:
+      - ops/a6-ethernet-readonly-diagnostics-v1
+    paths:
+      - '.github/workflows/a6-ethernet-readonly-diagnostics.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: a6-ethernet-readonly-diagnostics
+  cancel-in-progress: false
+
+jobs:
+  inspect:
+    name: Inspect Ethernet link and recent Windows events on ROBVG
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 6
+    steps:
+      - name: Read Ethernet health and event history
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ([string]$env:COMPUTERNAME -ine 'ROBVG') {
+            throw "A6_HOST_MISMATCH expected=ROBVG actual=$env:COMPUTERNAME"
+          }
+
+          $started = [DateTimeOffset]::UtcNow
+          $nic = Get-NetAdapter -IncludeHidden -ErrorAction Stop |
+            Where-Object {
+              $_.InterfaceDescription -match 'Realtek PCIe FE|Realtek.*Ethernet' -or
+              ($_.Name -match 'Ethernet|Conexi' -and $_.InterfaceDescription -notmatch 'Virtual|Tailscale')
+            } |
+            Select-Object -First 1
+
+          if (-not $nic) {
+            throw 'A6_ETHERNET_ADAPTER_NOT_FOUND'
+          }
+
+          $statistics = $null
+          $statisticsError = $null
+          try {
+            $statistics = Get-NetAdapterStatistics -Name $nic.Name -ErrorAction Stop |
+              Select-Object ReceivedPacketErrors,OutboundPacketErrors,ReceivedDiscardedPackets,OutboundDiscardedPackets,ReceivedBytes,SentBytes
+          } catch {
+            $statisticsError = $_.Exception.GetType().Name
+          }
+
+          $driver = $null
+          $driverError = $null
+          try {
+            $driver = Get-CimInstance Win32_PnPSignedDriver -ErrorAction Stop |
+              Where-Object { $_.DeviceName -match 'Realtek PCIe FE|Realtek.*Ethernet' } |
+              Select-Object -First 1 DeviceName,DriverVersion,DriverDate,Manufacturer
+          } catch {
+            $driverError = $_.Exception.GetType().Name
+          }
+
+          $advanced = @()
+          $advancedError = $null
+          try {
+            $advanced = @(Get-NetAdapterAdvancedProperty -Name $nic.Name -ErrorAction Stop |
+              Where-Object {
+                $_.DisplayName -match 'EEE|Energy|Energ|Power|Ahorro|Green|Speed|Velocidad|Duplex|Dúplex' -or
+                $_.RegistryKeyword -match 'EEE|Power|Green|Speed|Duplex'
+              } |
+              Select-Object DisplayName,DisplayValue,RegistryKeyword)
+          } catch {
+            $advancedError = $_.Exception.GetType().Name
+          }
+
+          $routes = @()
+          $routeError = $null
+          try {
+            $routes = @(Get-NetRoute -DestinationPrefix '0.0.0.0/0' -ErrorAction Stop |
+              Where-Object { $_.InterfaceIndex -eq $nic.InterfaceIndex } |
+              Select-Object InterfaceIndex,RouteMetric,State)
+          } catch {
+            $routeError = $_.Exception.GetType().Name
+          }
+
+          $events = @()
+          $eventsError = $null
+          try {
+            $since = (Get-Date).AddHours(-48)
+            $events = @(Get-WinEvent -FilterHashtable @{ LogName='System'; StartTime=$since } -MaxEvents 1500 -ErrorAction Stop |
+              Where-Object {
+                $_.ProviderName -match 'Realtek|NDIS|Tcpip|NetworkProfile|Kernel-PnP|Dhcp-Client'
+              } |
+              Select-Object -First 100 |
+              ForEach-Object {
+                $message = [string]$_.Message
+                $message = [regex]::Replace($message,'(?i)\b(?:[0-9a-f]{2}-){5}[0-9a-f]{2}\b','[MAC]')
+                $message = [regex]::Replace($message,'\b(?:\d{1,3}\.){3}\d{1,3}\b','[IP]')
+                if ($message.Length -gt 260) { $message = $message.Substring(0,260) }
+                [ordered]@{
+                  time_utc = $_.TimeCreated.ToUniversalTime().ToString('o')
+                  provider = $_.ProviderName
+                  event_id = $_.Id
+                  level = $_.LevelDisplayName
+                  message = $message
+                }
+              })
+          } catch {
+            $eventsError = $_.Exception.GetType().Name
+          }
+
+          $connectionProfiles = @()
+          try {
+            $connectionProfiles = @(Get-NetConnectionProfile -ErrorAction Stop |
+              Select-Object Name,InterfaceAlias,NetworkCategory,IPv4Connectivity,IPv6Connectivity)
+          } catch {
+            $connectionProfiles = @()
+          }
+
+          $result = [ordered]@{
+            status = 'READ_ONLY_ETHERNET_DIAGNOSTIC_COMPLETE'
+            host = [string]$env:COMPUTERNAME
+            captured_at_utc = [DateTimeOffset]::UtcNow.ToString('o')
+            duration_seconds = [math]::Round(([DateTimeOffset]::UtcNow - $started).TotalSeconds,1)
+            ethernet_adapter = $nic | Select-Object Name,InterfaceDescription,Status,LinkSpeed,MediaConnectionState,InterfaceIndex,DriverInformation
+            ethernet_statistics = $statistics
+            statistics_read_error = $statisticsError
+            ethernet_driver = $driver
+            driver_read_error = $driverError
+            relevant_advanced_properties = @($advanced)
+            advanced_properties_read_error = $advancedError
+            default_routes_on_ethernet = @($routes)
+            routes_read_error = $routeError
+            network_profiles = @($connectionProfiles)
+            recent_link_and_network_events_48h = @($events)
+            event_log_read_error = $eventsError
+            restrictions = @('READ_ONLY','NO_NIC_OR_DRIVER_CHANGES','NO_EEE_OR_POWER_CHANGES','NO_ROUTE_DNS_OR_WIFI_CHANGES','NO_MISSION_OR_CRON_CHANGES')
+          }
+
+          Write-Output 'A6_ETHERNET_EVIDENCE_BEGIN'
+          Write-Output ($result | ConvertTo-Json -Depth 8 -Compress)
+          Write-Output 'A6_ETHERNET_EVIDENCE_END'
