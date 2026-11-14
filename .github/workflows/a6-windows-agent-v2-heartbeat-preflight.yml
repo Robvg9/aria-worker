@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - ops/a6-windows-agent-v2-heartbeat-preflight-v1
-      - fix/a6-durable-recovery-v1
     paths:
       - 'agents/windows/a6-install-heartbeat-v2.ps1'
       - 'agents/windows/aria-agent.js'
@@ -23,6 +22,8 @@ on:
       - 'supabase/functions/aria-mission-runner-v22/index.ts'
       - 'supabase/functions/_shared/mission-wonder-2-a6-scope-v1.mjs'
       - 'supabase/migrations/20261113160000_aria_m22_a6_durable_recovery_v1.sql'
+
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -426,3 +427,4 @@ jobs:
           path: a6-windows-readonly-diagnostic-${{ github.run_id }}.json
           if-no-files-found: warn
           retention-days: 14
+# Host installation/45m qualification is manual-only from this recovery branch; pushes here must never deploy to ROBVG.
