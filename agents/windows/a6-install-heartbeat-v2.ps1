@@ -338,6 +338,7 @@ try {
   $newPid = 0
   $restartObservations = [System.Collections.Generic.List[object]]::new()
   $expectedAgentPath = Join-Path $runtime 'aria-agent.js'
+  # Observed watchdog restart completed at 104.5s; keep a bounded 240s window before rollback.
   $restartTimeoutSeconds = 240
   $manifest.restart_timeout_seconds = $restartTimeoutSeconds
   Write-Host "A6_RESTART_WAIT_TIMEOUT_SECONDS=$restartTimeoutSeconds"
