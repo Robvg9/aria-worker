@@ -289,3 +289,4 @@ jobs:
           path: a6-windows-task-inspection.json
           if-no-files-found: warn
           retention-days: 14
+# Read-only forensic rerun: retrigger task/PID attribution without changing host runtime.
