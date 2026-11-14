@@ -1,0 +1,107 @@
+name: A6 Realtek official driver package validation (no install)
+
+on:
+  push:
+    branches:
+      - ops/a6-ethernet-readonly-diagnostics-v1
+    paths:
+      - '.github/workflows/a6-realtek-package-validation.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: a6-realtek-package-validation
+  cancel-in-progress: false
+
+jobs:
+  inspect:
+    name: Validate official Realtek NDIS package against exact Dell hardware ID
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 8
+    steps:
+      - name: Download to temp, inspect INF and signatures only
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ([string]$env:COMPUTERNAME -ine 'ROBVG') { throw 'A6_HOST_MISMATCH' }
+
+          $downloadUrl = 'https://www.realtek.com/Download/ToDownload?downloadid=3613&mode=first&type=direct'
+          $hardwareId = 'PCI\VEN_10EC&DEV_8136&SUBSYS_078B1028&REV_07'
+          $root = Join-Path $env:TEMP ('a6-realtek-validation-' + [guid]::NewGuid().ToString('N'))
+          $zipPath = Join-Path $root 'realtek-ndis.zip'
+          $expandPath = Join-Path $root 'expanded'
+          New-Item -ItemType Directory -Path $root -Force | Out-Null
+
+          try {
+            Invoke-WebRequest -Uri $downloadUrl -OutFile $zipPath -TimeoutSec 90 -UseBasicParsing
+            $file = Get-Item -LiteralPath $zipPath
+            if ($file.Length -lt 100000 -or $file.Length -gt 25000000) {
+              throw "A6_PACKAGE_SIZE_UNEXPECTED bytes=$($file.Length)"
+            }
+
+            Expand-Archive -LiteralPath $zipPath -DestinationPath $expandPath -Force
+            $infs = @(Get-ChildItem -LiteralPath $expandPath -Filter '*.inf' -Recurse -File)
+            $catFiles = @(Get-ChildItem -LiteralPath $expandPath -Filter '*.cat' -Recurse -File)
+            $setupFiles = @(Get-ChildItem -LiteralPath $expandPath -Include '*.exe','*.msi' -Recurse -File)
+
+            $matches = @()
+            foreach ($inf in $infs) {
+              $lines = @(Get-Content -LiteralPath $inf.FullName -ErrorAction Stop)
+              $devMatch = $lines | Where-Object { $_ -match '(?i)PCI\\VEN_10EC&DEV_8136' }
+              $subsysMatch = $lines | Where-Object { $_ -match '(?i)SUBSYS_078B1028' }
+              $driverVer = $lines | Where-Object { $_ -match '(?i)^\s*DriverVer\s*=' } | Select-Object -First 1
+              if ($devMatch -or $subsysMatch) {
+                $matches += [pscustomobject]@{
+                  inf = $inf.Name
+                  relative_path = $inf.FullName.Substring($expandPath.Length)
+                  dev_8136_match = [bool]$devMatch
+                  exact_subsys_078b1028_match = [bool]$subsysMatch
+                  driver_ver_line = [string]$driverVer
+                  matching_dev_lines = @($devMatch | Select-Object -First 10)
+                  matching_subsys_lines = @($subsysMatch | Select-Object -First 10)
+                }
+              }
+            }
+
+            $signatures = @()
+            foreach ($candidate in @($catFiles + $setupFiles)) {
+              try {
+                $sig = Get-AuthenticodeSignature -FilePath $candidate.FullName
+                $signatures += [pscustomobject]@{
+                  file = $candidate.Name
+                  extension = $candidate.Extension
+                  status = [string]$sig.Status
+                  signer = if ($sig.SignerCertificate) { $sig.SignerCertificate.Subject } else { $null }
+                  timestamp_signer = if ($sig.TimeStamperCertificate) { $sig.TimeStamperCertificate.Subject } else { $null }
+                }
+              } catch {
+                $signatures += [pscustomobject]@{file=$candidate.Name;status='READ_ERROR';signer=$_.Exception.GetType().Name}
+              }
+            }
+
+            $result = [pscustomobject]@{
+              status = 'REALTEK_PACKAGE_INSPECTION_COMPLETE_NO_INSTALL'
+              host = [string]$env:COMPUTERNAME
+              captured_at_utc = [DateTimeOffset]::UtcNow.ToString('o')
+              source = 'Realtek official PCI Express FE software page, NDIS package 10.80.50'
+              download_bytes = $file.Length
+              package_sha256 = (Get-FileHash -LiteralPath $zipPath -Algorithm SHA256).Hash
+              inf_count = $infs.Count
+              exact_hardware_id = $hardwareId
+              matching_infs = @($matches)
+              signature_results = @($signatures)
+              exact_subsys_supported = [bool](@($matches | Where-Object { $_.exact_subsys_078b1028_match }).Count)
+              valid_signatures_present = [bool](@($signatures | Where-Object { $_.status -eq 'Valid' }).Count)
+              restrictions = @('TEMP_DOWNLOAD_ONLY','NO_DRIVER_INSTALL','NO_DEVICE_OR_NETWORK_CHANGE','NO_REBOOT','NO_ROUTER_OR_WIFI_CHANGE')
+            }
+
+            Write-Output 'A6_REALTEK_PACKAGE_EVIDENCE_BEGIN'
+            Write-Output ($result | ConvertTo-Json -Depth 8 -Compress)
+            Write-Output 'A6_REALTEK_PACKAGE_EVIDENCE_END'
+          }
+          finally {
+            if (Test-Path -LiteralPath $root) {
+              Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
+            }
+          }
