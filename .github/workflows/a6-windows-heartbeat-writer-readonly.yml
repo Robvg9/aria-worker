@@ -1,0 +1,157 @@
+name: A6 Windows Heartbeat Writer Read-Only Diagnostic
+# Retry after GitHub force-cancel released the previously stuck runner setup.
+
+on:
+  push:
+    branches:
+      - ops/a6-windows-agent-v2-heartbeat-preflight-v1
+      - fix/a6-durable-recovery-v1
+    paths:
+      - '.github/workflows/a6-windows-heartbeat-writer-readonly.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: a6-windows-heartbeat-writer-readonly
+  cancel-in-progress: false
+
+jobs:
+  inspect:
+    name: Minimal heartbeat and watchdog state (read-only)
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    defaults:
+      run:
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+    steps:
+      - name: Capture bounded process and heartbeat state
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ([string]$env:COMPUTERNAME -ine 'ROBVG') { throw "HOST_MISMATCH=$env:COMPUTERNAME" }
+          $root = 'D:\ARIA-Windows-Agent'
+          $logs = Join-Path $root 'Logs'
+          $out = Join-Path $env:RUNNER_TEMP 'a6-windows-heartbeat-writer-diagnostic.json'
+          $agentPidPath = Join-Path $logs 'agent.pid'
+          $watchdogPidPath = Join-Path $logs 'watchdog.pid'
+          $statusPath = Join-Path $logs 'status.json'
+          $heartbeatPath = Join-Path $logs 'agent-heartbeat.json'
+          $killPath = Join-Path $logs 'kill-request'
+          $watchdogLog = Join-Path $logs 'watchdog.log'
+          function Read-Pid([string]$path) {
+            if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return $null }
+            $v = 0
+            if ([int]::TryParse((Get-Content -Raw -LiteralPath $path).Trim(), [ref]$v) -and $v -gt 0) { return $v }
+            return $null
+          }
+          function Read-Json([string]$path) {
+            if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return $null }
+            try { Get-Content -Raw -LiteralPath $path | ConvertFrom-Json -ErrorAction Stop } catch { return $null }
+          }
+          $agentPid = Read-Pid $agentPidPath
+          $watchdogPid = Read-Pid $watchdogPidPath
+          $status = Read-Json $statusPath
+          $heartbeat = Read-Json $heartbeatPath
+          $agentProcess = if ($agentPid) { Get-Process -Id $agentPid -ErrorAction SilentlyContinue } else { $null }
+          $watchdogProcess = if ($watchdogPid) { Get-Process -Id $watchdogPid -ErrorAction SilentlyContinue } else { $null }
+          $samples = [System.Collections.Generic.List[object]]::new()
+          for ($i = 0; $i -lt 6; $i++) {
+            $hb = Read-Json $heartbeatPath
+            $item = if (Test-Path -LiteralPath $heartbeatPath -PathType Leaf) { Get-Item -LiteralPath $heartbeatPath } else { $null }
+            $samples.Add([ordered]@{
+              captured_at_utc = [DateTimeOffset]::UtcNow.ToString('o')
+              heartbeat_write_utc = if ($item) { $item.LastWriteTimeUtc.ToString('o') } else { $null }
+              heartbeat_age_ms = if ($item) { [long]([DateTimeOffset]::UtcNow - $item.LastWriteTimeUtc).TotalMilliseconds } else { $null }
+              gateway_ack_utc = if ($hb) { [string]$hb.last_gateway_heartbeat_at } else { $null }
+              gateway_error_present = [bool]($hb -and $null -ne $hb.last_gateway_heartbeat_error)
+            })
+            if ($i -lt 5) { Start-Sleep -Seconds 5 }
+          }
+          Write-Host "A6_STAGE=heartbeat_samples_complete"
+          $tail = @()
+          $watchdogLogBytes = 0
+          if (Test-Path -LiteralPath $watchdogLog -PathType Leaf) {
+            try {
+              $stream = [System.IO.File]::Open($watchdogLog,[System.IO.FileMode]::Open,[System.IO.FileAccess]::Read,[System.IO.FileShare]::ReadWrite -bor [System.IO.FileShare]::Delete)
+              $watchdogLogBytes = [long]$stream.Length
+              $take = [int][Math]::Min(16384,$watchdogLogBytes)
+              if ($take -gt 0) {
+                [void]$stream.Seek(-$take,[System.IO.SeekOrigin]::End)
+                $buffer = New-Object byte[] $take
+                $read = $stream.Read($buffer,0,$take)
+                $stream.Dispose()
+                $chunk = [System.Text.Encoding]::UTF8.GetString($buffer,0,$read)
+                $tail = @($chunk -split "`r?`n" | Select-Object -Last 60 | ForEach-Object {
+                  if ($_ -match '(?i)token|secret|authorization|bearer|password') { '[REDACTED_SENSITIVE_LOG_LINE]' } else { $_ }
+                })
+              } else { $stream.Dispose() }
+            } catch { $tail = @("WATCHDOG_LOG_READ_FAILED:" + $_.Exception.GetType().Name) }
+          }
+          Write-Host "A6_STAGE=watchdog_log_tail_bounded"
+          $watchdogScriptPath = Join-Path $root 'Runtime\windows\run-agent.ps1'
+          $watchdogScriptExists = Test-Path -LiteralPath $watchdogScriptPath -PathType Leaf
+          $watchdogScriptHasKillHandler = $false
+          $watchdogScriptGitBlob = $null
+          if ($watchdogScriptExists) {
+            $scriptText = [System.IO.File]::ReadAllText($watchdogScriptPath)
+            $watchdogScriptHasKillHandler = $scriptText.Contains('KILL_REQUEST_SEEN')
+            try {
+              $watchdogScriptGitBlob = (& git hash-object -- $watchdogScriptPath 2>$null)
+              if ($LASTEXITCODE -ne 0) { $watchdogScriptGitBlob = $null }
+            } catch { $watchdogScriptGitBlob = $null }
+          }
+          $markerHits = [System.Collections.Generic.List[string]]::new()
+          if (Test-Path -LiteralPath $watchdogLog -PathType Leaf) {
+            $logStream = [System.IO.File]::Open($watchdogLog,[System.IO.FileMode]::Open,[System.IO.FileAccess]::Read,[System.IO.FileShare]::ReadWrite -bor [System.IO.FileShare]::Delete)
+            $reader = [System.IO.StreamReader]::new($logStream,[System.Text.Encoding]::UTF8,$true,4096,$true)
+            try {
+              while (($line = $reader.ReadLine()) -ne $null) {
+                if ($line -match 'KILL_REQUEST_SEEN|AGENT_KILLED_BY_WATCHDOG|AGENT_KILL_FAILED|AGENT_EXIT|AGENT_STARTED|AGENT_STALE_HEARTBEAT') {
+                  if ($markerHits.Count -ge 120) { $markerHits.RemoveAt(0) }
+                  $markerHits.Add($line)
+                }
+              }
+            } finally { $reader.Dispose(); $logStream.Dispose() }
+          }
+          Write-Host "A6_STAGE=runtime_watchdog_script_checked"
+          $result = [ordered]@{
+            captured_at_utc = [DateTimeOffset]::UtcNow.ToString('o')
+            host = [string]$env:COMPUTERNAME
+            agent_pid = $agentPid
+            agent_process_alive = [bool]$agentProcess
+            agent_process_name = if ($agentProcess) { [string]$agentProcess.ProcessName } else { $null }
+            watchdog_pid = $watchdogPid
+            watchdog_process_alive = [bool]$watchdogProcess
+            watchdog_process_name = if ($watchdogProcess) { [string]$watchdogProcess.ProcessName } else { $null }
+            kill_request_present = Test-Path -LiteralPath $killPath -PathType Leaf
+            status = if ($status) { [ordered]@{ state=[string]$status.state; agent_pid=[int]$status.agent_pid; watchdog_pid=[int]$status.watchdog_pid; updated_at=[string]$status.updated_at; agent_path=[string]$status.agent_path; runtime_root=[string]$status.runtime_root } } else { $null }
+            heartbeat = if ($heartbeat) { [ordered]@{ device_id=[string]$heartbeat.device_id; version=[string]$heartbeat.version; scheduler_version=[string]$heartbeat.heartbeat_scheduler_version; timestamp=[string]$heartbeat.timestamp; gateway_ack=[string]$heartbeat.last_gateway_heartbeat_at; gateway_error_present=($null -ne $heartbeat.last_gateway_heartbeat_error) } } else { $null }
+            heartbeat_samples = @($samples)
+            watchdog_log_bytes = $watchdogLogBytes
+            watchdog_log_tail = @($tail)
+            watchdog_script_path = $watchdogScriptPath
+            watchdog_script_exists = $watchdogScriptExists
+            watchdog_script_has_kill_handler = $watchdogScriptHasKillHandler
+            watchdog_script_git_blob = $watchdogScriptGitBlob
+            watchdog_log_marker_hits = @($markerHits)
+          }
+          $result | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $out -Encoding UTF8
+          Write-Host "A6_HOST=$($result.host)"
+          Write-Host "A6_AGENT_PROCESS_ALIVE=$($result.agent_process_alive)"
+          Write-Host "A6_WATCHDOG_PROCESS_ALIVE=$($result.watchdog_process_alive)"
+          Write-Host "A6_STATUS_STATE=$($result.status.state)"
+          Write-Host "A6_KILL_REQUEST_PRESENT=$($result.kill_request_present)"
+          Write-Host "A6_HEARTBEAT_SAMPLE_COUNT=$($samples.Count)"
+          Write-Host "A6_MINIMAL_DIAGNOSTIC=$out"
+          Write-Host "A6_WATCHDOG_SCRIPT_EXISTS=$watchdogScriptExists"
+          Write-Host "A6_WATCHDOG_SCRIPT_HAS_KILL_HANDLER=$watchdogScriptHasKillHandler"
+          Write-Host "A6_WATCHDOG_LOG_MARKER_HITS=$($markerHits.Count)"
+          Write-Host "A6_STAGE=diagnostic_json_written"
+      - name: Upload sanitized diagnostic
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: a6-windows-heartbeat-writer-diagnostic-${{ github.run_id }}
+          path: ${{ runner.temp }}/a6-windows-heartbeat-writer-diagnostic.json
+          if-no-files-found: warn
+          retention-days: 7

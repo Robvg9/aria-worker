@@ -27,6 +27,10 @@ foreach ($dir in @($RuntimeRoot, $RuntimeDir, $DataDir, $LogDir)) { New-Item -It
 
 $requiredSources = @{
     'aria-agent.js' = Join-Path $AgentRoot 'aria-agent.js'
+    'atomic-heartbeat-writer.cjs' = Join-Path $AgentRoot 'atomic-heartbeat-writer.cjs'
+    'heartbeat-scheduler.cjs' = Join-Path $AgentRoot 'heartbeat-scheduler.cjs'
+    'gateway-dns-lookup.cjs' = Join-Path $AgentRoot 'gateway-dns-lookup.cjs'
+    'gateway-http-client.cjs' = Join-Path $AgentRoot 'gateway-http-client.cjs'
     'resource-profile.js' = Join-Path $AgentRoot 'resource-profile.js'
     'autonomous-rwht-controller.js' = Join-Path $AgentRoot 'autonomous-rwht-controller.js'
     'run-agent.ps1' = Join-Path $AgentRoot 'run-agent.ps1'
@@ -75,7 +79,9 @@ $cs = Get-CimInstance Win32_ComputerSystem
 $cpuInfo = Get-CimInstance Win32_Processor | Select-Object -First 1
 $ramBytes = [uint64]$cs.TotalPhysicalMemory
 $logicalCpuCount = [int]$cpuInfo.NumberOfLogicalProcessors
-$localLlmEligible = ($ramBytes -ge 8GB -and $logicalCpuCount -ge 4)
+$localLlmOptIn = ($env:ARIA_ALLOW_LOCAL_LLM -eq 'true')
+$hostAllowsLocalLlm = ($env:COMPUTERNAME -ine 'ROBVG')
+$localLlmEligible = ($hostAllowsLocalLlm -and $localLlmOptIn -and $ramBytes -ge 8GB -and $logicalCpuCount -ge 4)
 $baseCapabilities = @('shell.execute','computer.use','desktop.screenshot','desktop.uia')
 $capabilities = if ($localLlmEligible) { @('ollama.qwen3') + $baseCapabilities } else { $baseCapabilities }
 $config = [ordered]@{

@@ -1,0 +1,307 @@
+name: A6 Windows task owner read-only inspection
+
+on:
+  push:
+    branches:
+      - ops/a6-windows-agent-v2-heartbeat-preflight-v1
+      - fix/a6-durable-recovery-v1
+    paths:
+      - '.github/workflows/a6-windows-task-inspection-readonly.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: a6-windows-task-owner-readonly
+  cancel-in-progress: false
+
+jobs:
+  inspect:
+    name: Identify exact ARIA watchdog task and process owner
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    defaults:
+      run:
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+    steps:
+      - name: Read existing tasks and PID ancestry without modifications
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:COMPUTERNAME -ine 'ROBVG') { throw "A6_HOST_MISMATCH=$env:COMPUTERNAME" }
+          $root = 'D:\ARIA-Windows-Agent'
+          $logs = Join-Path $root 'Logs'
+          $schtasks = Join-Path $env:WINDIR 'System32\schtasks.exe'
+          function Read-Pid([string]$path) {
+            if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return $null }
+            $id = 0
+            if ([int]::TryParse((Get-Content -Raw -LiteralPath $path).Trim(),[ref]$id)) { return $id }
+            return $null
+          }
+          function Invoke-SchtasksReadOnly([string[]]$Arguments) {
+            $oldPreference = $ErrorActionPreference
+            $ErrorActionPreference = 'Continue'
+            try {
+              $output = @(& $schtasks @Arguments 2>&1)
+              $exitCode = $LASTEXITCODE
+            } finally {
+              $ErrorActionPreference = $oldPreference
+            }
+            return @{ exit_code=$exitCode; lines=@($output | ForEach-Object { [string]$_ }) }
+          }
+          $agentPid = Read-Pid (Join-Path $logs 'agent.pid')
+          $watchdogPid = Read-Pid (Join-Path $logs 'watchdog.pid')
+          $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+          $principal = [Security.Principal.WindowsPrincipal]::new($identity)
+          $isAdmin = $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+          $targetTask = '\ARIA-Windows-Local-Agent'
+          $targetTaskXml = Invoke-SchtasksReadOnly @('/Query','/TN',$targetTask,'/XML')
+          $targetTaskDetails = [ordered]@{
+            name=$targetTask
+            exit_code=$targetTaskXml.exit_code
+            xml_read=$false
+            command=$null
+            arguments=$null
+            principal_user=$null
+            logon_type=$null
+            run_level=$null
+            execution_time_limit=$null
+            restart_on_failure=$null
+          }
+          if ($targetTaskXml.exit_code -eq 0) {
+            try {
+              [xml]$tx = ($targetTaskXml.lines -join [Environment]::NewLine)
+              $targetTaskDetails.command=[string]$tx.SelectSingleNode("//*[local-name()='Actions']/*[local-name()='Exec']/*[local-name()='Command']").InnerText
+              $targetTaskDetails.arguments=[string]$tx.SelectSingleNode("//*[local-name()='Actions']/*[local-name()='Exec']/*[local-name()='Arguments']").InnerText
+              $targetTaskDetails.principal_user=[string]$tx.SelectSingleNode("//*[local-name()='Principals']/*[local-name()='Principal']/*[local-name()='UserId']").InnerText
+              $targetTaskDetails.logon_type=[string]$tx.SelectSingleNode("//*[local-name()='Principals']/*[local-name()='Principal']/*[local-name()='LogonType']").InnerText
+              $targetTaskDetails.run_level=[string]$tx.SelectSingleNode("//*[local-name()='Principals']/*[local-name()='Principal']/*[local-name()='RunLevel']").InnerText
+              $targetTaskDetails.execution_time_limit=[string]$tx.SelectSingleNode("//*[local-name()='Settings']/*[local-name()='ExecutionTimeLimit']").InnerText
+              $targetTaskDetails.restart_on_failure=[string]$tx.SelectSingleNode("//*[local-name()='Settings']/*[local-name()='RestartOnFailure']/*[local-name()='Count']").InnerText
+              $targetTaskDetails.xml_read=$true
+            } catch { $targetTaskDetails.parse_error=$_.Exception.GetType().Name }
+          } else {
+            $targetTaskDetails.error=(($targetTaskXml.lines -join ' ').Substring(0,[Math]::Min(500,($targetTaskXml.lines -join ' ').Length)))
+          }
+          $aclPaths=@($root,(Join-Path $root 'Runtime\windows'),$logs,(Join-Path $root 'Runtime\windows\aria-agent.js'),(Join-Path $root 'Runtime\windows\run-agent.ps1'))
+          $aclEvidence=@()
+          foreach($aclPath in $aclPaths){
+            try{
+              $acl=Get-Acl -LiteralPath $aclPath -ErrorAction Stop
+              $aclEvidence+=@{
+                path=$aclPath
+                exists=(Test-Path -LiteralPath $aclPath)
+                owner=[string]$acl.Owner
+                access=@($acl.Access | Select-Object -First 12 | ForEach-Object {
+                  @{identity=[string]$_.IdentityReference;rights=[string]$_.FileSystemRights;type=[string]$_.AccessControlType;inherited=[bool]$_.IsInherited}
+                })
+              }
+            }catch{$aclEvidence+=@{path=$aclPath;error=$_.Exception.GetType().Name}}
+          }
+          $nicProperties=@()
+          try {
+            $nicProperties=@(Get-NetAdapterAdvancedProperty -Name 'Ethernet' -AllProperties -ErrorAction Stop |
+              Where-Object { $_.RegistryKeyword -match 'EEE|PowerSavingMode' -or $_.DisplayName -match 'Energy Efficient|Power Saving' } |
+              Select-Object Name,DisplayName,DisplayValue,RegistryKeyword,RegistryValue,ValidRegistryValues,DefaultRegistryValue)
+          } catch {$nicProperties=@(@{error=$_.Exception.GetType().Name})}
+          $resultHostPrivilege=@{
+            identity=$identity.Name
+            is_administrator=$isAdmin
+            target_task=$targetTaskDetails
+            acl=$aclEvidence
+            nic_power_properties=$nicProperties
+          }
+
+          $result = [ordered]@{
+            host = $env:COMPUTERNAME
+            captured_at_utc = [DateTimeOffset]::UtcNow.ToString('o')
+            schtasks_executable_exists = Test-Path -LiteralPath $schtasks
+            agent_pid_file = $agentPid
+            watchdog_pid_file = $watchdogPid
+            task_list_exit_code = $null
+            task_list_matches = @()
+            exact_task_xml = @()
+            process_ancestry = @()
+            services_for_pid = @()
+            mutations = 'NONE_READ_ONLY'
+            host_privilege_and_target_task = $resultHostPrivilege
+          }
+
+          $listing = Invoke-SchtasksReadOnly @('/Query','/FO','CSV','/V')
+          $result.task_list_exit_code = $listing.exit_code
+          if ($listing.exit_code -eq 0 -and $listing.lines.Count -gt 1) {
+            try {
+              $rows = @($listing.lines | ConvertFrom-Csv)
+              foreach ($row in $rows) {
+                $properties = @($row.PSObject.Properties)
+                $nameProperty = $properties | Where-Object { $_.Name -match 'TaskName|Nombre de tarea|Tarea' } | Select-Object -First 1
+                if (-not $nameProperty) { continue }
+                $name = [string]$nameProperty.Value
+                $rowText = (($properties | ForEach-Object { [string]$_.Value }) -join '|')
+                if ($rowText -notmatch '(?i)SpaceAgent|ARIA|Windows.*Agent|Agent.*Windows|BattleCruiser.*Self-Heal|Self-Heal|GitHub Actions Runner Watchdog|D:\\\\ARIA-Windows-Agent|run-agent\.ps1|aria-agent\.js') { continue }
+                $actionProperty = $properties | Where-Object { $_.Name -match 'Task To Run|Tarea.*ejecutar|Acción|Accion' } | Select-Object -First 1
+                $statusProperty = $properties | Where-Object { $_.Name -match 'Status|Estado' } | Select-Object -First 1
+                $userProperty = $properties | Where-Object { $_.Name -match 'Run As User|Ejecutar como usuario|Iniciar como' } | Select-Object -First 1
+                $safeFields = @($properties | ForEach-Object {
+                  $value = [string]$_.Value
+                  $value = $value -replace '(?i)(token|secret|password|authorization)(\s*[:=]\s*|\s+)[^\s;"]+','$1$2[REDACTED]'
+                  @{ name=[string]$_.Name; value=$value.Substring(0,[Math]::Min(700,$value.Length)) }
+                })
+                $result.task_list_matches += @{
+                  task_name=$name
+                  action=if($actionProperty){([string]$actionProperty.Value -replace '(?i)(token|secret|password|authorization)(\s*[:=]\s*|\s+)[^\s;]+','$1$2[REDACTED]')}else{$null}
+                  status=if($statusProperty){[string]$statusProperty.Value}else{$null}
+                  run_as=if($userProperty){[string]$userProperty.Value}else{$null}
+                  raw_fields=$safeFields
+                }
+              }
+            } catch {
+              $result.task_list_parse_error = $_.Exception.GetType().Name
+            }
+          } else {
+            $result.task_list_error = (($listing.lines -join ' ').Substring(0,[Math]::Min(500,($listing.lines -join ' ').Length)))
+          }
+
+          foreach ($task in @($result.task_list_matches)) {
+            $query = Invoke-SchtasksReadOnly @('/Query','/TN',[string]$task.task_name,'/XML')
+            $entry = [ordered]@{ task_name=$task.task_name; exit_code=$query.exit_code; xml_read=$false; command=$null; arguments=$null; user=$null; logon_type=$null; run_level=$null }
+            if ($query.exit_code -eq 0) {
+              try {
+                [xml]$taskXml = ($query.lines -join [Environment]::NewLine)
+                $entry.command = [string]$taskXml.SelectSingleNode("//*[local-name()='Actions']/*[local-name()='Exec']/*[local-name()='Command']").InnerText
+                $entry.arguments = [string]$taskXml.SelectSingleNode("//*[local-name()='Actions']/*[local-name()='Exec']/*[local-name()='Arguments']").InnerText
+                $entry.user = [string]$taskXml.SelectSingleNode("//*[local-name()='Principals']/*[local-name()='Principal']/*[local-name()='UserId']").InnerText
+                $entry.logon_type = [string]$taskXml.SelectSingleNode("//*[local-name()='Principals']/*[local-name()='Principal']/*[local-name()='LogonType']").InnerText
+                $entry.run_level = [string]$taskXml.SelectSingleNode("//*[local-name()='Principals']/*[local-name()='Principal']/*[local-name()='RunLevel']").InnerText
+                $entry.execution_time_limit = [string]$taskXml.SelectSingleNode("//*[local-name()='Settings']/*[local-name()='ExecutionTimeLimit']").InnerText
+                $entry.multiple_instances_policy = [string]$taskXml.SelectSingleNode("//*[local-name()='Settings']/*[local-name()='MultipleInstancesPolicy']").InnerText
+                $entry.start_when_available = [string]$taskXml.SelectSingleNode("//*[local-name()='Settings']/*[local-name()='StartWhenAvailable']").InnerText
+                $entry.wake_to_run = [string]$taskXml.SelectSingleNode("//*[local-name()='Settings']/*[local-name()='WakeToRun']").InnerText
+                $entry.disallow_start_if_on_batteries = [string]$taskXml.SelectSingleNode("//*[local-name()='Settings']/*[local-name()='DisallowStartIfOnBatteries']").InnerText
+                $entry.stop_if_going_on_batteries = [string]$taskXml.SelectSingleNode("//*[local-name()='Settings']/*[local-name()='StopIfGoingOnBatteries']").InnerText
+                $entry.restart_on_failure_count = [string]$taskXml.SelectSingleNode("//*[local-name()='Settings']/*[local-name()='RestartOnFailure']/*[local-name()='Count']").InnerText
+                $entry.restart_on_failure_interval = [string]$taskXml.SelectSingleNode("//*[local-name()='Settings']/*[local-name()='RestartOnFailure']/*[local-name()='Interval']").InnerText
+                $entry.triggers = @($taskXml.SelectNodes("//*[local-name()='Triggers']/*") | ForEach-Object {
+                  @{
+                    type=$_.LocalName
+                    start_boundary=[string]$_.SelectSingleNode("./*[local-name()='StartBoundary']").InnerText
+                    enabled=[string]$_.SelectSingleNode("./*[local-name()='Enabled']").InnerText
+                    repetition_interval=[string]$_.SelectSingleNode("./*[local-name()='Repetition']/*[local-name()='Interval']").InnerText
+                    repetition_duration=[string]$_.SelectSingleNode("./*[local-name()='Repetition']/*[local-name()='Duration']").InnerText
+                    repetition_stop_at_duration_end=[string]$_.SelectSingleNode("./*[local-name()='Repetition']/*[local-name()='StopAtDurationEnd']").InnerText
+                  }
+                })
+                $entry.arguments = $entry.arguments -replace '(?i)(token|secret|password|authorization)(\s*[:=]\s*|\s+)[^\s;]+','$1$2[REDACTED]'
+                $entry.xml_read = $true
+              } catch {
+                $entry.parse_error = $_.Exception.GetType().Name
+              }
+            } else {
+              $entry.error = (($query.lines -join ' ').Substring(0,[Math]::Min(300,($query.lines -join ' ').Length)))
+            }
+            $result.exact_task_xml += $entry
+          }
+
+          $all = @(Get-CimInstance Win32_Process -ErrorAction Stop)
+          $byId = @{}
+          foreach ($p in $all) { $byId[[int]$p.ProcessId] = $p }
+          $watchdogParentPid = $null
+          if ($watchdogPid -and $byId.ContainsKey([int]$watchdogPid)) {
+            $watchdogParentPid = [int]$byId[[int]$watchdogPid].ParentProcessId
+          }
+          foreach ($id in @($agentPid,$watchdogPid) | Where-Object { $_ -is [int] -and $_ -gt 0 }) {
+            $p = $byId[[int]$id]
+            if ($p) {
+              $parent = $byId[[int]$p.ParentProcessId]
+              $result.process_ancestry += @{
+                pid=[int]$p.ProcessId; name=[string]$p.Name; session_id=[int]$p.SessionId
+                parent_pid=[int]$p.ParentProcessId; parent_name=if($parent){[string]$parent.Name}else{$null}
+                executable_path=[string]$p.ExecutablePath
+              }
+            } else {
+              $result.process_ancestry += @{ pid=[int]$id; state='NOT_RUNNING' }
+            }
+          }
+          try {
+            $ids = @($agentPid,$watchdogPid,$watchdogParentPid) | Where-Object { $_ -is [int] -and $_ -gt 0 }
+            $result.services_for_pid = @(Get-CimInstance Win32_Service -ErrorAction Stop |
+              Where-Object { $ids -contains [int]$_.ProcessId } |
+              Select-Object Name,DisplayName,State,StartMode,StartName,ProcessId)
+          } catch {
+            $result.services_query_error = $_.Exception.GetType().Name
+          }
+          $result.watchdog_parent_pid = $watchdogParentPid
+          $result.task_scheduler_process_events = @()
+          $nodeLauncherPids = @()
+          foreach ($nodeProcess in @($all | Where-Object { $_.Name -ieq 'node.exe' })) {
+            $parent = $byId[[int]$nodeProcess.ParentProcessId]
+            if ($parent -and [string]$parent.Name -match '^(powershell|pwsh)\.exe$') {
+              $nodeLauncherPids += [int]$parent.ProcessId
+            }
+          }
+          $eventPids = @()
+          $eventPids += @($nodeLauncherPids)
+          $eventPids += @($watchdogPid,$watchdogParentPid)
+          $eventPids = @($eventPids | Where-Object { $_ -is [int] -and $_ -gt 0 } | Sort-Object -Unique)
+          $result.task_scheduler_event_target_pids = $eventPids
+          if ($eventPids.Count -gt 0) {
+            try {
+              $taskStartEvents = @(Get-WinEvent -FilterHashtable @{
+                LogName='Microsoft-Windows-TaskScheduler/Operational'
+                Id=129
+                StartTime=(Get-Date).AddDays(-7)
+              } -MaxEvents 4000 -ErrorAction Stop)
+              foreach ($candidatePid in $eventPids) {
+                $pidPattern = '(?<!\d)' + [regex]::Escape([string]$candidatePid) + '(?!\d)'
+                $matches = @($taskStartEvents | Where-Object { [string]$_.Message -match $pidPattern } | Select-Object -First 10)
+                foreach ($event in $matches) {
+                  $message = [string]$event.Message
+                  $message = $message -replace '(?i)(token|secret|password|authorization)(\s*[:=]\s*|\s+)[^\s;]+','$1$2[REDACTED]'
+                  $result.task_scheduler_process_events += @{
+                    matched_process_pid=[int]$candidatePid
+                    time_utc=$event.TimeCreated.ToUniversalTime().ToString('o')
+                    event_id=[int]$event.Id
+                    provider=[string]$event.ProviderName
+                    message=$message.Substring(0,[Math]::Min(700,$message.Length))
+                  }
+                }
+              }
+            } catch {
+              $result.task_scheduler_query_error = $_.Exception.GetType().Name
+            }
+          }
+          $out = Join-Path $env:GITHUB_WORKSPACE 'a6-windows-task-inspection.json'
+          $result | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $out -Encoding UTF8
+          Write-Host "A6_TASK_INSPECTION=PASS"
+          Write-Host "A6_AGENT_PID=$agentPid"
+          Write-Host "A6_RUNNER_IDENTITY=$($identity.Name)"
+          Write-Host "A6_RUNNER_IS_ADMIN=$isAdmin"
+          Write-Host "A6_TARGET_TASK_XML_READ=$($targetTaskDetails.xml_read)"
+          Write-Host "A6_TARGET_TASK_COMMAND=$($targetTaskDetails.command)"
+          Write-Host "A6_TARGET_TASK_USER=$($targetTaskDetails.principal_user)"
+          Write-Host "A6_TARGET_TASK_LOGON=$($targetTaskDetails.logon_type)"
+          Write-Host "A6_TARGET_TASK_RUNLEVEL=$($targetTaskDetails.run_level)"
+          foreach($nic in $nicProperties){Write-Host "A6_NIC_PROPERTY key=$($nic.RegistryKeyword) value=$($nic.RegistryValue) display=$($nic.DisplayValue)"}
+          Write-Host "A6_WATCHDOG_PID=$watchdogPid"
+          Write-Host "A6_TASK_LIST_EXIT=$($result.task_list_exit_code)"
+          Write-Host "A6_TASK_MATCHES=$(@($result.task_list_matches).Count)"
+          Write-Host "A6_WATCHDOG_PARENT_PID=$watchdogParentPid"
+          Write-Host "A6_TASK_SCHEDULER_EVENTS=$(@($result.task_scheduler_process_events).Count)"
+          Write-Host "A6_TASK_INSPECTION_MODE=READ_ONLY"
+          foreach ($task in @($result.task_list_matches)) {
+            Write-Host "A6_TASK_MATCH name=$($task.task_name) status=$($task.status) run_as=$($task.run_as) fields=$($task.raw_fields | ConvertTo-Json -Compress -Depth 4)"
+          }
+          foreach ($task in @($result.task_list_matches)) {
+            Write-Host "A6_TASK_MATCH name=$($task.task_name) status=$($task.status) run_as=$($task.run_as) action=$($task.action)"
+          }
+          foreach ($task in @($result.exact_task_xml)) {
+            Write-Host "A6_TASK_XML name=$($task.task_name) read=$($task.xml_read) command=$($task.command) arguments=$($task.arguments) user=$($task.user) logon=$($task.logon_type) run_level=$($task.run_level)"
+          }
+      - name: Upload read-only task identity evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: a6-windows-task-inspection
+          path: a6-windows-task-inspection.json
+          if-no-files-found: warn
+          retention-days: 14
+# Correlate Node launcher PIDs with Task Scheduler event 129 using read-only queries.

@@ -1,0 +1,153 @@
+name: A6 Cancel Stale Host Qualification
+
+on:
+  push:
+    branches:
+      - fix/a6-durable-recovery-v1
+      - ops/a6-windows-agent-v2-heartbeat-preflight-v1
+    paths:
+      - '.github/workflows/a6-cancel-stale-qualification.yml'
+
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: a6-stale-host-qualification-canceller
+  cancel-in-progress: true
+
+jobs:
+  cancel-stale:
+    name: Cancel superseded A6 physical qualifications
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Cancel only older A6 runs on this branch
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const branch = context.ref.startsWith('refs/heads/') ? context.ref.slice('refs/heads/'.length) : context.ref;
+            const active = new Set(['queued', 'in_progress', 'pending', 'waiting', 'requested']);
+
+            // Legacy fix branch: keep its original stale-run cleanup behavior.
+            if (branch === 'fix/a6-durable-recovery-v1') {
+              const workflowId = 414805848;
+              const targetSha = '63281adffd503fcd041c1d247fda5fd033e9f207';
+              const runs = await github.paginate(github.rest.actions.listWorkflowRuns, {
+                owner,
+                repo,
+                workflow_id: workflowId,
+                branch,
+                per_page: 100,
+              });
+              const stale = runs.filter(run => run.head_sha !== targetSha && active.has(run.status));
+              for (const run of stale) {
+                core.info(`Cancelling superseded A6 run #${run.run_number} sha=${run.head_sha} status=${run.status}`);
+                await github.rest.actions.cancelWorkflowRun({ owner, repo, run_id: run.id });
+              }
+              core.info(`A6_STALE_RUNS_CANCELLED=${stale.length}`);
+            }
+
+            // Ops qualification branch: cancel ONLY the three redundant read-only
+            // captures from the preceding push. The physical qualification run
+            // (43554851395) is deliberately excluded from this allowlist.
+            if (branch === 'ops/a6-windows-agent-v2-heartbeat-preflight-v1') {
+              const readOnlyRunIds = [43554851321, 43554851346, 43554851396];
+              for (const runId of readOnlyRunIds) {
+                const { data: run } = await github.rest.actions.getWorkflowRun({ owner, repo, run_id: runId });
+                if (run.head_branch === branch && run.event === 'push' && active.has(run.status)) {
+                  core.info(`Cancelling redundant read-only diagnostic run #${run.run_number} status=${run.status}`);
+                  await github.rest.actions.cancelWorkflowRun({ owner, repo, run_id: runId });
+                } else {
+                  core.info(`Keeping run #${run.run_number} status=${run.status} branch=${run.head_branch}`);
+                }
+              }
+            }
+
+            // Cancel one stuck checkout only while the physical installer is still pending.
+            // This prevents an interrupted install and never touches an already-running installer.
+            if (branch === 'ops/a6-windows-agent-v2-heartbeat-preflight-v1') {
+              const stuckRunId = 43555345805;
+              const { data: stuckRun } = await github.rest.actions.getWorkflowRun({ owner, repo, run_id: stuckRunId });
+              if (stuckRun.head_branch === branch && stuckRun.event === 'push' && active.has(stuckRun.status)) {
+                const { data: runJobs } = await github.rest.actions.listJobsForWorkflowRun({ owner, repo, run_id: stuckRunId, per_page: 100 });
+                const qualify = runJobs.jobs.find(job => job.name === 'Install exact runtime and qualify 45-minute heartbeat continuity');
+                const checkout = qualify?.steps?.find(step => step.name === 'Checkout exact source');
+                const installer = qualify?.steps?.find(step => step.name === 'Install runtime with backup and watchdog-mediated Node restart');
+                const checkoutAgeMs = checkout?.started_at ? Date.now() - Date.parse(checkout.started_at) : 0;
+                const safeToCancel = qualify?.status === 'in_progress'
+                  && qualify?.runner_name === 'ARIA-WINDOWS'
+                  && checkout?.status === 'in_progress'
+                  && installer?.status === 'pending'
+                  && checkoutAgeMs > 300000;
+                if (safeToCancel) {
+                  core.info(`Cancelling stuck pre-install checkout #${stuckRun.run_number}; checkout_age_ms=${checkoutAgeMs}`);
+                  await github.rest.actions.cancelWorkflowRun({ owner, repo, run_id: stuckRunId });
+                } else {
+                  core.info(`Keeping physical qualification #${stuckRun.run_number}; qualify_status=${qualify?.status}; checkout_status=${checkout?.status}; installer_status=${installer?.status}; checkout_age_ms=${checkoutAgeMs}`);
+                }
+              }
+            }
+
+
+            // Cancel only the bounded read-only capture if its file-tail step stalls.
+            if (branch === 'ops/a6-windows-agent-v2-heartbeat-preflight-v1') {
+              const captureRunId = 43596400455;
+              const { data: captureRun } = await github.rest.actions.getWorkflowRun({ owner, repo, run_id: captureRunId });
+              if (captureRun.head_branch === branch && captureRun.event === 'push' && active.has(captureRun.status)) {
+                const { data: captureJobs } = await github.rest.actions.listJobsForWorkflowRun({ owner, repo, run_id: captureRunId, per_page: 100 });
+                const captureJob = captureJobs.jobs.find(job => job.name === 'Minimal heartbeat and watchdog state (read-only)');
+                const captureStep = captureJob?.steps?.find(step => step.name === 'Capture bounded process and heartbeat state');
+                const captureAgeMs = captureStep?.started_at ? Date.now() - Date.parse(captureStep.started_at) : 0;
+                if (captureJob?.status === 'in_progress' && captureStep?.status === 'in_progress' && captureAgeMs > 180000) {
+                  core.info(`Force-cancelling stalled read-only capture #${captureRun.run_number}; capture_age_ms=${captureAgeMs}`);
+                  await github.rest.actions.cancelWorkflowRun({ owner, repo, run_id: captureRunId });
+                  await github.request('POST /repos/{owner}/{repo}/actions/runs/{run_id}/force-cancel', { owner, repo, run_id: captureRunId });
+                } else {
+                  core.info(`Keeping read-only capture #${captureRun.run_number}; capture_step_status=${captureStep?.status}; capture_age_ms=${captureAgeMs}`);
+                }
+              }
+            }
+
+            // Cancel only the timed-out read-only watchdog capture (never an install/qualification).
+            if (branch === 'ops/a6-windows-agent-v2-heartbeat-preflight-v1') {
+              const readOnlyRunId = 43556653509;
+              const { data: readOnlyRun } = await github.rest.actions.getWorkflowRun({ owner, repo, run_id: readOnlyRunId });
+              if (readOnlyRun.head_branch === branch && readOnlyRun.event === 'push' && active.has(readOnlyRun.status)) {
+                const { data: readOnlyJobs } = await github.rest.actions.listJobsForWorkflowRun({ owner, repo, run_id: readOnlyRunId, per_page: 100 });
+                const diagnosticJob = readOnlyJobs.jobs.find(job => job.name === 'Inspect heartbeat writers without touching runtime');
+                const diagnosticStep = diagnosticJob?.steps?.find(step => step.name === 'Bounded process, task and heartbeat inspection (read-only)');
+                const diagnosticAgeMs = diagnosticStep?.started_at ? Date.now() - Date.parse(diagnosticStep.started_at) : 0;
+                const safeReadOnlyCancel = diagnosticJob?.status === 'in_progress'
+                  && diagnosticStep?.status === 'in_progress'
+                  && diagnosticAgeMs > 360000;
+                if (safeReadOnlyCancel) {
+                  core.info(`Cancelling stuck read-only watchdog capture #${readOnlyRun.run_number}; step_age_ms=${diagnosticAgeMs}`);
+                  await github.rest.actions.cancelWorkflowRun({ owner, repo, run_id: readOnlyRunId });
+                } else {
+                  core.info(`Keeping read-only capture #${readOnlyRun.run_number}; job_status=${diagnosticJob?.status}; step_status=${diagnosticStep?.status}; step_age_ms=${diagnosticAgeMs}`);
+                }
+              }
+            }
+
+            // Retire only the minimal read-only capture if the self-hosted runner
+            // never begins its first step. It cannot cancel a physical qualification.
+            if (branch === 'ops/a6-windows-agent-v2-heartbeat-preflight-v1') {
+              const minimalRunId = 43595576511;
+              const { data: minimalRun } = await github.rest.actions.getWorkflowRun({ owner, repo, run_id: minimalRunId });
+              if (minimalRun.head_branch === branch && minimalRun.event === 'push' && active.has(minimalRun.status)) {
+                const { data: minimalJobs } = await github.rest.actions.listJobsForWorkflowRun({ owner, repo, run_id: minimalRunId, per_page: 100 });
+                const minimalJob = minimalJobs.jobs.find(job => job.name === 'Minimal heartbeat and watchdog state (read-only)');
+                const noStepStarted = minimalJob?.status === 'in_progress' && (minimalJob?.steps?.length ?? 0) === 0;
+                const setupAgeMs = minimalJob?.started_at ? Date.now() - Date.parse(minimalJob.started_at) : 0;
+                if (noStepStarted && setupAgeMs > 240000) {
+                  core.info(`Cancelling only stalled minimal read-only capture #${minimalRun.run_number}; setup_age_ms=${setupAgeMs}`);
+                  await github.rest.actions.cancelWorkflowRun({ owner, repo, run_id: minimalRunId });
+                  await github.request('POST /repos/{owner}/{repo}/actions/runs/{run_id}/force-cancel', { owner, repo, run_id: minimalRunId });
+                } else {
+                  core.info(`Keeping minimal read-only capture #${minimalRun.run_number}; no_step_started=${noStepStarted}; setup_age_ms=${setupAgeMs}`);
+                }
+              }
+            }

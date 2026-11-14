@@ -1,3 +1,4 @@
+// A6 host qualification retrigger marker: isolated sparse workspace; no runtime behavior change.
 // Canonical deploy trigger: mission recovery policy v8 / Android-aware fallback routing.
 // Human Gate post-hardening regression trigger: keep the LIVE E2E battery attached to this canonical runner.
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
@@ -3282,7 +3283,7 @@ Deno.serve(async (request) => {
     if (requestedMissionId && body?.action !== "human_gate_decide") {
       try {
         const { data: a4Mission, error: a4MissionError } = await sb.schema("aria_internal")
-          .from("mission_state").select("mission_id,goal,status,checkpoint,metadata").eq("mission_id", requestedMissionId).maybeSingle();
+          .from("mission_state").select("mission_id,goal,status,checkpoint,metadata,current_step,completed_steps,total_steps").eq("mission_id", requestedMissionId).maybeSingle();
         const scopeId = String(a4Mission?.metadata?.mission_wonder_2_a4_scope_id || "");
         if (!a4MissionError && scopeId) {
           const { data: scope, error: scopeError } = await sb.schema("aria_internal").from("mission_wonder_2_a4_scopes")
@@ -3338,7 +3339,7 @@ Deno.serve(async (request) => {
             projectId: a6Mission.metadata?.project_id ?? null,
             requiredStatuses: ["bound"],
           });
-          const planValid = m22A6MissionPlanMatchesV1({
+          const planValid = await m22A6MissionPlanMatchesV1({
             mission: a6Mission,
             runId,
             ordinal: Number(scope?.ordinal),

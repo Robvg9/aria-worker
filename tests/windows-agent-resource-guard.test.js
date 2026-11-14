@@ -35,6 +35,9 @@ test('installer no longer hard-codes the legacy Windows identity', () => {
   assert.match(installer, /ARIA_DEVICE_ID is required/);
   assert.doesNotMatch(installer, /windows-fe722cc6681e4f9c9cc35f5ebbb0a089/);
   assert.match(installer, /ollama_enabled\s*=\s*\$localLlmEligible/);
+  assert.match(installer, /\$env:ARIA_ALLOW_LOCAL_LLM\s+-eq\s+'true'/);
+  assert.match(installer, /\$env:COMPUTERNAME\s+-ine\s+'ROBVG'/);
+  assert.match(installer, /\$localLlmEligible\s*=\s*\(\$hostAllowsLocalLlm\s+-and\s+\$localLlmOptIn/);
   assert.match(installer, /resource-profile\.js/);
   const agent = fs.readFileSync(require.resolve('../agents/windows/aria-agent.js'), 'utf8');
   const autonomous = fs.readFileSync(require.resolve('../agents/windows/autonomous-rwht-controller.js'), 'utf8');
