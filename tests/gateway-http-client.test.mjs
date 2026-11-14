@@ -57,20 +57,38 @@ try {
   const ok = await request(base + '/ok');
   assert.equal(ok.status, 200);
   assert.equal(JSON.parse(ok.text).ok, true);
+  assert.equal(ok.diagnostics.phase, 'complete');
+  assert.equal(Number.isFinite(ok.diagnostics.elapsed_ms), true);
+  assert.ok(Array.isArray(ok.diagnostics.phase_history));
 
   await assert.rejects(
     () => rejectsWithoutHanging(request(base + '/truncated'), 'truncated_response'),
-    error => ['gateway_response_aborted', 'gateway_response_incomplete', 'ECONNRESET'].includes(error.code)
+    error => ['gateway_response_aborted', 'gateway_response_incomplete', 'ECONNRESET'].includes(error.code) && error.phase === 'response_body' && Number.isFinite(error.elapsed_ms)
   );
 
   await assert.rejects(
     () => rejectsWithoutHanging(request(base + '/slow', { timeoutMs: 1_000 }), 'hard_deadline'),
-    error => error.code === 'gateway_timeout'
+    error => error.code === 'gateway_timeout' && error.phase === 'response_body' && ['hard_deadline', 'socket_inactivity'].includes(error.timeout_kind) && Number.isFinite(error.elapsed_ms)
+  );
+
+  const dnsFailureRequest = createGatewayRequest({
+    https: http,
+    lookup: (_hostname, _options, callback) => {
+      const error = new Error('simulated DNS failure');
+      error.code = 'EAI_AGAIN';
+      callback(error);
+    },
+    defaultTimeoutMs: 1_000
+  });
+  await assert.rejects(
+    () => rejectsWithoutHanging(dnsFailureRequest('http://gateway.invalid/ok'), 'dns_failure'),
+    error => error.code === 'EAI_AGAIN' && error.phase === 'dns_lookup_failed' && Number.isFinite(error.elapsed_ms)
   );
 
   console.log('A6_GATEWAY_HTTP_COMPLETE_RESPONSE=PASS');
   console.log('A6_GATEWAY_HTTP_TRUNCATED_RESPONSE_REJECTED=PASS');
   console.log('A6_GATEWAY_HTTP_HARD_DEADLINE=PASS');
+  console.log('A6_GATEWAY_HTTP_DNS_PHASE_DIAGNOSTIC=PASS');
 } finally {
   await new Promise(resolve => server.close(() => resolve()));
 }
