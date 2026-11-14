@@ -34,8 +34,17 @@ jobs:
           New-Item -ItemType Directory -Path $root -Force | Out-Null
 
           try {
-            Invoke-WebRequest -Uri $downloadUrl -OutFile $zipPath -TimeoutSec 90 -UseBasicParsing
+            $response = Invoke-WebRequest -Uri $downloadUrl -OutFile $zipPath -TimeoutSec 90 -UseBasicParsing -PassThru
             $file = Get-Item -LiteralPath $zipPath
+            $header = [System.IO.File]::ReadAllBytes($zipPath)
+            $isZip = $header.Length -ge 4 -and $header[0] -eq 0x50 -and $header[1] -eq 0x4B
+            if (-not $isZip) {
+              $bytes = [System.IO.File]::ReadAllBytes($zipPath)
+              $preview = [System.Text.Encoding]::UTF8.GetString($bytes,0,[Math]::Min(1500,$bytes.Length))
+              Write-Output "A6_DOWNLOAD_DIAGNOSTIC bytes=$($file.Length) content_type=$($response.Headers['Content-Type']) final_uri=$($response.BaseResponse.ResponseUri.AbsoluteUri)"
+              Write-Output ("A6_DOWNLOAD_BODY_PREVIEW=" + ($preview -replace '[\r\n]+',' ' -replace '\s{2,}',' '))
+              throw 'A6_REALTEK_DOWNLOAD_DID_NOT_RETURN_ZIP'
+            }
             if ($file.Length -lt 100000 -or $file.Length -gt 25000000) {
               throw "A6_PACKAGE_SIZE_UNEXPECTED bytes=$($file.Length)"
             }
