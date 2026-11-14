@@ -30,6 +30,8 @@ jobs:
 
           $started = [DateTimeOffset]::UtcNow
           $operatingSystem = Get-CimInstance Win32_OperatingSystem -ErrorAction Stop | Select-Object Caption,Version,BuildNumber,OSArchitecture
+          $computerSystem = Get-CimInstance Win32_ComputerSystem -ErrorAction Stop | Select-Object Manufacturer,Model,SystemSKUNumber
+          $bios = Get-CimInstance Win32_BIOS -ErrorAction Stop | Select-Object SMBIOSBIOSVersion,ReleaseDate
           $allAdapters = @(Get-NetAdapter -IncludeHidden -ErrorAction Stop)
           $nic = $allAdapters |
             Where-Object { $_.InterfaceDescription -match '^Realtek PCIe FE Family Controller$' } |
@@ -129,6 +131,8 @@ jobs:
             host = [string]$env:COMPUTERNAME
             captured_at_utc = [DateTimeOffset]::UtcNow.ToString('o')
             operating_system = $operatingSystem
+            computer_system = $computerSystem
+            bios = $bios
             duration_seconds = [math]::Round(([DateTimeOffset]::UtcNow - $started).TotalSeconds,1)
             ethernet_adapter = $nic | Select-Object Name,InterfaceDescription,Status,LinkSpeed,MediaConnectionState,InterfaceIndex,DriverInformation
             ethernet_statistics = $statistics
