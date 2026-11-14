@@ -111,3 +111,22 @@ jobs:
                 }
               }
             }
+
+            // Retire only the minimal read-only capture if the self-hosted runner
+            // never begins its first step. It cannot cancel a physical qualification.
+            if (branch === 'ops/a6-windows-agent-v2-heartbeat-preflight-v1') {
+              const minimalRunId = 43595576511;
+              const { data: minimalRun } = await github.rest.actions.getWorkflowRun({ owner, repo, run_id: minimalRunId });
+              if (minimalRun.head_branch === branch && minimalRun.event === 'push' && active.has(minimalRun.status)) {
+                const { data: minimalJobs } = await github.rest.actions.listJobsForWorkflowRun({ owner, repo, run_id: minimalRunId, per_page: 100 });
+                const minimalJob = minimalJobs.jobs.find(job => job.name === 'Minimal heartbeat and watchdog state (read-only)');
+                const noStepStarted = minimalJob?.status === 'in_progress' && (minimalJob?.steps?.length ?? 0) === 0;
+                const setupAgeMs = minimalJob?.started_at ? Date.now() - Date.parse(minimalJob.started_at) : 0;
+                if (noStepStarted && setupAgeMs > 240000) {
+                  core.info(`Cancelling only stalled minimal read-only capture #${minimalRun.run_number}; setup_age_ms=${setupAgeMs}`);
+                  await github.rest.actions.cancelWorkflowRun({ owner, repo, run_id: minimalRunId });
+                } else {
+                  core.info(`Keeping minimal read-only capture #${minimalRun.run_number}; no_step_started=${noStepStarted}; setup_age_ms=${setupAgeMs}`);
+                }
+              }
+            }
