@@ -114,6 +114,7 @@ function sleep(ms){return new Promise(resolve=>setTimeout(resolve,ms))}
 let gatewayHeartbeatInFlight=false;
 let lastGatewayHeartbeatAt=null;
 let lastGatewayHeartbeatError=null;
+let lastGatewayHeartbeatTransport=null;
 let heartbeatSequence=0;
 const processStartedAt=new Date(Date.now()-process.uptime()*1000).toISOString();
 const processStartId=crypto.randomUUID();
@@ -160,7 +161,8 @@ async function touchProcessHeartbeat(network='unknown'){
     gateway_dns_fallback_version:'supabase-scoped-public-fallback-v1',
     event_loop_delay:eventLoopDelaySnapshot(),
     last_gateway_heartbeat_at:lastGatewayHeartbeatAt,
-    last_gateway_heartbeat_error:lastGatewayHeartbeatError
+    last_gateway_heartbeat_error:lastGatewayHeartbeatError,
+    last_gateway_heartbeat_transport:lastGatewayHeartbeatTransport
   });
   // Local persistence is part of liveness: never acknowledge a remote heartbeat
   // while the canonical Windows heartbeat snapshot is still blocked in the FS queue.
@@ -177,6 +179,8 @@ const nativeGatewayRequest=createGatewayRequest({
 });
 async function api(p,options={}){
   let lastError=null;
+  const heartbeatRequest=p==='/v1/devices/heartbeat';
+  const failedHeartbeatAttempts=[];
   const requestId=crypto.randomUUID();
   for(let attempt=0;attempt<=GATEWAY_RETRIES;attempt++){
     try{
@@ -188,18 +192,54 @@ async function api(p,options={}){
       let body=null;
       try{body=response.text?JSON.parse(response.text):null}catch{body={raw:response.text}}
       if(response.status>=200&&response.status<300){
+        if(heartbeatRequest){
+          lastGatewayHeartbeatTransport={
+            at:new Date().toISOString(),outcome:'success',attempts:attempt+1,
+            phase:response.diagnostics?.phase||'complete',
+            elapsed_ms:Number.isFinite(response.diagnostics?.elapsed_ms)?response.diagnostics.elapsed_ms:null,
+            socket_reused:typeof response.diagnostics?.socket_reused==='boolean'?response.diagnostics.socket_reused:null,
+            phase_history:Array.isArray(response.diagnostics?.phase_history)?response.diagnostics.phase_history.slice(-8):[],
+            recovered_after_retry:failedHeartbeatAttempts.length>0,
+            failed_attempts:failedHeartbeatAttempts.slice(-2)
+          };
+        }
         log(`GATEWAY_REQUEST_ACK id=${requestId} path=${p} status=${response.status}`);
         return body;
       }
       const error=new Error(`gateway ${response.status}: ${body?.error||'request failed'}`);
       error.status=response.status;
+      error.phase='http_response';
+      error.elapsed_ms=Number.isFinite(response.diagnostics?.elapsed_ms)?response.diagnostics.elapsed_ms:null;
+      error.socket_reused=typeof response.diagnostics?.socket_reused==='boolean'?response.diagnostics.socket_reused:null;
+      error.timeout_kind=null;
       lastError=error;
       const retryable=response.status===408||response.status===429||response.status>=500;
+      if(heartbeatRequest&&retryable&&attempt<GATEWAY_RETRIES){
+        failedHeartbeatAttempts.push({attempt:attempt+1,code:'http_'+response.status,phase:'http_response',elapsed_ms:error.elapsed_ms,socket_reused:error.socket_reused,timeout_kind:null,status:response.status});
+      }
       log(`GATEWAY_REQUEST_ERROR id=${requestId} path=${p} status=${response.status} retryable=${retryable}`);
       if(!retryable||attempt>=GATEWAY_RETRIES)throw error;
     }catch(error){
       lastError=error;
-      log(`GATEWAY_REQUEST_ERROR id=${requestId} path=${p} code=${error.code||'unknown'} attempt=${attempt+1}`);
+      if(heartbeatRequest){
+        const failedAttempt={
+          attempt:attempt+1,
+          code:typeof error?.code==='string'?error.code:'unknown',
+          phase:typeof error?.phase==='string'?error.phase:'unknown',
+          elapsed_ms:Number.isFinite(error?.elapsed_ms)?error.elapsed_ms:null,
+          socket_reused:typeof error?.socket_reused==='boolean'?error.socket_reused:null,
+          timeout_kind:typeof error?.timeout_kind==='string'?error.timeout_kind:null,
+          status:Number.isInteger(error?.status)?error.status:null
+        };
+        failedHeartbeatAttempts.push(failedAttempt);
+        lastGatewayHeartbeatTransport={
+          at:new Date().toISOString(),outcome:attempt>=GATEWAY_RETRIES?'failure':'retrying',
+          attempts:attempt+1,phase:failedAttempt.phase,elapsed_ms:failedAttempt.elapsed_ms,
+          socket_reused:failedAttempt.socket_reused,timeout_kind:failedAttempt.timeout_kind,
+          failed_attempts:failedHeartbeatAttempts.slice(-2)
+        };
+      }
+      log(`GATEWAY_REQUEST_ERROR id=${requestId} path=${p} code=${error.code||'unknown'} phase=${error.phase||'unknown'} attempt=${attempt+1}`);
       if(attempt>=GATEWAY_RETRIES)throw error;
     }
     await sleep(Math.min(5000,750*Math.pow(2,attempt))+Math.floor(Math.random()*500));
@@ -277,7 +317,7 @@ async function heartbeat(){
     try{
       await api('/v1/devices/heartbeat',{method:'POST',body:JSON.stringify({device_id:DEVICE_ID,agent_type:'windows-local',capabilities})});
     }catch(error){
-      lastGatewayHeartbeatError={at:new Date().toISOString(),status:Number.isInteger(error?.status)?error.status:null,code:typeof error?.code==='string'?error.code:null,message:String(error?.message||error).slice(0,180)};
+      lastGatewayHeartbeatError={at:new Date().toISOString(),status:Number.isInteger(error?.status)?error.status:null,code:typeof error?.code==='string'?error.code:null,phase:typeof error?.phase==='string'?error.phase:null,elapsed_ms:Number.isFinite(error?.elapsed_ms)?error.elapsed_ms:null,socket_reused:typeof error?.socket_reused==='boolean'?error.socket_reused:null,timeout_kind:typeof error?.timeout_kind==='string'?error.timeout_kind:null,message:String(error?.message||error).slice(0,180)};
       try{await touchProcessHeartbeat('transport_error')}
       catch(fileError){console.error(`[heartbeat-file] ${fileError.message}`)}
       console.error(`[heartbeat] ${error.message}`);
