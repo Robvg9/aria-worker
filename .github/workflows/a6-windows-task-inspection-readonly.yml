@@ -231,23 +231,86 @@ jobs:
           }
           $result.watchdog_parent_pid = $watchdogParentPid
           $result.task_scheduler_process_events = @()
-          if ($watchdogPid) {
+          $nodeLaunchers = [System.Collections.Generic.List[object]]::new()
+          foreach ($nodeProcess in @($all | Where-Object { $_.Name -ieq 'node.exe' })) {
+            $cursorPid = [int]$nodeProcess.ParentProcessId
+            for ($depth=0; $depth -lt 6 -and $cursorPid -gt 0; $depth++) {
+              $ancestor = $byId[$cursorPid]
+              if (-not $ancestor) { break }
+              if ([string]$ancestor.Name -match '^(powershell|pwsh)\.exe
+          $out = Join-Path $env:GITHUB_WORKSPACE 'a6-windows-task-inspection.json'
+          $result | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $out -Encoding UTF8
+          Write-Host "A6_TASK_INSPECTION=PASS"
+          Write-Host "A6_AGENT_PID=$agentPid"
+          Write-Host "A6_RUNNER_IDENTITY=$($identity.Name)"
+          Write-Host "A6_RUNNER_IS_ADMIN=$isAdmin"
+          Write-Host "A6_TARGET_TASK_XML_READ=$($targetTaskDetails.xml_read)"
+          Write-Host "A6_TARGET_TASK_COMMAND=$($targetTaskDetails.command)"
+          Write-Host "A6_TARGET_TASK_USER=$($targetTaskDetails.principal_user)"
+          Write-Host "A6_TARGET_TASK_LOGON=$($targetTaskDetails.logon_type)"
+          Write-Host "A6_TARGET_TASK_RUNLEVEL=$($targetTaskDetails.run_level)"
+          foreach($nic in $nicProperties){Write-Host "A6_NIC_PROPERTY key=$($nic.RegistryKeyword) value=$($nic.RegistryValue) display=$($nic.DisplayValue)"}
+          Write-Host "A6_WATCHDOG_PID=$watchdogPid"
+          Write-Host "A6_TASK_LIST_EXIT=$($result.task_list_exit_code)"
+          Write-Host "A6_TASK_MATCHES=$(@($result.task_list_matches).Count)"
+          Write-Host "A6_WATCHDOG_PARENT_PID=$watchdogParentPid"
+          Write-Host "A6_TASK_SCHEDULER_EVENTS=$(@($result.task_scheduler_process_events).Count)"
+          Write-Host "A6_TASK_INSPECTION_MODE=READ_ONLY"
+          foreach ($task in @($result.task_list_matches)) {
+            Write-Host "A6_TASK_MATCH name=$($task.task_name) status=$($task.status) run_as=$($task.run_as) fields=$($task.raw_fields | ConvertTo-Json -Compress -Depth 4)"
+          }
+          foreach ($task in @($result.task_list_matches)) {
+            Write-Host "A6_TASK_MATCH name=$($task.task_name) status=$($task.status) run_as=$($task.run_as) action=$($task.action)"
+          }
+          foreach ($task in @($result.exact_task_xml)) {
+            Write-Host "A6_TASK_XML name=$($task.task_name) read=$($task.xml_read) command=$($task.command) arguments=$($task.arguments) user=$($task.user) logon=$($task.logon_type) run_level=$($task.run_level)"
+          }
+      - name: Upload read-only task identity evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: a6-windows-task-inspection
+          path: a6-windows-task-inspection.json
+          if-no-files-found: warn
+          retention-days: 14
+# Read-only forensic rerun: retrigger task/PID attribution without changing host runtime.
+) {
+                $nodeLaunchers.Add([pscustomobject]@{
+                  node_pid=[int]$nodeProcess.ProcessId
+                  node_parent_pid=[int]$nodeProcess.ParentProcessId
+                  task_launcher_pid=[int]$ancestor.ProcessId
+                  launcher_name=[string]$ancestor.Name
+                })
+                break
+              }
+              $cursorPid = [int]$ancestor.ParentProcessId
+            }
+          }
+          $result.node_process_launch_ancestry = @($nodeLaunchers.ToArray())
+          $eventPids = @(@($nodeLaunchers | ForEach-Object { $_.task_launcher_pid }) + @($watchdogPid,$watchdogParentPid) |
+            Where-Object { $_ -is [int] -and $_ -gt 0 } | Sort-Object -Unique)
+          $result.task_scheduler_event_target_pids = $eventPids
+          if ($eventPids.Count -gt 0) {
             try {
-              $pidPattern = '(?<!\d)' + [regex]::Escape([string]$watchdogPid) + '(?!\d)'
-              $recentEvents = @(Get-WinEvent -FilterHashtable @{
+              # Filter at the Windows event provider before reading events; correlate only the PowerShell ancestors that launched Node.
+              $taskStartEvents = @(Get-WinEvent -FilterHashtable @{
                 LogName='Microsoft-Windows-TaskScheduler/Operational'
-                StartTime=(Get-Date).AddDays(-3)
-              } -MaxEvents 5000 -ErrorAction Stop |
-                Where-Object { $_.Id -eq 129 -and $_.Message -match $pidPattern } |
-                Select-Object -First 20)
-              foreach ($event in $recentEvents) {
-                $message = [string]$event.Message
-                $message = $message -replace '(?i)(token|secret|password|authorization)(\s*[:=]\s*|\s+)[^\s;]+','$1$2[REDACTED]'
-                $result.task_scheduler_process_events += @{
-                  time_utc=$event.TimeCreated.ToUniversalTime().ToString('o')
-                  event_id=[int]$event.Id
-                  provider=[string]$event.ProviderName
-                  message=$message.Substring(0,[Math]::Min(700,$message.Length))
+                Id=129
+                StartTime=(Get-Date).AddDays(-7)
+              } -MaxEvents 4000 -ErrorAction Stop)
+              foreach ($candidatePid in $eventPids) {
+                $pidPattern = '(?<!\d)' + [regex]::Escape([string]$candidatePid) + '(?!\d)'
+                $matches = @($taskStartEvents | Where-Object { [string]$_.Message -match $pidPattern } | Select-Object -First 10)
+                foreach ($event in $matches) {
+                  $message = [string]$event.Message
+                  $message = $message -replace '(?i)(token|secret|password|authorization)(\s*[:=]\s*|\s+)[^\s;]+','$1$2[REDACTED]'
+                  $result.task_scheduler_process_events += @{
+                    matched_process_pid=[int]$candidatePid
+                    time_utc=$event.TimeCreated.ToUniversalTime().ToString('o')
+                    event_id=[int]$event.Id
+                    provider=[string]$event.ProviderName
+                    message=$message.Substring(0,[Math]::Min(700,$message.Length))
+                  }
                 }
               }
             } catch {
@@ -290,3 +353,4 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 # Read-only forensic rerun: retrigger task/PID attribution without changing host runtime.
+# Correlate all Node-to-PowerShell launcher PIDs against TaskScheduler event 129; bounded read-only query.
