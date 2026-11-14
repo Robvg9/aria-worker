@@ -301,6 +301,19 @@ jobs:
                     has_gateway_error = ($null -ne $sampleHb.last_gateway_heartbeat_error)
                     gateway_error_status = if ($sampleHb.last_gateway_heartbeat_error) { $sampleHb.last_gateway_heartbeat_error.status } else { $null }
                     gateway_error_code = if ($sampleHb.last_gateway_heartbeat_error) { [string]$sampleHb.last_gateway_heartbeat_error.code } else { $null }
+                    gateway_error_phase = if ($sampleHb.last_gateway_heartbeat_error) { [string]$sampleHb.last_gateway_heartbeat_error.phase } else { $null }
+                    gateway_error_elapsed_ms = if ($sampleHb.last_gateway_heartbeat_error) { $sampleHb.last_gateway_heartbeat_error.elapsed_ms } else { $null }
+                    gateway_error_socket_reused = if ($sampleHb.last_gateway_heartbeat_error) { $sampleHb.last_gateway_heartbeat_error.socket_reused } else { $null }
+                    gateway_error_timeout_kind = if ($sampleHb.last_gateway_heartbeat_error) { [string]$sampleHb.last_gateway_heartbeat_error.timeout_kind } else { $null }
+                    gateway_transport_outcome = if ($sampleHb.last_gateway_heartbeat_transport) { [string]$sampleHb.last_gateway_heartbeat_transport.outcome } else { $null }
+                    gateway_transport_phase = if ($sampleHb.last_gateway_heartbeat_transport) { [string]$sampleHb.last_gateway_heartbeat_transport.phase } else { $null }
+                    gateway_transport_elapsed_ms = if ($sampleHb.last_gateway_heartbeat_transport) { $sampleHb.last_gateway_heartbeat_transport.elapsed_ms } else { $null }
+                    gateway_transport_socket_reused = if ($sampleHb.last_gateway_heartbeat_transport) { $sampleHb.last_gateway_heartbeat_transport.socket_reused } else { $null }
+                    gateway_transport_timeout_kind = if ($sampleHb.last_gateway_heartbeat_transport) { [string]$sampleHb.last_gateway_heartbeat_transport.timeout_kind } else { $null }
+                    gateway_transport_attempts = if ($sampleHb.last_gateway_heartbeat_transport) { $sampleHb.last_gateway_heartbeat_transport.attempts } else { $null }
+                    gateway_transport_recovered_after_retry = if ($sampleHb.last_gateway_heartbeat_transport) { $sampleHb.last_gateway_heartbeat_transport.recovered_after_retry } else { $null }
+                    gateway_transport_failed_attempts = if ($sampleHb.last_gateway_heartbeat_transport) { @($sampleHb.last_gateway_heartbeat_transport.failed_attempts | ForEach-Object { [ordered]@{ attempt=$_.attempt; code=$_.code; phase=$_.phase; elapsed_ms=$_.elapsed_ms; socket_reused=$_.socket_reused; timeout_kind=$_.timeout_kind; status=$_.status } }) } else { @() }
+                    event_loop_delay_max_ms = if ($sampleHb.event_loop_delay) { $sampleHb.event_loop_delay.max_ms } else { $null }
                     file_last_write_utc = $sampleFile.LastWriteTimeUtc.ToString('o')
                     file_sha256 = $sampleHash
                   })
@@ -350,6 +363,11 @@ jobs:
               gateway_error_count = @($sampleRows | Where-Object { $_.has_gateway_error -eq $true }).Count
               gateway_error_statuses = @($sampleRows | Where-Object { $null -ne $_.gateway_error_status } | ForEach-Object { [string]$_.gateway_error_status } | Sort-Object -Unique)
               gateway_error_codes = @($sampleRows | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_.gateway_error_code) } | ForEach-Object { [string]$_.gateway_error_code } | Sort-Object -Unique)
+              gateway_error_phases = @($sampleRows | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_.gateway_error_phase) } | ForEach-Object { [string]$_.gateway_error_phase } | Sort-Object -Unique)
+              gateway_error_timeout_kinds = @($sampleRows | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_.gateway_error_timeout_kind) } | ForEach-Object { [string]$_.gateway_error_timeout_kind } | Sort-Object -Unique)
+              gateway_transport_phases = @($sampleRows | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_.gateway_transport_phase) } | ForEach-Object { [string]$_.gateway_transport_phase } | Sort-Object -Unique)
+              max_event_loop_delay_ms = if(@($sampleRows | Where-Object { $null -ne $_.event_loop_delay_max_ms }).Count){[double]((@($sampleRows | Where-Object { $null -ne $_.event_loop_delay_max_ms } | ForEach-Object { [double]$_.event_loop_delay_max_ms }) | Measure-Object -Maximum).Maximum)}else{$null}
+              socket_reused_transport_sample_count = @($sampleRows | Where-Object { $_.gateway_transport_socket_reused -eq $true }).Count
               device_id_mismatch_count = @($sampleRows | Where-Object { $_.device_id -ne $expectedDevice }).Count
               schema_mismatch_count = @($sampleRows | Where-Object { $_.schema_version -ne 'aria-windows-agent-heartbeat-v2' }).Count
               scheduler_mismatch_count = @($sampleRows | Where-Object { $_.heartbeat_scheduler_version -ne 'serial-retry-v1' }).Count
