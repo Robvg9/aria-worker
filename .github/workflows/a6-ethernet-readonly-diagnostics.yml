@@ -153,6 +153,31 @@ jobs:
             $batteryReadError = $_.Exception.GetType().Name
           }
 
+          $batteryWmi = [ordered]@{
+            battery_status = @()
+            battery_static_data = @()
+            full_charged_capacity = @()
+            read_errors = @()
+          }
+          foreach ($entry in @(
+            @{ Class='BatteryStatus'; Key='battery_status'; Fields=@('PowerOnline','Charging','Discharging','Voltage','Current','DischargeRate','ChargeRate','Critical','Tag') },
+            @{ Class='BatteryStaticData'; Key='battery_static_data'; Fields=@('DesignedCapacity','DeviceName','Chemistry','DesignedVoltage','CycleCount','ManufactureDate','Tag') },
+            @{ Class='BatteryFullChargedCapacity'; Key='full_charged_capacity'; Fields=@('FullChargedCapacity','Tag') }
+          )) {
+            try {
+              $instances = @(Get-CimInstance -Namespace 'root/wmi' -ClassName $entry.Class -ErrorAction Stop)
+              $batteryWmi[$entry.Key] = @($instances | ForEach-Object {
+                $row = [ordered]@{}
+                foreach ($field in $entry.Fields) {
+                  if ($_.PSObject.Properties.Name -contains $field) { $row[$field] = $_.$field }
+                }
+                [pscustomobject]$row
+              })
+            } catch {
+              $batteryWmi.read_errors += [pscustomobject]@{ class=$entry.Class; error=$_.Exception.GetType().Name }
+            }
+          }
+
           $correlatedLinkEvents = @()
           $correlationError = $null
           try {
@@ -286,6 +311,7 @@ jobs:
             kernel_power_source_events_105 = @($powerSourceEvents)
             kernel_power_source_read_error = $powerSourceError
             current_battery_state = @($batteryState)
+            battery_wmi_read_only = $batteryWmi
             battery_read_error = $batteryReadError
             correlated_non_realtek_events_around_rt640x64 = @($correlatedLinkEvents)
             event_correlation_read_error = $correlationError
