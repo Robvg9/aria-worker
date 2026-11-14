@@ -21,7 +21,7 @@ jobs:
     timeout-minutes: 8
     steps:
       - name: Capture Wi-Fi state only (no network changes)
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         run: |
           $ErrorActionPreference = 'Stop'
           if ([string]$env:COMPUTERNAME -ine 'ROBVG') {
