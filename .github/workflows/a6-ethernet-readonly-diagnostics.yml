@@ -118,6 +118,48 @@ jobs:
             $eventsError = $_.Exception.GetType().Name
           }
 
+          $correlatedLinkEvents = @()
+          $correlationError = $null
+          try {
+            $realtekEvents = @($systemEvents | Where-Object { $_.ProviderName -match 'rt640x64' -and $_.Id -eq 1 } | Select-Object -First 30)
+            foreach ($rtEvent in $realtekEvents) {
+              $nearby = @($systemEvents |
+                Where-Object {
+                  $_.ProviderName -notmatch 'rt640x64' -and
+                  [math]::Abs(($_.TimeCreated - $rtEvent.TimeCreated).TotalSeconds) -le 15
+                } |
+                Select-Object -First 8 |
+                ForEach-Object {
+                  $nearMessage = [string]$_.Message
+                  $nearMessage = [regex]::Replace($nearMessage,'(?i)\b(?:[0-9a-f]{2}-){5}[0-9a-f]{2}\b','[MAC]')
+                  $nearMessage = [regex]::Replace($nearMessage,'\b(?:\d{1,3}\.){3}\d{1,3}\b','[IP]')
+                  if ($nearMessage.Length -gt 220) { $nearMessage = $nearMessage.Substring(0,220) }
+                  [ordered]@{
+                    time_utc = $_.TimeCreated.ToUniversalTime().ToString('o')
+                    provider = $_.ProviderName
+                    event_id = $_.Id
+                    level = $_.LevelDisplayName
+                    message = $nearMessage
+                  }
+                })
+              $correlatedLinkEvents += [pscustomobject]@{
+                realtek_event_time_utc = $rtEvent.TimeCreated.ToUniversalTime().ToString('o')
+                nearby_non_realtek_events = $nearby
+              }
+            }
+          } catch {
+            $correlationError = $_.Exception.GetType().Name
+          }
+
+          $ndisLogs = @()
+          $ndisLogError = $null
+          try {
+            $ndisLogs = @(Get-WinEvent -ListLog '*NDIS*' -ErrorAction SilentlyContinue |
+              Select-Object LogName,IsEnabled,RecordCount)
+          } catch {
+            $ndisLogError = $_.Exception.GetType().Name
+          }
+
           $wheaEvents = @()
           $wheaError = $null
           try {
@@ -206,6 +248,10 @@ jobs:
             network_profiles = @($connectionProfiles)
             gateway_http_metadata = $gatewayProbe
             recent_link_and_network_events_48h = @($events)
+            correlated_non_realtek_events_around_rt640x64 = @($correlatedLinkEvents)
+            event_correlation_read_error = $correlationError
+            ndis_operational_logs = @($ndisLogs)
+            ndis_log_read_error = $ndisLogError
             whea_corrected_pcie_event17_last_7d = @($wheaEvents)
             whea_read_error = $wheaError
             event_log_read_error = $eventsError
