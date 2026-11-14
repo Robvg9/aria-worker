@@ -88,6 +88,32 @@ jobs:
             } catch { $tail = @("WATCHDOG_LOG_READ_FAILED:" + $_.Exception.GetType().Name) }
           }
           Write-Host "A6_STAGE=watchdog_log_tail_bounded"
+          $watchdogScriptPath = Join-Path $root 'Runtime\windows\run-agent.ps1'
+          $watchdogScriptExists = Test-Path -LiteralPath $watchdogScriptPath -PathType Leaf
+          $watchdogScriptHasKillHandler = $false
+          $watchdogScriptGitBlob = $null
+          if ($watchdogScriptExists) {
+            $scriptText = [System.IO.File]::ReadAllText($watchdogScriptPath)
+            $watchdogScriptHasKillHandler = $scriptText.Contains('KILL_REQUEST_SEEN')
+            try {
+              $watchdogScriptGitBlob = (& git hash-object -- $watchdogScriptPath 2>$null)
+              if ($LASTEXITCODE -ne 0) { $watchdogScriptGitBlob = $null }
+            } catch { $watchdogScriptGitBlob = $null }
+          }
+          $markerHits = [System.Collections.Generic.List[string]]::new()
+          if (Test-Path -LiteralPath $watchdogLog -PathType Leaf) {
+            $logStream = [System.IO.File]::Open($watchdogLog,[System.IO.FileMode]::Open,[System.IO.FileAccess]::Read,[System.IO.FileShare]::ReadWrite -bor [System.IO.FileShare]::Delete)
+            $reader = [System.IO.StreamReader]::new($logStream,[System.Text.Encoding]::UTF8,$true,4096,$true)
+            try {
+              while (($line = $reader.ReadLine()) -ne $null) {
+                if ($line -match 'KILL_REQUEST_SEEN|AGENT_KILLED_BY_WATCHDOG|AGENT_KILL_FAILED|AGENT_EXIT|AGENT_STARTED|AGENT_STALE_HEARTBEAT') {
+                  if ($markerHits.Count -ge 120) { $markerHits.RemoveAt(0) }
+                  $markerHits.Add($line)
+                }
+              }
+            } finally { $reader.Dispose(); $logStream.Dispose() }
+          }
+          Write-Host "A6_STAGE=runtime_watchdog_script_checked"
           $result = [ordered]@{
             captured_at_utc = [DateTimeOffset]::UtcNow.ToString('o')
             host = [string]$env:COMPUTERNAME
@@ -103,6 +129,11 @@ jobs:
             heartbeat_samples = @($samples)
             watchdog_log_bytes = $watchdogLogBytes
             watchdog_log_tail = @($tail)
+            watchdog_script_path = $watchdogScriptPath
+            watchdog_script_exists = $watchdogScriptExists
+            watchdog_script_has_kill_handler = $watchdogScriptHasKillHandler
+            watchdog_script_git_blob = $watchdogScriptGitBlob
+            watchdog_log_marker_hits = @($markerHits)
           }
           $result | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $out -Encoding UTF8
           Write-Host "A6_HOST=$($result.host)"
@@ -112,6 +143,9 @@ jobs:
           Write-Host "A6_KILL_REQUEST_PRESENT=$($result.kill_request_present)"
           Write-Host "A6_HEARTBEAT_SAMPLE_COUNT=$($samples.Count)"
           Write-Host "A6_MINIMAL_DIAGNOSTIC=$out"
+          Write-Host "A6_WATCHDOG_SCRIPT_EXISTS=$watchdogScriptExists"
+          Write-Host "A6_WATCHDOG_SCRIPT_HAS_KILL_HANDLER=$watchdogScriptHasKillHandler"
+          Write-Host "A6_WATCHDOG_LOG_MARKER_HITS=$($markerHits.Count)"
           Write-Host "A6_STAGE=diagnostic_json_written"
       - name: Upload sanitized diagnostic
         if: always()
