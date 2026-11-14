@@ -101,18 +101,40 @@ jobs:
             } catch { $watchdogScriptGitBlob = $null }
           }
           $markerHits = [System.Collections.Generic.List[string]]::new()
+          $logScanSnapshotBytes = 0
+          $logScanBytesRead = 0
           if (Test-Path -LiteralPath $watchdogLog -PathType Leaf) {
             $logStream = [System.IO.File]::Open($watchdogLog,[System.IO.FileMode]::Open,[System.IO.FileAccess]::Read,[System.IO.FileShare]::ReadWrite -bor [System.IO.FileShare]::Delete)
-            $reader = [System.IO.StreamReader]::new($logStream,[System.Text.Encoding]::UTF8,$true,4096,$true)
             try {
-              while (($line = $reader.ReadLine()) -ne $null) {
-                if ($line -match 'KILL_REQUEST_SEEN|AGENT_KILLED_BY_WATCHDOG|AGENT_KILL_FAILED|AGENT_EXIT|AGENT_STARTED|AGENT_STALE_HEARTBEAT|GATEWAY_HEARTBEAT_STALE|GATEWAY_HEARTBEAT_RECOVERED|GATEWAY_HEARTBEAT_DIAGNOSTIC_ERROR') {
-                  if ($markerHits.Count -ge 120) { $markerHits.RemoveAt(0) }
-                  $markerHits.Add($line)
+              $logScanSnapshotBytes = [long]$logStream.Length
+              $buffer = New-Object byte[] 65536
+              $pending = ''
+              $scanTimer = [System.Diagnostics.Stopwatch]::StartNew()
+              while ($logScanBytesRead -lt $logScanSnapshotBytes -and $scanTimer.Elapsed.TotalSeconds -lt 20) {
+                $remaining = [int][Math]::Min($buffer.Length,($logScanSnapshotBytes - $logScanBytesRead))
+                $read = $logStream.Read($buffer,0,$remaining)
+                if ($read -le 0) { break }
+                $logScanBytesRead += $read
+                $chunk = [System.Text.Encoding]::UTF8.GetString($buffer,0,$read)
+                $parts = ($pending + $chunk) -split "`r?`n"
+                $pending = $parts[$parts.Length - 1]
+                for ($lineIndex = 0; $lineIndex -lt ($parts.Length - 1); $lineIndex++) {
+                  $line = $parts[$lineIndex]
+                  if ($line -match 'KILL_REQUEST_SEEN|AGENT_KILLED_BY_WATCHDOG|AGENT_KILL_FAILED|AGENT_EXIT|AGENT_STARTED|AGENT_STALE_HEARTBEAT|GATEWAY_HEARTBEAT_STALE|GATEWAY_HEARTBEAT_RECOVERED|GATEWAY_HEARTBEAT_DIAGNOSTIC_ERROR') {
+                    if ($markerHits.Count -ge 120) { $markerHits.RemoveAt(0) }
+                    $markerHits.Add($line)
+                  }
                 }
               }
-            } finally { $reader.Dispose(); $logStream.Dispose() }
+              $scanTimer.Stop()
+              if ($pending -and $pending -match 'KILL_REQUEST_SEEN|AGENT_KILLED_BY_WATCHDOG|AGENT_KILL_FAILED|AGENT_EXIT|AGENT_STARTED|AGENT_STALE_HEARTBEAT|GATEWAY_HEARTBEAT_STALE|GATEWAY_HEARTBEAT_RECOVERED|GATEWAY_HEARTBEAT_DIAGNOSTIC_ERROR') {
+                if ($markerHits.Count -ge 120) { $markerHits.RemoveAt(0) }
+                $markerHits.Add($pending)
+              }
+            } finally { $logStream.Dispose() }
           }
+          Write-Host "A6_LOG_SCAN_SNAPSHOT_BYTES=$logScanSnapshotBytes"
+          Write-Host "A6_LOG_SCAN_BYTES_READ=$logScanBytesRead"
           Write-Host "A6_STAGE=runtime_watchdog_script_checked"
           $result = [ordered]@{
             captured_at_utc = [DateTimeOffset]::UtcNow.ToString('o')
@@ -146,6 +168,8 @@ jobs:
             watchdog_script_has_kill_handler = $watchdogScriptHasKillHandler
             watchdog_script_git_blob = $watchdogScriptGitBlob
             watchdog_log_marker_hits = @($markerHits)
+            watchdog_log_scan_snapshot_bytes = $logScanSnapshotBytes
+            watchdog_log_scan_bytes_read = $logScanBytesRead
           }
           $result | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $out -Encoding UTF8
           Write-Host "A6_HOST=$($result.host)"
