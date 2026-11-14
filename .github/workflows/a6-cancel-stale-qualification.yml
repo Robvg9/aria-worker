@@ -65,3 +65,28 @@ jobs:
                 }
               }
             }
+
+            // Cancel one stuck checkout only while the physical installer is still pending.
+            // This prevents an interrupted install and never touches an already-running installer.
+            if (branch === 'ops/a6-windows-agent-v2-heartbeat-preflight-v1') {
+              const stuckRunId = 43555345805;
+              const { data: stuckRun } = await github.rest.actions.getWorkflowRun({ owner, repo, run_id: stuckRunId });
+              if (stuckRun.head_branch === branch && stuckRun.event === 'push' && active.has(stuckRun.status)) {
+                const { data: runJobs } = await github.rest.actions.listJobsForWorkflowRun({ owner, repo, run_id: stuckRunId, per_page: 100 });
+                const qualify = runJobs.jobs.find(job => job.name === 'Install exact runtime and qualify 45-minute heartbeat continuity');
+                const checkout = qualify?.steps?.find(step => step.name === 'Checkout exact source');
+                const installer = qualify?.steps?.find(step => step.name === 'Install runtime with backup and watchdog-mediated Node restart');
+                const checkoutAgeMs = checkout?.started_at ? Date.now() - Date.parse(checkout.started_at) : 0;
+                const safeToCancel = qualify?.status === 'in_progress'
+                  && qualify?.runner_name === 'ARIA-WINDOWS'
+                  && checkout?.status === 'in_progress'
+                  && installer?.status === 'pending'
+                  && checkoutAgeMs > 300000;
+                if (safeToCancel) {
+                  core.info(`Cancelling stuck pre-install checkout #${stuckRun.run_number}; checkout_age_ms=${checkoutAgeMs}`);
+                  await github.rest.actions.cancelWorkflowRun({ owner, repo, run_id: stuckRunId });
+                } else {
+                  core.info(`Keeping physical qualification #${stuckRun.run_number}; qualify_status=${qualify?.status}; checkout_status=${checkout?.status}; installer_status=${installer?.status}; checkout_age_ms=${checkoutAgeMs}`);
+                }
+              }
+            }
