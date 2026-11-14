@@ -291,6 +291,357 @@ jobs:
             $entry.elapsed_ms = [long]([DateTimeOffset]::UtcNow - $dnsStarted).TotalMilliseconds
             $dnsTests += $entry
           }
+          # Read-only Wi-Fi failover inventory. Do not connect, enable, or alter any adapter/profile.
+          $wlanInterfaces = @()
+          try {
+            $wlanLines = @(& netsh.exe wlan show interfaces 2>&1 | ForEach-Object { [string]$_ })
+            $wlanState = ($wlanLines | Where-Object { $_ -match '^\\s*(State|Estado)\\s*:' } | Select-Object -First 1)
+            $wlanSsid = ($wlanLines | Where-Object { $_ -match '^\\s*SSID\\s*:' -and $_ -notmatch 'BSSID' } | Select-Object -First 1)
+            $wlanInterfaces = @(@{ state_line=[string]$wlanState; ssid_line=[string]$wlanSsid; command_status=[int]$LASTEXITCODE })
+          } catch { $wlanInterfaces = @(@{ query_error=$_.Exception.GetType().Name }) }
+          $wlanSavedProfiles = @()
+          try {
+            $profileLines = @(& netsh.exe wlan show profiles 2>&1 | ForEach-Object { [string]$_ })
+            foreach ($line in $profileLines) {
+              if ($line -match '(?i)(All User Profile|Perfil de todos los usuarios|Perfil de usuario)\\s*:\\s*(?<name>.+)          try {
+            $gatewayProbe = @(Test-Connection -ComputerName '192.168.1.1' -Count 2 -Quiet -ErrorAction SilentlyContinue)
+          } catch {
+            $gatewayProbe = @(@{ query_error=$_.Exception.GetType().Name; message=$_.Exception.Message })
+          }
+          $httpsNameProbe = @{ status='BLOCKED'; error=$null; elapsed_ms=$null }
+          $tcpProbe = $null
+          $tcpAsync = $null
+          $tcpStarted = [DateTimeOffset]::UtcNow
+          try {
+            $tcpProbe = [System.Net.Sockets.TcpClient]::new()
+            $tcpAsync = $tcpProbe.BeginConnect('icuqsstxfdbvjytkhlog.supabase.co',443,$null,$null)
+            if ($tcpAsync.AsyncWaitHandle.WaitOne(4000)) {
+              $tcpProbe.EndConnect($tcpAsync)
+              $httpsNameProbe.status = 'PASS'
+            } else {
+              $httpsNameProbe.status = 'TIMEOUT_4000MS'
+              $httpsNameProbe.error = 'DNS_OR_TCP_CONNECT_DEADLINE_EXCEEDED'
+            }
+          } catch {
+            $httpsNameProbe.status = 'ERROR'
+            $httpsNameProbe.error = [string]$_.Exception.Message
+          } finally {
+            $httpsNameProbe.elapsed_ms = [long]([DateTimeOffset]::UtcNow - $tcpStarted).TotalMilliseconds
+            if ($tcpProbe) { $tcpProbe.Dispose() }
+          }
+
+          $watchdogIncidentLines = @()
+          $watchdogLog = Join-Path $logs 'watchdog.log'
+          $watchdogLogInfo = @{ exists=(Test-Path -LiteralPath $watchdogLog -PathType Leaf) }
+          if ($watchdogLogInfo.exists) {
+            try {
+              $watchdogItem = Get-Item -LiteralPath $watchdogLog
+              $watchdogLogInfo.size_bytes=[long]$watchdogItem.Length
+              $watchdogLogInfo.last_write_utc=$watchdogItem.LastWriteTimeUtc.ToString('o')
+              $watchdogIncidentLines = @(Get-Content -LiteralPath $watchdogLog -Tail 12000 |
+                ForEach-Object {
+                  $line = [string]$_
+                  if ($line -match '^\[ARIA-WATCHDOG\]\s+(?<stamp>\S+)\s+(?<message>.*)$') {
+                    try {
+                      $stamp = [DateTimeOffset]::Parse($Matches.stamp).ToUniversalTime()
+                      if ($stamp -ge $incidentStart -and $stamp -le $incidentEnd) {
+                        $message = [string]$Matches.message
+                        $message = $message -replace '(?i)(token|secret|password|authorization)(\s*[:=]\s*|\s+)[^\s;]+','$1$2[REDACTED]'
+                        [pscustomobject]@{ time_utc=$stamp.ToString('o'); message=$message.Substring(0,[Math]::Min(600,$message.Length)) }
+                      }
+                    } catch {}
+                  }
+                } | Where-Object { $null -ne $_ } | Select-Object -Last 160)
+            } catch {
+              $watchdogIncidentLines = @(@{ read_error_type=$_.Exception.GetType().Name; read_error=$_.Exception.Message })
+            }
+          }
+
+          $powerSettings = @()
+          try {
+            $powerSettings += '--- POWER PLAN / SLEEP ---'
+            $powerSettings += @(& powercfg.exe /query SCHEME_CURRENT SUB_SLEEP 2>&1 | Select-Object -First 100 | ForEach-Object { [string]$_ })
+          } catch {
+            $powerSettings += 'POWERCFG_READ_FAILED:' + $_.Exception.GetType().Name
+          }
+          $osBoot = $null
+          try {
+            $os = Get-CimInstance Win32_OperatingSystem -ErrorAction Stop
+            $osBoot = @{ last_boot_utc=$os.LastBootUpTime.ToUniversalTime().ToString('o'); local_datetime=[string]$os.LocalDateTime }
+          } catch {
+            $osBoot = @{ query_error=$_.Exception.GetType().Name }
+          }
+          for ($i=0; $i -lt 31; $i++) {
+            $snap = Get-HeartbeatSnapshot
+            $samples.Add(@{ captured_at_utc=[DateTimeOffset]::UtcNow.ToString('o'); heartbeat=$snap })
+            if ($i -lt 30) { Start-Sleep -Seconds 2 }
+          }
+
+          $finalProcesses = @()
+          $allAfter = @(Get-CimInstance Win32_Process -ErrorAction Stop)
+          $byIdAfter = @{}
+          foreach ($p in $allAfter) { $byIdAfter[[int]$p.ProcessId] = $p }
+          foreach ($p in $allAfter | Where-Object { $_.Name -match '^(node|node.exe|powershell|powershell.exe|pwsh|pwsh.exe)$' }) {
+            $parent = $byIdAfter[[int]$p.ParentProcessId]
+            $cmd = [string]$p.CommandLine
+            $owner = $null
+            try { $o=Invoke-CimMethod -InputObject $p -MethodName GetOwner -ErrorAction Stop; if($o.ReturnValue -eq 0){$owner="$($o.Domain)\$($o.User)"} } catch {}
+            $finalProcesses += @{
+              pid=[int]$p.ProcessId; parent_pid=[int]$p.ParentProcessId
+              parent_name=if($parent){[string]$parent.Name}else{$null}
+              name=[string]$p.Name; session_id=[int]$p.SessionId; owner=$owner
+              executable_path=[string]$p.ExecutablePath
+              command_mentions_runtime_agent=($cmd -match 'ARIA-Windows-Agent|aria-agent\.js')
+              command_mentions_watchdog=($cmd -match 'run-agent\.ps1')
+              command_mentions_heartbeat=($cmd -match 'agent-heartbeat\.json')
+              commandline_redacted=($cmd -replace '(?i)(token|secret|password|authorization)(\s*[:=]\s*|\s+)[^\s;]+','$1$2[REDACTED]')
+            }
+          }
+
+          $result = @{
+            status='READ_ONLY_CAPTURE_COMPLETE'
+            host=[string]$env:COMPUTERNAME
+            captured_at_utc=[DateTimeOffset]::UtcNow.ToString('o')
+            duration_seconds=[math]::Round(([DateTimeOffset]::UtcNow-$started).TotalSeconds,1)
+            source_sha=[string]$env:GITHUB_SHA
+            heartbeat_path=$heartbeat
+            agent_pid_file=$agentPid
+            watchdog_pid_file=$watchdogPid
+            initial_heartbeat=$initial
+            kill_request=$killRequest
+            samples=@($samples.ToArray())
+            processes_before=$processes
+            processes_after=$finalProcesses
+            incident_events=@($incidentEvents)
+            watchdog_incident_lines=@($watchdogIncidentLines)
+            incident_window_utc=@($incidentStart.ToString('o'),$incidentEnd.ToString('o'))
+            power_settings=@($powerSettings)
+            operating_system=$osBoot
+            computer_system=$computerSystem
+            active_network_adapters=@($netAdaptersDetailed)
+            connection_profiles=@($connectionProfiles)
+            default_routes=@($defaultRoutes)
+            network_adapters=@($networkAdapters)
+            network_drivers=@($networkDrivers)
+            network_power_management=@($networkPowerManagement)
+            ethernet_power_management=@($ethernetPowerManagement)
+            ethernet_pnp_power_properties=@($ethernetPnpPowerProperties)
+            network_advanced_properties=@($networkAdvancedProperties)
+            dns_resolvers=@($dnsResolverState)
+            dns_tests=@($dnsTests)
+            wlan_interfaces=@($wlanInterfaces)
+            wlan_saved_profiles=@($wlanSavedProfiles)
+            wlan_visible_networks=@($wlanVisibleNetworks)
+            default_gateway_probe=@($gatewayProbe)
+            supabase_https_name_probe=$httpsNameProbe
+            watchdog_log_info=$watchdogLogInfo
+            restrictions=@('NO_RUNTIME_WRITES','NO_CONFIG_CHANGES','NO_PROCESS_RESTARTS','NO_TASK_CHANGES','NO_GATEWAY_CALLS','NO_MISSIONS_OR_JOBS')
+          }
+          $result | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $out -Encoding UTF8
+          Write-Host "A6_READ_ONLY_HOST=$env:COMPUTERNAME"
+          Write-Host "A6_READ_ONLY_SAMPLES=$($samples.Count)"
+          Write-Host "A6_AGENT_PID_FILE=$agentPid"
+          Write-Host "A6_WATCHDOG_PID_FILE=$watchdogPid"
+          Write-Host 'A6_READ_ONLY_CAPTURE=PASS'
+          $global:LASTEXITCODE = 0
+          exit 0
+
+      - name: Upload sanitized read-only evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: a6-heartbeat-live-readonly-${{ github.sha }}
+          path: a6-heartbeat-live-readonly.json
+          if-no-files-found: warn
+          retention-days: 14
+
+# Post-user-change verification checkpoint: Ethernet power-saving state and default route.
+
+# Read-only correlation refresh for the 2026-11-13 22:27-22:33 UTC A6 heartbeat interruption; event logs include sleep/resume and event-loop timing.
+
+# Narrow read-only query for Ethernet power management and all Realtek advanced properties.
+
+# Read-only DNS resolver comparison for the A6 ENOTFOUND incident.
+
+# Bound the HTTPS hostname probe to 4 seconds so diagnostics cannot hang on DNS.
+# A6 incident capture refresh: 2026-11-14 heartbeat recovery investigation; read-only, no runtime changes.
+) {
+                $wlanSavedProfiles += [string]$Matches.name.Trim()
+              }
+            }
+          } catch { $wlanSavedProfiles = @('READ_ERROR:' + $_.Exception.GetType().Name) }
+          $wlanVisibleNetworks = @()
+          try {
+            $networkLines = @(& netsh.exe wlan show networks mode=bssid 2>&1 | ForEach-Object { [string]$_ })
+            $currentSsid = $null
+            foreach ($line in $networkLines) {
+              if ($line -match '^\\s*SSID\\s+\\d+\\s*:\\s*(?<name>.*)          try {
+            $gatewayProbe = @(Test-Connection -ComputerName '192.168.1.1' -Count 2 -Quiet -ErrorAction SilentlyContinue)
+          } catch {
+            $gatewayProbe = @(@{ query_error=$_.Exception.GetType().Name; message=$_.Exception.Message })
+          }
+          $httpsNameProbe = @{ status='BLOCKED'; error=$null; elapsed_ms=$null }
+          $tcpProbe = $null
+          $tcpAsync = $null
+          $tcpStarted = [DateTimeOffset]::UtcNow
+          try {
+            $tcpProbe = [System.Net.Sockets.TcpClient]::new()
+            $tcpAsync = $tcpProbe.BeginConnect('icuqsstxfdbvjytkhlog.supabase.co',443,$null,$null)
+            if ($tcpAsync.AsyncWaitHandle.WaitOne(4000)) {
+              $tcpProbe.EndConnect($tcpAsync)
+              $httpsNameProbe.status = 'PASS'
+            } else {
+              $httpsNameProbe.status = 'TIMEOUT_4000MS'
+              $httpsNameProbe.error = 'DNS_OR_TCP_CONNECT_DEADLINE_EXCEEDED'
+            }
+          } catch {
+            $httpsNameProbe.status = 'ERROR'
+            $httpsNameProbe.error = [string]$_.Exception.Message
+          } finally {
+            $httpsNameProbe.elapsed_ms = [long]([DateTimeOffset]::UtcNow - $tcpStarted).TotalMilliseconds
+            if ($tcpProbe) { $tcpProbe.Dispose() }
+          }
+
+          $watchdogIncidentLines = @()
+          $watchdogLog = Join-Path $logs 'watchdog.log'
+          $watchdogLogInfo = @{ exists=(Test-Path -LiteralPath $watchdogLog -PathType Leaf) }
+          if ($watchdogLogInfo.exists) {
+            try {
+              $watchdogItem = Get-Item -LiteralPath $watchdogLog
+              $watchdogLogInfo.size_bytes=[long]$watchdogItem.Length
+              $watchdogLogInfo.last_write_utc=$watchdogItem.LastWriteTimeUtc.ToString('o')
+              $watchdogIncidentLines = @(Get-Content -LiteralPath $watchdogLog -Tail 12000 |
+                ForEach-Object {
+                  $line = [string]$_
+                  if ($line -match '^\[ARIA-WATCHDOG\]\s+(?<stamp>\S+)\s+(?<message>.*)$') {
+                    try {
+                      $stamp = [DateTimeOffset]::Parse($Matches.stamp).ToUniversalTime()
+                      if ($stamp -ge $incidentStart -and $stamp -le $incidentEnd) {
+                        $message = [string]$Matches.message
+                        $message = $message -replace '(?i)(token|secret|password|authorization)(\s*[:=]\s*|\s+)[^\s;]+','$1$2[REDACTED]'
+                        [pscustomobject]@{ time_utc=$stamp.ToString('o'); message=$message.Substring(0,[Math]::Min(600,$message.Length)) }
+                      }
+                    } catch {}
+                  }
+                } | Where-Object { $null -ne $_ } | Select-Object -Last 160)
+            } catch {
+              $watchdogIncidentLines = @(@{ read_error_type=$_.Exception.GetType().Name; read_error=$_.Exception.Message })
+            }
+          }
+
+          $powerSettings = @()
+          try {
+            $powerSettings += '--- POWER PLAN / SLEEP ---'
+            $powerSettings += @(& powercfg.exe /query SCHEME_CURRENT SUB_SLEEP 2>&1 | Select-Object -First 100 | ForEach-Object { [string]$_ })
+          } catch {
+            $powerSettings += 'POWERCFG_READ_FAILED:' + $_.Exception.GetType().Name
+          }
+          $osBoot = $null
+          try {
+            $os = Get-CimInstance Win32_OperatingSystem -ErrorAction Stop
+            $osBoot = @{ last_boot_utc=$os.LastBootUpTime.ToUniversalTime().ToString('o'); local_datetime=[string]$os.LocalDateTime }
+          } catch {
+            $osBoot = @{ query_error=$_.Exception.GetType().Name }
+          }
+          for ($i=0; $i -lt 31; $i++) {
+            $snap = Get-HeartbeatSnapshot
+            $samples.Add(@{ captured_at_utc=[DateTimeOffset]::UtcNow.ToString('o'); heartbeat=$snap })
+            if ($i -lt 30) { Start-Sleep -Seconds 2 }
+          }
+
+          $finalProcesses = @()
+          $allAfter = @(Get-CimInstance Win32_Process -ErrorAction Stop)
+          $byIdAfter = @{}
+          foreach ($p in $allAfter) { $byIdAfter[[int]$p.ProcessId] = $p }
+          foreach ($p in $allAfter | Where-Object { $_.Name -match '^(node|node.exe|powershell|powershell.exe|pwsh|pwsh.exe)$' }) {
+            $parent = $byIdAfter[[int]$p.ParentProcessId]
+            $cmd = [string]$p.CommandLine
+            $owner = $null
+            try { $o=Invoke-CimMethod -InputObject $p -MethodName GetOwner -ErrorAction Stop; if($o.ReturnValue -eq 0){$owner="$($o.Domain)\$($o.User)"} } catch {}
+            $finalProcesses += @{
+              pid=[int]$p.ProcessId; parent_pid=[int]$p.ParentProcessId
+              parent_name=if($parent){[string]$parent.Name}else{$null}
+              name=[string]$p.Name; session_id=[int]$p.SessionId; owner=$owner
+              executable_path=[string]$p.ExecutablePath
+              command_mentions_runtime_agent=($cmd -match 'ARIA-Windows-Agent|aria-agent\.js')
+              command_mentions_watchdog=($cmd -match 'run-agent\.ps1')
+              command_mentions_heartbeat=($cmd -match 'agent-heartbeat\.json')
+              commandline_redacted=($cmd -replace '(?i)(token|secret|password|authorization)(\s*[:=]\s*|\s+)[^\s;]+','$1$2[REDACTED]')
+            }
+          }
+
+          $result = @{
+            status='READ_ONLY_CAPTURE_COMPLETE'
+            host=[string]$env:COMPUTERNAME
+            captured_at_utc=[DateTimeOffset]::UtcNow.ToString('o')
+            duration_seconds=[math]::Round(([DateTimeOffset]::UtcNow-$started).TotalSeconds,1)
+            source_sha=[string]$env:GITHUB_SHA
+            heartbeat_path=$heartbeat
+            agent_pid_file=$agentPid
+            watchdog_pid_file=$watchdogPid
+            initial_heartbeat=$initial
+            kill_request=$killRequest
+            samples=@($samples.ToArray())
+            processes_before=$processes
+            processes_after=$finalProcesses
+            incident_events=@($incidentEvents)
+            watchdog_incident_lines=@($watchdogIncidentLines)
+            incident_window_utc=@($incidentStart.ToString('o'),$incidentEnd.ToString('o'))
+            power_settings=@($powerSettings)
+            operating_system=$osBoot
+            computer_system=$computerSystem
+            active_network_adapters=@($netAdaptersDetailed)
+            connection_profiles=@($connectionProfiles)
+            default_routes=@($defaultRoutes)
+            network_adapters=@($networkAdapters)
+            network_drivers=@($networkDrivers)
+            network_power_management=@($networkPowerManagement)
+            ethernet_power_management=@($ethernetPowerManagement)
+            ethernet_pnp_power_properties=@($ethernetPnpPowerProperties)
+            network_advanced_properties=@($networkAdvancedProperties)
+            dns_resolvers=@($dnsResolverState)
+            dns_tests=@($dnsTests)
+            default_gateway_probe=@($gatewayProbe)
+            supabase_https_name_probe=$httpsNameProbe
+            watchdog_log_info=$watchdogLogInfo
+            restrictions=@('NO_RUNTIME_WRITES','NO_CONFIG_CHANGES','NO_PROCESS_RESTARTS','NO_TASK_CHANGES','NO_GATEWAY_CALLS','NO_MISSIONS_OR_JOBS')
+          }
+          $result | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $out -Encoding UTF8
+          Write-Host "A6_READ_ONLY_HOST=$env:COMPUTERNAME"
+          Write-Host "A6_READ_ONLY_SAMPLES=$($samples.Count)"
+          Write-Host "A6_AGENT_PID_FILE=$agentPid"
+          Write-Host "A6_WATCHDOG_PID_FILE=$watchdogPid"
+          Write-Host 'A6_READ_ONLY_CAPTURE=PASS'
+          $global:LASTEXITCODE = 0
+          exit 0
+
+      - name: Upload sanitized read-only evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: a6-heartbeat-live-readonly-${{ github.sha }}
+          path: a6-heartbeat-live-readonly.json
+          if-no-files-found: warn
+          retention-days: 14
+
+# Post-user-change verification checkpoint: Ethernet power-saving state and default route.
+
+# Read-only correlation refresh for the 2026-11-13 22:27-22:33 UTC A6 heartbeat interruption; event logs include sleep/resume and event-loop timing.
+
+# Narrow read-only query for Ethernet power management and all Realtek advanced properties.
+
+# Read-only DNS resolver comparison for the A6 ENOTFOUND incident.
+
+# Bound the HTTPS hostname probe to 4 seconds so diagnostics cannot hang on DNS.
+# A6 incident capture refresh: 2026-11-14 heartbeat recovery investigation; read-only, no runtime changes.
+) {
+                $currentSsid = [string]$Matches.name.Trim()
+                if ($currentSsid) { $wlanVisibleNetworks += $currentSsid }
+              }
+            }
+            $wlanVisibleNetworks = @($wlanVisibleNetworks | Select-Object -Unique | Select-Object -First 20)
+          } catch { $wlanVisibleNetworks = @('READ_ERROR:' + $_.Exception.GetType().Name) }
+
           $gatewayProbe = @()
           try {
             $gatewayProbe = @(Test-Connection -ComputerName '192.168.1.1' -Count 2 -Quiet -ErrorAction SilentlyContinue)
