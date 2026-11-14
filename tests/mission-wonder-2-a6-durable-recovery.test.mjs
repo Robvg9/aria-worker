@@ -29,7 +29,7 @@ assert.match(migration, /max_recovery_attempts/);
 // The 24-hour LIVE soak must default to zero job recoveries. The disposable
 // integration fixture opts into one recovery explicitly to test the mechanism.
 assert.match(migration, /max_recovery_attempts smallint not null default 0/);
-const armRunStart = migration.indexOf("create or replace function aria_internal.aria_m22_a6_arm_run_v1");
+const armRunStart = migration.toLowerCase().indexOf("create or replace function aria_internal.aria_m22_a6_arm_run_v1");
 assert.ok(armRunStart >= 0, "durable recovery migration must update the production A6 arm function");
 const armRunMigration = migration.slice(armRunStart);
 assert.match(armRunMigration, /max_attempts,max_recovery_attempts,heartbeat_interval_ms/);
