@@ -55,7 +55,7 @@ jobs:
           $agentProcess = if ($agentPid) { Get-Process -Id $agentPid -ErrorAction SilentlyContinue } else { $null }
           $watchdogProcess = if ($watchdogPid) { Get-Process -Id $watchdogPid -ErrorAction SilentlyContinue } else { $null }
           $samples = [System.Collections.Generic.List[object]]::new()
-          for ($i = 0; $i -lt 12; $i++) {
+          for ($i = 0; $i -lt 6; $i++) {
             $hb = Read-Json $heartbeatPath
             $item = if (Test-Path -LiteralPath $heartbeatPath -PathType Leaf) { Get-Item -LiteralPath $heartbeatPath } else { $null }
             $samples.Add([ordered]@{
@@ -65,14 +65,29 @@ jobs:
               gateway_ack_utc = if ($hb) { [string]$hb.last_gateway_heartbeat_at } else { $null }
               gateway_error_present = [bool]($hb -and $null -ne $hb.last_gateway_heartbeat_error)
             })
-            if ($i -lt 11) { Start-Sleep -Seconds 5 }
+            if ($i -lt 5) { Start-Sleep -Seconds 5 }
           }
+          Write-Host "A6_STAGE=heartbeat_samples_complete"
           $tail = @()
+          $watchdogLogBytes = 0
           if (Test-Path -LiteralPath $watchdogLog -PathType Leaf) {
-            $tail = @(Get-Content -LiteralPath $watchdogLog -Tail 80 -ErrorAction SilentlyContinue | ForEach-Object {
-              if ($_ -match '(?i)token|secret|authorization|bearer|password') { '[REDACTED_SENSITIVE_LOG_LINE]' } else { $_ }
-            })
+            try {
+              $stream = [System.IO.File]::Open($watchdogLog,[System.IO.FileMode]::Open,[System.IO.FileAccess]::Read,[System.IO.FileShare]::ReadWrite -bor [System.IO.FileShare]::Delete)
+              $watchdogLogBytes = [long]$stream.Length
+              $take = [int][Math]::Min(16384,$watchdogLogBytes)
+              if ($take -gt 0) {
+                [void]$stream.Seek(-$take,[System.IO.SeekOrigin]::End)
+                $buffer = New-Object byte[] $take
+                $read = $stream.Read($buffer,0,$take)
+                $stream.Dispose()
+                $chunk = [System.Text.Encoding]::UTF8.GetString($buffer,0,$read)
+                $tail = @($chunk -split "`r?`n" | Select-Object -Last 60 | ForEach-Object {
+                  if ($_ -match '(?i)token|secret|authorization|bearer|password') { '[REDACTED_SENSITIVE_LOG_LINE]' } else { $_ }
+                })
+              } else { $stream.Dispose() }
+            } catch { $tail = @("WATCHDOG_LOG_READ_FAILED:" + $_.Exception.GetType().Name) }
           }
+          Write-Host "A6_STAGE=watchdog_log_tail_bounded"
           $result = [ordered]@{
             captured_at_utc = [DateTimeOffset]::UtcNow.ToString('o')
             host = [string]$env:COMPUTERNAME
@@ -86,6 +101,7 @@ jobs:
             status = if ($status) { [ordered]@{ state=[string]$status.state; agent_pid=[int]$status.agent_pid; watchdog_pid=[int]$status.watchdog_pid; updated_at=[string]$status.updated_at; agent_path=[string]$status.agent_path; runtime_root=[string]$status.runtime_root } } else { $null }
             heartbeat = if ($heartbeat) { [ordered]@{ device_id=[string]$heartbeat.device_id; version=[string]$heartbeat.version; scheduler_version=[string]$heartbeat.heartbeat_scheduler_version; timestamp=[string]$heartbeat.timestamp; gateway_ack=[string]$heartbeat.last_gateway_heartbeat_at; gateway_error_present=($null -ne $heartbeat.last_gateway_heartbeat_error) } } else { $null }
             heartbeat_samples = @($samples)
+            watchdog_log_bytes = $watchdogLogBytes
             watchdog_log_tail = @($tail)
           }
           $result | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $out -Encoding UTF8
@@ -96,6 +112,7 @@ jobs:
           Write-Host "A6_KILL_REQUEST_PRESENT=$($result.kill_request_present)"
           Write-Host "A6_HEARTBEAT_SAMPLE_COUNT=$($samples.Count)"
           Write-Host "A6_MINIMAL_DIAGNOSTIC=$out"
+          Write-Host "A6_STAGE=diagnostic_json_written"
       - name: Upload sanitized diagnostic
         if: always()
         uses: actions/upload-artifact@v4
