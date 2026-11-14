@@ -41,10 +41,21 @@ jobs:
             if (-not $isZip) {
               $html = Get-Content -LiteralPath $zipPath -Raw
               $scriptRefs = @([regex]::Matches($html,'(?is)<script[^>]+src=["''](?<src>[^"'']+)["'']') | ForEach-Object { $_.Groups['src'].Value } | Select-Object -Unique)
-              $downloadHints = @([regex]::Matches($html,'(?i).{0,100}(downloadid|downloadurl|download_url|ToDownload|filePath|fileName|downloadFile).{0,180}') | ForEach-Object { $_.Value -replace '[\r\n]+',' ' } | Select-Object -First 20)
+              $downloadHints = @([regex]::Matches($html,'(?i).{0,100}(downloadid|downloadurl|download_url|ToDownload|filePath|fileName|downloadFile|SubmitDownloadRequest).{0,180}') | ForEach-Object { $_.Value -replace '[\r\n]+',' ' } | Select-Object -First 20)
+              $submitSnippet = $null
+              $submitIndex = $html.IndexOf('SubmitDownloadRequest',[System.StringComparison]::OrdinalIgnoreCase)
+              if ($submitIndex -ge 0) { $submitSnippet = $html.Substring([Math]::Max(0,$submitIndex-700),[Math]::Min(2200,$html.Length-[Math]::Max(0,$submitIndex-700))) }
+              $submitProbe = $null
+              try {
+                $submitProbe = Invoke-RestMethod -Uri 'https://www.realtek.com/Download/SubmitDownloadRequest?downloadItemid=3613&mode=first' -Method Get -TimeoutSec 15
+              } catch {
+                $submitProbe = [pscustomobject]@{ error=$_.Exception.GetType().Name; message=$_.Exception.Message }
+              }
               Write-Output "A6_DOWNLOAD_DIAGNOSTIC bytes=$($file.Length) content_type=$($response.Headers['Content-Type']) final_uri=$($response.BaseResponse.ResponseUri.AbsoluteUri)"
               Write-Output ('A6_SCRIPT_REFS=' + ($scriptRefs -join ';'))
               Write-Output ('A6_DOWNLOAD_HINTS=' + ($downloadHints -join ' || '))
+              Write-Output ('A6_SUBMIT_SNIPPET=' + ($submitSnippet -replace '[\r\n]+',' '))
+              Write-Output ('A6_SUBMIT_PROBE=' + ($submitProbe | ConvertTo-Json -Depth 6 -Compress))
               throw 'A6_REALTEK_DOWNLOAD_DID_NOT_RETURN_ZIP'
             }
             if ($file.Length -lt 100000 -or $file.Length -gt 25000000) {
