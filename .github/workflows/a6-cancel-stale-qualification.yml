@@ -125,6 +125,7 @@ jobs:
                 if (noStepStarted && setupAgeMs > 240000) {
                   core.info(`Cancelling only stalled minimal read-only capture #${minimalRun.run_number}; setup_age_ms=${setupAgeMs}`);
                   await github.rest.actions.cancelWorkflowRun({ owner, repo, run_id: minimalRunId });
+                  await github.rest.actions.forceCancelWorkflowRun({ owner, repo, run_id: minimalRunId });
                 } else {
                   core.info(`Keeping minimal read-only capture #${minimalRun.run_number}; no_step_started=${noStepStarted}; setup_age_ms=${setupAgeMs}`);
                 }
