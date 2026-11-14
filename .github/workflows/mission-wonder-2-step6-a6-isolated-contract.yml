@@ -9,6 +9,7 @@ on:
       - 'tests/mission-wonder-2-step6-a6-runtime-wiring.test.mjs'
       - 'supabase/functions/aria-mission-runner-v22/index.ts'
       - 'supabase/migrations/20261113160000_aria_m22_a6_durable_recovery_v1.sql'
+      - 'supabase/migrations/20261114160000_aria_m22_a6_exact_heartbeat_gap_v1.sql'
       - 'tests/mission-wonder-2-a6-durable-recovery.test.mjs'
       - '.github/scripts/mission-wonder-2-a6-frozen-claim-postgres-v1.sql'
       - 'tests/mission-wonder-2-step6-a6-soak.test.mjs'
@@ -31,6 +32,7 @@ on:
       - 'supabase/migrations/*_aria_mission_wonder_2_a6_isolated_scope_v1.sql'
       - 'supabase/migrations/*_aria_m22_a6_frozen_job_marker_authorization_alignment_v1.sql'
       - 'supabase/migrations/20261113160000_aria_m22_a6_durable_recovery_v1.sql'
+      - 'supabase/migrations/20261114160000_aria_m22_a6_exact_heartbeat_gap_v1.sql'
       - 'tests/mission-wonder-2-a6-durable-recovery.test.mjs'
       - '.github/workflows/supabase-canonical-deploy.yml'
       - '.github/workflows/aria-cloudflare-deploy.yml'
@@ -152,7 +154,7 @@ jobs:
           );
           create table aria_internal.execution_job_events (job_id text,device_id text,event_type text,payload jsonb default '{}'::jsonb);
           create table aria_internal.mission_events (mission_id text,event_type text,payload jsonb default '{}'::jsonb);
-          create table aria_internal.device_registry (device_id text,agent_type text,status text,token_hash text,capabilities jsonb,last_seen_at timestamptz);
+          create table aria_internal.device_registry (device_id text,agent_type text,status text,token_hash text,capabilities jsonb,last_seen_at timestamptz,metadata jsonb default '{}'::jsonb,updated_at timestamptz default clock_timestamp());
           create function aria_internal.aria_m22_a4_frozen_job_authorized_v1(text,text,text) returns boolean language sql as 'select false';
           create function aria_internal.aria_m22_a5_frozen_job_authorized_v1(text,text,text) returns boolean language sql as 'select false';
           SQL
@@ -170,6 +172,7 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f supabase/migrations/20261110120000_aria_mission_wonder_2_a6_isolated_scope_v1.sql
           psql -v ON_ERROR_STOP=1 -f supabase/migrations/20261110135000_aria_m22_a6_frozen_job_marker_authorization_alignment_v1.sql
           psql -v ON_ERROR_STOP=1 -f supabase/migrations/20261113160000_aria_m22_a6_durable_recovery_v1.sql
+          psql -v ON_ERROR_STOP=1 -f supabase/migrations/20261114160000_aria_m22_a6_exact_heartbeat_gap_v1.sql
           psql -v ON_ERROR_STOP=1 <<'SQL'
           do $verify$
           declare snap jsonb; a6_total integer; a6_active integer; legacy_active integer; function_source text; auth_source text;
@@ -227,6 +230,16 @@ jobs:
                or has_function_privilege('anon','public.complete_execution_job_gateway(text,text,text,integer,text,text,jsonb)','EXECUTE')
                or has_function_privilege('authenticated','public.complete_execution_job_gateway(text,text,text,integer,text,text,jsonb)','EXECUTE') then
               raise exception 'A6_LEGACY_RPC_EXPOSED_TO_PUBLIC_ROLES';
+            end if;
+            if not has_function_privilege('service_role','public.heartbeat_device_gateway(text,jsonb,text)','EXECUTE')
+               or has_function_privilege('anon','public.heartbeat_device_gateway(text,jsonb,text)','EXECUTE')
+               or has_function_privilege('authenticated','public.heartbeat_device_gateway(text,jsonb,text)','EXECUTE') then
+              raise exception 'A6_HEARTBEAT_GATEWAY_RPC_PRIVILEGE_BOUNDARY_FAILED';
+            end if;
+            if has_table_privilege('service_role','aria_internal.mission_wonder_2_a6_heartbeat_events','SELECT')
+               or has_table_privilege('anon','aria_internal.mission_wonder_2_a6_heartbeat_events','SELECT')
+               or has_table_privilege('authenticated','aria_internal.mission_wonder_2_a6_heartbeat_events','SELECT') then
+              raise exception 'A6_HEARTBEAT_EVENTS_TABLE_EXPOSED';
             end if;
             if not has_function_privilege('service_role','public.start_execution_job_gateway(text,text,text)','EXECUTE') then
               raise exception 'A6_FENCED_START_RPC_NOT_EXECUTABLE_BY_SERVICE_ROLE';
