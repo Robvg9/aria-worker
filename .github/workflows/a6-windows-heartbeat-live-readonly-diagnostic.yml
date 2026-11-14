@@ -436,6 +436,9 @@ jobs:
             power_settings=@($powerSettings)
             operating_system=$osBoot
             computer_system=$computerSystem
+            wlan_interfaces=@($wlanInterfaces)
+            wlan_saved_profiles=@($wlanSavedProfiles)
+            wlan_visible_networks=@($wlanVisibleNetworks)
             active_network_adapters=@($netAdaptersDetailed)
             connection_profiles=@($connectionProfiles)
             default_routes=@($defaultRoutes)
