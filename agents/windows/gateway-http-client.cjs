@@ -120,7 +120,9 @@ function createGatewayRequest({
         });
 
         request.once('socket', socket => {
-          socketReused = !socket.connecting;
+          // A socket is reusable only when connected to a remote peer.
+          // "connecting === false" also describes sockets that failed DNS lookup.
+          socketReused = Boolean(socket.remoteAddress && !socket.connecting);
           if (socketReused) {
             transition('awaiting_response_headers');
             return;
@@ -157,7 +159,18 @@ function createGatewayRequest({
           settle(error);
         });
 
-        request.once('error', error => settle(error));
+        request.once('error', error => {
+          const code = typeof error?.code === 'string' ? error.code : '';
+          if (!response && ['EAI_AGAIN', 'ENOTFOUND', 'ETIMEOUT', 'EAI_FAIL'].includes(code)) {
+            transition('dns_lookup_failed');
+          } else if (!response && ['ECONNREFUSED', 'ECONNRESET', 'ENETUNREACH', 'EHOSTUNREACH', 'EADDRNOTAVAIL'].includes(code) &&
+            ['request_setup', 'dns_lookup', 'tcp_connect'].includes(phase)) {
+            transition('tcp_connect_failed');
+          } else if (!response && /^ERR_TLS_|^CERT_/.test(code) && phase === 'tls_handshake') {
+            transition('tls_handshake_failed');
+          }
+          settle(error);
+        });
 
         if (body) request.write(body);
         request.end();
