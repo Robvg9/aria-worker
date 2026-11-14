@@ -35,6 +35,7 @@ declare
   v_legacy_start jsonb;
   v_legacy_complete jsonb;
   v_count integer;
+  v_gap_ms bigint;
 begin
   -- The fixture must begin under the same frozen/disabled baseline as LIVE.
   v_baseline := aria_internal.aria_m22_a6_ambient_snapshot_v1();
@@ -363,20 +364,42 @@ begin
     raise exception 'A6_TEST_FRESH_LEASE_COMPLETION_FAILED';
   end if;
 
-  -- A recovered device must still be blocked when the observed heartbeat-to-heartbeat
-  -- gap itself exceeds the 120s recovery ceiling, even if the latest heartbeat is fresh.
+  -- Regression: a true 98s heartbeat interval is above the 90s normal target,
+  -- but remains within the 120s recovery ceiling even if a minute sample misses
+  -- an intermediate heartbeat.
+  update aria_internal.mission_wonder_2_a6_runs
+     set started_at=clock_timestamp()-interval '10 minutes'
+   where run_id=v_run_id;
   update aria_internal.device_registry
-     set last_seen_at=(
-       select device_last_seen_at+interval '121 seconds'
-         from aria_internal.mission_wonder_2_a6_telemetry
-        where run_id=v_run_id and event_type='heartbeat_sample'
-        order by sampled_at desc limit 1
-     )
+     set last_seen_at=clock_timestamp()-interval '98 seconds'
    where device_id=v_device_id;
+  perform public.heartbeat_device_gateway(v_device_id,'["shell.execute"]'::jsonb,'windows-local');
+  v_sample:=aria_internal.aria_m22_a6_sample_runtime_v1();
+  v_gap_ms:=coalesce((v_sample->'payload'->>'heartbeatObservedGapMs')::bigint,0);
+  if v_sample->>'status' is distinct from 'sampled'
+     or v_gap_ms<=90000 or v_gap_ms>120000
+     or exists(select 1 from aria_internal.mission_wonder_2_a6_recovery_gates where run_id=v_run_id) then
+    raise exception 'A6_TEST_98S_HEARTBEAT_GAP_RECOVERED_WITHIN_WINDOW';
+  end if;
+  if not exists(
+    select 1 from aria_internal.mission_wonder_2_a6_telemetry
+     where run_id=v_run_id and event_type='recovery_observed'
+       and payload->>'reason'='heartbeat_gap_recovered_within_window'
+       and (payload->>'heartbeat_observed_gap_ms')::bigint between 90001 and 120000
+  ) then
+    raise exception 'A6_TEST_98S_HEARTBEAT_RECOVERY_EVENT_MISSING';
+  end if;
+
+  -- A real interval above 120s must still fail closed, although the latest
+  -- heartbeat has just refreshed the device's current last_seen_at.
+  update aria_internal.device_registry
+     set last_seen_at=clock_timestamp()-interval '121 seconds'
+   where device_id=v_device_id;
+  perform public.heartbeat_device_gateway(v_device_id,'["shell.execute"]'::jsonb,'windows-local');
   v_sample:=aria_internal.aria_m22_a6_sample_runtime_v1();
   if v_sample->>'status' is distinct from 'blocked'
      or v_sample->>'reason' is distinct from 'heartbeat_observed_gap_exceeded' then
-    raise exception 'A6_TEST_OBSERVED_HEARTBEAT_GAP_OVER_120S_NOT_BLOCKED';
+    raise exception 'A6_TEST_121S_HEARTBEAT_GAP_BLOCKED';
   end if;
   if not exists(
     select 1 from aria_internal.mission_wonder_2_a6_telemetry
