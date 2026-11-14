@@ -1,0 +1,73 @@
+name: A6 Ethernet gateway identity (read-only)
+
+on:
+  push:
+    branches:
+      - ops/a6-ethernet-readonly-diagnostics-v1
+    paths:
+      - '.github/workflows/a6-ethernet-gateway-readonly.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: a6-ethernet-gateway-readonly
+  cancel-in-progress: false
+
+jobs:
+  inspect:
+    name: Identify Ethernet gateway path on ROBVG (read-only)
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 3
+    steps:
+      - name: Read local gateway, DHCP and neighbor identity
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ([string]$env:COMPUTERNAME -ine 'ROBVG') { throw 'A6_HOST_MISMATCH' }
+
+          $nic = Get-NetAdapter -Name 'Ethernet' -ErrorAction Stop
+          $ipcfg = Get-NetIPConfiguration -InterfaceIndex $nic.InterfaceIndex -ErrorAction Stop
+          $gateway = $null
+          if ($ipcfg.IPv4DefaultGateway) { $gateway = [string]$ipcfg.IPv4DefaultGateway.NextHop }
+
+          $neighbor = $null
+          if ($gateway) {
+            $neighbor = Get-NetNeighbor -InterfaceIndex $nic.InterfaceIndex -IPAddress $gateway -ErrorAction SilentlyContinue |
+              Select-Object -First 1 IPAddress,LinkLayerAddress,State
+          }
+
+          $macPrefix = $null
+          if ($neighbor -and $neighbor.LinkLayerAddress -match '^([0-9A-Fa-f]{2}[:-][0-9A-Fa-f]{2}[:-][0-9A-Fa-f]{2})') {
+            $macPrefix = $Matches[1].ToUpperInvariant()
+          }
+
+          $dns = Get-DnsClientServerAddress -InterfaceIndex $nic.InterfaceIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+            Select-Object -ExpandProperty ServerAddresses
+          $route = Get-NetRoute -DestinationPrefix '0.0.0.0/0' -InterfaceIndex $nic.InterfaceIndex -ErrorAction SilentlyContinue |
+            Select-Object -First 1 InterfaceIndex,RouteMetric,State
+
+          $result = [pscustomobject]@{
+            status = 'READ_ONLY_GATEWAY_IDENTITY_COMPLETE'
+            host = [string]$env:COMPUTERNAME
+            captured_at_utc = [DateTimeOffset]::UtcNow.ToString('o')
+            ethernet = [pscustomobject]@{
+              name = $nic.Name
+              description = $nic.InterfaceDescription
+              status = [string]$nic.Status
+              link_speed = [string]$nic.LinkSpeed
+              interface_index = $nic.InterfaceIndex
+              ipv4_addresses = @($ipcfg.IPv4Address | ForEach-Object { $_.IPAddress })
+              gateway_ipv4 = $gateway
+              dhcp_server_ipv4 = if ($ipcfg.NetProfile) { $null } else { $null }
+              dns_server_ipv4 = @($dns)
+              default_route = $route
+              gateway_neighbor_state = if ($neighbor) { [string]$neighbor.State } else { $null }
+              gateway_vendor_prefix_only = $macPrefix
+            }
+            restrictions = @('READ_ONLY','NO_ARP_OR_ROUTE_WRITES','NO_DNS_OR_ADAPTER_CHANGES','NO_WIFI_USE','NO_ROUTER_CONFIGURATION_CHANGES')
+          }
+
+          Write-Output 'A6_GATEWAY_EVIDENCE_BEGIN'
+          Write-Output ($result | ConvertTo-Json -Depth 6 -Compress)
+          Write-Output 'A6_GATEWAY_EVIDENCE_END'
