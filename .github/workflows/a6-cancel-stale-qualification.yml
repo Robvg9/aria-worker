@@ -28,51 +28,40 @@ jobs:
           script: |
             const owner = context.repo.owner;
             const repo = context.repo.repo;
-            const branch = context.ref.replace(/^refs\/heads\//, '');
-            const workflowId = 414805848;
-            // This is the latest A6 source SHA; the following workflow-only commit does not change it.
-            const targetSha = '63281adffd503fcd041c1d247fda5fd033e9f207';
-            const runs = await github.paginate(github.rest.actions.listWorkflowRuns, {
-              owner,
-              repo,
-              workflow_id: workflowId,
-              branch,
-              per_page: 100,
-            });
+            const branch = context.ref.replace(/^refs\\/heads\\//, '');
             const active = new Set(['queued', 'in_progress', 'pending', 'waiting', 'requested']);
-            const stale = runs.filter(run =>
-              run.head_sha !== targetSha &&
-              active.has(run.status)
-            );
-            for (const run of stale) {
-              core.info(`Cancelling superseded A6 run #${run.run_number} sha=${run.head_sha} status=${run.status}`);
-              await github.rest.actions.cancelWorkflowRun({
+
+            // Legacy fix branch: keep its original stale-run cleanup behavior.
+            if (branch === 'fix/a6-durable-recovery-v1') {
+              const workflowId = 414805848;
+              const targetSha = '63281adffd503fcd041c1d247fda5fd033e9f207';
+              const runs = await github.paginate(github.rest.actions.listWorkflowRuns, {
                 owner,
                 repo,
-                run_id: run.id,
+                workflow_id: workflowId,
+                branch,
+                per_page: 100,
               });
+              const stale = runs.filter(run => run.head_sha !== targetSha && active.has(run.status));
+              for (const run of stale) {
+                core.info(`Cancelling superseded A6 run #${run.run_number} sha=${run.head_sha} status=${run.status}`);
+                await github.rest.actions.cancelWorkflowRun({ owner, repo, run_id: run.id });
+              }
+              core.info(`A6_STALE_RUNS_CANCELLED=${stale.length}`);
             }
-            core.info(`A6_STALE_RUNS_CANCELLED=${stale.length}`);
 
-            // Free the sole ROBVG runner by cancelling only redundant read-only captures
-            // from the immediately preceding branch push. Never cancel physical qualification #43554851395.
+            // Ops qualification branch: cancel ONLY the three redundant read-only
+            // captures from the preceding push. The physical qualification run
+            // (43554851395) is deliberately excluded from this allowlist.
             if (branch === 'ops/a6-windows-agent-v2-heartbeat-preflight-v1') {
               const readOnlyRunIds = [43554851321, 43554851346, 43554851396];
               for (const runId of readOnlyRunIds) {
-                const { data: run } = await github.rest.actions.getWorkflowRun({
-                  owner,
-                  repo,
-                  run_id: runId,
-                });
-                if (
-                  run.head_branch === branch &&
-                  run.event === 'push' &&
-                  active.has(run.status)
-                ) {
+                const { data: run } = await github.rest.actions.getWorkflowRun({ owner, repo, run_id: runId });
+                if (run.head_branch === branch && run.event === 'push' && active.has(run.status)) {
                   core.info(`Cancelling redundant read-only diagnostic run #${run.run_number} status=${run.status}`);
                   await github.rest.actions.cancelWorkflowRun({ owner, repo, run_id: runId });
                 } else {
-                  core.info(`Keeping read-only run #${run.run_number} status=${run.status} branch=${run.head_branch}`);
+                  core.info(`Keeping run #${run.run_number} status=${run.status} branch=${run.head_branch}`);
                 }
               }
             }
