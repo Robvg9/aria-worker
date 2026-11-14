@@ -91,6 +91,26 @@ jobs:
               }
             }
 
+
+            // Cancel only the bounded read-only capture if its file-tail step stalls.
+            if (branch === 'ops/a6-windows-agent-v2-heartbeat-preflight-v1') {
+              const captureRunId = 43596400455;
+              const { data: captureRun } = await github.rest.actions.getWorkflowRun({ owner, repo, run_id: captureRunId });
+              if (captureRun.head_branch === branch && captureRun.event === 'push' && active.has(captureRun.status)) {
+                const { data: captureJobs } = await github.rest.actions.listJobsForWorkflowRun({ owner, repo, run_id: captureRunId, per_page: 100 });
+                const captureJob = captureJobs.jobs.find(job => job.name === 'Minimal heartbeat and watchdog state (read-only)');
+                const captureStep = captureJob?.steps?.find(step => step.name === 'Capture bounded process and heartbeat state');
+                const captureAgeMs = captureStep?.started_at ? Date.now() - Date.parse(captureStep.started_at) : 0;
+                if (captureJob?.status === 'in_progress' && captureStep?.status === 'in_progress' && captureAgeMs > 180000) {
+                  core.info(`Force-cancelling stalled read-only capture #${captureRun.run_number}; capture_age_ms=${captureAgeMs}`);
+                  await github.rest.actions.cancelWorkflowRun({ owner, repo, run_id: captureRunId });
+                  await github.request('POST /repos/{owner}/{repo}/actions/runs/{run_id}/force-cancel', { owner, repo, run_id: captureRunId });
+                } else {
+                  core.info(`Keeping read-only capture #${captureRun.run_number}; capture_step_status=${captureStep?.status}; capture_age_ms=${captureAgeMs}`);
+                }
+              }
+            }
+
             // Cancel only the timed-out read-only watchdog capture (never an install/qualification).
             if (branch === 'ops/a6-windows-agent-v2-heartbeat-preflight-v1') {
               const readOnlyRunId = 43556653509;
