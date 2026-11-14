@@ -46,6 +46,9 @@ jobs:
             Select-Object -ExpandProperty ServerAddresses
           $route = Get-NetRoute -DestinationPrefix '0.0.0.0/0' -InterfaceIndex $nic.InterfaceIndex -ErrorAction SilentlyContinue |
             Select-Object -First 1 InterfaceIndex,RouteMetric,State
+          $dhcp = Get-CimInstance Win32_NetworkAdapterConfiguration -ErrorAction SilentlyContinue |
+            Where-Object { $_.InterfaceIndex -eq $nic.InterfaceIndex } |
+            Select-Object -First 1 DHCPEnabled,DHCPServer
 
           $result = [pscustomobject]@{
             status = 'READ_ONLY_GATEWAY_IDENTITY_COMPLETE'
@@ -59,7 +62,8 @@ jobs:
               interface_index = $nic.InterfaceIndex
               ipv4_addresses = @($ipcfg.IPv4Address | ForEach-Object { $_.IPAddress })
               gateway_ipv4 = $gateway
-              dhcp_server_ipv4 = if ($ipcfg.NetProfile) { $null } else { $null }
+              dhcp_enabled = if ($dhcp) { [bool]$dhcp.DHCPEnabled } else { $null }
+              dhcp_server_ipv4 = if ($dhcp) { [string]$dhcp.DHCPServer } else { $null }
               dns_server_ipv4 = @($dns)
               default_route = $route
               gateway_neighbor_state = if ($neighbor) { [string]$neighbor.State } else { $null }
