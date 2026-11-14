@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - fix/a6-durable-recovery-v1
+      - ops/a6-windows-agent-v2-heartbeat-preflight-v1
     paths:
       - '.github/workflows/a6-cancel-stale-qualification.yml'
 
@@ -52,3 +53,26 @@ jobs:
               });
             }
             core.info(`A6_STALE_RUNS_CANCELLED=${stale.length}`);
+
+            // Free the sole ROBVG runner by cancelling only redundant read-only captures
+            // from the immediately preceding branch push. Never cancel physical qualification #43554851395.
+            if (branch === 'ops/a6-windows-agent-v2-heartbeat-preflight-v1') {
+              const readOnlyRunIds = [43554851321, 43554851346, 43554851396];
+              for (const runId of readOnlyRunIds) {
+                const { data: run } = await github.rest.actions.getWorkflowRun({
+                  owner,
+                  repo,
+                  run_id: runId,
+                });
+                if (
+                  run.head_branch === branch &&
+                  run.event === 'push' &&
+                  active.has(run.status)
+                ) {
+                  core.info(`Cancelling redundant read-only diagnostic run #${run.run_number} status=${run.status}`);
+                  await github.rest.actions.cancelWorkflowRun({ owner, repo, run_id: runId });
+                } else {
+                  core.info(`Keeping read-only run #${run.run_number} status=${run.status} branch=${run.head_branch}`);
+                }
+              }
+            }
