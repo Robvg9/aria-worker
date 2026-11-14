@@ -51,6 +51,17 @@ assert.match(gatewayHttpClient, /requestTimeoutMs = Math\.max\(1_000, Number\(op
 assert.match(gatewayHttpClient, /deadline = setTimeout\(/);
 assert.match(gatewayHttpClient, /incoming\.once\('aborted'/);
 assert.match(gatewayHttpClient, /incoming\.once\('close'/);
+assert.match(gatewayHttpClient, /socket\.once\('lookup'/);
+assert.match(gatewayHttpClient, /socket\.once\('connect'/);
+assert.match(gatewayHttpClient, /socket\.once\('secureConnect'/);
+assert.match(gatewayHttpClient, /timeout_kind: 'hard_deadline'/);
+assert.match(gatewayHttpClient, /timeout_kind: 'socket_inactivity'/);
+assert.match(agent, /last_gateway_heartbeat_transport:lastGatewayHeartbeatTransport/);
+assert.match(agent, /phase:typeof error\?\.phase==='string'\?error\.phase:null/);
+assert.match(agent, /failed_attempts:failedHeartbeatAttempts\.slice\(-2\)/);
+assert.match(preflight, /gateway_error_phase =/);
+assert.match(preflight, /gateway_transport_phase =/);
+assert.match(preflight, /event_loop_delay_max_ms =/);
 
 // Local process liveness and successful remote gateway ACK stay separate.
 assert.match(agent, /aria-windows-agent-heartbeat-v2/);
