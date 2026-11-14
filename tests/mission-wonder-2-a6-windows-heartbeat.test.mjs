@@ -212,11 +212,10 @@ assert.match(a6Installer, /A6_PROCESS_IDENTITY_CHECK=/);
 const restartBlockStart = a6Installer.indexOf("  $newPid = 0");
 const restartBlockEnd = a6Installer.indexOf("  $manifest.new_agent_pid = $newPid", restartBlockStart);
 assert.ok(restartBlockStart >= 0 && restartBlockEnd > restartBlockStart, "A6 restart identity block must be complete");
+const restartBlock = a6Installer.slice(restartBlockStart, restartBlockEnd);
 assert.match(restartBlock, /\$restartTimeoutSeconds = 240/);
 assert.match(restartBlock, /\$deadline = \(Get-Date\)\.AddSeconds\(\$restartTimeoutSeconds\)/);
 assert.doesNotMatch(restartBlock, /AddSeconds\(90\)/);
-
-const restartBlock = a6Installer.slice(restartBlockStart, restartBlockEnd);
 assert.ok(restartBlock.includes("candidateCommandLineAvailable"));
 assert.ok(restartBlock.includes("$candidateCommandLineCompatible = (-not $candidateCommandLineAvailable -or $candidateCommandLineMatches)"));
 assert.ok(restartBlock.includes("[string]$candidateStatus.agent_path -ieq $expectedAgentPath"));
