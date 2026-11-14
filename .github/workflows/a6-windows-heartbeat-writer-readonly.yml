@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - ops/a6-windows-agent-v2-heartbeat-preflight-v1
+      - fix/a6-durable-recovery-v1
     paths:
       - '.github/workflows/a6-windows-heartbeat-writer-readonly.yml'
 
@@ -252,3 +253,4 @@ jobs:
           retention-days: 14
 
 # Re-qualify active Windows heartbeat writers and task ownership after serial retry scheduler correction.
+# Re-run from the A6 recovery PR branch for full read-only writer attribution.
