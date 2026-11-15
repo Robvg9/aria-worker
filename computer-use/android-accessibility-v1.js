@@ -411,8 +411,6 @@ async function executeAndroidAccessibilityJob({ command, timeoutMs = 12000, reso
         if (receiverRetry.status === 'succeeded') {
           return { ...receiverRetry, metadata: { ...(receiverRetry.metadata || {}), attempt, recovery_attempted: true, fallback_from: 'android-local-http-window-missing' } };
         }
-      }
-      if (windowMissing) {
         return {
           status: 'failed',
           reason: 'android_ui_agent_owner_action_required',
