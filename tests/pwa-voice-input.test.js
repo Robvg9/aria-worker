@@ -21,6 +21,8 @@ assert.match(voice, /getRecognitionSupport\(\{ language: locale \}\)/, 'Android 
 assert.match(voice, /downloadRecognitionModel\(\{ language: targetLanguage \}\)/, 'Android dictation must explicitly request the missing Spanish model');
 assert.match(voice, /aria-voice-model-download-status/, 'Android dictation must consume native download progress');
 assert.match(voice, /recognizeUtterance\(\{/, 'Android voice conversation must use the native on-device recognizer');
+assert.match(voice, /max_duration_ms: 30000/, 'Android native dictation must allow a 30-second sentence window');
+assert.match(voice, /2,5 segundos de silencio/, 'Android native dictation must explain the silence-based finalization window');
 assert.match(voice, /cancelRecognition\(\)/, 'Android voice dictation must support explicit cancellation');
 assert.match(voice, /audioLeavesDevice === false/, 'native Android recognition must guarantee audio stays on device');
 assert.match(voice, /no enviará audio a un servicio remoto como alternativa/, 'unsupported native Android recognition must fail closed instead of silently uploading audio');
