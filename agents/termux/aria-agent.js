@@ -19,6 +19,10 @@ const SUPABASE_API_KEY = process.env.ARIA_SUPABASE_API_KEY
   || '';
 const HEARTBEAT_MS = Math.max(30_000, Number(process.env.ARIA_HEARTBEAT_MS || 60_000));
 const POLL_MS = Math.max(5_000, Number(process.env.ARIA_POLL_MS || 12_000));
+// Queue polling is opt-in. Default startup may report health but must not
+// claim Voice commands or executable jobs until an owner explicitly enables it.
+const CLAIMS_ENABLED = process.env.ARIA_AGENT_CLAIMS_ENABLED === 'true';
+const RECEIVER_HEALTH_PROBE_ENABLED = process.env.ARIA_AGENT_RECEIVER_PROBE_ENABLED === 'true';
 const MAX_OUTPUT = 256 * 1024;
 const DISPLAY_OUTPUT = 4096;
 
@@ -248,7 +252,7 @@ async function heartbeat() {
     } catch (error) {
       probe = { ok: false, reason: String(error?.message || error).slice(0, 180) };
     }
-    if (!probe.ok) {
+    if (!probe.ok && RECEIVER_HEALTH_PROBE_ENABLED) {
       try {
         fallback = await probeAndroidCommandReceiver({ timeoutMs: 2500 });
       } catch (error) {
@@ -348,6 +352,13 @@ async function claimAndExecute() {
 let stopping=false;
 let heartbeatTimer=null;
 async function loop(){
+  if (!CLAIMS_ENABLED) {
+    log('AGENT EXECUTION DISABLED — heartbeat-only mode; queue claims are off');
+    while (!stopping) {
+      await new Promise(r => setTimeout(r, POLL_MS));
+    }
+    return;
+  }
   let consecutivePollFailures=0;
   while(!stopping){
     const voiceState = await claimAndExecuteVoiceCommand();
