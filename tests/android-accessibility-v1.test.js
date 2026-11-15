@@ -24,7 +24,7 @@ assert.equal(LOCAL_IPC_HEALTH_URL, 'http://127.0.0.1:45874/health');
 const transport = fs.readFileSync(path.join(__dirname, '..', 'computer-use', 'android-accessibility-v1.js'), 'utf8');
 const localUid = typeof process.getuid === 'function' ? process.getuid() : 10123;
 assert.ok(transport.includes('com.robvg9.ariauiagent.CommandReceiver'));
-assert.ok(transport.includes('com.robvg9.ariauiagent.MainActivity'));
+assert.ok(!transport.includes('MainActivity'), 'Termux must not launch the non-exported ARIA activity');
 const agent = fs.readFileSync(path.join(__dirname, '..', 'agents', 'termux', 'aria-agent.js'), 'utf8');
 const manifest = fs.readFileSync(path.join(__dirname, '..', 'android-ui-agent', 'app', 'src', 'main', 'AndroidManifest.xml'), 'utf8');
 const receiver = fs.readFileSync(path.join(__dirname, '..', 'android-ui-agent', 'app', 'src', 'main', 'java', 'com', 'robvg9', 'ariauiagent', 'CommandReceiver.kt'), 'utf8');
@@ -49,7 +49,7 @@ assert.ok(transport.includes('const userId = localAndroidUserId()'), 'Android re
 assert.ok(transport.includes("'broadcast', '--user', String(userId)"), 'Android receiver must target the invoking profile, not USER_CURRENT (-2)');
 assert.ok(!transport.includes("'--user', '0'"), 'Android receiver must not hard-code Android user 0');
 assert.ok(transport.includes("'broadcast',"), 'Android receiver fallback must use a broadcast to the installed receiver');
-assert.ok(transport.includes('recoverAndroidUiAgentProcess'), 'IPC retries must include Android UI Agent process recovery');
+assert.ok(transport.includes('android_ui_agent_owner_action_required'), 'failed window recovery must return an explicit owner-action gate');
 assert.ok(transport.includes('function resolveAndroidAmPath'), 'Termux app-compatible am wrapper resolver must exist');
 assert.ok(transport.includes('spawn(resolveAndroidAmPath(), ['), 'Android IPC and recovery must use the resolved Termux am wrapper');
 assert.equal(
