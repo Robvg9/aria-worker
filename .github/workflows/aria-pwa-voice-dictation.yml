@@ -55,3 +55,39 @@ jobs:
           npm run build --prefix pwa
           grep -R -q "${GITHUB_SHA}" pwa/dist
           echo "ARIA_PWA_VOICE_DICTATION_BUILD_SHA=${GITHUB_SHA}"
+
+      - name: Deploy isolated Cloudflare Worker Preview (never production)
+        if: github.ref == 'refs/heads/fix/android-ui-agent-unified-app-bridge-20261107'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          test -n "${CLOUDFLARE_API_TOKEN}" || { echo "CLOUDFLARE_API_TOKEN is missing"; exit 1; }
+          test -n "${CLOUDFLARE_ACCOUNT_ID}" || { echo "CLOUDFLARE_ACCOUNT_ID is missing"; exit 1; }
+
+          # Match production's build identity substitution without changing the repo checkout.
+          sed -i "s/__PWA_BUILD__/${GITHUB_SHA}/g" worker.js
+
+          # No ARIA_RUNTIME_SHARED_SECRET is supplied to this Preview.
+          PREVIEW_NAME="${GITHUB_REF_NAME//\//-}"
+          preview_json="$(npx --yes wrangler@latest preview --name "${PREVIEW_NAME}" --message "Android native dictation QA ${GITHUB_SHA}" --json)"
+          printf '%s\n' "${preview_json}"
+
+          preview_url="$(printf '%s\n' "${preview_json}" | jq -er '.preview.urls[0]')"
+          case "${preview_url}" in
+            https://*) ;;
+            *) echo "Unexpected Preview URL: ${preview_url}"; exit 1 ;;
+          esac
+
+          {
+            echo "### Cloudflare Worker Preview"
+            echo "- Branch: ${GITHUB_REF_NAME}"
+            echo "- Exact source SHA: ${GITHUB_SHA}"
+            echo "- Preview URL: ${preview_url}"
+            echo "- PWA route: ${preview_url}/pwa/"
+            echo "- Production deployment: untouched"
+            echo "- Runtime shared secret: intentionally not copied to Preview"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+          echo "ARIA_WORKER_PREVIEW_URL=${preview_url}"
