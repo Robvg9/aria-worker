@@ -5,6 +5,13 @@ const path = require('path');
 const file = path.join(__dirname, '..', 'supabase', 'functions', 'aria-device-gateway', 'index.ts');
 const source = fs.readFileSync(file, 'utf8');
 
+const pausedSet = source.match(/const PAUSED_MISSION_ENDPOINTS = new Set\\(\\[([\\s\\S]*?)\\]\\);/);
+assert.ok(pausedSet, 'global mission pause set must be defined');
+for (const endpoint of ["/v1/jobs/claim", "/v1/voice/commands/claim"]) {
+  assert.ok(pausedSet[1].includes(JSON.stringify(endpoint)), `global execution pause must block ${endpoint}`);
+}
+assert.ok(source.includes('if(MISSION_EXECUTION_PAUSED&&(PAUSED_MISSION_ENDPOINTS.has(p)'), 'pause guard must run before device routes');
+
 assert.match(source, /async function executionJobGatewayCall\(kind:string,args:any\)/);
 assert.match(source, /supabase\.rpc\('claim_execution_job_gateway'/);
 assert.match(source, /supabase\.rpc\('start_execution_job_gateway'/);
