@@ -47,3 +47,13 @@ After the one-time setup, reboot Android. The expected lifecycle is:
 ## Stop / resume
 
 Create `~/.aria-agent.stop` before starting the supervisor to request a clean stop. Remove it to allow the next supervisor start to resume. The boot launcher also clears the stale stop marker during a new Android boot. The supervisor itself does not print or persist the device token.
+
+## Safe default / explicit execution gate
+
+A manual supervisor start is safe by default:
+
+- `ARIA_AGENT_CLAIMS_ENABLED` defaults to `false`. The agent sends device heartbeat and checks local IPC health, but does **not** poll `/v1/voice/commands/claim` or `/v1/jobs/claim`.
+- Set `ARIA_AGENT_CLAIMS_ENABLED=true` in the private `~/.aria-agent.env` only after an explicit owner gate authorizes queue execution for this device.
+- `ARIA_AGENT_RECEIVER_PROBE_ENABLED` defaults to `false`; it does not probe the Android broadcast receiver during heartbeat. This avoids relying on an Android 14+ Termux broadcast path without an acknowledgement.
+- `ARIA_AGENT_WAKE_LOCK` defaults to `false`; the supervisor does not hold a wake lock unless explicitly enabled.
+- Termux:Boot/autostart remains a separate owner decision and is not installed by a normal manual start.
