@@ -362,7 +362,9 @@ export function VoiceInputButton({
     if (audioFile) onAudioRef.current?.(audioFile);
     const transcript = String(transcriptValue || '').trim();
     if (!transcript) {
-      setNotice('No se obtuvo una transcripción. Habla con claridad e inténtalo de nuevo.');
+      setNotice(audioFile
+        ? 'Audio adjuntado, pero no se obtuvo la transcripción local. Añade contexto y envíalo.'
+        : 'No se obtuvo una transcripción. Habla con claridad e inténtalo de nuevo.');
       return;
     }
     if (autoSubmit) {
