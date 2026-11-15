@@ -53,7 +53,16 @@ jobs:
         run: |
           set -euo pipefail
           npm run build --prefix pwa
-          grep -R -q "${GITHUB_SHA}" pwa/dist
+          grep -q "${GITHUB_SHA}" pwa/dist/index.html
+          grep -q "sw-${GITHUB_SHA}.js" pwa/dist/index.html
+          grep -R -q "${GITHUB_SHA}" pwa/dist/assets
+
+          # Mirror the exact asset naming contract used by the production pipeline.
+          cp pwa/dist/index.html "pwa/dist/index-${GITHUB_SHA}.html"
+          cp pwa/dist/manifest.json "pwa/dist/manifest-${GITHUB_SHA}.json"
+          sed "s/__BUILD__/${GITHUB_SHA}/g" pwa/public/sw.js > "pwa/dist/sw-${GITHUB_SHA}.js"
+          grep -q "aria-pwa-${GITHUB_SHA}" "pwa/dist/sw-${GITHUB_SHA}.js"
+          rm -f pwa/dist/index.html
           echo "ARIA_PWA_VOICE_DICTATION_BUILD_SHA=${GITHUB_SHA}"
 
       - name: Deploy isolated Cloudflare Worker Preview (never production)
@@ -74,11 +83,34 @@ jobs:
           preview_json="$(npx --yes wrangler@latest preview --name "${PREVIEW_NAME}" --message "Android native dictation QA ${GITHUB_SHA}" --json)"
           printf '%s\n' "${preview_json}"
 
-          preview_url="$(printf '%s\n' "${preview_json}" | jq -er '.preview.urls[0]')"
-          case "${preview_url}" in
-            https://*) ;;
-            *) echo "Unexpected Preview URL: ${preview_url}"; exit 1 ;;
-          esac
+          # Wrangler emits progress text before its JSON result; parse from the JSON object.
+          preview_url="$(PREVIEW_JSON="${preview_json}" node -e '
+            const raw = process.env.PREVIEW_JSON || "";
+            const start = raw.indexOf("{");
+            if (start < 0) throw new Error("Wrangler JSON payload not found");
+            const result = JSON.parse(raw.slice(start));
+            const url = result && result.preview && result.preview.urls && result.preview.urls[0];
+            if (typeof url !== "string" || !url.startsWith("https://")) {
+              throw new Error("Cloudflare did not return a valid Preview URL");
+            }
+            process.stdout.write(url);
+          ')"
+
+          # Verify the PWA route and exact build identity on the Preview hostname.
+          preview_html="${RUNNER_TEMP}/aria-pwa-preview.html"
+          preview_version_headers="${RUNNER_TEMP}/aria-pwa-preview.headers"
+          preview_http="$(curl --silent --show-error --location --retry 8 --retry-all-errors --retry-delay 2 --dump-header "${preview_version_headers}" --output "${preview_html}" --write-out '%{http_code}' "${preview_url}/pwa/")"
+          test "${preview_http}" = "200"
+          test -s "${preview_html}"
+          preview_version="$(curl --fail --silent --show-error --location --retry 8 --retry-all-errors --retry-delay 2 "${preview_url}/pwa/version.json")"
+          PREVIEW_VERSION_JSON="${preview_version}" node -e '
+            const v = JSON.parse(process.env.PREVIEW_VERSION_JSON || "{}");
+            if (v.ok !== true || v.build !== process.env.GITHUB_SHA) {
+              throw new Error("Preview build identity mismatch: " + JSON.stringify(v));
+            }
+            console.log("ARIA_PWA_PREVIEW_HTTP=200");
+            console.log("ARIA_PWA_PREVIEW_BUILD_SHA=" + v.build);
+          '
 
           {
             echo "### Cloudflare Worker Preview"
