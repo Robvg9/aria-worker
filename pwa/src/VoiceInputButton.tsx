@@ -210,6 +210,8 @@ export function VoiceInputButton({
       try {
         result = await bridge.recognizeUtterance({ max_duration_ms: 8000, language: recognitionLanguage });
       } catch (cause) {
+        // A user cancellation must never be followed by an automatic retry.
+        if (!activeRef.current || !nativeRecognitionRef.current) return;
         const code = cause instanceof Error ? cause.message : 'voice_asr_failed';
         const mayUseGeneralSpanish = code === 'voice_asr_language_unsupported'
           || code === 'voice_asr_language_unavailable';
