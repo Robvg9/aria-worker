@@ -97,10 +97,10 @@ jobs:
                 throw new Error("Cloudflare did not return a valid " + label + " URL");
               }
             }
-            process.stdout.write(branchUrl + "\\n" + deploymentUrl);
+            process.stdout.write(JSON.stringify({branchUrl, deploymentUrl}));
           ')"
-          branch_preview_url="$(printf '%s\\n' "${preview_meta}" | sed -n '1p')"
-          preview_url="$(printf '%s\\n' "${preview_meta}" | sed -n '2p')"
+          branch_preview_url="$(PREVIEW_META="${preview_meta}" node -e 'process.stdout.write(JSON.parse(process.env.PREVIEW_META).branchUrl)')"
+          preview_url="$(PREVIEW_META="${preview_meta}" node -e 'process.stdout.write(JSON.parse(process.env.PREVIEW_META).deploymentUrl)')"
           echo "ARIA_WORKER_BRANCH_PREVIEW_URL=${branch_preview_url}"
           echo "ARIA_WORKER_IMMUTABLE_PREVIEW_URL=${preview_url}"
 
