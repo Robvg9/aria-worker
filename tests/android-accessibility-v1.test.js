@@ -9,6 +9,7 @@ const {
   LOCAL_IPC_HEALTH_URL,
   probeLocalIpcHealth,
   executeAndroidAccessibilityJob,
+  isBroadcastSentWithoutResult,
   resolveAndroidAmPath,
   loadIpcToken,
   resolveIpcTokenFile
@@ -20,6 +21,22 @@ const accessibilityService = fs.readFileSync(path.join(__dirname, '..', 'android
 assert.equal(PACKAGE, 'com.robvg9.aria.unified');
 assert.equal(LOCAL_IPC_URL, 'http://127.0.0.1:45874/execute');
 assert.equal(LOCAL_IPC_HEALTH_URL, 'http://127.0.0.1:45874/health');
+
+assert.equal(
+  isBroadcastSentWithoutResult('Broadcast sent without waiting for result'),
+  true,
+  'Android 14+ TermuxAm must be classified as submitted without a receiver acknowledgement',
+);
+assert.equal(
+  isBroadcastSentWithoutResult('Broadcast completed: result=0, data="eyJvayI6dHJ1ZX0="'),
+  false,
+  'an ordered broadcast with a result remains verifiable',
+);
+assert.equal(
+  isBroadcastSentWithoutResult(''),
+  false,
+  'empty output must not be misclassified as a submitted broadcast',
+);
 
 const transport = fs.readFileSync(path.join(__dirname, '..', 'computer-use', 'android-accessibility-v1.js'), 'utf8');
 const localUid = typeof process.getuid === 'function' ? process.getuid() : 10123;
