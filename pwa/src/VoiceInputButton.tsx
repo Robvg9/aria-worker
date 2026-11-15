@@ -48,6 +48,19 @@ const ERROR_MESSAGES: Record<string, string> = {
   aborted: 'Dictado detenido.'
 };
 
+const NATIVE_ERROR_MESSAGES: Record<string, string> = {
+  voice_asr_permission_required: 'Android no concedió el permiso del micrófono. Actívalo para ARIA Unificada y vuelve a intentarlo.',
+  voice_asr_on_device_unavailable: 'Este teléfono no tiene disponible el reconocimiento de voz sin conexión. No se enviará el audio a un servicio remoto.',
+  voice_asr_language_invalid: 'El idioma de reconocimiento no está disponible en este teléfono.',
+  voice_asr_language_unsupported: 'El reconocimiento local no admite el idioma seleccionado.',
+  voice_asr_language_unavailable: 'Activa o descarga el paquete de reconocimiento de español sin conexión en Android.',
+  voice_asr_no_match: 'No pude reconocer palabras. Habla cerca del micrófono y haz una pausa al terminar.',
+  voice_asr_timeout: 'Se agotó el tiempo de escucha. Pulsa Dictar y prueba una frase más corta.',
+  voice_asr_listener_active: 'Detén primero la escucha residente antes de usar Dictar.',
+  voice_asr_busy: 'Ya hay otro reconocimiento de voz en curso.',
+  voice_asr_start_failed: 'Android no pudo iniciar el reconocimiento local.'
+};
+
 export function VoiceInputButton({
   onTranscript,
   onAudio,
@@ -61,6 +74,7 @@ export function VoiceInputButton({
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const sessionRef = useRef<VoiceSession | null>(null);
   const activeRef = useRef(false);
+  const nativeRecognitionRef = useRef(false);
   const onTranscriptRef = useRef(onTranscript);
   const onAudioRef = useRef(onAudio);
   const [listening, setListening] = useState(false);
@@ -72,12 +86,35 @@ export function VoiceInputButton({
   useEffect(() => () => {
     activeRef.current = false;
     const session = sessionRef.current;
+    if (nativeRecognitionRef.current) {
+      nativeRecognitionRef.current = false;
+      try { void (window as any).ariaVoiceV4?.cancelRecognition?.(); } catch {}
+    }
     try { session?.recognition?.abort?.(); } catch {}
     try { if (session?.recorder?.state === 'recording') session.recorder.stop(); } catch {}
     session?.stream?.getTracks().forEach(track => track.stop());
     recognitionRef.current = null;
     sessionRef.current = null;
   }, []);
+
+  async function deliverTranscript(transcript: string, audioAttached = false, audioError = '') {
+    if (autoSubmit) {
+      setNotice('Transcripción recibida. ARIA está preparando tu respuesta…');
+      try {
+        const result = await onTranscriptRef.current(transcript);
+        setNotice(result === false
+          ? 'ARIA no pudo completar la respuesta. Revisa el error del chat.'
+          : 'Respuesta recibida. Puedes hablar de nuevo.');
+      } catch {
+        setNotice('No se pudo completar la respuesta. Revisa el error del chat.');
+      }
+      return;
+    }
+    onTranscriptRef.current(transcript);
+    if (audioAttached) setNotice('Audio adjuntado y transcripción insertada. Revisa el texto y pulsa Enviar.');
+    else if (audioError) setNotice('Transcripción insertada; no se pudo adjuntar el audio: ' + audioError);
+    else setNotice('Texto transcrito. Revísalo y pulsa Enviar.');
+  }
 
   function settle(session: VoiceSession) {
     if (session.finished || !session.recognitionEnded || !session.recorderEnded) return;
@@ -91,20 +128,7 @@ export function VoiceInputButton({
     if (session.audioFile) onAudioRef.current?.(session.audioFile);
     const transcript = session.transcript.trim();
     if (transcript) {
-      if (autoSubmit) {
-        setNotice('Transcripción recibida. ARIA está preparando tu respuesta…');
-        Promise.resolve()
-          .then(() => onTranscriptRef.current(transcript))
-          .then(result => setNotice(result === false
-            ? 'ARIA no pudo completar la respuesta. Revisa el error del chat.'
-            : 'Respuesta recibida. Puedes hablar de nuevo.'))
-          .catch(() => setNotice('No se pudo completar la respuesta. Revisa el error del chat.'));
-      } else {
-        onTranscriptRef.current(transcript);
-        if (session.audioFile) setNotice('Audio adjuntado y transcripción insertada. Revisa el texto y pulsa Enviar.');
-        else if (session.audioError) setNotice('Transcripción insertada; no se pudo adjuntar el audio: ' + session.audioError);
-        else setNotice('Transcripción insertada. Revísala y envíala.');
-      }
+      void deliverTranscript(transcript, Boolean(session.audioFile), session.audioError);
     } else if (session.audioFile) {
       setNotice('Audio adjuntado, pero no se obtuvo la transcripción automática. Añade contexto y envíalo.');
     } else {
@@ -171,8 +195,49 @@ export function VoiceInputButton({
     }
   }
 
+  async function startNativeRecognition(bridge: any, locale: string) {
+    activeRef.current = true;
+    nativeRecognitionRef.current = true;
+    setListening(true);
+    setNotice('Escuchando en este Android… di tu frase y haz una pausa para terminar. El audio no se adjunta.');
+
+    try {
+      const result = await bridge.recognizeUtterance({ max_duration_ms: 8000, language: locale });
+      if (!activeRef.current || !nativeRecognitionRef.current) return;
+      if (!result || typeof result.transcript !== 'string'
+          || !result.transcript.trim() || result.transcript.length > 2000
+          || result.language !== locale || result.recognitionMode !== 'on_device'
+          || !Number.isSafeInteger(result.durationMs)
+          || result.durationMs < 0 || result.durationMs > 11000) {
+        throw new Error('voice_asr_response_invalid');
+      }
+      activeRef.current = false;
+      nativeRecognitionRef.current = false;
+      setListening(false);
+      await deliverTranscript(result.transcript.trim());
+    } catch (cause) {
+      if (!activeRef.current || !nativeRecognitionRef.current) return;
+      activeRef.current = false;
+      nativeRecognitionRef.current = false;
+      setListening(false);
+      const code = cause instanceof Error ? cause.message : 'voice_asr_failed';
+      setNotice(NATIVE_ERROR_MESSAGES[code] || 'No se pudo transcribir la voz en este Android (' + code + ').');
+    }
+  }
+
   function toggleDictation() {
     if (listening) {
+      if (nativeRecognitionRef.current) {
+        activeRef.current = false;
+        nativeRecognitionRef.current = false;
+        setListening(false);
+        setNotice('Cancelando dictado…');
+        const bridge = (window as any).ariaVoiceV4;
+        Promise.resolve(bridge?.cancelRecognition?.())
+          .then(() => setNotice('Dictado cancelado. No se envió ningún audio.'))
+          .catch(() => setNotice('No se pudo cancelar el dictado. Cierra y vuelve a abrir la pantalla PWA.'));
+        return;
+      }
       activeRef.current = false;
       const session = sessionRef.current;
       if (session?.recorder?.state === 'recording') {
@@ -195,6 +260,28 @@ export function VoiceInputButton({
     }
 
     const speechWindow = window as any;
+    if (!captureAudio && (speechWindow.ReactNativeWebView || speechWindow.__ariaVoiceV4NativeContext)) {
+      const nativeContext = speechWindow.__ariaVoiceV4NativeContext;
+      if (!nativeContext) {
+        setNotice('El puente de voz de ARIA todavía se está conectando. Espera a que la PWA termine de cargar y vuelve a pulsar Dictar.');
+        return;
+      }
+      if (nativeContext.contract !== 'aria-native-bridge-v2' || nativeContext.platform !== 'android') {
+        setNotice('El puente nativo de voz no corresponde a este dispositivo Android.');
+        return;
+      }
+      const capability = nativeContext.voice?.speechRecognition;
+      const bridge = speechWindow.ariaVoiceV4;
+      if (capability?.available !== true || capability.mode !== 'on_device'
+          || capability.explicitActivationOnly !== true || capability.audioLeavesDevice !== false
+          || typeof bridge?.recognizeUtterance !== 'function'
+          || typeof bridge?.cancelRecognition !== 'function') {
+        setNotice('El reconocimiento local sin conexión no está disponible en este teléfono. No grabaré ni adjuntaré un audio como sustituto.');
+        return;
+      }
+      void startNativeRecognition(bridge, resolveVoiceRecognitionLocale(navigator.language, navigator.languages));
+      return;
+    }
     const SpeechRecognitionConstructor = speechWindow.SpeechRecognition || speechWindow.webkitSpeechRecognition;
     if (!SpeechRecognitionConstructor) {
       setNotice('Este navegador no admite transcripción automática por voz. Abre ARIA en Chrome actualizado y permite el micrófono.');
