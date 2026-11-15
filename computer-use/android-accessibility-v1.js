@@ -32,6 +32,7 @@ const PACKAGE = 'com.robvg9.aria.unified';
 const RECEIVER_COMPONENT = 'com.robvg9.ariauiagent.CommandReceiver';
 const LOCAL_IPC_URL = 'http://127.0.0.1:45874/execute';
 const LOCAL_IPC_HEALTH_URL = 'http://127.0.0.1:45874/health';
+const LOCAL_IPC_HEARTBEAT_URL = 'http://127.0.0.1:45874/heartbeat';
 const SECRET_REF_PATTERN = /^secret:\/\/rwht\/[A-Za-z0-9._:-]+$/;
 const REQUIRED_IPC_PROTOCOL = 'aria-android-ui-agent-ipc-v2';
 const ANDROID_UID_PER_USER = 100000;
@@ -290,6 +291,108 @@ async function probeLocalIpcHealth({ timeoutMs = 1500 } = {}) {
   }
 }
 
+
+async function sendLocalIpcHeartbeat({
+  timeoutMs = 1500,
+  env = process.env,
+  readFileSync = fs.readFileSync,
+  fetchImpl = globalThis.fetch
+} = {}) {
+  const token = loadIpcToken(env, readFileSync);
+  if (!token) {
+    return {
+      ok: false,
+      reason: 'android_ipc_credential_missing',
+      metadata: { transport: 'android-local-http', url: LOCAL_IPC_HEARTBEAT_URL }
+    };
+  }
+
+  const effectiveTimeout = Math.max(300, Math.min(Number(timeoutMs) || 1500, 5000));
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), effectiveTimeout);
+  try {
+    const response = await fetchImpl(LOCAL_IPC_HEARTBEAT_URL, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${token}`, connection: 'close' },
+      signal: controller.signal
+    });
+    const text = await response.text();
+    let payload = null;
+    try { payload = text ? JSON.parse(text) : null; } catch (_) {}
+
+    if (!response.ok) {
+      return {
+        ok: false,
+        reason: payload?.reason || `android_local_ipc_heartbeat_http_${response.status}`,
+        status: response.status,
+        metadata: { transport: 'android-local-http', url: LOCAL_IPC_HEARTBEAT_URL }
+      };
+    }
+    if (!payload || payload.ok !== true) {
+      return {
+        ok: false,
+        reason: payload?.reason || 'android_local_ipc_heartbeat_invalid_response',
+        metadata: { transport: 'android-local-http', url: LOCAL_IPC_HEARTBEAT_URL }
+      };
+    }
+    if (payload.package !== PACKAGE) {
+      return {
+        ok: false,
+        reason: 'android_local_ipc_package_mismatch',
+        metadata: {
+          transport: 'android-local-http',
+          url: LOCAL_IPC_HEARTBEAT_URL,
+          expected_package: PACKAGE,
+          actual_package: payload.package || null
+        }
+      };
+    }
+    if (payload.protocol !== REQUIRED_IPC_PROTOCOL) {
+      return {
+        ok: false,
+        reason: 'android_local_ipc_protocol_mismatch',
+        metadata: {
+          transport: 'android-local-http',
+          url: LOCAL_IPC_HEARTBEAT_URL,
+          expected_protocol: REQUIRED_IPC_PROTOCOL,
+          actual_protocol: payload.protocol || null
+        }
+      };
+    }
+    const buildId = typeof payload.build_id === 'string' ? payload.build_id.trim() : '';
+    if (!buildId) {
+      return {
+        ok: false,
+        reason: 'android_local_ipc_build_identity_missing',
+        metadata: { transport: 'android-local-http', url: LOCAL_IPC_HEARTBEAT_URL }
+      };
+    }
+    return {
+      ok: true,
+      reason: 'android_local_ipc_heartbeat_confirmed',
+      metadata: {
+        transport: 'android-local-http',
+        url: LOCAL_IPC_HEARTBEAT_URL,
+        package: payload.package,
+        protocol: payload.protocol,
+        build_id: buildId,
+        heartbeat_at_ms: Number(payload.heartbeat_at_ms) || null,
+        fresh_for_ms: Number(payload.fresh_for_ms) || null
+      }
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      reason: error?.name === 'AbortError'
+        ? `android_local_ipc_heartbeat_timeout_${effectiveTimeout}ms`
+        : `android_local_ipc_heartbeat_unreachable:${String(error?.message || error).slice(0, 160)}`,
+      metadata: { transport: 'android-local-http', url: LOCAL_IPC_HEARTBEAT_URL }
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function executeLocalIpcJob({ request, timeoutMs = 12000 } = {}) {
   const token = loadIpcToken();
   if (!token) {
@@ -514,6 +617,8 @@ module.exports = Object.freeze({
   PACKAGE,
   LOCAL_IPC_URL,
   LOCAL_IPC_HEALTH_URL,
+  LOCAL_IPC_HEARTBEAT_URL,
+  sendLocalIpcHeartbeat,
   loadIpcToken,
   resolveIpcTokenFile,
   isBroadcastSentWithoutResult,

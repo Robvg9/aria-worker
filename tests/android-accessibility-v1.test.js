@@ -7,6 +7,8 @@ const {
   PACKAGE,
   LOCAL_IPC_URL,
   LOCAL_IPC_HEALTH_URL,
+  LOCAL_IPC_HEARTBEAT_URL,
+  sendLocalIpcHeartbeat,
   probeLocalIpcHealth,
   executeAndroidAccessibilityJob,
   isBroadcastSentWithoutResult,
@@ -21,6 +23,7 @@ const accessibilityService = fs.readFileSync(path.join(__dirname, '..', 'android
 assert.equal(PACKAGE, 'com.robvg9.aria.unified');
 assert.equal(LOCAL_IPC_URL, 'http://127.0.0.1:45874/execute');
 assert.equal(LOCAL_IPC_HEALTH_URL, 'http://127.0.0.1:45874/health');
+assert.equal(LOCAL_IPC_HEARTBEAT_URL, 'http://127.0.0.1:45874/heartbeat');
 
 assert.equal(
   isBroadcastSentWithoutResult('Broadcast sent without waiting for result'),
@@ -53,6 +56,11 @@ assert.ok(transport.includes('http://127.0.0.1:45874/execute'));
 assert.ok(transport.includes('http://127.0.0.1:45874/health'));
 assert.ok(transport.includes('android-local-http'));
 assert.ok(transport.includes('probeLocalIpcHealth'));
+assert.ok(transport.includes('sendLocalIpcHeartbeat'));
+assert.ok(agent.includes('LOCAL_IPC_HEARTBEAT_MS'));
+assert.ok(agent.includes('setInterval(localIpcHeartbeat,LOCAL_IPC_HEARTBEAT_MS)'));
+assert.ok(agent.includes('await localIpcHeartbeat()'), 'safe startup must immediately verify the local app heartbeat');
+assert.ok(agent.includes('LOCAL IPC HEARTBEAT OK package='), 'successful local pulse must include package and build identity');
 assert.ok(accessibilityService.includes('val maxNodes = payload.optInt("max_nodes", 240).coerceIn(32, 300)'), 'Android UI tree must use a bounded node budget for IPC responsiveness');
 assert.ok(accessibilityService.includes('NodeBudget(maxCount = maxNodes)'), 'observe and post-action UI trees must honor the bounded node budget');
 assert.ok(accessibilityService.includes('installedApprovedBrowsers: List<String> by lazy'), 'installed browser package checks must be cached per service');
@@ -171,6 +179,59 @@ assert.ok(!manifest.includes('ARIA Browser Bridge'));
   const originalToken = process.env.ARIA_IPC_TOKEN;
   process.env.ARIA_IPC_TOKEN = VALID_TOKEN;
   try {
+    // The supervisor's local heartbeat must authenticate and verify exact app identity.
+    const heartbeatCalls = [];
+    const localPulse = await sendLocalIpcHeartbeat({
+      env: { ARIA_IPC_TOKEN: VALID_TOKEN },
+      fetchImpl: async (url, options) => {
+        heartbeatCalls.push({ url, options });
+        return {
+          ok: true,
+          status: 200,
+          text: async () => JSON.stringify({
+            ok: true,
+            package: PACKAGE,
+            protocol: 'aria-android-ui-agent-ipc-v2',
+            build_id: 'build-17-sha',
+            heartbeat_at_ms: 1234,
+            fresh_for_ms: 45000
+          })
+        };
+      }
+    });
+    assert.equal(localPulse.ok, true);
+    assert.equal(localPulse.metadata.package, PACKAGE);
+    assert.equal(localPulse.metadata.protocol, 'aria-android-ui-agent-ipc-v2');
+    assert.equal(localPulse.metadata.build_id, 'build-17-sha');
+    assert.equal(heartbeatCalls.length, 1);
+    assert.equal(heartbeatCalls[0].url, LOCAL_IPC_HEARTBEAT_URL);
+    assert.equal(heartbeatCalls[0].options.method, 'POST');
+    assert.equal(heartbeatCalls[0].options.headers.authorization, `Bearer ${VALID_TOKEN}`);
+
+    const mismatchedPulse = await sendLocalIpcHeartbeat({
+      env: { ARIA_IPC_TOKEN: VALID_TOKEN },
+      fetchImpl: async () => ({
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({
+          ok: true,
+          package: 'com.robvg9.aria',
+          protocol: 'aria-android-ui-agent-ipc-v2',
+          build_id: 'legacy-build'
+        })
+      })
+    });
+    assert.equal(mismatchedPulse.ok, false);
+    assert.equal(mismatchedPulse.reason, 'android_local_ipc_package_mismatch');
+
+    const missingCredentialPulse = await sendLocalIpcHeartbeat({
+      env: {},
+      readFileSync: () => { throw new Error('missing credential'); },
+      fetchImpl: async () => { throw new Error('must not call fetch without credential'); }
+    });
+    assert.equal(missingCredentialPulse.ok, false);
+    assert.equal(missingCredentialPulse.reason, 'android_ipc_credential_missing');
+
     let calls = 0;
     global.fetch = async (url, options) => {
       calls += 1;
