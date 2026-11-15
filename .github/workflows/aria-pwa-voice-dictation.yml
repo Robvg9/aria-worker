@@ -1,0 +1,54 @@
+name: ARIA PWA Voice Dictation Contract
+
+on:
+  push:
+    branches:
+      - fix/android-ui-agent-unified-app-bridge-20261107
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'pwa/src/VoiceInputButton.tsx'
+      - 'pwa/src/App.tsx'
+      - 'tests/pwa-voice-input.test.js'
+      - '.github/workflows/aria-pwa-voice-dictation.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: aria-pwa-voice-dictation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contract-and-build:
+    name: Native dictation contract + exact PWA build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Validate chat dictation and Android native bridge contract
+        run: node tests/pwa-voice-input.test.js
+
+      - name: Validate mobile Chat layout contract
+        run: node tests/pwa-home-chat-mobile.test.js
+
+      - name: Install locked PWA dependencies
+        run: npm ci --prefix pwa
+
+      - name: Build exact PWA assets
+        env:
+          VITE_BUILD: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          npm run build --prefix pwa
+          grep -R -q "${GITHUB_SHA}" pwa/dist
+          echo "ARIA_PWA_VOICE_DICTATION_BUILD_SHA=${GITHUB_SHA}"
