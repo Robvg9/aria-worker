@@ -32,7 +32,12 @@ assert.match(voiceCleanup, /nativeRecognitionActiveRef\.current/);
 assert.match(voiceCleanup, /activeBridge\.cancelRecognition\(\)/, 'unmount must cancel an active native recognizer');
 assert.match(voice, /audioLeavesDevice === false/, 'native Android recognition must guarantee audio stays on device');
 assert.match(voice, /no enviará audio a un servicio remoto como alternativa/, 'unsupported native Android recognition must fail closed instead of silently uploading audio');
-assert.match(voice, /captureAudio\) \{[\s\S]*toggleDictation\(true, model\.language\)/, 'audio attachment surfaces must keep their existing recorder after native model preparation');
+assert.match(voice, /recognizeUtterance\(\{[\s\S]*include_audio: captureAudio/, 'Android audio attachments must use native recognition and request its same captured PCM stream');
+assert.match(voice, /makeNativeAudioAttachment\(result\.audio\)/, 'native PCM must be wrapped into a WAV attachment');
+assert.match(voice, /onAudioRef\.current\?\.\(audioFile\)/, 'native WAV must enter the ordinary PWA attachment queue');
+assert.doesNotMatch(voice, /toggleDictation\(true, model\.language\)/, 'Android attachment capture must not hand off to competing Web Speech and MediaRecorder clients');
+assert.match(voice, /writeAscii\(0, 'RIFF'\)/, 'native PCM attachment must be wrapped in a valid WAV container');
+assert.match(voice, /audio\.byteLength > maxBytes/, 'native audio attachment must enforce a bounded payload');
 
 assert.match(voice, /recognition\.lang = locale/);
 assert.match(voice, /startRecognition\(preparedLanguage \|\| resolveVoiceRecognitionLocale\(navigator\.language, navigator\.languages\)\)/, 'browser fallback must reuse the regional locale selected by the native offline model manager');
