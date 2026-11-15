@@ -119,6 +119,14 @@ export function VoiceInputButton({
 
   useEffect(() => () => {
     activeRef.current = false;
+    if (nativeRecognitionActiveRef.current) {
+      nativeRecognitionActiveRef.current = false;
+      const activeBridge = nativeBridgeRef.current;
+      if (activeBridge) {
+        try { void activeBridge.cancelRecognition().catch(() => undefined); } catch {}
+      }
+    }
+    nativeBridgeRef.current = null;
     const session = sessionRef.current;
     try { session?.recognition?.abort?.(); } catch {}
     try { if (session?.recorder?.state === 'recording') session.recorder.stop(); } catch {}
