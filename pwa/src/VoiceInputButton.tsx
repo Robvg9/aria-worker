@@ -113,7 +113,7 @@ export function VoiceInputButton({
     onTranscriptRef.current(transcript);
     if (audioAttached) setNotice('Audio adjuntado y transcripción insertada. Revisa el texto y pulsa Enviar.');
     else if (audioError) setNotice('Transcripción insertada; no se pudo adjuntar el audio: ' + audioError);
-    else setNotice('Texto transcrito. Revísalo y pulsa Enviar.');
+    else setNotice('Transcripción insertada. Revísala y envíala.');
   }
 
   function settle(session: VoiceSession) {
@@ -374,11 +374,11 @@ export function VoiceInputButton({
         type='button'
         disabled={disabled}
         className='voiceInputButton'
-        aria-label={listening ? listeningLabel : buttonLabel}
+        aria-label={listening ? (nativeRecognitionRef.current ? 'Cancelar dictado' : listeningLabel) : buttonLabel}
         aria-pressed={listening}
         onClick={toggleDictation}
       >
-        {listening ? listeningLabel : buttonLabel}
+        {listening ? (nativeRecognitionRef.current ? '■ Cancelar' : listeningLabel) : buttonLabel}
       </button>
       {notice && <span className='voiceInputNotice' role='status' aria-live='polite'>{notice}</span>}
     </span>
