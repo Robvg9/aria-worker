@@ -62,6 +62,11 @@ assert.ok(transport.includes('cross_profile_loopback'));
 assert.ok(transport.includes('android_local_ipc_protocol_mismatch'));
 assert.ok(transport.includes('process.getuid'));
 assert.ok(transport.includes('attempt <= 3'));
+assert.ok(transport.includes("const readOnly = request?.operation === 'observe'"), 'automatic retries and receiver fallback are restricted to read-only OBSERVE requests');
+assert.ok(transport.includes('android_local_ipc_delivery_unverified'), 'ambiguous ACTION transport loss must fail closed as submitted_unverified');
+assert.ok(transport.includes('android_action_post_observation_unavailable'), 'ACTION success without post-observation must not be replayed');
+assert.ok(transport.includes('android_local_ipc_service_identity_unverified'), 'a successful response with unknown service identity must not trigger a second transport');
+assert.ok(transport.includes('do_not_retry: true'), 'ambiguous delivery must be explicitly non-retryable');
 assert.ok(transport.includes('const userId = localAndroidUserId()'), 'Android receiver must derive the invoking profile from the Termux UID');
 assert.ok(transport.includes("'broadcast', '--user', String(userId)"), 'Android receiver must target the invoking profile, not USER_CURRENT (-2)');
 assert.ok(!transport.includes("'--user', '0'"), 'Android receiver must not hard-code Android user 0');
@@ -258,6 +263,62 @@ assert.ok(!manifest.includes('ARIA Browser Bridge'));
     assert.equal(retried.status, 'succeeded');
     assert.equal(retried.payload.evidence_hash, 'retry-pass');
     assert.equal(calls, 2);
+
+    // ACTION is at-most-once: a lost HTTP response is ambiguous, so do not
+    // retry over HTTP or send the same action through CommandReceiver.
+    calls = 0;
+    global.fetch = async () => {
+      calls += 1;
+      throw new TypeError('simulated response loss after dispatch');
+    };
+    const ambiguousAction = await executeAndroidAccessibilityJob({
+      command: JSON.stringify({ operation: 'action', action: { action: 'click', nodeId: '0' } }),
+      timeoutMs: 1000
+    });
+    assert.equal(ambiguousAction.status, 'submitted_unverified');
+    assert.equal(ambiguousAction.reason, 'android_local_ipc_delivery_unverified');
+    assert.equal(ambiguousAction.metadata.do_not_retry, true);
+    assert.equal(calls, 1);
+
+    // A click may already have happened when only the post-action browser
+    // observation is missing. Preserve it as unverified; never replay it.
+    calls = 0;
+    global.fetch = async () => {
+      calls += 1;
+      return {
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({ ok: false, reason: 'post_action_window_missing' })
+      };
+    };
+    const missingPostObserve = await executeAndroidAccessibilityJob({
+      command: JSON.stringify({ operation: 'action', action: { action: 'click', nodeId: '0' } }),
+      timeoutMs: 1000
+    });
+    assert.equal(missingPostObserve.status, 'submitted_unverified');
+    assert.equal(missingPostObserve.reason, 'android_action_post_observation_unavailable');
+    assert.equal(missingPostObserve.metadata.do_not_retry, true);
+    assert.equal(calls, 1);
+
+    // A success from an unexpected/legacy package is also ambiguous: don't
+    // replay it via the receiver simply because service identity is unverified.
+    calls = 0;
+    global.fetch = async () => {
+      calls += 1;
+      return {
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({ ok: true, evidence_hash: 'unknown-service', service_package: 'com.robvg9.aria' })
+      };
+    };
+    const wrongService = await executeAndroidAccessibilityJob({
+      command: JSON.stringify({ operation: 'action', action: { action: 'click', nodeId: '0' } }),
+      timeoutMs: 1000
+    });
+    assert.equal(wrongService.status, 'submitted_unverified');
+    assert.equal(wrongService.reason, 'android_local_ipc_service_identity_unverified');
+    assert.equal(wrongService.metadata.do_not_retry, true);
+    assert.equal(calls, 1);
 
     let healthState = markAndroidUiExecutionSuccess({}, 1000, { transport: 'android-local-http' });
     assert.equal(healthState.health.ok, true);
