@@ -281,7 +281,12 @@ export function VoiceInputButton({
 
       const pendingLocale = pick(pending);
       const supportedLocale = pick(supported);
-      const targetLanguage = pendingLocale || supportedLocale || queried[0] || 'es-ES';
+      // If the provider cannot enumerate supported locales, prefer general
+      // Spanish after having queried every allowed region rather than blindly
+      // requesting the device dialect that may have caused the original miss.
+      const targetLanguage = pendingLocale
+        || supportedLocale
+        || (queried.includes('es-ES') ? 'es-ES' : (queried[queried.length - 1] || 'es-ES'));
       onStatus('Comprobando/solicitando modelo español ' + targetLanguage + '…');
 
       // Triggering the request is safe even for a pending model: Android's
