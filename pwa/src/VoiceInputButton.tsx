@@ -61,14 +61,23 @@ type NativeModelDownloadResult = {
   language: string;
 };
 
+type NativeRecognitionAudio = {
+  format: 'pcm_s16le';
+  sampleRate: 16000;
+  channels: 1;
+  byteLength: number;
+  audioBase64: string;
+};
+
 type NativeVoiceBridge = {
   getRecognitionSupport: (input: { language: string }) => Promise<NativeRecognitionSupport>;
   downloadRecognitionModel: (input: { language: string }) => Promise<NativeModelDownloadResult>;
-  recognizeUtterance: (input: { max_duration_ms: number; language: string }) => Promise<{
+  recognizeUtterance: (input: { max_duration_ms: number; language: string; include_audio: boolean }) => Promise<{
     transcript: string;
     language: string;
     recognitionMode: 'on_device';
     durationMs: number;
+    audio?: NativeRecognitionAudio;
   }>;
   cancelRecognition: () => Promise<{ accepted: boolean }>;
 };
@@ -91,6 +100,44 @@ function getNativeVoiceRuntime(): {
       && speech?.audioLeavesDevice === false,
     modelManagementAvailable: speech?.modelManagementAvailable === true
   };
+}
+
+
+function makeNativeAudioAttachment(audio: NativeRecognitionAudio | undefined): File {
+  const maxBytes = 30_000 * 16_000 * 2 / 1000;
+  if (!audio || audio.format !== 'pcm_s16le' || audio.sampleRate !== 16000 || audio.channels !== 1
+      || !Number.isSafeInteger(audio.byteLength) || audio.byteLength <= 0
+      || audio.byteLength > maxBytes || audio.byteLength % 2 !== 0
+      || typeof audio.audioBase64 !== 'string'
+      || audio.audioBase64.length !== Math.ceil(audio.byteLength / 3) * 4
+      || !/^[A-Za-z0-9+/]+={0,2}$/.test(audio.audioBase64)) {
+    throw new Error('voice_asr_audio_response_invalid');
+  }
+  const binary = atob(audio.audioBase64);
+  if (binary.length !== audio.byteLength) throw new Error('voice_asr_audio_response_invalid');
+  const pcm = new Uint8Array(audio.byteLength);
+  for (let index = 0; index < binary.length; index += 1) pcm[index] = binary.charCodeAt(index);
+
+  const header = new ArrayBuffer(44);
+  const view = new DataView(header);
+  const writeAscii = (offset: number, value: string) => {
+    for (let index = 0; index < value.length; index += 1) view.setUint8(offset + index, value.charCodeAt(index));
+  };
+  writeAscii(0, 'RIFF');
+  view.setUint32(4, 36 + audio.byteLength, true);
+  writeAscii(8, 'WAVE');
+  writeAscii(12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, 16000, true);
+  view.setUint32(28, 32000, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  writeAscii(36, 'data');
+  view.setUint32(40, audio.byteLength, true);
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  return new File([header, pcm], 'aria-audio-' + stamp + '.wav', { type: 'audio/wav' });
 }
 
 export function VoiceInputButton({
@@ -311,7 +358,8 @@ export function VoiceInputButton({
     }
   }
 
-  async function deliverNativeTranscript(transcriptValue: string) {
+  async function deliverNativeTranscript(transcriptValue: string, audioFile?: File) {
+    if (audioFile) onAudioRef.current?.(audioFile);
     const transcript = String(transcriptValue || '').trim();
     if (!transcript) {
       setNotice('No se obtuvo una transcripción. Habla con claridad e inténtalo de nuevo.');
@@ -339,8 +387,6 @@ export function VoiceInputButton({
     nativeBridgeRef.current = bridge;
     setListening(true);
     setNotice('Comprobando el modelo español sin conexión…');
-    let handedOffToBrowser = false;
-
     try {
       const model = await ensureSpanishOfflineModel(bridge, setNotice);
       if (!activeRef.current) return;
@@ -352,22 +398,14 @@ export function VoiceInputButton({
       }
 
       modelPreparationRef.current = false;
-      if (captureAudio) {
-        // Preserve the existing audio-attachment flow. The model is prepared
-        // first; Web Speech and MediaRecorder then run as before.
-        activeRef.current = false;
-        nativeBridgeRef.current = null;
-        setListening(false);
-        handedOffToBrowser = true;
-        toggleDictation(true, model.language);
-        return;
-      }
-
       nativeRecognitionActiveRef.current = true;
-      setNotice('Escuchando localmente. Puedes hacer pausas breves; finalizará tras 2,5 segundos de silencio (máximo 30 segundos).');
+      setNotice(captureAudio
+        ? 'Escuchando localmente y preparando el audio adjunto. Puedes hacer pausas breves; finalizará tras 2,5 segundos de silencio (máximo 30 segundos).'
+        : 'Escuchando localmente. Puedes hacer pausas breves; finalizará tras 2,5 segundos de silencio (máximo 30 segundos).');
       const result = await bridge.recognizeUtterance({
         max_duration_ms: 30000,
-        language: model.language
+        language: model.language,
+        include_audio: captureAudio
       });
       if (activeRef.current) {
         if (result.recognitionMode !== 'on_device'
@@ -375,7 +413,8 @@ export function VoiceInputButton({
             || typeof result.transcript !== 'string') {
           throw new Error('voice_asr_response_invalid');
         }
-        await deliverNativeTranscript(result.transcript);
+        const audioFile = captureAudio ? makeNativeAudioAttachment(result.audio) : undefined;
+        await deliverNativeTranscript(result.transcript, audioFile);
       }
     } catch (error) {
       if (activeRef.current) {
@@ -387,13 +426,11 @@ export function VoiceInputButton({
             : 'El dictado local falló: ' + code);
       }
     } finally {
-      if (!handedOffToBrowser) {
-        activeRef.current = false;
-        modelPreparationRef.current = false;
-        nativeRecognitionActiveRef.current = false;
-        nativeBridgeRef.current = null;
-        setListening(false);
-      }
+      activeRef.current = false;
+      modelPreparationRef.current = false;
+      nativeRecognitionActiveRef.current = false;
+      nativeBridgeRef.current = null;
+      setListening(false);
     }
   }
 
