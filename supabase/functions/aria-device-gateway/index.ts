@@ -1594,6 +1594,9 @@ const PAUSED_MISSION_ENDPOINTS = new Set([
   "/v1/mission5/agent-probe",
   "/v1/mission5/model-probe",
   "/v1/jobs/claim",
+  // Voice commands are device-side execution too; keep their queue behind the
+  // same global pause so a Termux worker cannot bypass MISSION_EXECUTION_PAUSED.
+  "/v1/voice/commands/claim",
 ]);
 const PAUSED_MISSION_JOB_ROUTES = /^\/v1\/jobs\/[^/]+\/(?:start|resolve-secret)$/;
 const A4_FROZEN_JOB_ID='uo_mission_a4_authorized_once_a4_readonly_utc_clock_probe_a1_da6b3354e92efcbb';
