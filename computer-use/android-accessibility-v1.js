@@ -30,7 +30,6 @@ function resolveAndroidAmPath(env = process.env, existsSync = fs.existsSync) {
 
 const PACKAGE = 'com.robvg9.aria.unified';
 const RECEIVER_COMPONENT = 'com.robvg9.ariauiagent.CommandReceiver';
-const MAIN_ACTIVITY_COMPONENT = 'com.robvg9.ariauiagent.MainActivity';
 const LOCAL_IPC_URL = 'http://127.0.0.1:45874/execute';
 const LOCAL_IPC_HEALTH_URL = 'http://127.0.0.1:45874/health';
 const SECRET_REF_PATTERN = /^secret:\/\/rwht\/[A-Za-z0-9._:-]+$/;
@@ -362,46 +361,6 @@ async function executeLocalIpcJob({ request, timeoutMs = 12000 } = {}) {
   }
 }
 
-function recoverAndroidUiAgentProcess({ timeoutMs = 8000 } = {}) {
-  return new Promise((resolve) => {
-    const effectiveTimeout = Math.max(1000, Math.min(Number(timeoutMs) || 8000, 12000));
-    const child = spawn(resolveAndroidAmPath(), [
-      'start',
-      '-n',
-      `${PACKAGE}/${MAIN_ACTIVITY_COMPONENT}`,
-      '-f',
-      '0x10200000'
-    ], { stdio: ['ignore', 'pipe', 'pipe'], env: process.env });
-    let stdout = '';
-    let stderr = '';
-    let settled = false;
-    const finish = (value) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      resolve(value);
-    };
-    const timer = setTimeout(() => {
-      child.kill('SIGTERM');
-      finish({ status: 'timeout', reason: `android_ui_agent_recovery_timeout_${effectiveTimeout}ms` });
-    }, effectiveTimeout);
-    child.stdout.on('data', chunk => { stdout += chunk.toString(); });
-    child.stderr.on('data', chunk => { stderr += chunk.toString(); });
-    child.on('error', error => finish({
-      status: 'failed',
-      reason: `android_ui_agent_recovery_failed:${String(error?.message || error).slice(0, 180)}`
-    }));
-    child.on('close', code => {
-      finish({
-        status: code === 0 ? 'succeeded' : 'failed',
-        exit_code: code,
-        stdout: stdout.slice(-2000),
-        stderr: stderr.slice(-2000)
-      });
-    });
-  });
-}
-
 async function executeAndroidAccessibilityJob({ command, timeoutMs = 12000, resolveSecret } = {}) {
   let payload;
   try { payload = JSON.parse(String(command || '{}')); }
@@ -453,8 +412,22 @@ async function executeAndroidAccessibilityJob({ command, timeoutMs = 12000, reso
           return { ...receiverRetry, metadata: { ...(receiverRetry.metadata || {}), attempt, recovery_attempted: true, fallback_from: 'android-local-http-window-missing' } };
         }
       }
-      const recovery = await recoverAndroidUiAgentProcess({ timeoutMs: 8000 });
-      await sleep(recovery.status === 'succeeded' ? 1200 : 250);
+      if (windowMissing) {
+        return {
+          status: 'failed',
+          reason: 'android_ui_agent_owner_action_required',
+          payload: receiverRetry.payload || null,
+          metadata: {
+            ...(result.metadata || {}),
+            transport: 'android-local-http',
+            recovery_attempted: true,
+            recovery_mode: 'owner_action_required',
+            recovery_reason: receiverRetry.reason || 'android_command_receiver_unavailable',
+            next_action: 'owner_open_aria_unified_and_verify_accessibility'
+          }
+        };
+      }
+      await sleep(100 * attempt);
     } else {
       await sleep(100 * attempt);
     }
