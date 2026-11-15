@@ -386,43 +386,37 @@ async function executeLocalIpcJob({ request, timeoutMs = 12000 } = {}) {
     };
   } catch (error) {
     const httpError = error?.name === 'AbortError' ? 'timeout' : 'connection_error';
-    if (!readOnly) {
-      // The request may have reached the app before the response was lost.
-      // Retrying via broadcast or another HTTP attempt could duplicate ACTION.
+    if (readOnly) {
+      // OBSERVE is safe to retry over authenticated HTTP. Do not send a
+      // Termux broadcast on a transient HTTP failure: Android 14+ cannot
+      // return an ordered receiver acknowledgement, which would terminate
+      // the retry path as submitted_unverified even though OBSERVE is read-only.
       return {
-        status: 'submitted_unverified',
-        reason: 'android_local_ipc_delivery_unverified',
+        status: error?.name === 'AbortError' ? 'timeout' : 'failed',
+        reason: error?.name === 'AbortError'
+          ? `android_local_ipc_timeout_${effectiveTimeout}ms`
+          : `android_local_ipc_unreachable:${String(error?.message || error).slice(0, 180)}`,
         metadata: {
           transport: 'android-local-http',
           url: LOCAL_IPC_URL,
-          delivery_status: 'submitted_unverified',
-          do_not_retry: true,
-          request_id: request.request_id || null,
+          retryable: true,
           http_error: httpError
         }
       };
     }
-    const fallback = await executeAndroidCommandReceiver({ request, timeoutMs: Math.min(effectiveTimeout, 8000) });
-    if (fallback.status === 'succeeded') {
-      return { ...fallback, metadata: { ...(fallback.metadata || {}), fallback_from: 'android-local-http', http_error: httpError } };
-    }
-    if (fallback.metadata?.delivery_status === 'submitted_unverified') {
-      return {
-        ...fallback,
-        metadata: {
-          ...(fallback.metadata || {}),
-          fallback_from: 'android-local-http',
-          http_error: httpError
-        }
-      };
-    }
-    if (error?.name === 'AbortError') {
-      return { status: 'timeout', reason: `android_local_ipc_timeout_${effectiveTimeout}ms`, metadata: { transport: 'android-local-http', url: LOCAL_IPC_URL, fallback_transport: 'android-command-receiver', fallback_reason: fallback.reason || null } };
-    }
+    // ACTION may have reached the app before its response was lost. Never
+    // retry by broadcast or a second HTTP request: the action may have run.
     return {
-      status: 'failed',
-      reason: `android_local_ipc_unreachable:${String(error?.message || error).slice(0, 180)}`,
-      metadata: { transport: 'android-local-http', url: LOCAL_IPC_URL, fallback_transport: 'android-command-receiver', fallback_reason: fallback.reason || null }
+      status: 'submitted_unverified',
+      reason: 'android_local_ipc_delivery_unverified',
+      metadata: {
+        transport: 'android-local-http',
+        url: LOCAL_IPC_URL,
+        delivery_status: 'submitted_unverified',
+        do_not_retry: true,
+        request_id: request.request_id || null,
+        http_error: httpError
+      }
     };
   } finally {
     clearTimeout(timer);
