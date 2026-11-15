@@ -20,7 +20,7 @@ assert.match(voice, /startRecognition\('es-ES'\)/);
 assert.match(voice, /code === 'language-not-supported'/, 'push-to-talk must fall back when the selected locale is unsupported');
 assert.match(voice, /startRecognition\('es-ES'\)/, 'push-to-talk must retry with general Spanish after an unsupported locale');
 assert.match(voice, /recognition\.onresult/);
-assert.match(voice, /recognizeUtterance\(\{[\s\S]*max_duration_ms: 8000[\s\S]*language: locale/, 'Android WebView dictation must use bounded native on-device recognition');
+assert.match(voice, /let recognitionLanguage = locale;[\s\S]*?result = await bridge\.recognizeUtterance\(\{ max_duration_ms: 8000, language: recognitionLanguage \}\)/, 'Android WebView dictation must use bounded native on-device recognition with the requested locale and support a validated locale fallback');
 assert.match(voice, /capability\?\.available !== true/, 'native Android dictation must fail closed when on-device recognition is unavailable');
 assert.match(voice, /audioLeavesDevice !== false/, 'native Android dictation must require its no-audio-upload capability');
 assert.match(voice, /cancelRecognition\?\.\(\)/, 'native Android dictation must support explicit cancellation');
