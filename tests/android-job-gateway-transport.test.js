@@ -28,9 +28,10 @@ const helper = source.slice(helperStart, helperEnd + 2);
 assert.ok(helper.includes("const dbUrl=Deno.env.get('SUPABASE_DB_URL')||'';"), 'gateway must use the configured database URL');
 assert.ok(helper.includes('const sql=postgres(dbUrl,{max:1,idle_timeout:5,connect_timeout:8});'), 'gateway SQL client must remain bounded');
 assert.match(helper, /sql\`select public\.claim_execution_job_gateway\(\$\{String\(args\.deviceId\)\}\) as data\`/);
-assert.match(helper, /sql\`select public\.start_execution_job_gateway\(\$\{String\(args\.jobId\)\},\$\{String\(args\.deviceId\)\}\) as data\`/);
+assert.match(helper, /sql`select public\.start_execution_job_gateway\(\$\{String\(args\.jobId\)\},\$\{String\(args\.deviceId\)\},\$\{typeof args\.leaseOwner==='string'\?args\.leaseOwner:null\}\) as data`/);
 assert.ok(helper.includes('public.complete_execution_job_gateway('), 'completion must use the canonical SQL function');
 assert.ok(helper.includes('${JSON.stringify(args.result||{})}::text::jsonb'), 'completion JSON must remain parameterized');
+assert.equal(helper.split("${typeof args.leaseOwner==='string'?args.leaseOwner:null}").length - 1, 2, 'start and complete must parameterize the optional lease owner');
 assert.ok(helper.includes('await sql.end({timeout:3})'), 'database client must be closed in finally');
 assert.ok(helper.includes("throw new Error('device_gateway_db_unavailable')"), 'gateway must fail closed when DB URL is missing');
 assert.ok(!helper.includes('.unsafe('), 'gateway must not use unsafe raw SQL');
@@ -39,8 +40,8 @@ const jobsStart = source.indexOf("const s=p.match(/^\\/v1\\/jobs\\/([^/]+)\\/sta
 const jobsResult = source.indexOf("const z=p.match(/^\\/v1\\/jobs\\/([^/]+)\\/result$/)");
 assert.ok(jobsStart > 0 && jobsResult > jobsStart, 'job start/result routes must be present in order');
 assert.ok(source.includes("executionJobGatewayCall('claim',{deviceId:d.device_id})"), 'claim route must use the single helper');
-assert.ok(source.includes("executionJobGatewayCall('start',{jobId,deviceId:d.device_id})"), 'start route must use the single helper');
-assert.ok(source.includes("executionJobGatewayCall('complete',{jobId,deviceId:d.device_id"), 'completion route must use the single helper');
+assert.ok(source.includes("executionJobGatewayCall('start',{jobId,deviceId:d.device_id,leaseOwner:typeof b.lease_owner==='string'?b.lease_owner:null})"), 'start route must pass the optional lease owner');
+assert.ok(source.includes("executionJobGatewayCall('complete',{jobId,deviceId:d.device_id,status,exitCode,stdout:clean.stdout,stderr:clean.stderr,result:clean,leaseOwner:typeof b.lease_owner==='string'?b.lease_owner:null})"), 'completion route must pass the optional lease owner');
 
 const criticalPath = source.slice(
   source.indexOf("if(req.method==='POST'&&p==='/v1/jobs/claim')"),
