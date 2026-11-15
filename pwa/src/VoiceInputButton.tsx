@@ -48,6 +48,51 @@ const ERROR_MESSAGES: Record<string, string> = {
   aborted: 'Dictado detenido.'
 };
 
+
+type NativeRecognitionSupport = {
+  requestedLanguage: string;
+  installedOnDeviceLanguages: string[];
+  pendingOnDeviceLanguages: string[];
+  supportedOnDeviceLanguages: string[];
+};
+
+type NativeModelDownloadResult = {
+  state: 'downloaded' | 'scheduled' | 'requested';
+  language: string;
+};
+
+type NativeVoiceBridge = {
+  getRecognitionSupport: (input: { language: string }) => Promise<NativeRecognitionSupport>;
+  downloadRecognitionModel: (input: { language: string }) => Promise<NativeModelDownloadResult>;
+  recognizeUtterance: (input: { max_duration_ms: number; language: string }) => Promise<{
+    transcript: string;
+    language: string;
+    recognitionMode: 'on_device';
+    durationMs: number;
+  }>;
+  cancelRecognition: () => Promise<{ accepted: boolean }>;
+};
+
+function getNativeVoiceRuntime(): {
+  bridge: NativeVoiceBridge | null;
+  speechAvailable: boolean;
+  modelManagementAvailable: boolean;
+} | null {
+  const runtime = window as any;
+  const context = runtime.__ariaVoiceV4NativeContext
+    || runtime.ariaNativeBridge?.getContext?.();
+  if (context?.platform !== 'android') return null;
+  const speech = context?.voice?.speechRecognition;
+  return {
+    bridge: runtime.ariaVoiceV4 || null,
+    speechAvailable: speech?.available === true
+      && speech?.mode === 'on_device'
+      && speech?.explicitActivationOnly === true
+      && speech?.audioLeavesDevice === false,
+    modelManagementAvailable: speech?.modelManagementAvailable === true
+  };
+}
+
 export function VoiceInputButton({
   onTranscript,
   onAudio,
@@ -65,6 +110,9 @@ export function VoiceInputButton({
   const onAudioRef = useRef(onAudio);
   const [listening, setListening] = useState(false);
   const [notice, setNotice] = useState('');
+  const modelPreparationRef = useRef(false);
+  const nativeRecognitionActiveRef = useRef(false);
+  const nativeBridgeRef = useRef<NativeVoiceBridge | null>(null);
 
   useEffect(() => { onTranscriptRef.current = onTranscript; }, [onTranscript]);
   useEffect(() => { onAudioRef.current = onAudio; }, [onAudio]);
@@ -171,9 +219,188 @@ export function VoiceInputButton({
     }
   }
 
-  function toggleDictation() {
+
+  async function ensureSpanishOfflineModel(
+    bridge: NativeVoiceBridge,
+    onStatus: (message: string) => void
+  ): Promise<NativeModelDownloadResult> {
+    const preferred = resolveVoiceRecognitionLocale(navigator.language, navigator.languages);
+    const localeOrder = Array.from(new Set([preferred, 'es-CU', 'es-PR', 'es-US', 'es-MX', 'es-ES']));
+    const installed = new Set<string>();
+    const pending = new Set<string>();
+    const supported = new Set<string>();
+    const queried: string[] = [];
+
+    const progressHandler = (event: Event) => {
+      const detail = (event as CustomEvent).detail;
+      if (!detail || typeof detail !== 'object' || typeof detail.language !== 'string') return;
+      if (detail.state === 'downloading') {
+        const progress = Number.isFinite(detail.progress) ? Math.max(0, Math.min(100, detail.progress)) : null;
+        onStatus(progress === null
+          ? 'Descargando el modelo español sin conexión…'
+          : 'Descargando el modelo español sin conexión… ' + progress + '%');
+      } else if (detail.state === 'downloaded') {
+        onStatus('Modelo español local instalado: ' + detail.language + '.');
+      } else if (detail.state === 'scheduled' || detail.state === 'requested') {
+        onStatus('Android programó la descarga del modelo ' + detail.language + '.');
+      } else if (detail.state === 'error') {
+        onStatus('Falló la descarga del modelo español. Código ' + String(detail.errorCode ?? 'desconocido') + '.');
+      }
+    };
+
+    window.addEventListener('aria-voice-model-download-status', progressHandler);
+    try {
+      for (const locale of localeOrder) {
+        try {
+          const support = await bridge.getRecognitionSupport({ language: locale });
+          queried.push(locale);
+          support.installedOnDeviceLanguages.forEach(value => installed.add(value.toLowerCase()));
+          support.pendingOnDeviceLanguages.forEach(value => pending.add(value.toLowerCase()));
+          support.supportedOnDeviceLanguages.forEach(value => supported.add(value.toLowerCase()));
+        } catch (error) {
+          const code = String((error as any)?.message || '');
+          if (code.includes('voice_asr_model_management_unavailable')
+              || code.includes('voice_asr_on_device_unavailable')) throw error;
+          // Unsupported regional locales and providers without the support
+          // query are handled by trying the next Spanish locale.
+        }
+      }
+
+      const pick = (languages: Set<string>): string | null => {
+        for (const locale of localeOrder) {
+          if (languages.has(locale.toLowerCase())) return locale;
+        }
+        return Array.from(languages).find(value => /^es-[a-z0-9-]+$/i.test(value)) || null;
+      };
+
+      const installedLocale = pick(installed);
+      if (installedLocale) {
+        onStatus('Modelo español local ya instalado: ' + installedLocale + '.');
+        return { state: 'downloaded', language: installedLocale };
+      }
+
+      const pendingLocale = pick(pending);
+      const supportedLocale = pick(supported);
+      const targetLanguage = pendingLocale || supportedLocale || queried[0] || 'es-ES';
+      onStatus('Comprobando/solicitando modelo español ' + targetLanguage + '…');
+
+      // Triggering the request is safe even for a pending model: Android's
+      // provider may resume it, ask for approval, or report it as scheduled.
+      const result = await bridge.downloadRecognitionModel({ language: targetLanguage });
+      if (result.state === 'downloaded') {
+        onStatus('Modelo español local listo: ' + result.language + '.');
+      } else if (result.state === 'scheduled' || result.state === 'requested') {
+        onStatus('Android dejó programada la descarga de ' + result.language + '. Vuelve a pulsar cuando esté lista.');
+      }
+      return result;
+    } finally {
+      window.removeEventListener('aria-voice-model-download-status', progressHandler);
+    }
+  }
+
+  async function deliverNativeTranscript(transcriptValue: string) {
+    const transcript = String(transcriptValue || '').trim();
+    if (!transcript) {
+      setNotice('No se obtuvo una transcripción. Habla con claridad e inténtalo de nuevo.');
+      return;
+    }
+    if (autoSubmit) {
+      setNotice('Transcripción local recibida. ARIA está preparando tu respuesta…');
+      try {
+        const result = await onTranscriptRef.current(transcript);
+        setNotice(result === false
+          ? 'ARIA no pudo completar la respuesta. Revisa el error del chat.'
+          : 'Respuesta recibida. Puedes hablar de nuevo.');
+      } catch {
+        setNotice('No se pudo completar la respuesta. Revisa el error del chat.');
+      }
+    } else {
+      onTranscriptRef.current(transcript);
+      setNotice('Transcripción local insertada. Revísala y envíala.');
+    }
+  }
+
+  async function beginAndroidDictation(bridge: NativeVoiceBridge) {
+    activeRef.current = true;
+    modelPreparationRef.current = true;
+    nativeBridgeRef.current = bridge;
+    setListening(true);
+    setNotice('Comprobando el modelo español sin conexión…');
+    let handedOffToBrowser = false;
+
+    try {
+      const model = await ensureSpanishOfflineModel(bridge, setNotice);
+      if (!activeRef.current) return;
+      if (model.state !== 'downloaded') {
+        setNotice(model.state === 'scheduled' || model.state === 'requested'
+          ? 'La descarga quedó programada. Cuando Android termine, pulsa Audio otra vez.'
+          : 'El modelo español todavía no está listo.');
+        return;
+      }
+
+      modelPreparationRef.current = false;
+      if (captureAudio) {
+        // Preserve the existing audio-attachment flow. The model is prepared
+        // first; Web Speech and MediaRecorder then run as before.
+        activeRef.current = false;
+        nativeBridgeRef.current = null;
+        setListening(false);
+        handedOffToBrowser = true;
+        toggleDictation(true, model.language);
+        return;
+      }
+
+      nativeRecognitionActiveRef.current = true;
+      setNotice('Escuchando con el reconocedor local del teléfono… habla ahora.');
+      const result = await bridge.recognizeUtterance({
+        max_duration_ms: 8000,
+        language: model.language
+      });
+      if (activeRef.current) {
+        if (result.recognitionMode !== 'on_device'
+            || result.language !== model.language
+            || typeof result.transcript !== 'string') {
+          throw new Error('voice_asr_response_invalid');
+        }
+        await deliverNativeTranscript(result.transcript);
+      }
+    } catch (error) {
+      if (activeRef.current) {
+        const code = String((error as any)?.message || 'voice_asr_failed');
+        setNotice(code.includes('voice_asr_language_unavailable')
+          ? 'El modelo español todavía no está disponible. Comprueba la descarga y vuelve a intentarlo.'
+          : code.includes('voice_asr_cancelled')
+            ? 'Dictado detenido.'
+            : 'El dictado local falló: ' + code);
+      }
+    } finally {
+      if (!handedOffToBrowser) {
+        activeRef.current = false;
+        modelPreparationRef.current = false;
+        nativeRecognitionActiveRef.current = false;
+        nativeBridgeRef.current = null;
+        setListening(false);
+      }
+    }
+  }
+
+  function toggleDictation(skipModelPreparation = false, preparedLanguage?: string) {
     if (listening) {
       activeRef.current = false;
+      if (modelPreparationRef.current) {
+        modelPreparationRef.current = false;
+        setListening(false);
+        setNotice('Preparación detenida. Si Android continúa descargando el modelo, no se activará el micrófono.');
+        return;
+      }
+      if (nativeRecognitionActiveRef.current) {
+        nativeRecognitionActiveRef.current = false;
+        const bridge = nativeBridgeRef.current;
+        void bridge?.cancelRecognition().catch(() => {});
+        setListening(false);
+        setNotice('Cancelando dictado local…');
+        return;
+      }
       const session = sessionRef.current;
       if (session?.recorder?.state === 'recording') {
         try { session.recorder.stop(); } catch {
@@ -192,6 +419,18 @@ export function VoiceInputButton({
       }
       setNotice('Finalizando audio y transcripción…');
       return;
+    }
+
+    if (!skipModelPreparation) {
+      const nativeRuntime = getNativeVoiceRuntime();
+      if (nativeRuntime) {
+        if (!nativeRuntime.speechAvailable || !nativeRuntime.modelManagementAvailable || !nativeRuntime.bridge) {
+          setNotice('Este Android no ofrece el administrador de modelos de voz local. ARIA no enviará audio a un servicio remoto como alternativa.');
+          return;
+        }
+        void beginAndroidDictation(nativeRuntime.bridge);
+        return;
+      }
     }
 
     const speechWindow = window as any;
@@ -267,7 +506,7 @@ export function VoiceInputButton({
       };
 
       activeRef.current = true;
-      startRecognition(resolveVoiceRecognitionLocale(navigator.language, navigator.languages));
+      startRecognition(preparedLanguage || resolveVoiceRecognitionLocale(navigator.language, navigator.languages));
       setListening(true);
       setNotice(captureAudio ? 'Preparando audio y transcripción… habla ahora.' : 'Escuchando… habla ahora.');
       if (captureAudio) void startAudioCapture(session);
