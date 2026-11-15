@@ -4,7 +4,7 @@ const { spawn } = require('child_process');
 const fs = require('fs');
 const os = require('os');
 const crypto = require('crypto');
-const { executeAndroidAccessibilityJob, probeLocalIpcHealth, probeAndroidCommandReceiver } = require('../../computer-use/android-accessibility-v1');
+const { executeAndroidAccessibilityJob, probeLocalIpcHealth, probeAndroidCommandReceiver, sendLocalIpcHeartbeat } = require('../../computer-use/android-accessibility-v1');
 const { executeAutonomousAndroidMission } = require('./android-autonomous-runner-v1');
 const { resolveAndroidUiHealth, markAndroidUiExecutionSuccess } = require('./android-ui-health-state');
 const { executeVoiceDeviceCommand, parseAllowlist, UUID_RE } = require('../shared/voice-command-executor.cjs');
@@ -18,7 +18,13 @@ const SUPABASE_API_KEY = process.env.ARIA_SUPABASE_API_KEY
   || process.env.SUPABASE_ANON_KEY
   || '';
 const HEARTBEAT_MS = Math.max(30_000, Number(process.env.ARIA_HEARTBEAT_MS || 60_000));
+// The app's local Termux indicator expires after 45s; keep this signed pulse below that window.
+const LOCAL_IPC_HEARTBEAT_MS = Math.max(5_000, Math.min(Number(process.env.ARIA_LOCAL_IPC_HEARTBEAT_MS) || 15_000, 30_000));
 const POLL_MS = Math.max(5_000, Number(process.env.ARIA_POLL_MS || 12_000));
+// Queue polling is opt-in. Default startup may report health but must not
+// claim Voice commands or executable jobs until an owner explicitly enables it.
+const CLAIMS_ENABLED = process.env.ARIA_AGENT_CLAIMS_ENABLED === 'true';
+const RECEIVER_HEALTH_PROBE_ENABLED = process.env.ARIA_AGENT_RECEIVER_PROBE_ENABLED === 'true';
 const MAX_OUTPUT = 256 * 1024;
 const DISPLAY_OUTPUT = 4096;
 
@@ -238,6 +244,16 @@ async function resolveSecret(jobId, secretRef) {
   if(body?.ok!==true||typeof body.secret!=='string'||!body.secret.length) throw new Error(`credential unavailable: ${body?.error||'secret_resolution_failed'}`);
   return body.secret;
 }
+async function localIpcHeartbeat() {
+  const result = await sendLocalIpcHeartbeat({ timeoutMs: 2500 });
+  if (result.ok) {
+    const metadata = result.metadata || {};
+    log(`LOCAL IPC HEARTBEAT OK package=${metadata.package} build_id=${metadata.build_id}`);
+  } else {
+    log(`LOCAL IPC HEARTBEAT UNAVAILABLE reason=${result.reason || 'unknown'}`);
+  }
+}
+
 async function heartbeat() {
   let androidUiHealth = androidUiHealthState.health;
   if (!computerUseInFlight) {
@@ -248,7 +264,7 @@ async function heartbeat() {
     } catch (error) {
       probe = { ok: false, reason: String(error?.message || error).slice(0, 180) };
     }
-    if (!probe.ok) {
+    if (!probe.ok && RECEIVER_HEALTH_PROBE_ENABLED) {
       try {
         fallback = await probeAndroidCommandReceiver({ timeoutMs: 2500 });
       } catch (error) {
@@ -347,7 +363,15 @@ async function claimAndExecute() {
 }
 let stopping=false;
 let heartbeatTimer=null;
+let localIpcHeartbeatTimer=null;
 async function loop(){
+  if (!CLAIMS_ENABLED) {
+    log('AGENT EXECUTION DISABLED — heartbeat-only mode; queue claims are off');
+    while (!stopping) {
+      await new Promise(r => setTimeout(r, POLL_MS));
+    }
+    return;
+  }
   let consecutivePollFailures=0;
   while(!stopping){
     const voiceState = await claimAndExecuteVoiceCommand();
@@ -370,11 +394,15 @@ function requestStop(signal){
   stopping=true;
   log(`STOP requested signal=${signal}`);
   if(heartbeatTimer){clearInterval(heartbeatTimer);heartbeatTimer=null;}
+  if(localIpcHeartbeatTimer){clearInterval(localIpcHeartbeatTimer);localIpcHeartbeatTimer=null;}
 }
 process.on('SIGTERM',()=>requestStop('SIGTERM'));
 process.on('SIGINT',()=>requestStop('SIGINT'));
 (async()=>{
   log(`START device=${DEVICE_ID} platform=android-termux node=${process.version}`);
+  await localIpcHeartbeat();
+  localIpcHeartbeatTimer=setInterval(localIpcHeartbeat,LOCAL_IPC_HEARTBEAT_MS);
+  localIpcHeartbeatTimer.unref?.();
   await heartbeat();
   heartbeatTimer=setInterval(heartbeat,HEARTBEAT_MS);
   // The heartbeat is observability only; it must never keep a poisoned/stopped
@@ -382,6 +410,7 @@ process.on('SIGINT',()=>requestStop('SIGINT'));
   heartbeatTimer.unref?.();
   await loop();
   if(heartbeatTimer){clearInterval(heartbeatTimer);heartbeatTimer=null;}
+  if(localIpcHeartbeatTimer){clearInterval(localIpcHeartbeatTimer);localIpcHeartbeatTimer=null;}
   log('AGENT LOOP EXIT — supervisor will restart process');
   process.exit(0);
-})().catch(error=>{console.error(error);if(heartbeatTimer){clearInterval(heartbeatTimer);heartbeatTimer=null;}process.exit(1)});
+})().catch(error=>{console.error(error);if(heartbeatTimer){clearInterval(heartbeatTimer);heartbeatTimer=null;}if(localIpcHeartbeatTimer){clearInterval(localIpcHeartbeatTimer);localIpcHeartbeatTimer=null;}process.exit(1)});

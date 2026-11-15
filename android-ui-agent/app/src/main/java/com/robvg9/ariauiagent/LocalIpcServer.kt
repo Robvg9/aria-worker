@@ -86,7 +86,7 @@ class LocalIpcServer(private val service: AriaAccessibilityService) {
             service.packageManager.getPackageInfo(service.packageName, 0)
         }.getOrNull()
         val versionName = packageInfo?.versionName ?: "unknown"
-        val versionCode = packageInfo?.longVersionCode ?: 0L
+        val versionCode = packageInfo?.versionCode?.toLong() ?: 0L
         val buildId = BuildConfig.ARIA_BUILD_ID
         val error = lastError?.let { ",\"last_error\":\"$it\"" } ?: ""
         return """{"ok":$healthy,"service":"aria-accessibility","port":${IpcAuth.PORT},"protocol":"${IpcAuth.HEALTH_PROTOCOL}","package":"${service.packageName}","uid":$uid,"user_id":$userId,"version_name":"$versionName","version_code":$versionCode,"build_id":"$buildId"$error}"""
@@ -177,7 +177,7 @@ class LocalIpcServer(private val service: AriaAccessibilityService) {
                     offset += count
                 }
 
-                val result = service.handle(String(body, StandardCharsets.UTF_8))
+                val result = service.handle(String(body, StandardCharsets.UTF_8)).put("service_package", service.packageName)
                 writeResponse(socket.getOutputStream(), 200, result.toString())
             } catch (_: Exception) {
                 try {

@@ -1053,3 +1053,24 @@ button{touch-action:manipulation;}
     touch-action:pan-y;
   }
 }
+
+/* Android chat dictation: keep status messages inside the chat panel flow.
+   The previous absolute popup extended below the composer and was clipped by
+   the chat screen's overflow boundary on short mobile viewports. */
+.chatScreen .composer{flex-wrap:wrap}
+.chatScreen .composer .voiceInputControl{display:contents}
+.chatScreen .composer .voiceInputButton{order:1}
+.chatScreen .composer .send{order:2}
+.chatScreen .composer .voiceInputNotice{
+  position:static;
+  display:block;
+  flex:1 0 100%;
+  order:3;
+  width:100%;
+  max-width:100%;
+  min-width:0;
+  margin:4px 0 0;
+  overflow-wrap:anywhere;
+  box-shadow:none;
+}
+.chatScreen .composer .composerStatus{order:4}

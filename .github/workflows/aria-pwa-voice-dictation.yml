@@ -1,0 +1,146 @@
+name: ARIA PWA Voice Dictation Contract
+
+on:
+  push:
+    branches:
+      - fix/android-ui-agent-unified-app-bridge-20261107
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'pwa/src/VoiceInputButton.tsx'
+      - 'pwa/src/App.tsx'
+      - 'tests/pwa-voice-input.test.js'
+      - '.github/workflows/aria-pwa-voice-dictation.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: aria-pwa-voice-dictation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contract-and-build:
+    name: Native dictation contract + exact PWA build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Validate chat dictation and Android native bridge contract
+        run: node tests/pwa-voice-input.test.js
+
+      - name: Validate mobile Chat layout contract
+        run: node tests/pwa-home-chat-mobile.test.js
+
+      - name: Run full repository regression suite
+        run: npm test
+
+      - name: Install locked PWA dependencies
+        run: npm ci --prefix pwa
+
+      - name: Build exact PWA assets
+        env:
+          VITE_BUILD: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          npm run build --prefix pwa
+          grep -q "${GITHUB_SHA}" pwa/dist/index.html
+          grep -q "sw-${GITHUB_SHA}.js" pwa/dist/index.html
+          grep -R -q "${GITHUB_SHA}" pwa/dist/assets
+
+          # Mirror the exact asset naming contract used by the production pipeline.
+          cp pwa/dist/index.html "pwa/dist/index-${GITHUB_SHA}.html"
+          cp pwa/dist/manifest.json "pwa/dist/manifest-${GITHUB_SHA}.json"
+          sed "s/__BUILD__/${GITHUB_SHA}/g" pwa/public/sw.js > "pwa/dist/sw-${GITHUB_SHA}.js"
+          grep -q "aria-pwa-${GITHUB_SHA}" "pwa/dist/sw-${GITHUB_SHA}.js"
+          rm -f pwa/dist/index.html
+          echo "ARIA_PWA_VOICE_DICTATION_BUILD_SHA=${GITHUB_SHA}"
+
+      - name: Deploy isolated Cloudflare Worker Preview (never production)
+        if: github.ref == 'refs/heads/fix/android-ui-agent-unified-app-bridge-20261107'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          test -n "${CLOUDFLARE_API_TOKEN}" || { echo "CLOUDFLARE_API_TOKEN is missing"; exit 1; }
+          test -n "${CLOUDFLARE_ACCOUNT_ID}" || { echo "CLOUDFLARE_ACCOUNT_ID is missing"; exit 1; }
+
+          # Match production's build identity substitution without changing the repo checkout.
+          sed -i "s/__PWA_BUILD__/${GITHUB_SHA}/g" worker.js
+
+          # No ARIA_RUNTIME_SHARED_SECRET is supplied to this Preview.
+          PREVIEW_NAME="${GITHUB_REF_NAME//\//-}"
+          preview_json="$(npx --yes wrangler@latest preview --name "${PREVIEW_NAME}" --message "Android native dictation QA ${GITHUB_SHA}" --json)"
+          printf '%s\n' "${preview_json}"
+
+          # Wrangler emits progress text before its JSON result; parse from the JSON object.
+          # Use the immutable deployment URL for exact-SHA QA. The branch alias is recorded separately.
+          preview_meta="$(PREVIEW_JSON="${preview_json}" node -e '
+            const raw = process.env.PREVIEW_JSON || "";
+            const start = raw.indexOf("{");
+            if (start < 0) throw new Error("Wrangler JSON payload not found");
+            const result = JSON.parse(raw.slice(start));
+            const branchUrl = result && result.preview && result.preview.urls && result.preview.urls[0];
+            const deploymentUrl = result && result.deployment && result.deployment.urls && result.deployment.urls[0];
+            for (const [label, url] of [["branch preview", branchUrl], ["immutable deployment", deploymentUrl]]) {
+              if (typeof url !== "string" || !url.startsWith("https://")) {
+                throw new Error("Cloudflare did not return a valid " + label + " URL");
+              }
+            }
+            process.stdout.write(JSON.stringify({branchUrl, deploymentUrl}));
+          ')"
+          branch_preview_url="$(PREVIEW_META="${preview_meta}" node -e 'process.stdout.write(JSON.parse(process.env.PREVIEW_META).branchUrl)')"
+          preview_url="$(PREVIEW_META="${preview_meta}" node -e 'process.stdout.write(JSON.parse(process.env.PREVIEW_META).deploymentUrl)')"
+          echo "ARIA_WORKER_BRANCH_PREVIEW_URL=${branch_preview_url}"
+          echo "ARIA_WORKER_IMMUTABLE_PREVIEW_URL=${preview_url}"
+
+          # Verify version endpoint first, then the PWA shell. Keep diagnostics on failure.
+          preview_version_file="${RUNNER_TEMP}/aria-pwa-preview-version.json"
+          preview_version_status="$(curl --silent --show-error --location --retry 5 --retry-all-errors --retry-delay 2 --output "${preview_version_file}" --write-out '%{http_code}' "${preview_url}/pwa/version.json")"
+          echo "ARIA_PWA_PREVIEW_VERSION_HTTP=${preview_version_status}"
+          cat "${preview_version_file}"
+          test "${preview_version_status}" = "200"
+          PREVIEW_VERSION_JSON="$(cat "${preview_version_file}")" node -e '
+            const v = JSON.parse(process.env.PREVIEW_VERSION_JSON || "{}");
+            if (v.ok !== true || v.build !== process.env.GITHUB_SHA) {
+              throw new Error("Preview build identity mismatch: " + JSON.stringify(v));
+            }
+            console.log("ARIA_PWA_PREVIEW_BUILD_SHA=" + v.build);
+          '
+
+          preview_html="${RUNNER_TEMP}/aria-pwa-preview.html"
+          preview_headers="${RUNNER_TEMP}/aria-pwa-preview.headers"
+          preview_http="$(curl --silent --show-error --location --retry 5 --retry-all-errors --retry-delay 2 --dump-header "${preview_headers}" --output "${preview_html}" --write-out '%{http_code}' "${preview_url}/pwa/")"
+          echo "ARIA_PWA_PREVIEW_SHELL_HTTP=${preview_http}"
+          if test "${preview_http}" != "200"; then
+            echo "--- Preview response headers ---"
+            cat "${preview_headers}" || true
+            echo "--- Preview response body (first 80 lines) ---"
+            head -n 80 "${preview_html}" || true
+            exit 1
+          fi
+          test -s "${preview_html}"
+          echo "ARIA_PWA_PREVIEW_SHELL=PASS"
+
+          {
+            echo "### Cloudflare Worker Preview"
+            echo "- Branch: ${GITHUB_REF_NAME}"
+            echo "- Exact source SHA: ${GITHUB_SHA}"
+            echo "- Branch Preview URL: ${branch_preview_url}"
+            echo "- Exact immutable deployment URL: ${preview_url}"
+            echo "- PWA route: ${preview_url}/pwa/"
+            echo "- Production deployment: untouched"
+            echo "- Runtime shared secret: intentionally not copied to Preview"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+          echo "ARIA_WORKER_PREVIEW_URL=${preview_url}"

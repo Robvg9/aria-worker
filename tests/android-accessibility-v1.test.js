@@ -7,19 +7,44 @@ const {
   PACKAGE,
   LOCAL_IPC_URL,
   LOCAL_IPC_HEALTH_URL,
+  LOCAL_IPC_HEARTBEAT_URL,
+  sendLocalIpcHeartbeat,
   probeLocalIpcHealth,
   executeAndroidAccessibilityJob,
-  resolveAndroidAmPath
+  isBroadcastSentWithoutResult,
+  resolveAndroidAmPath,
+  loadIpcToken,
+  resolveIpcTokenFile
 } = require('../computer-use/android-accessibility-v1');
 const { resolveAndroidUiHealth, markAndroidUiExecutionSuccess } = require('../agents/termux/android-ui-health-state');
 const healthState = fs.readFileSync(path.join(__dirname, '..', 'agents', 'termux', 'android-ui-health-state.js'), 'utf8');
 const accessibilityService = fs.readFileSync(path.join(__dirname, '..', 'android-ui-agent', 'app', 'src', 'main', 'java', 'com', 'robvg9', 'ariauiagent', 'AriaAccessibilityService.kt'), 'utf8');
 
-assert.equal(PACKAGE, 'com.robvg9.ariauiagent.debug');
+assert.equal(PACKAGE, 'com.robvg9.aria.unified');
 assert.equal(LOCAL_IPC_URL, 'http://127.0.0.1:45874/execute');
 assert.equal(LOCAL_IPC_HEALTH_URL, 'http://127.0.0.1:45874/health');
+assert.equal(LOCAL_IPC_HEARTBEAT_URL, 'http://127.0.0.1:45874/heartbeat');
+
+assert.equal(
+  isBroadcastSentWithoutResult('Broadcast sent without waiting for result'),
+  true,
+  'Android 14+ TermuxAm must be classified as submitted without a receiver acknowledgement',
+);
+assert.equal(
+  isBroadcastSentWithoutResult('Broadcast completed: result=0, data="eyJvayI6dHJ1ZX0="'),
+  false,
+  'an ordered broadcast with a result remains verifiable',
+);
+assert.equal(
+  isBroadcastSentWithoutResult(''),
+  false,
+  'empty output must not be misclassified as a submitted broadcast',
+);
 
 const transport = fs.readFileSync(path.join(__dirname, '..', 'computer-use', 'android-accessibility-v1.js'), 'utf8');
+const localUid = typeof process.getuid === 'function' ? process.getuid() : 10123;
+assert.ok(transport.includes('com.robvg9.ariauiagent.CommandReceiver'));
+assert.ok(!transport.includes('MainActivity'), 'Termux must not launch the non-exported ARIA activity');
 const agent = fs.readFileSync(path.join(__dirname, '..', 'agents', 'termux', 'aria-agent.js'), 'utf8');
 const manifest = fs.readFileSync(path.join(__dirname, '..', 'android-ui-agent', 'app', 'src', 'main', 'AndroidManifest.xml'), 'utf8');
 const receiver = fs.readFileSync(path.join(__dirname, '..', 'android-ui-agent', 'app', 'src', 'main', 'java', 'com', 'robvg9', 'ariauiagent', 'CommandReceiver.kt'), 'utf8');
@@ -31,6 +56,13 @@ assert.ok(transport.includes('http://127.0.0.1:45874/execute'));
 assert.ok(transport.includes('http://127.0.0.1:45874/health'));
 assert.ok(transport.includes('android-local-http'));
 assert.ok(transport.includes('probeLocalIpcHealth'));
+assert.ok(transport.includes('sendLocalIpcHeartbeat'));
+assert.ok(agent.includes('LOCAL_IPC_HEARTBEAT_MS'));
+assert.ok(agent.includes('setInterval(localIpcHeartbeat,LOCAL_IPC_HEARTBEAT_MS)'));
+assert.ok(agent.includes('await localIpcHeartbeat()'), 'safe startup must immediately verify the local app heartbeat');
+assert.ok(agent.includes('LOCAL IPC HEARTBEAT OK package='), 'successful local pulse must include package and build identity');
+assert.ok(transport.includes('android_local_ipc_build_identity_invalid'), 'placeholder build IDs must fail closed');
+assert.ok(transport.includes('ARIA_EXPECTED_ANDROID_BUILD_ID'), 'owner can pin the exact expected app build SHA');
 assert.ok(accessibilityService.includes('val maxNodes = payload.optInt("max_nodes", 240).coerceIn(32, 300)'), 'Android UI tree must use a bounded node budget for IPC responsiveness');
 assert.ok(accessibilityService.includes('NodeBudget(maxCount = maxNodes)'), 'observe and post-action UI trees must honor the bounded node budget');
 assert.ok(accessibilityService.includes('installedApprovedBrowsers: List<String> by lazy'), 'installed browser package checks must be cached per service');
@@ -40,24 +72,67 @@ assert.ok(transport.includes('cross_profile_loopback'));
 assert.ok(transport.includes('android_local_ipc_protocol_mismatch'));
 assert.ok(transport.includes('process.getuid'));
 assert.ok(transport.includes('attempt <= 3'));
+assert.ok(transport.includes("const readOnly = request?.operation === 'observe'"), 'automatic retries and receiver fallback are restricted to read-only OBSERVE requests');
+assert.ok(transport.includes('android_local_ipc_delivery_unverified'), 'ambiguous ACTION transport loss must fail closed as submitted_unverified');
+assert.ok(transport.includes('android_action_post_observation_unavailable'), 'ACTION success without post-observation must not be replayed');
+assert.ok(transport.includes('android_local_ipc_service_identity_unverified'), 'a successful response with unknown service identity must not trigger a second transport');
+assert.ok(transport.includes('do_not_retry: true'), 'ambiguous delivery must be explicitly non-retryable');
 assert.ok(transport.includes('const userId = localAndroidUserId()'), 'Android receiver must derive the invoking profile from the Termux UID');
 assert.ok(transport.includes("'broadcast', '--user', String(userId)"), 'Android receiver must target the invoking profile, not USER_CURRENT (-2)');
 assert.ok(!transport.includes("'--user', '0'"), 'Android receiver must not hard-code Android user 0');
 assert.ok(transport.includes("'broadcast',"), 'Android receiver fallback must use a broadcast to the installed receiver');
-assert.ok(transport.includes('recoverAndroidUiAgentProcess'), 'IPC retries must include Android UI Agent process recovery');
+assert.ok(transport.includes('android_ui_agent_owner_action_required'), 'failed window recovery must return an explicit owner-action gate');
 assert.ok(transport.includes('function resolveAndroidAmPath'), 'Termux app-compatible am wrapper resolver must exist');
 assert.ok(transport.includes('spawn(resolveAndroidAmPath(), ['), 'Android IPC and recovery must use the resolved Termux am wrapper');
 assert.equal(
-  resolveAndroidAmPath({ PREFIX: '/data/data/com.termux/files/usr' }, p => p === '/data/data/com.termux/files/usr/bin/am'),
-  '/data/data/com.termux/files/usr/bin/am',
+  resolveAndroidAmPath({ PREFIX: '/data/data/com.termux/files/usr' }, p => p.replace(/\\/g, '/') === '/data/data/com.termux/files/usr/bin/am'),
+  path.join('/data/data/com.termux/files/usr', 'bin', 'am'),
   'PREFIX app-compatible am wrapper must be preferred',
 );
 assert.equal(
-  resolveAndroidAmPath({ TERMUX__PREFIX: '/data/data/com.termux/files/usr' }, p => p === '/data/data/com.termux/files/usr/bin/am'),
-  '/data/data/com.termux/files/usr/bin/am',
+  resolveAndroidAmPath({ TERMUX__PREFIX: '/data/data/com.termux/files/usr' }, p => p.replace(/\\/g, '/') === '/data/data/com.termux/files/usr/bin/am'),
+  path.join('/data/data/com.termux/files/usr', 'bin', 'am'),
   'TERMUX__PREFIX app-compatible am wrapper must be supported',
 );
 assert.equal(resolveAndroidAmPath({}, () => false), 'am', 'fallback should be bounded when no Termux wrapper exists');
+
+// F6: per-install IPC credential loading (no embedded fallback, fail closed).
+const VALID_TOKEN = 'A'.repeat(43);
+assert.equal(
+  resolveIpcTokenFile({ HOME: '/data/data/com.termux/files/home' }),
+  path.join('/data/data/com.termux/files/home', '.aria', 'ipc-token'),
+  'default credential path must be ~/.aria/ipc-token',
+);
+assert.equal(
+  resolveIpcTokenFile({ HOME: '/home/termux', ARIA_IPC_TOKEN_FILE: '/run/aria/token' }),
+  '/run/aria/token',
+  'explicit ARIA_IPC_TOKEN_FILE must override the default path',
+);
+assert.equal(
+  resolveIpcTokenFile({ TERMUX__HOME: '/data/data/com.termux/files/home' }),
+  path.join('/data/data/com.termux/files/home', '.aria', 'ipc-token'),
+  'TERMUX__HOME must be supported for the default credential path',
+);
+
+assert.equal(loadIpcToken({ ARIA_IPC_TOKEN: VALID_TOKEN }), VALID_TOKEN, 'valid env credential must load');
+assert.equal(loadIpcToken({ ARIA_IPC_TOKEN: 'not-a-valid-token' }), null, 'malformed env credential must fail closed');
+assert.equal(loadIpcToken({ ARIA_IPC_TOKEN: '' }, () => { throw new Error('unreadable'); }), null, 'missing credential must fail closed');
+assert.equal(
+  loadIpcToken({ HOME: '/home/termux' }, () => `${VALID_TOKEN}\n`),
+  VALID_TOKEN,
+  'file credential must be trimmed before use',
+);
+assert.equal(
+  loadIpcToken({ HOME: '/home/termux' }, () => 'corrupt'),
+  null,
+  'malformed file credential must fail closed',
+);
+assert.equal(
+  loadIpcToken({ HOME: '/home/termux', ARIA_IPC_TOKEN: VALID_TOKEN }, () => 'corrupt'),
+  VALID_TOKEN,
+  'explicit env credential must take precedence over the file',
+);
+
 assert.ok(fs.readFileSync(path.join(__dirname, '..', 'android-ui-agent', 'app', 'src', 'main', 'java', 'com', 'robvg9', 'ariauiagent', 'AriaAccessibilityService.kt'), 'utf8').includes('"swipe" -> gestureSwipe'));
 assert.ok(fs.readFileSync(path.join(__dirname, '..', 'android-ui-agent', 'app', 'src', 'main', 'java', 'com', 'robvg9', 'ariauiagent', 'AriaAccessibilityService.kt'), 'utf8').includes('dispatchGesture(gesture'));
 assert.ok(fs.readFileSync(path.join(__dirname, '..', 'android-ui-agent', 'app', 'src', 'main', 'java', 'com', 'robvg9', 'ariauiagent', 'AriaAccessibilityService.kt'), 'utf8').includes('phase = "click_post_action"'), 'click post-action window resolution must use bounded retries');
@@ -75,7 +150,11 @@ assert.ok(receiver.includes('setResultData'));
 assert.ok(receiver.includes('getSentFromUid'));
 assert.ok(receiver.includes('com.termux'));
 assert.ok(receiver.includes('getApplicationInfo'));
-assert.ok(receiver.includes('IPC_TOKEN'));
+// F6: the Termux client must use the per-install credential paired in the app,
+// never a credential embedded in this repository or the app source.
+assert.ok(transport.includes('android_ipc_credential_missing'));
+assert.ok(!/["'][0-9a-f]{64}["']/.test(transport), 'Termux transport must not embed a shared IPC token');
+assert.ok(!transport.includes("== IPC_TOKEN") && !transport.includes("IPC_TOKEN ="), 'Termux transport must not define a static IPC token');
 assert.ok(!receiver.includes('Process.SHELL_UID'));
 assert.ok(gradle.includes('applicationIdSuffix = ".debug"'));
 assert.ok(gradle.includes('versionCode = 29'));
@@ -85,7 +164,7 @@ assert.ok(ipcAuth.includes('HEALTH_PROTOCOL = "aria-android-ui-agent-ipc-v2"'));
 assert.ok(ipc.includes('android.os.Process.myUid()'));
 assert.ok(ipc.includes('service.packageManager.getPackageInfo'));
 assert.ok(ipc.includes('packageInfo?.versionName'));
-assert.ok(ipc.includes('packageInfo?.longVersionCode'));
+assert.ok(ipc.includes('packageInfo?.versionCode?.toLong()'), 'IPC version reporting must support minSdk 26');
 assert.ok(ipc.includes('service.packageName'));
 assert.ok(ipc.includes('server.bind'));
 assert.ok(ipc.includes('fun isHealthy'));
@@ -99,7 +178,94 @@ assert.ok(!manifest.includes('ARIA Browser Bridge'));
 
 (async () => {
   const originalFetch = global.fetch;
+  const originalToken = process.env.ARIA_IPC_TOKEN;
+  process.env.ARIA_IPC_TOKEN = VALID_TOKEN;
   try {
+    // The supervisor's local heartbeat must authenticate and verify exact app identity.
+    const heartbeatCalls = [];
+    const localPulse = await sendLocalIpcHeartbeat({
+      env: { ARIA_IPC_TOKEN: VALID_TOKEN, ARIA_EXPECTED_ANDROID_BUILD_ID: 'a'.repeat(40) },
+      fetchImpl: async (url, options) => {
+        heartbeatCalls.push({ url, options });
+        return {
+          ok: true,
+          status: 200,
+          text: async () => JSON.stringify({
+            ok: true,
+            package: PACKAGE,
+            protocol: 'aria-android-ui-agent-ipc-v2',
+            build_id: 'a'.repeat(40),
+            heartbeat_at_ms: 1234,
+            fresh_for_ms: 45000
+          })
+        };
+      }
+    });
+    assert.equal(localPulse.ok, true);
+    assert.equal(localPulse.metadata.package, PACKAGE);
+    assert.equal(localPulse.metadata.protocol, 'aria-android-ui-agent-ipc-v2');
+    assert.equal(localPulse.metadata.build_id, 'a'.repeat(40));
+    assert.equal(heartbeatCalls.length, 1);
+    assert.equal(heartbeatCalls[0].url, LOCAL_IPC_HEARTBEAT_URL);
+    assert.equal(heartbeatCalls[0].options.method, 'POST');
+    assert.equal(heartbeatCalls[0].options.headers.authorization, `Bearer ${VALID_TOKEN}`);
+
+    const placeholderBuild = await sendLocalIpcHeartbeat({
+      env: { ARIA_IPC_TOKEN: VALID_TOKEN },
+      fetchImpl: async () => ({
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({
+          ok: true,
+          package: PACKAGE,
+          protocol: 'aria-android-ui-agent-ipc-v2',
+          build_id: 'local'
+        })
+      })
+    });
+    assert.equal(placeholderBuild.ok, false);
+    assert.equal(placeholderBuild.reason, 'android_local_ipc_build_identity_invalid');
+
+    const mismatchedBuild = await sendLocalIpcHeartbeat({
+      env: { ARIA_IPC_TOKEN: VALID_TOKEN, ARIA_EXPECTED_ANDROID_BUILD_ID: 'b'.repeat(40) },
+      fetchImpl: async () => ({
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({
+          ok: true,
+          package: PACKAGE,
+          protocol: 'aria-android-ui-agent-ipc-v2',
+          build_id: 'a'.repeat(40)
+        })
+      })
+    });
+    assert.equal(mismatchedBuild.ok, false);
+    assert.equal(mismatchedBuild.reason, 'android_local_ipc_build_identity_mismatch');
+
+    const mismatchedPulse = await sendLocalIpcHeartbeat({
+      env: { ARIA_IPC_TOKEN: VALID_TOKEN },
+      fetchImpl: async () => ({
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({
+          ok: true,
+          package: 'com.robvg9.aria',
+          protocol: 'aria-android-ui-agent-ipc-v2',
+          build_id: 'legacy-build'
+        })
+      })
+    });
+    assert.equal(mismatchedPulse.ok, false);
+    assert.equal(mismatchedPulse.reason, 'android_local_ipc_package_mismatch');
+
+    const missingCredentialPulse = await sendLocalIpcHeartbeat({
+      env: {},
+      readFileSync: () => { throw new Error('missing credential'); },
+      fetchImpl: async () => { throw new Error('must not call fetch without credential'); }
+    });
+    assert.equal(missingCredentialPulse.ok, false);
+    assert.equal(missingCredentialPulse.reason, 'android_ipc_credential_missing');
+
     let calls = 0;
     global.fetch = async (url, options) => {
       calls += 1;
@@ -108,7 +274,7 @@ assert.ok(!manifest.includes('ARIA Browser Bridge'));
       return {
         ok: true,
         status: 200,
-        text: async () => JSON.stringify({ ok: true, service: 'aria-accessibility', port: 45874, protocol: 'aria-android-ui-agent-ipc-v2', uid: 10722, user_id: Math.floor(process.getuid() / 100000), version_name: '1.1.17', version_code: 23 })
+        text: async () => JSON.stringify({ ok: true, service: 'aria-accessibility', package: PACKAGE, port: 45874, protocol: 'aria-android-ui-agent-ipc-v2', uid: 10722, user_id: Math.floor(localUid / 100000), version_name: '1.1.17', version_code: 23 })
       };
     };
     const health = await probeLocalIpcHealth({ timeoutMs: 1000 });
@@ -117,6 +283,21 @@ assert.ok(!manifest.includes('ARIA Browser Bridge'));
     assert.equal(health.payload.protocol, 'aria-android-ui-agent-ipc-v2');
     assert.equal(calls, 1);
 
+    global.fetch = async () => ({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({
+        ok: true,
+        service: 'aria-accessibility',
+        package: 'com.robvg9.aria',
+        port: 45874,
+        protocol: 'aria-android-ui-agent-ipc-v2'
+      })
+    });
+    const legacyPackage = await probeLocalIpcHealth({ timeoutMs: 1000 });
+    assert.equal(legacyPackage.ok, false);
+    assert.equal(legacyPackage.reason, 'android_local_ipc_package_mismatch');
+
     calls = 0;
     global.fetch = async () => ({
       ok: true,
@@ -124,6 +305,7 @@ assert.ok(!manifest.includes('ARIA Browser Bridge'));
       text: async () => JSON.stringify({
         ok: true,
         service: 'aria-accessibility',
+        package: PACKAGE,
         port: 45874,
         protocol: 'wrong-protocol',
         uid: 10722,
@@ -142,6 +324,7 @@ assert.ok(!manifest.includes('ARIA Browser Bridge'));
       text: async () => JSON.stringify({
         ok: true,
         service: 'aria-accessibility',
+        package: PACKAGE,
         port: 45874,
         protocol: 'aria-android-ui-agent-ipc-v2',
         uid: 15010722,
@@ -152,7 +335,10 @@ assert.ok(!manifest.includes('ARIA Browser Bridge'));
     });
     const crossProfile = await probeLocalIpcHealth({ timeoutMs: 1000 });
     assert.equal(crossProfile.ok, true);
-    assert.equal(crossProfile.metadata.cross_profile_loopback, Math.floor(process.getuid() / 100000) !== 150);
+    assert.equal(
+      crossProfile.metadata.cross_profile_loopback,
+      crossProfile.metadata.local_user_id !== null && crossProfile.metadata.local_user_id !== 150,
+    );
 
     calls = 0;
     global.fetch = async (url) => {
@@ -162,7 +348,7 @@ assert.ok(!manifest.includes('ARIA Browser Bridge'));
       return {
         ok: true,
         status: 200,
-        text: async () => JSON.stringify({ ok: true, evidence_hash: 'retry-pass' })
+        text: async () => JSON.stringify({ ok: true, evidence_hash: 'retry-pass', service_package: PACKAGE })
       };
     };
     const retried = await executeAndroidAccessibilityJob({
@@ -172,6 +358,62 @@ assert.ok(!manifest.includes('ARIA Browser Bridge'));
     assert.equal(retried.status, 'succeeded');
     assert.equal(retried.payload.evidence_hash, 'retry-pass');
     assert.equal(calls, 2);
+
+    // ACTION is at-most-once: a lost HTTP response is ambiguous, so do not
+    // retry over HTTP or send the same action through CommandReceiver.
+    calls = 0;
+    global.fetch = async () => {
+      calls += 1;
+      throw new TypeError('simulated response loss after dispatch');
+    };
+    const ambiguousAction = await executeAndroidAccessibilityJob({
+      command: JSON.stringify({ operation: 'action', action: { action: 'click', nodeId: '0' } }),
+      timeoutMs: 1000
+    });
+    assert.equal(ambiguousAction.status, 'submitted_unverified');
+    assert.equal(ambiguousAction.reason, 'android_local_ipc_delivery_unverified');
+    assert.equal(ambiguousAction.metadata.do_not_retry, true);
+    assert.equal(calls, 1);
+
+    // A click may already have happened when only the post-action browser
+    // observation is missing. Preserve it as unverified; never replay it.
+    calls = 0;
+    global.fetch = async () => {
+      calls += 1;
+      return {
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({ ok: false, reason: 'post_action_window_missing' })
+      };
+    };
+    const missingPostObserve = await executeAndroidAccessibilityJob({
+      command: JSON.stringify({ operation: 'action', action: { action: 'click', nodeId: '0' } }),
+      timeoutMs: 1000
+    });
+    assert.equal(missingPostObserve.status, 'submitted_unverified');
+    assert.equal(missingPostObserve.reason, 'android_action_post_observation_unavailable');
+    assert.equal(missingPostObserve.metadata.do_not_retry, true);
+    assert.equal(calls, 1);
+
+    // A success from an unexpected/legacy package is also ambiguous: don't
+    // replay it via the receiver simply because service identity is unverified.
+    calls = 0;
+    global.fetch = async () => {
+      calls += 1;
+      return {
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({ ok: true, evidence_hash: 'unknown-service', service_package: 'com.robvg9.aria' })
+      };
+    };
+    const wrongService = await executeAndroidAccessibilityJob({
+      command: JSON.stringify({ operation: 'action', action: { action: 'click', nodeId: '0' } }),
+      timeoutMs: 1000
+    });
+    assert.equal(wrongService.status, 'submitted_unverified');
+    assert.equal(wrongService.reason, 'android_local_ipc_service_identity_unverified');
+    assert.equal(wrongService.metadata.do_not_retry, true);
+    assert.equal(calls, 1);
 
     let healthState = markAndroidUiExecutionSuccess({}, 1000, { transport: 'android-local-http' });
     assert.equal(healthState.health.ok, true);
@@ -220,6 +462,8 @@ assert.ok(!manifest.includes('ARIA Browser Bridge'));
     console.log('android-accessibility-v1 PASS');
   } finally {
     global.fetch = originalFetch;
+    if (originalToken === undefined) delete process.env.ARIA_IPC_TOKEN;
+    else process.env.ARIA_IPC_TOKEN = originalToken;
   }
 })().catch(error => {
   console.error(error);

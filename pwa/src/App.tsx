@@ -3200,10 +3200,10 @@ function Chat({
                   placeholder='Habla con ARIA…'
                 />
                 <VoiceInputButton
-                  captureAudio={!voiceMode}
+                  captureAudio={false}
                   autoSubmit={voiceMode}
                   onAudio={setAudioFile}
-                  buttonLabel={voiceMode ? '🎙️ Hablar' : '🎙️ Audio'}
+                  buttonLabel={voiceMode ? '🎙️ Hablar' : '🎙️ Dictar'}
                   listeningLabel='■ Detener'
                   disabled={sending || handsFreeActive}
                   onTranscript={handlePushToTalkTranscript}
