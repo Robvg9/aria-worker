@@ -24,6 +24,12 @@ assert.match(voice, /recognizeUtterance\(\{[\s\S]*max_duration_ms: 8000[\s\S]*la
 assert.match(voice, /capability\?\.available !== true/, 'native Android dictation must fail closed when on-device recognition is unavailable');
 assert.match(voice, /audioLeavesDevice !== false/, 'native Android dictation must require its no-audio-upload capability');
 assert.match(voice, /cancelRecognition\?\.\(\)/, 'native Android dictation must support explicit cancellation');
+assert.match(voice, /voice_asr_language_unsupported[\s\S]*voice_asr_language_unavailable/, 'native ASR must explain both unsupported and not-yet-downloaded Spanish models');
+assert.match(voice, /mayUseGeneralSpanish[\s\S]*recognitionLanguage = 'es-ES'/, 'native dictation must retry with general Spanish when the device lacks the requested offline locale');
+assert.match(voice, /result\.language !== recognitionLanguage/, 'native dictation must validate the actual locale used by the fallback recognizer');
+assert.match(voice, /Se utilizó el modelo local de español general/, 'the chat must disclose when a regional locale fell back to general Spanish');
+assert.match(css, /\.chatScreen \.composer \.voiceInputControl\s*\{\s*display:\s*contents\s*\}/, 'chat status must participate in the composer flow instead of overflowing its bottom edge');
+assert.match(css, /\.chatScreen \.composer \.voiceInputNotice\s*\{[\s\S]*position:\s*static[\s\S]*flex:\s*1 0 100%/, 'chat recognition feedback must render on its own full-width row inside the panel');
 assert.match(voice, /No grabaré ni adjuntaré un audio como sustituto/, 'unsupported native ASR must not silently send an audio attachment');
 assert.match(voice, /onTranscriptRef\.current\(transcript\)/);
 assert.match(voice, /navigator\.mediaDevices\?\.getUserMedia/);
