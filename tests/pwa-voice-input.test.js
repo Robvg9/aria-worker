@@ -13,8 +13,21 @@ const voiceOutputSource = fs.readFileSync(path.join(root, 'pwa/src/voiceOutput.j
 
 assert.match(voice, /SpeechRecognitionConstructor/);
 assert.match(voice, /webkitSpeechRecognition/);
+
+assert.match(voice, /getNativeVoiceRuntime\(\)/, 'Android WebView dictation must detect the native bridge');
+assert.match(voice, /modelManagementAvailable/, 'Android dictation must require local model-management support');
+assert.match(voice, /ensureSpanishOfflineModel/, 'Android dictation must inspect/prepare a Spanish offline model before recognition');
+assert.match(voice, /getRecognitionSupport\(\{ language: locale \}\)/, 'Android dictation must query installed/pending/supported Spanish locales');
+assert.match(voice, /downloadRecognitionModel\(\{ language: targetLanguage \}\)/, 'Android dictation must explicitly request the missing Spanish model');
+assert.match(voice, /aria-voice-model-download-status/, 'Android dictation must consume native download progress');
+assert.match(voice, /recognizeUtterance\(\{/, 'Android voice conversation must use the native on-device recognizer');
+assert.match(voice, /cancelRecognition\(\)/, 'Android voice dictation must support explicit cancellation');
+assert.match(voice, /audioLeavesDevice === false/, 'native Android recognition must guarantee audio stays on device');
+assert.match(voice, /no enviará audio a un servicio remoto como alternativa/, 'unsupported native Android recognition must fail closed instead of silently uploading audio');
+assert.match(voice, /captureAudio\) \{[\s\S]*toggleDictation\(true, model\.language\)/, 'audio attachment surfaces must keep their existing recorder after native model preparation');
+
 assert.match(voice, /recognition\.lang = locale/);
-assert.match(voice, /startRecognition\(resolveVoiceRecognitionLocale\(navigator\.language, navigator\.languages\)\)/);
+assert.match(voice, /startRecognition\(preparedLanguage \|\| resolveVoiceRecognitionLocale\(navigator\.language, navigator\.languages\)\)/, 'browser fallback must reuse the regional locale selected by the native offline model manager');
 assert.match(voice, /code === 'language-not-supported'/);
 assert.match(voice, /startRecognition\('es-ES'\)/);
 assert.match(voice, /code === 'language-not-supported'/, 'push-to-talk must fall back when the selected locale is unsupported');
