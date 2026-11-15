@@ -2,6 +2,10 @@ name = "aria"
 main = "worker.js"
 compatibility_date = "2026-09-18"
 
+# Worker Previews deliberately start without production runtime secrets or bindings.
+# Keep static assets at the top level; Cloudflare requires this empty Preview block.
+previews = {}
+
 [assets]
 directory = "./pwa/dist"
 binding = "ARIA_PWA_ASSETS"
