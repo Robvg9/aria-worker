@@ -84,17 +84,25 @@ jobs:
           printf '%s\n' "${preview_json}"
 
           # Wrangler emits progress text before its JSON result; parse from the JSON object.
-          preview_url="$(PREVIEW_JSON="${preview_json}" node -e '
+          # Use the immutable deployment URL for exact-SHA QA. The branch alias is recorded separately.
+          preview_meta="$(PREVIEW_JSON="${preview_json}" node -e '
             const raw = process.env.PREVIEW_JSON || "";
             const start = raw.indexOf("{");
             if (start < 0) throw new Error("Wrangler JSON payload not found");
             const result = JSON.parse(raw.slice(start));
-            const url = result && result.preview && result.preview.urls && result.preview.urls[0];
-            if (typeof url !== "string" || !url.startsWith("https://")) {
-              throw new Error("Cloudflare did not return a valid Preview URL");
+            const branchUrl = result && result.preview && result.preview.urls && result.preview.urls[0];
+            const deploymentUrl = result && result.deployment && result.deployment.urls && result.deployment.urls[0];
+            for (const [label, url] of [["branch preview", branchUrl], ["immutable deployment", deploymentUrl]]) {
+              if (typeof url !== "string" || !url.startsWith("https://")) {
+                throw new Error("Cloudflare did not return a valid " + label + " URL");
+              }
             }
-            process.stdout.write(url);
+            process.stdout.write(branchUrl + "\\n" + deploymentUrl);
           ')"
+          branch_preview_url="$(printf '%s\\n' "${preview_meta}" | sed -n '1p')"
+          preview_url="$(printf '%s\\n' "${preview_meta}" | sed -n '2p')"
+          echo "ARIA_WORKER_BRANCH_PREVIEW_URL=${branch_preview_url}"
+          echo "ARIA_WORKER_IMMUTABLE_PREVIEW_URL=${preview_url}"
 
           # Verify version endpoint first, then the PWA shell. Keep diagnostics on failure.
           preview_version_file="${RUNNER_TEMP}/aria-pwa-preview-version.json"
@@ -128,7 +136,8 @@ jobs:
             echo "### Cloudflare Worker Preview"
             echo "- Branch: ${GITHUB_REF_NAME}"
             echo "- Exact source SHA: ${GITHUB_SHA}"
-            echo "- Preview URL: ${preview_url}"
+            echo "- Branch Preview URL: ${branch_preview_url}"
+            echo "- Exact immutable deployment URL: ${preview_url}"
             echo "- PWA route: ${preview_url}/pwa/"
             echo "- Production deployment: untouched"
             echo "- Runtime shared secret: intentionally not copied to Preview"
