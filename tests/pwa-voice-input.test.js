@@ -24,6 +24,12 @@ assert.match(voice, /recognizeUtterance\(\{/, 'Android voice conversation must u
 assert.match(voice, /max_duration_ms: 30000/, 'Android native dictation must allow a 30-second sentence window');
 assert.match(voice, /2,5 segundos de silencio/, 'Android native dictation must explain the silence-based finalization window');
 assert.match(voice, /cancelRecognition\(\)/, 'Android voice dictation must support explicit cancellation');
+const voiceCleanupStart = voice.indexOf('useEffect(() => () => {');
+const voiceCleanupEnd = voice.indexOf('}, []);', voiceCleanupStart);
+assert(voiceCleanupStart >= 0 && voiceCleanupEnd > voiceCleanupStart, 'voice component must expose an unmount cleanup');
+const voiceCleanup = voice.slice(voiceCleanupStart, voiceCleanupEnd);
+assert.match(voiceCleanup, /nativeRecognitionActiveRef\.current/);
+assert.match(voiceCleanup, /activeBridge\.cancelRecognition\(\)/, 'unmount must cancel an active native recognizer');
 assert.match(voice, /audioLeavesDevice === false/, 'native Android recognition must guarantee audio stays on device');
 assert.match(voice, /no enviará audio a un servicio remoto como alternativa/, 'unsupported native Android recognition must fail closed instead of silently uploading audio');
 assert.match(voice, /captureAudio\) \{[\s\S]*toggleDictation\(true, model\.language\)/, 'audio attachment surfaces must keep their existing recorder after native model preparation');
