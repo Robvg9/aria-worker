@@ -115,7 +115,7 @@ trap stop INT TERM
 trap 'release_lock' EXIT
 trap unlock EXIT
 
-if command -v termux-wake-lock >/dev/null 2>&1; then
+if [ "${ARIA_AGENT_WAKE_LOCK:-false}" = "true" ] && command -v termux-wake-lock >/dev/null 2>&1; then
   termux-wake-lock || true
 fi
 
