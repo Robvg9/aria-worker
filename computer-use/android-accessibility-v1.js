@@ -296,9 +296,13 @@ async function executeLocalIpcJob({ request, timeoutMs = 12000 } = {}) {
     return {
       status: 'failed',
       reason: 'android_ipc_credential_missing',
-      metadata: { transport: 'android-local-http', url: LOCAL_IPC_URL }
+      metadata: { transport: 'android-local-http', url: LOCAL_IPC_URL, do_not_retry: true }
     };
   }
+  // OBSERVE is read-only. ACTION requests are at-most-once: once HTTP dispatch
+  // starts, a timeout or identity/observation gap is ambiguous and must never
+  // trigger a second transport that could repeat a click/type/navigation.
+  const readOnly = request?.operation === 'observe';
   const effectiveTimeout = Math.max(1000, Math.min(Number(timeoutMs) || 12000, 30000));
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), effectiveTimeout);
@@ -327,44 +331,51 @@ async function executeLocalIpcJob({ request, timeoutMs = 12000 } = {}) {
       return { status: 'failed', reason: 'android_local_ipc_invalid_response', metadata: { transport: 'android-local-http', url: LOCAL_IPC_URL } };
     }
     if (payload.ok !== true) {
-      return { status: 'failed', reason: payload.reason || 'android_action_failed', payload, metadata: { transport: 'android-local-http', url: LOCAL_IPC_URL } };
-    }
-    if (payload.service_package !== PACKAGE) {
-      const fallback = await executeAndroidCommandReceiver({ request, timeoutMs: Math.min(effectiveTimeout, 8000) });
-      if (fallback.status === 'succeeded') {
+      const responseReason = payload.reason || 'android_action_failed';
+      if (!readOnly && responseReason === 'post_action_window_missing') {
         return {
-          ...fallback,
+          status: 'submitted_unverified',
+          reason: 'android_action_post_observation_unavailable',
+          payload,
           metadata: {
-            ...(fallback.metadata || {}),
-            fallback_from: 'android-local-http-package-mismatch',
-            expected_package: PACKAGE,
-            actual_package: payload.service_package || null
-          }
-        };
-      }
-      if (fallback.metadata?.delivery_status === 'submitted_unverified') {
-        return {
-          ...fallback,
-          metadata: {
-            ...(fallback.metadata || {}),
-            fallback_from: 'android-local-http-package-mismatch',
-            expected_package: PACKAGE,
-            actual_package: payload.service_package || null,
-            package_identity_verified: false
+            transport: 'android-local-http',
+            url: LOCAL_IPC_URL,
+            delivery_status: 'submitted_unverified',
+            do_not_retry: true,
+            request_id: request.request_id || null,
+            response_reason: responseReason
           }
         };
       }
       return {
         status: 'failed',
-        reason: 'android_local_ipc_package_mismatch',
+        reason: responseReason,
         payload,
         metadata: {
           transport: 'android-local-http',
           url: LOCAL_IPC_URL,
+          do_not_retry: !readOnly,
+          delivery_status: 'response_received',
+          request_id: request.request_id || null
+        }
+      };
+    }
+    if (payload.service_package !== PACKAGE) {
+      // The remote side returned success, so the action may already have run.
+      // Never replay it through CommandReceiver merely because its identity is
+      // missing or mismatched; stop with an explicit unverified-delivery gate.
+      return {
+        status: 'submitted_unverified',
+        reason: 'android_local_ipc_service_identity_unverified',
+        payload,
+        metadata: {
+          transport: 'android-local-http',
+          url: LOCAL_IPC_URL,
+          delivery_status: 'submitted_unverified',
+          do_not_retry: true,
+          request_id: request.request_id || null,
           expected_package: PACKAGE,
-          actual_package: payload.service_package || null,
-          fallback_transport: 'android-command-receiver',
-          fallback_reason: fallback.reason || null
+          actual_package: payload.service_package || null
         }
       };
     }
@@ -374,9 +385,26 @@ async function executeLocalIpcJob({ request, timeoutMs = 12000 } = {}) {
       metadata: { transport: 'android-local-http', url: LOCAL_IPC_URL, request_id: request.request_id || null, evidence_hash: payload.evidence_hash || null }
     };
   } catch (error) {
+    const httpError = error?.name === 'AbortError' ? 'timeout' : 'connection_error';
+    if (!readOnly) {
+      // The request may have reached the app before the response was lost.
+      // Retrying via broadcast or another HTTP attempt could duplicate ACTION.
+      return {
+        status: 'submitted_unverified',
+        reason: 'android_local_ipc_delivery_unverified',
+        metadata: {
+          transport: 'android-local-http',
+          url: LOCAL_IPC_URL,
+          delivery_status: 'submitted_unverified',
+          do_not_retry: true,
+          request_id: request.request_id || null,
+          http_error: httpError
+        }
+      };
+    }
     const fallback = await executeAndroidCommandReceiver({ request, timeoutMs: Math.min(effectiveTimeout, 8000) });
     if (fallback.status === 'succeeded') {
-      return { ...fallback, metadata: { ...(fallback.metadata || {}), fallback_from: 'android-local-http', http_error: error?.name === 'AbortError' ? 'timeout' : 'unreachable' } };
+      return { ...fallback, metadata: { ...(fallback.metadata || {}), fallback_from: 'android-local-http', http_error: httpError } };
     }
     if (fallback.metadata?.delivery_status === 'submitted_unverified') {
       return {
@@ -384,15 +412,12 @@ async function executeLocalIpcJob({ request, timeoutMs = 12000 } = {}) {
         metadata: {
           ...(fallback.metadata || {}),
           fallback_from: 'android-local-http',
-          http_error: error?.name === 'AbortError' ? 'timeout' : 'unreachable'
+          http_error: httpError
         }
       };
     }
     if (error?.name === 'AbortError') {
       return { status: 'timeout', reason: `android_local_ipc_timeout_${effectiveTimeout}ms`, metadata: { transport: 'android-local-http', url: LOCAL_IPC_URL, fallback_transport: 'android-command-receiver', fallback_reason: fallback.reason || null } };
-    }
-    if (fallback.status === 'succeeded') {
-      return { ...fallback, metadata: { ...(fallback.metadata || {}), fallback_from: 'android-local-http' } };
     }
     return {
       status: 'failed',
@@ -433,6 +458,7 @@ async function executeAndroidAccessibilityJob({ command, timeoutMs = 12000, reso
     delete request.secret_ref;
   }
 
+  const readOnly = request.operation === 'observe';
   let lastResult = null;
   let recoveryAttempted = false;
   for (let attempt = 1; attempt <= 3; attempt += 1) {
@@ -443,7 +469,9 @@ async function executeAndroidAccessibilityJob({ command, timeoutMs = 12000, reso
     }
     const reason = String(result.reason || '');
     const windowMissing = /(?:no_active_application_window|post_action_window_missing)/.test(reason);
-    const retryable = /android_local_ipc_(?:unreachable|timeout)/.test(reason) || windowMissing;
+    // Only repeat read-only OBSERVE. An ACTION may have completed even when
+    // its response/post-observation is missing; it must stop for owner review.
+    const retryable = readOnly && (/android_local_ipc_(?:unreachable|timeout)/.test(reason) || windowMissing);
     if (!retryable || attempt === 3) {
       return { ...result, metadata: { ...(result.metadata || {}), attempt, recovery_attempted: recoveryAttempted } };
     }
