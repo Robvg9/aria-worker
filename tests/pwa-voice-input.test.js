@@ -35,6 +35,7 @@ assert.match(voice, /no enviará audio a un servicio remoto como alternativa/, '
 assert.match(voice, /recognizeUtterance\(\{[\s\S]*include_audio: captureAudio/, 'Android audio attachments must use native recognition and request its same captured PCM stream');
 assert.match(voice, /makeNativeAudioAttachment\(result\.audio\)/, 'native PCM must be wrapped into a WAV attachment');
 assert.match(voice, /onAudioRef\.current\?\.\(audioFile\)/, 'native WAV must enter the ordinary PWA attachment queue');
+assert.match(voice, /Audio adjuntado, pero no se obtuvo la transcripción local/, 'native audio must remain attached when local recognition has no transcript');
 assert.doesNotMatch(voice, /toggleDictation\(true, model\.language\)/, 'Android attachment capture must not hand off to competing Web Speech and MediaRecorder clients');
 assert.match(voice, /writeAscii\(0, 'RIFF'\)/, 'native PCM attachment must be wrapped in a valid WAV container');
 assert.match(voice, /audio\.byteLength > maxBytes/, 'native audio attachment must enforce a bounded payload');
