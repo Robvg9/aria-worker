@@ -106,7 +106,7 @@ assert.match(app, /return send\(transcript\)/, 'voice mode must await the final 
 assert.match(voice, /autoSubmit = false/, 'voice input must preserve manual review mode outside voice conversation');
 assert.ok(voice.includes('Transcripción recibida. ARIA está preparando tu respuesta'), 'automatic voice mode must announce response processing');
 assert.ok(voice.includes('Respuesta recibida. Puedes hablar de nuevo.'), 'voice processing notice must resolve when the assistant reply arrives');
-assert.match(voice, /Promise\.resolve\(\)[\s\S]*onTranscriptRef\.current\(transcript\)/, 'voice mode must await completion of the assistant turn');
+assert.match(voice, /async function deliverTranscript[\s\S]*await onTranscriptRef\.current\(transcript\)/, 'voice mode must await completion of the assistant turn');
 assert.match(app, /voice_mode: voiceModeRef\.current/, 'voice chat must explicitly request its low-latency backend path');
 assert.match(app, /appendVoiceDiagnostic\('conversation_request_started'/, 'voice diagnostics must record when a transcript is sent to the API');
 assert.match(app, /appendVoiceDiagnostic\('conversation_response_received'/, 'voice diagnostics must distinguish a received API response from a recognition event');
