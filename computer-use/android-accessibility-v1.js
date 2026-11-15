@@ -75,6 +75,10 @@ function localAndroidUserId() {
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
+
+function isBroadcastSentWithoutResult(output) {
+  return /Broadcast sent without waiting for result/i.test(String(output || ''));
+}
 function executeAndroidCommandReceiver({ request, timeoutMs = 8000 } = {}) {
   const userId = localAndroidUserId();
   if (!Number.isInteger(userId) || userId < 0) {
@@ -135,6 +139,23 @@ function executeAndroidCommandReceiver({ request, timeoutMs = 8000 } = {}) {
         try { payload = JSON.parse(Buffer.from(match[1], 'base64').toString('utf8')); } catch (_) {}
       }
       if (!payload || typeof payload !== 'object') {
+        if (isBroadcastSentWithoutResult(stdout)) {
+          finish({
+            status: 'failed',
+            reason: 'android_command_receiver_result_unavailable_api34',
+            metadata: {
+              transport: 'android-command-receiver',
+              delivery_status: 'submitted_unverified',
+              receiver_acknowledgement: 'unavailable_on_android_14_plus',
+              do_not_retry: true,
+              request_id: request.request_id || null,
+              exit_code: code,
+              user_id: userId,
+              duration_ms: Date.now() - started
+            }
+          });
+          return;
+        }
         finish({
           status: 'failed',
           reason: code === 0 ? 'android_command_receiver_invalid_response' : 'android_command_receiver_failed',
@@ -321,6 +342,18 @@ async function executeLocalIpcJob({ request, timeoutMs = 12000 } = {}) {
           }
         };
       }
+      if (fallback.metadata?.delivery_status === 'submitted_unverified') {
+        return {
+          ...fallback,
+          metadata: {
+            ...(fallback.metadata || {}),
+            fallback_from: 'android-local-http-package-mismatch',
+            expected_package: PACKAGE,
+            actual_package: payload.service_package || null,
+            package_identity_verified: false
+          }
+        };
+      }
       return {
         status: 'failed',
         reason: 'android_local_ipc_package_mismatch',
@@ -344,6 +377,16 @@ async function executeLocalIpcJob({ request, timeoutMs = 12000 } = {}) {
     const fallback = await executeAndroidCommandReceiver({ request, timeoutMs: Math.min(effectiveTimeout, 8000) });
     if (fallback.status === 'succeeded') {
       return { ...fallback, metadata: { ...(fallback.metadata || {}), fallback_from: 'android-local-http', http_error: error?.name === 'AbortError' ? 'timeout' : 'unreachable' } };
+    }
+    if (fallback.metadata?.delivery_status === 'submitted_unverified') {
+      return {
+        ...fallback,
+        metadata: {
+          ...(fallback.metadata || {}),
+          fallback_from: 'android-local-http',
+          http_error: error?.name === 'AbortError' ? 'timeout' : 'unreachable'
+        }
+      };
     }
     if (error?.name === 'AbortError') {
       return { status: 'timeout', reason: `android_local_ipc_timeout_${effectiveTimeout}ms`, metadata: { transport: 'android-local-http', url: LOCAL_IPC_URL, fallback_transport: 'android-command-receiver', fallback_reason: fallback.reason || null } };
@@ -411,6 +454,17 @@ async function executeAndroidAccessibilityJob({ command, timeoutMs = 12000, reso
         if (receiverRetry.status === 'succeeded') {
           return { ...receiverRetry, metadata: { ...(receiverRetry.metadata || {}), attempt, recovery_attempted: true, fallback_from: 'android-local-http-window-missing' } };
         }
+        if (receiverRetry.metadata?.delivery_status === 'submitted_unverified') {
+          return {
+            ...receiverRetry,
+            metadata: {
+              ...(receiverRetry.metadata || {}),
+              attempt,
+              recovery_attempted: true,
+              fallback_from: 'android-local-http-window-missing'
+            }
+          };
+        }
         return {
           status: 'failed',
           reason: 'android_ui_agent_owner_action_required',
@@ -440,6 +494,7 @@ module.exports = Object.freeze({
   LOCAL_IPC_HEALTH_URL,
   loadIpcToken,
   resolveIpcTokenFile,
+  isBroadcastSentWithoutResult,
   probeLocalIpcHealth,
   executeAndroidAccessibilityJob,
   executeAndroidCommandReceiver,
