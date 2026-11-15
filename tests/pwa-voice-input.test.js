@@ -21,7 +21,7 @@ assert.match(voice, /code === 'language-not-supported'/, 'push-to-talk must fall
 assert.match(voice, /startRecognition\('es-ES'\)/, 'push-to-talk must retry with general Spanish after an unsupported locale');
 assert.match(voice, /recognition\.onresult/);
 assert.match(voice, /recognizeUtterance\(\{[\s\S]*max_duration_ms: 8000[\s\S]*language: locale/, 'Android WebView dictation must use bounded native on-device recognition');
-assert.match(voice, /speechRecognition\.available !== true/, 'native Android dictation must fail closed when on-device recognition is unavailable');
+assert.match(voice, /capability\?\.available !== true/, 'native Android dictation must fail closed when on-device recognition is unavailable');
 assert.match(voice, /audioLeavesDevice !== false/, 'native Android dictation must require its no-audio-upload capability');
 assert.match(voice, /cancelRecognition\?\.\(\)/, 'native Android dictation must support explicit cancellation');
 assert.match(voice, /No grabaré ni adjuntaré un audio como sustituto/, 'unsupported native ASR must not silently send an audio attachment');
