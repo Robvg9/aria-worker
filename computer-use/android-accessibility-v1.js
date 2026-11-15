@@ -367,6 +367,31 @@ async function sendLocalIpcHeartbeat({
         metadata: { transport: 'android-local-http', url: LOCAL_IPC_HEARTBEAT_URL }
       };
     }
+    // Codemagic sets CM_COMMIT; GitHub Actions sets GITHUB_SHA. Reject
+    // placeholders such as "local" so a listener cannot masquerade as a
+    // build whose source commit is known.
+    if (!/^[a-f0-9]{40}$/i.test(buildId)) {
+      return {
+        ok: false,
+        reason: 'android_local_ipc_build_identity_invalid',
+        metadata: { transport: 'android-local-http', url: LOCAL_IPC_HEARTBEAT_URL, actual_build_id: buildId }
+      };
+    }
+    const expectedBuildId = typeof env.ARIA_EXPECTED_ANDROID_BUILD_ID === 'string'
+      ? env.ARIA_EXPECTED_ANDROID_BUILD_ID.trim()
+      : '';
+    if (expectedBuildId && buildId.toLowerCase() !== expectedBuildId.toLowerCase()) {
+      return {
+        ok: false,
+        reason: 'android_local_ipc_build_identity_mismatch',
+        metadata: {
+          transport: 'android-local-http',
+          url: LOCAL_IPC_HEARTBEAT_URL,
+          expected_build_id: expectedBuildId,
+          actual_build_id: buildId
+        }
+      };
+    }
     return {
       ok: true,
       reason: 'android_local_ipc_heartbeat_confirmed',

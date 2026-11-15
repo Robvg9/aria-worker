@@ -61,6 +61,8 @@ assert.ok(agent.includes('LOCAL_IPC_HEARTBEAT_MS'));
 assert.ok(agent.includes('setInterval(localIpcHeartbeat,LOCAL_IPC_HEARTBEAT_MS)'));
 assert.ok(agent.includes('await localIpcHeartbeat()'), 'safe startup must immediately verify the local app heartbeat');
 assert.ok(agent.includes('LOCAL IPC HEARTBEAT OK package='), 'successful local pulse must include package and build identity');
+assert.ok(transport.includes('android_local_ipc_build_identity_invalid'), 'placeholder build IDs must fail closed');
+assert.ok(transport.includes('ARIA_EXPECTED_ANDROID_BUILD_ID'), 'owner can pin the exact expected app build SHA');
 assert.ok(accessibilityService.includes('val maxNodes = payload.optInt("max_nodes", 240).coerceIn(32, 300)'), 'Android UI tree must use a bounded node budget for IPC responsiveness');
 assert.ok(accessibilityService.includes('NodeBudget(maxCount = maxNodes)'), 'observe and post-action UI trees must honor the bounded node budget');
 assert.ok(accessibilityService.includes('installedApprovedBrowsers: List<String> by lazy'), 'installed browser package checks must be cached per service');
@@ -182,7 +184,7 @@ assert.ok(!manifest.includes('ARIA Browser Bridge'));
     // The supervisor's local heartbeat must authenticate and verify exact app identity.
     const heartbeatCalls = [];
     const localPulse = await sendLocalIpcHeartbeat({
-      env: { ARIA_IPC_TOKEN: VALID_TOKEN },
+      env: { ARIA_IPC_TOKEN: VALID_TOKEN, ARIA_EXPECTED_ANDROID_BUILD_ID: 'a'.repeat(40) },
       fetchImpl: async (url, options) => {
         heartbeatCalls.push({ url, options });
         return {
@@ -192,7 +194,7 @@ assert.ok(!manifest.includes('ARIA Browser Bridge'));
             ok: true,
             package: PACKAGE,
             protocol: 'aria-android-ui-agent-ipc-v2',
-            build_id: 'build-17-sha',
+            build_id: 'a'.repeat(40),
             heartbeat_at_ms: 1234,
             fresh_for_ms: 45000
           })
@@ -202,11 +204,43 @@ assert.ok(!manifest.includes('ARIA Browser Bridge'));
     assert.equal(localPulse.ok, true);
     assert.equal(localPulse.metadata.package, PACKAGE);
     assert.equal(localPulse.metadata.protocol, 'aria-android-ui-agent-ipc-v2');
-    assert.equal(localPulse.metadata.build_id, 'build-17-sha');
+    assert.equal(localPulse.metadata.build_id, 'a'.repeat(40));
     assert.equal(heartbeatCalls.length, 1);
     assert.equal(heartbeatCalls[0].url, LOCAL_IPC_HEARTBEAT_URL);
     assert.equal(heartbeatCalls[0].options.method, 'POST');
     assert.equal(heartbeatCalls[0].options.headers.authorization, `Bearer ${VALID_TOKEN}`);
+
+    const placeholderBuild = await sendLocalIpcHeartbeat({
+      env: { ARIA_IPC_TOKEN: VALID_TOKEN },
+      fetchImpl: async () => ({
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({
+          ok: true,
+          package: PACKAGE,
+          protocol: 'aria-android-ui-agent-ipc-v2',
+          build_id: 'local'
+        })
+      })
+    });
+    assert.equal(placeholderBuild.ok, false);
+    assert.equal(placeholderBuild.reason, 'android_local_ipc_build_identity_invalid');
+
+    const mismatchedBuild = await sendLocalIpcHeartbeat({
+      env: { ARIA_IPC_TOKEN: VALID_TOKEN, ARIA_EXPECTED_ANDROID_BUILD_ID: 'b'.repeat(40) },
+      fetchImpl: async () => ({
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({
+          ok: true,
+          package: PACKAGE,
+          protocol: 'aria-android-ui-agent-ipc-v2',
+          build_id: 'a'.repeat(40)
+        })
+      })
+    });
+    assert.equal(mismatchedBuild.ok, false);
+    assert.equal(mismatchedBuild.reason, 'android_local_ipc_build_identity_mismatch');
 
     const mismatchedPulse = await sendLocalIpcHeartbeat({
       env: { ARIA_IPC_TOKEN: VALID_TOKEN },

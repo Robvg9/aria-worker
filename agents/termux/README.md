@@ -53,7 +53,7 @@ Create `~/.aria-agent.stop` before starting the supervisor to request a clean st
 A manual supervisor start is safe by default:
 
 - `ARIA_AGENT_CLAIMS_ENABLED` defaults to `false`. The agent sends the cloud device heartbeat and checks local IPC health, but does **not** poll `/v1/voice/commands/claim` or `/v1/jobs/claim`.
-- The agent also sends an authenticated local `POST /heartbeat` every 15 seconds by default (configurable up to 30 seconds). It verifies the unified package, IPC protocol and non-empty build ID before logging the local connection as healthy. The app expires this indicator after 45 seconds; this pulse does not claim or execute work.
+- The agent also sends an authenticated local `POST /heartbeat` every 15 seconds by default (configurable up to 30 seconds). It verifies the unified package, IPC protocol and a 40-character Git commit SHA before logging the local connection as healthy; placeholder IDs such as `local` are rejected. Set `ARIA_EXPECTED_ANDROID_BUILD_ID` in the private environment file to pin one exact app commit when required. The app expires this indicator after 45 seconds; this pulse does not claim or execute work.
 - Set `ARIA_AGENT_CLAIMS_ENABLED=true` in the private `~/.aria-agent.env` only after an explicit owner gate authorizes queue execution for this device.
 - `ARIA_AGENT_RECEIVER_PROBE_ENABLED` defaults to `false`; it does not probe the Android broadcast receiver during heartbeat. This avoids relying on an Android 14+ Termux broadcast path without an acknowledgement.
 - `ARIA_AGENT_WAKE_LOCK` defaults to `false`; the supervisor does not hold a wake lock unless explicitly enabled.
