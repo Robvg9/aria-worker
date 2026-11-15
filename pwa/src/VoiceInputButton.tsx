@@ -48,6 +48,98 @@ const ERROR_MESSAGES: Record<string, string> = {
   aborted: 'Dictado detenido.'
 };
 
+
+type NativeRecognitionSupport = {
+  requestedLanguage: string;
+  installedOnDeviceLanguages: string[];
+  pendingOnDeviceLanguages: string[];
+  supportedOnDeviceLanguages: string[];
+};
+
+type NativeModelDownloadResult = {
+  state: 'downloaded' | 'scheduled' | 'requested';
+  language: string;
+};
+
+type NativeRecognitionAudio = {
+  format: 'pcm_s16le';
+  sampleRate: 16000;
+  channels: 1;
+  byteLength: number;
+  audioBase64: string;
+};
+
+type NativeVoiceBridge = {
+  getRecognitionSupport: (input: { language: string }) => Promise<NativeRecognitionSupport>;
+  downloadRecognitionModel: (input: { language: string }) => Promise<NativeModelDownloadResult>;
+  recognizeUtterance: (input: { max_duration_ms: number; language: string; include_audio: boolean }) => Promise<{
+    transcript: string;
+    language: string;
+    recognitionMode: 'on_device';
+    durationMs: number;
+    audio?: NativeRecognitionAudio;
+  }>;
+  cancelRecognition: () => Promise<{ accepted: boolean }>;
+};
+
+function getNativeVoiceRuntime(): {
+  bridge: NativeVoiceBridge | null;
+  speechAvailable: boolean;
+  modelManagementAvailable: boolean;
+} | null {
+  const runtime = window as any;
+  const context = runtime.__ariaVoiceV4NativeContext
+    || runtime.ariaNativeBridge?.getContext?.();
+  if (context?.platform !== 'android') return null;
+  const speech = context?.voice?.speechRecognition;
+  return {
+    bridge: runtime.ariaVoiceV4 || null,
+    speechAvailable: speech?.available === true
+      && speech?.mode === 'on_device'
+      && speech?.explicitActivationOnly === true
+      && speech?.audioLeavesDevice === false,
+    modelManagementAvailable: speech?.modelManagementAvailable === true
+  };
+}
+
+
+function makeNativeAudioAttachment(audio: NativeRecognitionAudio | undefined): File {
+  const maxBytes = 30_000 * 16_000 * 2 / 1000;
+  if (!audio || audio.format !== 'pcm_s16le' || audio.sampleRate !== 16000 || audio.channels !== 1
+      || !Number.isSafeInteger(audio.byteLength) || audio.byteLength <= 0
+      || audio.byteLength > maxBytes || audio.byteLength % 2 !== 0
+      || typeof audio.audioBase64 !== 'string'
+      || audio.audioBase64.length !== Math.ceil(audio.byteLength / 3) * 4
+      || !/^[A-Za-z0-9+/]+={0,2}$/.test(audio.audioBase64)) {
+    throw new Error('voice_asr_audio_response_invalid');
+  }
+  const binary = atob(audio.audioBase64);
+  if (binary.length !== audio.byteLength) throw new Error('voice_asr_audio_response_invalid');
+  const pcm = new Uint8Array(audio.byteLength);
+  for (let index = 0; index < binary.length; index += 1) pcm[index] = binary.charCodeAt(index);
+
+  const header = new ArrayBuffer(44);
+  const view = new DataView(header);
+  const writeAscii = (offset: number, value: string) => {
+    for (let index = 0; index < value.length; index += 1) view.setUint8(offset + index, value.charCodeAt(index));
+  };
+  writeAscii(0, 'RIFF');
+  view.setUint32(4, 36 + audio.byteLength, true);
+  writeAscii(8, 'WAVE');
+  writeAscii(12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, 16000, true);
+  view.setUint32(28, 32000, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  writeAscii(36, 'data');
+  view.setUint32(40, audio.byteLength, true);
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  return new File([header, pcm], 'aria-audio-' + stamp + '.wav', { type: 'audio/wav' });
+}
+
 export function VoiceInputButton({
   onTranscript,
   onAudio,
@@ -65,12 +157,23 @@ export function VoiceInputButton({
   const onAudioRef = useRef(onAudio);
   const [listening, setListening] = useState(false);
   const [notice, setNotice] = useState('');
+  const modelPreparationRef = useRef(false);
+  const nativeRecognitionActiveRef = useRef(false);
+  const nativeBridgeRef = useRef<NativeVoiceBridge | null>(null);
 
   useEffect(() => { onTranscriptRef.current = onTranscript; }, [onTranscript]);
   useEffect(() => { onAudioRef.current = onAudio; }, [onAudio]);
 
   useEffect(() => () => {
     activeRef.current = false;
+    if (nativeRecognitionActiveRef.current) {
+      nativeRecognitionActiveRef.current = false;
+      const activeBridge = nativeBridgeRef.current;
+      if (activeBridge) {
+        try { void activeBridge.cancelRecognition().catch(() => undefined); } catch {}
+      }
+    }
+    nativeBridgeRef.current = null;
     const session = sessionRef.current;
     try { session?.recognition?.abort?.(); } catch {}
     try { if (session?.recorder?.state === 'recording') session.recorder.stop(); } catch {}
@@ -171,9 +274,185 @@ export function VoiceInputButton({
     }
   }
 
-  function toggleDictation() {
+
+  async function ensureSpanishOfflineModel(
+    bridge: NativeVoiceBridge,
+    onStatus: (message: string) => void
+  ): Promise<NativeModelDownloadResult> {
+    const preferred = resolveVoiceRecognitionLocale(navigator.language, navigator.languages);
+    const localeOrder = Array.from(new Set([preferred, 'es-CU', 'es-PR', 'es-US', 'es-MX', 'es-ES']));
+    const installed = new Set<string>();
+    const pending = new Set<string>();
+    const supported = new Set<string>();
+    const queried: string[] = [];
+
+    const progressHandler = (event: Event) => {
+      const detail = (event as CustomEvent).detail;
+      if (!detail || typeof detail !== 'object' || typeof detail.language !== 'string') return;
+      if (detail.state === 'downloading') {
+        const progress = Number.isFinite(detail.progress) ? Math.max(0, Math.min(100, detail.progress)) : null;
+        onStatus(progress === null
+          ? 'Descargando el modelo español sin conexión…'
+          : 'Descargando el modelo español sin conexión… ' + progress + '%');
+      } else if (detail.state === 'downloaded') {
+        onStatus('Modelo español local instalado: ' + detail.language + '.');
+      } else if (detail.state === 'scheduled' || detail.state === 'requested') {
+        onStatus('Android programó la descarga del modelo ' + detail.language + '.');
+      } else if (detail.state === 'error') {
+        onStatus('Falló la descarga del modelo español. Código ' + String(detail.errorCode ?? 'desconocido') + '.');
+      }
+    };
+
+    window.addEventListener('aria-voice-model-download-status', progressHandler);
+    try {
+      for (const locale of localeOrder) {
+        try {
+          const support = await bridge.getRecognitionSupport({ language: locale });
+          queried.push(locale);
+          support.installedOnDeviceLanguages.forEach(value => installed.add(value.toLowerCase()));
+          support.pendingOnDeviceLanguages.forEach(value => pending.add(value.toLowerCase()));
+          support.supportedOnDeviceLanguages.forEach(value => supported.add(value.toLowerCase()));
+        } catch (error) {
+          const code = String((error as any)?.message || '');
+          if (code.includes('voice_asr_model_management_unavailable')
+              || code.includes('voice_asr_on_device_unavailable')) throw error;
+          // Unsupported regional locales and providers without the support
+          // query are handled by trying the next Spanish locale.
+        }
+      }
+
+      const pick = (languages: Set<string>): string | null => {
+        for (const locale of localeOrder) {
+          if (languages.has(locale.toLowerCase())) return locale;
+        }
+        return Array.from(languages).find(value => /^es-[a-z0-9-]+$/i.test(value)) || null;
+      };
+
+      const installedLocale = pick(installed);
+      if (installedLocale) {
+        onStatus('Modelo español local ya instalado: ' + installedLocale + '.');
+        return { state: 'downloaded', language: installedLocale };
+      }
+
+      const pendingLocale = pick(pending);
+      const supportedLocale = pick(supported);
+      // If the provider cannot enumerate supported locales, prefer general
+      // Spanish after having queried every allowed region rather than blindly
+      // requesting the device dialect that may have caused the original miss.
+      const targetLanguage = pendingLocale
+        || supportedLocale
+        || (queried.includes('es-ES') ? 'es-ES' : (queried[queried.length - 1] || 'es-ES'));
+      onStatus('Comprobando/solicitando modelo español ' + targetLanguage + '…');
+
+      // Triggering the request is safe even for a pending model: Android's
+      // provider may resume it, ask for approval, or report it as scheduled.
+      const result = await bridge.downloadRecognitionModel({ language: targetLanguage });
+      if (result.state === 'downloaded') {
+        onStatus('Modelo español local listo: ' + result.language + '.');
+      } else if (result.state === 'scheduled' || result.state === 'requested') {
+        onStatus('Android dejó programada la descarga de ' + result.language + '. Vuelve a pulsar cuando esté lista.');
+      }
+      return result;
+    } finally {
+      window.removeEventListener('aria-voice-model-download-status', progressHandler);
+    }
+  }
+
+  async function deliverNativeTranscript(transcriptValue: string, audioFile?: File) {
+    if (audioFile) onAudioRef.current?.(audioFile);
+    const transcript = String(transcriptValue || '').trim();
+    if (!transcript) {
+      setNotice(audioFile
+        ? 'Audio adjuntado, pero no se obtuvo la transcripción local. Añade contexto y envíalo.'
+        : 'No se obtuvo una transcripción. Habla con claridad e inténtalo de nuevo.');
+      return;
+    }
+    if (autoSubmit) {
+      setNotice('Transcripción local recibida. ARIA está preparando tu respuesta…');
+      try {
+        const result = await onTranscriptRef.current(transcript);
+        setNotice(result === false
+          ? 'ARIA no pudo completar la respuesta. Revisa el error del chat.'
+          : 'Respuesta recibida. Puedes hablar de nuevo.');
+      } catch {
+        setNotice('No se pudo completar la respuesta. Revisa el error del chat.');
+      }
+    } else {
+      onTranscriptRef.current(transcript);
+      setNotice('Transcripción local insertada. Revísala y envíala.');
+    }
+  }
+
+  async function beginAndroidDictation(bridge: NativeVoiceBridge) {
+    activeRef.current = true;
+    modelPreparationRef.current = true;
+    nativeBridgeRef.current = bridge;
+    setListening(true);
+    setNotice('Comprobando el modelo español sin conexión…');
+    try {
+      const model = await ensureSpanishOfflineModel(bridge, setNotice);
+      if (!activeRef.current) return;
+      if (model.state !== 'downloaded') {
+        setNotice(model.state === 'scheduled' || model.state === 'requested'
+          ? 'La descarga quedó programada. Cuando Android termine, pulsa Audio otra vez.'
+          : 'El modelo español todavía no está listo.');
+        return;
+      }
+
+      modelPreparationRef.current = false;
+      nativeRecognitionActiveRef.current = true;
+      setNotice(captureAudio
+        ? 'Escuchando localmente y preparando el audio adjunto. Puedes hacer pausas breves; finalizará tras 2,5 segundos de silencio (máximo 30 segundos).'
+        : 'Escuchando localmente. Puedes hacer pausas breves; finalizará tras 2,5 segundos de silencio (máximo 30 segundos).');
+      const result = await bridge.recognizeUtterance({
+        max_duration_ms: 30000,
+        language: model.language,
+        include_audio: captureAudio
+      });
+      if (activeRef.current) {
+        if (result.recognitionMode !== 'on_device'
+            || result.language !== model.language
+            || typeof result.transcript !== 'string') {
+          throw new Error('voice_asr_response_invalid');
+        }
+        const audioFile = captureAudio ? makeNativeAudioAttachment(result.audio) : undefined;
+        await deliverNativeTranscript(result.transcript, audioFile);
+      }
+    } catch (error) {
+      if (activeRef.current) {
+        const code = String((error as any)?.message || 'voice_asr_failed');
+        setNotice(code.includes('voice_asr_language_unavailable')
+          ? 'El modelo español todavía no está disponible. Comprueba la descarga y vuelve a intentarlo.'
+          : code.includes('voice_asr_cancelled')
+            ? 'Dictado detenido.'
+            : 'El dictado local falló: ' + code);
+      }
+    } finally {
+      activeRef.current = false;
+      modelPreparationRef.current = false;
+      nativeRecognitionActiveRef.current = false;
+      nativeBridgeRef.current = null;
+      setListening(false);
+    }
+  }
+
+  function toggleDictation(skipModelPreparation = false, preparedLanguage?: string) {
     if (listening) {
       activeRef.current = false;
+      if (modelPreparationRef.current) {
+        modelPreparationRef.current = false;
+        setListening(false);
+        setNotice('Preparación detenida. Si Android continúa descargando el modelo, no se activará el micrófono.');
+        return;
+      }
+      if (nativeRecognitionActiveRef.current) {
+        nativeRecognitionActiveRef.current = false;
+        const bridge = nativeBridgeRef.current;
+        void bridge?.cancelRecognition().catch(() => {});
+        setListening(false);
+        setNotice('Cancelando dictado local…');
+        return;
+      }
       const session = sessionRef.current;
       if (session?.recorder?.state === 'recording') {
         try { session.recorder.stop(); } catch {
@@ -192,6 +471,18 @@ export function VoiceInputButton({
       }
       setNotice('Finalizando audio y transcripción…');
       return;
+    }
+
+    if (!skipModelPreparation) {
+      const nativeRuntime = getNativeVoiceRuntime();
+      if (nativeRuntime) {
+        if (!nativeRuntime.speechAvailable || !nativeRuntime.modelManagementAvailable || !nativeRuntime.bridge) {
+          setNotice('Este Android no ofrece el administrador de modelos de voz local. ARIA no enviará audio a un servicio remoto como alternativa.');
+          return;
+        }
+        void beginAndroidDictation(nativeRuntime.bridge);
+        return;
+      }
     }
 
     const speechWindow = window as any;
@@ -267,7 +558,7 @@ export function VoiceInputButton({
       };
 
       activeRef.current = true;
-      startRecognition(resolveVoiceRecognitionLocale(navigator.language, navigator.languages));
+      startRecognition(preparedLanguage || resolveVoiceRecognitionLocale(navigator.language, navigator.languages));
       setListening(true);
       setNotice(captureAudio ? 'Preparando audio y transcripción… habla ahora.' : 'Escuchando… habla ahora.');
       if (captureAudio) void startAudioCapture(session);

@@ -13,8 +13,35 @@ const voiceOutputSource = fs.readFileSync(path.join(root, 'pwa/src/voiceOutput.j
 
 assert.match(voice, /SpeechRecognitionConstructor/);
 assert.match(voice, /webkitSpeechRecognition/);
+
+assert.match(voice, /getNativeVoiceRuntime\(\)/, 'Android WebView dictation must detect the native bridge');
+assert.match(voice, /modelManagementAvailable/, 'Android dictation must require local model-management support');
+assert.match(voice, /ensureSpanishOfflineModel/, 'Android dictation must inspect/prepare a Spanish offline model before recognition');
+assert.match(voice, /getRecognitionSupport\(\{ language: locale \}\)/, 'Android dictation must query installed/pending/supported Spanish locales');
+assert.match(voice, /downloadRecognitionModel\(\{ language: targetLanguage \}\)/, 'Android dictation must explicitly request the missing Spanish model');
+assert.match(voice, /aria-voice-model-download-status/, 'Android dictation must consume native download progress');
+assert.match(voice, /recognizeUtterance\(\{/, 'Android voice conversation must use the native on-device recognizer');
+assert.match(voice, /max_duration_ms: 30000/, 'Android native dictation must allow a 30-second sentence window');
+assert.match(voice, /2,5 segundos de silencio/, 'Android native dictation must explain the silence-based finalization window');
+assert.match(voice, /cancelRecognition\(\)/, 'Android voice dictation must support explicit cancellation');
+const voiceCleanupStart = voice.indexOf('useEffect(() => () => {');
+const voiceCleanupEnd = voice.indexOf('}, []);', voiceCleanupStart);
+assert(voiceCleanupStart >= 0 && voiceCleanupEnd > voiceCleanupStart, 'voice component must expose an unmount cleanup');
+const voiceCleanup = voice.slice(voiceCleanupStart, voiceCleanupEnd);
+assert.match(voiceCleanup, /nativeRecognitionActiveRef\.current/);
+assert.match(voiceCleanup, /activeBridge\.cancelRecognition\(\)/, 'unmount must cancel an active native recognizer');
+assert.match(voice, /audioLeavesDevice === false/, 'native Android recognition must guarantee audio stays on device');
+assert.match(voice, /no enviará audio a un servicio remoto como alternativa/, 'unsupported native Android recognition must fail closed instead of silently uploading audio');
+assert.match(voice, /recognizeUtterance\(\{[\s\S]*include_audio: captureAudio/, 'Android audio attachments must use native recognition and request its same captured PCM stream');
+assert.match(voice, /makeNativeAudioAttachment\(result\.audio\)/, 'native PCM must be wrapped into a WAV attachment');
+assert.match(voice, /onAudioRef\.current\?\.\(audioFile\)/, 'native WAV must enter the ordinary PWA attachment queue');
+assert.match(voice, /Audio adjuntado, pero no se obtuvo la transcripción local/, 'native audio must remain attached when local recognition has no transcript');
+assert.doesNotMatch(voice, /toggleDictation\(true, model\.language\)/, 'Android attachment capture must not hand off to competing Web Speech and MediaRecorder clients');
+assert.match(voice, /writeAscii\(0, 'RIFF'\)/, 'native PCM attachment must be wrapped in a valid WAV container');
+assert.match(voice, /audio\.byteLength > maxBytes/, 'native audio attachment must enforce a bounded payload');
+
 assert.match(voice, /recognition\.lang = locale/);
-assert.match(voice, /startRecognition\(resolveVoiceRecognitionLocale\(navigator\.language, navigator\.languages\)\)/);
+assert.match(voice, /startRecognition\(preparedLanguage \|\| resolveVoiceRecognitionLocale\(navigator\.language, navigator\.languages\)\)/, 'browser fallback must reuse the regional locale selected by the native offline model manager');
 assert.match(voice, /code === 'language-not-supported'/);
 assert.match(voice, /startRecognition\('es-ES'\)/);
 assert.match(voice, /code === 'language-not-supported'/, 'push-to-talk must fall back when the selected locale is unsupported');
