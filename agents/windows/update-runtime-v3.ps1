@@ -9,6 +9,10 @@ $TaskName = 'ARIA-Windows-Local-Agent'
 
 $files = @(
     @{ source = Join-Path $AgentSourceRoot 'aria-agent.js'; destination = Join-Path $RuntimeDir 'aria-agent.js' },
+    @{ source = Join-Path $AgentSourceRoot 'atomic-heartbeat-writer.cjs'; destination = Join-Path $RuntimeDir 'atomic-heartbeat-writer.cjs' },
+    @{ source = Join-Path $AgentSourceRoot 'heartbeat-scheduler.cjs'; destination = Join-Path $RuntimeDir 'heartbeat-scheduler.cjs' },
+    @{ source = Join-Path $AgentSourceRoot 'gateway-dns-lookup.cjs'; destination = Join-Path $RuntimeDir 'gateway-dns-lookup.cjs' },
+    @{ source = Join-Path $AgentSourceRoot 'gateway-http-client.cjs'; destination = Join-Path $RuntimeDir 'gateway-http-client.cjs' },
     @{ source = Join-Path $AgentSourceRoot 'aria-meditation-controller.js'; destination = Join-Path $RuntimeDir 'aria-meditation-controller.js' },
     @{ source = Join-Path $AgentSourceRoot 'autonomous-rwht-controller.js'; destination = Join-Path $RuntimeDir 'autonomous-rwht-controller.js' },
     @{ source = Join-Path $AgentSourceRoot 'run-agent.ps1'; destination = Join-Path $RuntimeDir 'run-agent.ps1' },
@@ -44,8 +48,8 @@ while ((Get-Date) -lt $deadline) {
         if ($hb.LastWriteTimeUtc -gt $before) {
             try {
                 $payload = Get-Content -Raw -Path $heartbeatPath | ConvertFrom-Json
-                if ($payload.version -eq 'aria-windows-agent-heartbeat-v1') {
-                    Write-Host "ARIA_PROCESS_HEARTBEAT=PASS"
+                if ($payload.version -eq 'aria-windows-agent-heartbeat-v2') {
+                    Write-Host "ARIA_PROCESS_HEARTBEAT_V2=PASS"
                     Write-Host ("HEARTBEAT_TIMESTAMP=" + $payload.timestamp)
                     Write-Host ("HEARTBEAT_NETWORK=" + $payload.network)
                     $healthy = $true

@@ -2318,14 +2318,56 @@ function Chat({
     writeChatHistory(session.userId, conversationId, messages, pendingMissionConfirmation);
   }, [session.userId, conversationId, messages, pendingMissionConfirmation]);
 
+  // Pin the active conversation to its newest message after history restore,
+  // message streaming, the horizontal page transition and late text reflow.
+  // A MutationObserver catches appended/streamed markdown; ResizeObserver catches
+  // wrapping changes after the WebView finishes its layout.
   useEffect(() => {
     const node = chatWindowRef.current;
-    if (!node) return;
-    const distanceFromBottom = node.scrollHeight - node.scrollTop - node.clientHeight;
-    if (messages.length <= 1 || distanceFromBottom < 140 || sending) {
-      requestAnimationFrame(() => { node.scrollTop = node.scrollHeight; });
+    if (!node || screen !== 1) return;
+    let active = true;
+    let firstFrame = 0;
+    let secondFrame = 0;
+    let settleTimer = 0;
+    let resizeObserver: ResizeObserver | null = null;
+    const scrollLatest = () => {
+      if (!active || chatWindowRef.current !== node) return;
+      node.scrollTop = node.scrollHeight;
+    };
+    const observeChildren = () => {
+      if (!resizeObserver) return;
+      resizeObserver.disconnect();
+      resizeObserver.observe(node);
+      Array.from(node.children).forEach(child => resizeObserver?.observe(child));
+    };
+    firstFrame = requestAnimationFrame(() => {
+      scrollLatest();
+      secondFrame = requestAnimationFrame(scrollLatest);
+    });
+    // The screenTrack transition is 350ms; align once more after it has settled.
+    settleTimer = window.setTimeout(scrollLatest, 420);
+    if (typeof ResizeObserver !== 'undefined') {
+      resizeObserver = new ResizeObserver(scrollLatest);
+      observeChildren();
     }
-  }, [messages.length, sending]);
+    const mutationObserver = typeof MutationObserver !== 'undefined'
+      ? new MutationObserver(() => {
+          observeChildren();
+          scrollLatest();
+        })
+      : null;
+    mutationObserver?.observe(node, { childList: true, subtree: true, characterData: true });
+    node.addEventListener('load', scrollLatest, true);
+    return () => {
+      active = false;
+      cancelAnimationFrame(firstFrame);
+      cancelAnimationFrame(secondFrame);
+      window.clearTimeout(settleTimer);
+      mutationObserver?.disconnect();
+      resizeObserver?.disconnect();
+      node.removeEventListener('load', scrollLatest, true);
+    };
+  }, [screen, messages, sending]);
 
   useEffect(() => {
     if (screen !== 1) return;
@@ -2954,7 +2996,7 @@ function Chat({
                 <div>
                   <div className='eyebrow'>CENTRO DE MANDO</div>
                   <h2>{mission ? statusLabel(String(mission.status)) : 'Lista para actuar'}</h2>
-                  <p>{mission ? missionHumanTitle(mission) : 'Aquí solo verás lo esencial para saber si ARIA está lista y qué misión está atendiendo.'}</p>
+                  <p>{mission ? missionHumanTitle(mission) : 'Estado de ARIA y de la misión actual.'}</p>
                 </div>
               </div>
               <section className='panel homeMissionCard'>
@@ -2970,7 +3012,7 @@ function Chat({
                 ) : (
                   <>
                     <h3>Ninguna misión se está ejecutando</h3>
-                    <p className='muted'>Las misiones y su progreso se controlan desde Meditación IA.</p>
+                    <p className='muted'>Consulta el progreso en Meditación IA.</p>
                   </>
                 )}
               </section>
@@ -4430,10 +4472,32 @@ export default function App() {
   const initialNavigation = navigationFromHash();
   const [navigation, setNavigation] = useState<NavigationState>(() => initialNavigation);
   const [uiPrefs, setUiPrefs] = useState<UiPrefs>(() => readUiPrefs());
+  const [keyboardOpen, setKeyboardOpen] = useState(false);
   const globalSwipeStartRef = useRef<{ x: number; y: number } | null>(null);
   const globalSwipeTriggeredRef = useRef(false);
   const page = navigation.page;
   const signOut = () => { localStorage.removeItem(SESSION_KEY); setSession(null); };
+
+  // Hide the global navigation while a text editor owns the screen. Android
+  // resizes the WebView for the soft keyboard; keeping a fixed bottom bar visible
+  // makes it jump into the middle of the chat and steals useful editing space.
+  useEffect(() => {
+    const editableSelector = 'textarea,input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="button"]):not([type="submit"]):not([type="reset"]),[contenteditable="true"]';
+    const syncKeyboardState = () => {
+      const active = document.activeElement;
+      const editing = active instanceof HTMLElement &&
+        (active.matches(editableSelector) || Boolean(active.closest('[contenteditable="true"]')));
+      setKeyboardOpen(editing);
+    };
+    const handleFocusOut = () => { window.requestAnimationFrame(syncKeyboardState); };
+    document.addEventListener('focusin', syncKeyboardState);
+    document.addEventListener('focusout', handleFocusOut);
+    syncKeyboardState();
+    return () => {
+      document.removeEventListener('focusin', syncKeyboardState);
+      document.removeEventListener('focusout', handleFocusOut);
+    };
+  }, []);
 
   useEffect(() => {
     const applyRefreshedSession = (event: Event) => {
@@ -4563,7 +4627,7 @@ export default function App() {
   function beginGlobalSwipe(x: number, y: number, target: EventTarget | null) {
     if (!uiPrefs.swipeNavigation) return;
     const element = target as Element | null;
-    if (element?.closest?.('input,textarea,[contenteditable="true"],canvas,.noSwipe')) return;
+    if (element?.closest?.('input,textarea,[contenteditable="true"],canvas,.noSwipe,.projectShell')) return;
     globalSwipeStartRef.current = { x, y };
   }
 
@@ -4600,7 +4664,7 @@ export default function App() {
   };
   return (
     <div
-      className={'globalPageFrame ' + (uiPrefs.animations ? '' : 'animationsOff')}
+      className={'globalPageFrame ' + (uiPrefs.animations ? '' : 'animationsOff') + (keyboardOpen ? ' keyboardOpen' : '')}
       onPointerDown={handleGlobalPointerDown}
       onPointerUp={handleGlobalPointerUp}
       onPointerCancel={() => { globalSwipeStartRef.current = null; }}

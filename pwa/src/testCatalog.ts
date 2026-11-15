@@ -8,7 +8,7 @@ export type TestCatalogItem = {
   capabilities: string;
 };
 
-export const TEST_CATALOG_VERSION = '2026-11-06-voice-v4-merged-v1';
+export const TEST_CATALOG_VERSION = '2026-11-12-compact-mobile-home-chat-v1';
 export const TEST_CATALOG: TestCatalogItem[] = [
   {
     "id": "voice-v4-telegram-delivery",
@@ -261,6 +261,15 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "includedInNpmTest": false,
     "how": "Comprueba la PWA en múltiples viewports, navegación, scroll, focus, touch, clipping, overflow y modales.",
     "capabilities": "Detecta regresiones responsive, overflow, controles pequeños, navegación móvil, teclado y layout."
+  },
+  {
+    "id": "pwa-home-chat-mobile",
+    "file": "tests/pwa-home-chat-mobile.test.js",
+    "title": "PWA Mobile Home + Chat Layout",
+    "category": "PWA / UX / API",
+    "includedInNpmTest": false,
+    "how": "Comprueba que Inicio permite acceder a todo su contenido, que Chat abre en el último mensaje y que las secciones largas conservan scroll interno con una densidad móvil compacta.",
+    "capabilities": "Detecta regresiones de overflow/scroll en Dashboard, auto-scroll de historial y streaming, controles móviles táctiles y compactación de las demás pantallas PWA."
   },
   {
     "id": "pwa-command-center-ux",

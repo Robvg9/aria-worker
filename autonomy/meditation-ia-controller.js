@@ -183,6 +183,31 @@ function createMeditationController({
   let timer = null;
   let busy = false;
   let locked = false;
+  const pendingBackgroundTasks = new Set();
+
+  function scheduleBackgroundTick(reason, errorEvent) {
+    const task = (async () => {
+      try {
+        return await tick(reason);
+      } catch (error) {
+        const message = String(error?.message || error || 'unknown_error');
+        try { await write(`${errorEvent} ${message}`); } catch {}
+        return { status: 'failed', error: message };
+      }
+    })();
+    pendingBackgroundTasks.add(task);
+    void task.then(
+      () => pendingBackgroundTasks.delete(task),
+      () => pendingBackgroundTasks.delete(task)
+    );
+    return task;
+  }
+
+  async function drainBackgroundTasks() {
+    while (pendingBackgroundTasks.size > 0) {
+      await Promise.allSettled([...pendingBackgroundTasks]);
+    }
+  }
 
   const isTransportFailure = error => {
     const message = String(error?.message || error || '').toLowerCase();
@@ -213,7 +238,7 @@ function createMeditationController({
       try { await ensureNotepad(); } catch (error) { await write(`NOTEPAD_START_ERROR ${String(error?.message || error)}`); }
       await write(`MODE ACTIVE command=${c}`);
       await onModeChange(status());
-      if (!timer) timer = setInterval(() => { void tick('heartbeat').catch(error => { void write(`TICK_ASYNC_ERROR ${String(error?.message || error)}`); }); }, heartbeat_ms);
+      if (!timer) timer = setInterval(() => { void scheduleBackgroundTick('heartbeat', 'TICK_ASYNC_ERROR'); }, heartbeat_ms);
       return { status: 'resumed', command: c };
     }
     if (c === 'PAUSA') {
@@ -373,8 +398,8 @@ function createMeditationController({
       try { await ensureNotepad(); } catch (error) { await write(`NOTEPAD_START_ERROR ${String(error?.message || error)}`); }
       await write(`START session=${state.session_id} heartbeat_ms=${heartbeat_ms}`);
       await onModeChange(status());
-      if (!timer) timer = setInterval(() => { void tick('heartbeat').catch(error => { void write(`TICK_ASYNC_ERROR ${String(error?.message || error)}`); }); }, heartbeat_ms);
-      void tick('startup').catch(error => { void write(`STARTUP_TICK_ASYNC_ERROR ${String(error?.message || error)}`); });
+      if (!timer) timer = setInterval(() => { void scheduleBackgroundTick('heartbeat', 'TICK_ASYNC_ERROR'); }, heartbeat_ms);
+      void scheduleBackgroundTick('startup', 'STARTUP_TICK_ASYNC_ERROR');
       return { status: 'started', state: status() };
     } catch (error) {
       const message = String(error?.message || error);
@@ -395,6 +420,7 @@ function createMeditationController({
     const result = await handleCommand('CERRAR');
     if (timer) clearInterval(timer);
     timer = null;
+    await drainBackgroundTasks();
     if (locked) {
       locked = false;
       await stateStore.releaseLock();
@@ -404,6 +430,7 @@ function createMeditationController({
   async function shutdown() {
     if (timer) clearInterval(timer);
     timer = null;
+    await drainBackgroundTasks();
     if (locked) {
       locked = false;
       await stateStore.releaseLock();

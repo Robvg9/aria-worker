@@ -8,9 +8,11 @@ const runtimeGateway = read("supabase/functions/aria-runtime-gateway-v1/index.ts
 const deviceGateway = read("supabase/functions/aria-device-gateway/index.ts");
 const intake = read("supabase/functions/aria-mission-intake-v1/index.ts");
 const cronAuth = read("supabase/functions/aria-cron-auth-v1/index.ts");
+const edgeOutageResilienceMigration = read("supabase/migrations/20261110213000_aria_m22_a6_edge_outage_resilient_heartbeat_v1.sql");
 const helper = read("supabase/functions/_shared/mission-wonder-2-a6-scope-v1.mjs");
 const migration = read(".github/scripts/mission-wonder-2-step6-a6-isolated-scope-v1.sql");
 const stdoutAlignmentMigration = read("supabase/migrations/20261107133800_aria_m22_a6_stdout_verification_marker_alignment_v1.sql");
+const frozenAuthorizationMigration = read("supabase/migrations/20261110135000_aria_m22_a6_frozen_job_marker_authorization_alignment_v1.sql");
 const slotReuseMigration = read("supabase/migrations/20261107100000_aria_m22_a6_cron_auth_slot_reuse_v1.sql");
 const slotReuseTemplate = read(".github/scripts/mission-wonder-2-step6-a6-cron-auth-slot-reuse-v1.sql");
 const deploy = read(".github/workflows/supabase-canonical-deploy.yml");
@@ -23,7 +25,11 @@ for (const [name, source] of Object.entries({ runner, canonical, runtimeGateway,
 assert.match(cronAuth, /aria_autonomy_cron_authorize/);
 assert.match(cronAuth, /x-aria-autonomy-token/);
 assert.match(cronAuth, /aria_m22_a6_reconcile_v1/);
-assert.match(cronAuth, /aria_m22_a6_sample_runtime_v1/);
+assert.doesNotMatch(cronAuth, /aria_m22_a6_sample_runtime_v1/);
+assert.match(edgeOutageResilienceMigration, /aria_m22_a6_sample_runtime_v1\(\)/);
+assert.match(edgeOutageResilienceMigration, /net\._http_response/);
+assert.match(edgeOutageResilienceMigration, /dispatch_http_result/);
+assert.match(edgeOutageResilienceMigration, /a6_cron_must_remain_inactive_during_migration/);
 assert.match(cronAuth, /aria_m22_a6_claim_due_scope_v1/);
 assert.match(cronAuth, /aria_m22_a6_materialize_due_mission_v1/);
 assert.match(cronAuth, /aria-canonical-runtime-v1/);
@@ -43,6 +49,7 @@ assert.doesNotMatch(cronAuth, /functions\/v1\/aria-mission-wonder-2-a6-dispatch-
 assert.match(runner, /m22A6ScopeRowMatchesV1/);
 assert.match(runner, /m22A6MissionPlanMatchesV1/);
 assert.match(runner, /aria_m22_a6_enqueue_frozen_job_v1/);
+assert.match(runner, /sb\.schema\("aria_internal"\)\s*\.rpc\("aria_m22_a6_enqueue_frozen_job_v1"/, "A6 enqueue must call its private aria_internal schema RPC explicitly");
 assert.match(runner, /!a6ScopeRow/);
 assert.match(canonical, /m22A6ScopeRowMatchesV1/);
 assert.match(deviceGateway, /aria_m22_a6_has_claimable_job_v1/);
@@ -57,6 +64,11 @@ assert.match(helper, /metadata\.mission_wonder_2_a6_human_gate_ref === run\.huma
 assert.match(helper, /stdout_contains: "A6_ARTIFACT_VERIFIED;mode="/);
 assert.ok(migration.includes("'stdout_contains','A6_ARTIFACT_VERIFIED;mode='"));
 assert.ok(!migration.includes("'stdout_contains','A6_ARTIFACT_VERIFIED;sequence='"));
+assert.ok(migration.includes("step->'verify'->>'stdout_contains' is distinct from ('A6_ARTIFACT_VERIFIED;mode=')"));
+assert.ok(!migration.includes("step->'verify'->>'stdout_contains' is distinct from ('A6_ARTIFACT_VERIFIED;sequence='"));
+assert.ok(frozenAuthorizationMigration.includes("pg_get_functiondef"));
+assert.ok(frozenAuthorizationMigration.includes("A6_ARTIFACT_VERIFIED;sequence="));
+assert.ok(frozenAuthorizationMigration.includes("A6_ARTIFACT_VERIFIED;mode="));
 assert.ok(stdoutAlignmentMigration.includes("pg_get_functiondef"));
 assert.ok(stdoutAlignmentMigration.includes("A6_ARTIFACT_VERIFIED;sequence="));
 assert.ok(stdoutAlignmentMigration.includes("A6_ARTIFACT_VERIFIED;mode="));

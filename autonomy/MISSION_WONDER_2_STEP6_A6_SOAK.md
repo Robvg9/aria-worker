@@ -68,7 +68,7 @@ Each of the five idempotent marker missions carries one physical execution job a
 
 - Five single-step missions are scheduled at +1h, +6h, +12h, +18h and +23h.
 - One allowlisted Windows device; one job per mission; one attempt; no LLM/provider call; no automatic retry.
-- Heartbeat target 30s with a 90s maximum age and maximum sample gap.
+- Device heartbeat target 30s; PostgreSQL continuity sampling runs every 60s from the dedicated A6 cron. Maximum device age and maximum database sample gap are both 90s. The 24h window therefore expects 1,440 database samples and requires at least 1,368 observed samples (95%), with zero unexplained missing intervals.
 - The dispatcher blocks and disables only the A6 cron if device freshness or sampling continuity exceeds the limit.
 - Final reconciliation requires at least 1,368 heartbeat samples, all five independently verified jobs, zero recoveries/retries, p95 job latency at or below 90s, no more than one pending A6 job, backlog age at or below 5 minutes, and unchanged non-A6 fingerprints with crons 48/49/50 still disabled.
 - The LIVE SQL finalizer also requires five mission completions inside the 24-hour window, a completion span of at least 18 hours (75%), and no consecutive completion gap above 7 hours. All five completion timestamps must also be distinct. Catch-up bursts after a dispatcher outage therefore cannot qualify as a soak PASS.
@@ -81,3 +81,12 @@ Each of the five idempotent marker missions carries one physical execution job a
 The required scenarios are `host_restart`, `provider_degraded`, `executor_offline`, `timeout`, and `rate_limit`. A deterministic contract harness exercises these failure/recovery branches without restarting the user's computer or worker, intentionally taking a real device offline, calling external providers, or sending network traffic. It verifies same-job identity, same-artifact idempotency, zero duplicate jobs/artifacts, and zero provider/network calls. GitHub Actions uploads a hash-addressed JSON evidence artifact pinned to the workflow SHA and retains it for 30 days.
 
 This artifact proves the deterministic control contract only; it is not evidence that a real production host restart/provider incident/rate-limit occurred during the 24-hour soak. The LIVE soak separately proves real heartbeat continuity, five successful physical marker jobs, zero runtime job recovery/retries, latency, backlog and ambient invariance. Final A6 certification must reference both the pre-soak artifact SHA/workflow run and the 24-hour LIVE evidence. It must not label simulated fault fixtures as observed LIVE incidents.
+
+
+## Heartbeat cadence contract (device vs database sampler)
+
+- `heartbeatIntervalMs` is the Windows device heartbeat target: 30,000 ms.
+- `heartbeatSampleIntervalMs` is the independent PostgreSQL sampler cadence: 60,000 ms (cron #53).
+- `maxNormalHeartbeatGapMs` is 90,000 ms for both device freshness and database sample continuity.
+- The evaluator must calculate expected sample intervals from `heartbeatSampleIntervalMs`, not from the device heartbeat target. A 24-hour window expects 1,440 database samples and enforces at least 95% observed coverage (1,368 samples), matching `aria_m22_a6_finish_run_if_due_v1()`.
+- This distinction prevents a false BLOCKED result from expecting 2,880 database samples when the configured database sampler intentionally runs once per minute.

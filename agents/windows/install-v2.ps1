@@ -15,6 +15,10 @@ $TokenPath = Join-Path $DataDir 'device-token.dpapi'
 $TaskXmlPath = Join-Path $RuntimeRoot 'ARIA-Windows-Local-Agent.xml'
 $DesktopSmokePath = Join-Path $LogDir 'desktop-smoke.json'
 $TaskName = 'ARIA-Windows-Local-Agent'
+$WatchdogRuntimePath = Join-Path $RuntimeDir 'run-agent.ps1'
+$AgentRuntimePath = Join-Path $RuntimeDir 'aria-agent.js'
+$WatchdogPidPath = Join-Path $LogDir 'watchdog.pid'
+$AgentPidPath = Join-Path $LogDir 'agent.pid'
 $NodePath = (Get-Command node -ErrorAction Stop).Source
 $GatewayUrl = 'https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-device-gateway'
 if ([string]::IsNullOrWhiteSpace($DeviceId)) { throw 'ARIA_DEVICE_ID is required. Pass -DeviceId or set ARIA_DEVICE_ID; installer no longer uses a hard-coded device identity.' }
@@ -23,6 +27,10 @@ foreach ($dir in @($RuntimeRoot, $RuntimeDir, $DataDir, $LogDir)) { New-Item -It
 
 $requiredSources = @{
     'aria-agent.js' = Join-Path $AgentRoot 'aria-agent.js'
+    'atomic-heartbeat-writer.cjs' = Join-Path $AgentRoot 'atomic-heartbeat-writer.cjs'
+    'heartbeat-scheduler.cjs' = Join-Path $AgentRoot 'heartbeat-scheduler.cjs'
+    'gateway-dns-lookup.cjs' = Join-Path $AgentRoot 'gateway-dns-lookup.cjs'
+    'gateway-http-client.cjs' = Join-Path $AgentRoot 'gateway-http-client.cjs'
     'resource-profile.js' = Join-Path $AgentRoot 'resource-profile.js'
     'autonomous-rwht-controller.js' = Join-Path $AgentRoot 'autonomous-rwht-controller.js'
     'run-agent.ps1' = Join-Path $AgentRoot 'run-agent.ps1'
@@ -71,7 +79,9 @@ $cs = Get-CimInstance Win32_ComputerSystem
 $cpuInfo = Get-CimInstance Win32_Processor | Select-Object -First 1
 $ramBytes = [uint64]$cs.TotalPhysicalMemory
 $logicalCpuCount = [int]$cpuInfo.NumberOfLogicalProcessors
-$localLlmEligible = ($ramBytes -ge 8GB -and $logicalCpuCount -ge 4)
+$localLlmOptIn = ($env:ARIA_ALLOW_LOCAL_LLM -eq 'true')
+$hostAllowsLocalLlm = ($env:COMPUTERNAME -ine 'ROBVG')
+$localLlmEligible = ($hostAllowsLocalLlm -and $localLlmOptIn -and $ramBytes -ge 8GB -and $logicalCpuCount -ge 4)
 $baseCapabilities = @('shell.execute','computer.use','desktop.screenshot','desktop.uia')
 $capabilities = if ($localLlmEligible) { @('ollama.qwen3') + $baseCapabilities } else { $baseCapabilities }
 $config = [ordered]@{
@@ -83,7 +93,7 @@ $config = [ordered]@{
     runtime_dir = $RuntimeDir
     data_dir = $DataDir
     log_dir = $LogDir
-    heartbeat_ms = 60000
+    heartbeat_ms = 30000
     poll_ms = 12000
     gateway_timeout_ms = 15000
     gateway_retries = 1
@@ -144,10 +154,95 @@ $xml = @"
 "@
 Set-Content -Path $TaskXmlPath -Value $xml -Encoding Unicode
 schtasks.exe /Delete /TN $TaskName /F 2>$null | Out-Null
+# Remove only the exact legacy ARIA processes before launching the interactive task.
+# The watchdog uses a Global mutex, so a stale Session 0 instance would otherwise
+# prevent the correctly registered InteractiveToken instance from starting.
+$legacyProcesses = @(Get-CimInstance Win32_Process -ErrorAction Stop | Where-Object {
+    $_.CommandLine -and (
+        $_.CommandLine.IndexOf($WatchdogRuntimePath,[StringComparison]::OrdinalIgnoreCase) -ge 0 -or
+        $_.CommandLine.IndexOf($AgentRuntimePath,[StringComparison]::OrdinalIgnoreCase) -ge 0
+    )
+})
+foreach ($legacy in $legacyProcesses) {
+    $expected = if ($legacy.CommandLine.IndexOf($WatchdogRuntimePath,[StringComparison]::OrdinalIgnoreCase) -ge 0) {
+        $WatchdogRuntimePath
+    } else {
+        $AgentRuntimePath
+    }
+    if ($legacy.CommandLine.IndexOf($expected,[StringComparison]::OrdinalIgnoreCase) -lt 0) {
+        throw "ARIA legacy process identity could not be verified: PID=$($legacy.ProcessId)"
+    }
+    Write-Host "STOP_OLD_ARIA_PROCESS PID=$($legacy.ProcessId) NAME=$($legacy.Name)"
+    Stop-Process -Id ([int]$legacy.ProcessId) -Force -ErrorAction Stop
+}
+$legacyDeadline = (Get-Date).AddSeconds(10)
+do {
+    Start-Sleep -Milliseconds 250
+    $remaining = @(Get-CimInstance Win32_Process -ErrorAction Stop | Where-Object {
+        $_.CommandLine -and (
+            $_.CommandLine.IndexOf($WatchdogRuntimePath,[StringComparison]::OrdinalIgnoreCase) -ge 0 -or
+            $_.CommandLine.IndexOf($AgentRuntimePath,[StringComparison]::OrdinalIgnoreCase) -ge 0
+        )
+    })
+} while ($remaining.Count -gt 0 -and (Get-Date) -lt $legacyDeadline)
+if ($remaining.Count -gt 0) {
+    throw "Old ARIA process still owns the runtime/mutex after stop: PID=$($remaining[0].ProcessId)"
+}
+Write-Host 'ARIA_LEGACY_PROCESSES_STOPPED=PASS'
+
 $result = & schtasks.exe /Create /TN $TaskName /XML $TaskXmlPath /F 2>&1
 if ($LASTEXITCODE -ne 0) { throw "No se pudo registrar la tarea ARIA. schtasks exit code: $LASTEXITCODE`n$result" }
+$taskReadback = & schtasks.exe /Query /TN $TaskName /FO LIST /V 2>&1
+if ($LASTEXITCODE -ne 0 -or ($taskReadback -join "`n") -notmatch [regex]::Escape($TaskName)) {
+    throw "ARIA scheduled task readback failed; task was not registered: $($taskReadback -join "`n")"
+}
+if (($taskReadback -join "`n") -notmatch 'InteractiveToken') {
+    throw "ARIA scheduled task is not configured with an interactive logon token."
+}
+Write-Host 'ARIA_SCHEDULED_TASK_REGISTERED=PASS'
+
 & schtasks.exe /Run /TN $TaskName | Out-Null
 if ($LASTEXITCODE -ne 0) { throw "No se pudo iniciar la tarea ARIA. ExitCode=$LASTEXITCODE" }
+
+# Do not report installation success until the task starts the agent in an
+# interactive user session (SessionId > 0), not the GitHub runner's Session 0.
+$agentDeadline = (Get-Date).AddSeconds(45)
+$verifiedAgent = $null
+while ((Get-Date) -lt $agentDeadline) {
+    if (Test-Path -LiteralPath $AgentPidPath) {
+        $candidatePid = 0
+        if ([int]::TryParse((Get-Content -Raw -LiteralPath $AgentPidPath).Trim(),[ref]$candidatePid) -and $candidatePid -gt 0) {
+            $candidate = Get-Process -Id $candidatePid -ErrorAction SilentlyContinue
+            if ($candidate -and $candidate.ProcessName -match '^node
+Write-Host 'ARIA Windows Agent instalado correctamente.'
+Write-Host "Task: $TaskName"
+Write-Host "Device: $DeviceId"
+Write-Host "Runtime: $RuntimeDir"
+Write-Host "Config: $ConfigPath"
+Write-Host "Token store: $TokenPath"
+Write-Host "Public logs: $LogDir\watchdog.log"
+Write-Host "Task user: $taskUser"
+Write-Host 'Token: protegido con DPAPI de maquina (LocalMachine).'
+Write-Host 'Inicio automatico: AtLogOn (usuario interactivo)'
+Write-Host 'ExecutionTimeLimit: 0'
+Write-Host 'RestartOnFailure: 999 / 1 minuto'
+Write-Host 'Shell executor: installed'
+Write-Host 'Desktop computer-use: installed'
+Write-Host 'Desktop UI Automation observer: installed'
+) {
+                $verifiedAgent = $candidate
+                break
+            }
+        }
+    }
+    Start-Sleep -Seconds 1
+}
+if (-not $verifiedAgent) { throw 'ARIA scheduled task was registered but did not start a live Node agent within 45 seconds.' }
+$agentSessionId = [int]$verifiedAgent.SessionId
+if ($agentSessionId -eq 0) {
+    throw "ARIA agent started in Session 0 instead of the interactive desktop. PID=$($verifiedAgent.Id)"
+}
+Write-Host "ARIA_AGENT_INTERACTIVE_SESSION=PASS session_id=$agentSessionId pid=$($verifiedAgent.Id)"
 
 Write-Host ''
 Write-Host 'ARIA Windows Agent instalado correctamente.'

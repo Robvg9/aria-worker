@@ -146,6 +146,52 @@ export function m22A6ContinuityProbeStepMatchesV1(step, deviceId, runId, ordinal
   }
 }
 
+/**
+ * Build the exact JSON scope specs accepted by aria_m22_a6_arm_run_v1.
+ * The command is passed through unchanged from the canonical step builder:
+ * do not wrap it in multiline template literals or add presentation whitespace.
+ */
+export async function m22A6BuildRunScopeSpecsV1({ runId, userId, humanGateRef }) {
+  const id = norm(runId);
+  const owner = norm(userId);
+  const gateRef = norm(humanGateRef);
+  if (!M22_A6_RUN_ID_PATTERN.test(id)) throw new Error("a6_run_id_invalid");
+  if (!owner) throw new Error("a6_owner_user_id_required");
+  if (!/^a6-human-gate-[0-9]{10,20}[.][0-9]{1,3}$/.test(gateRef)) {
+    throw new Error("a6_human_gate_ref_invalid");
+  }
+
+  const specs = [];
+  for (let ordinal = 1; ordinal <= M22_A6_MISSION_COUNT; ordinal += 1) {
+    const missionId = m22A6MissionIdV1(id, ordinal);
+    const goal = m22A6GoalV1(id, ordinal);
+    const step = m22A6BuildContinuityProbeStepV1(
+      M22_A6_ALLOWED_DEVICE_ID,
+      id,
+      ordinal,
+      gateRef,
+    );
+    const command = step.input.command;
+    if (command !== command.trim()) {
+      throw new Error("a6_generated_command_has_outer_whitespace");
+    }
+    specs.push({
+      ordinal,
+      mission_id: missionId,
+      scope_id: m22A6ChildScopeIdV1(id, ordinal),
+      request_id: id + "." + ordinal,
+      allowed_device_id: M22_A6_ALLOWED_DEVICE_ID,
+      operation: "shell.execute",
+      scheduled_offset_hours: M22_A6_MISSION_OFFSETS_HOURS[ordinal - 1],
+      artifact_path: step.policy.allowed_artifact_path,
+      goal_hash: await m22A6GoalIdentityHashV1(owner, goal, null),
+      job_id: await m22A6ExpectedJobIdV1(missionId, step.id),
+      command,
+    });
+  }
+  return specs;
+}
+
 export async function m22A6ScopeRowMatchesV1({
   run,
   scope,
@@ -230,14 +276,51 @@ function m22A6CanonicalValueV1(value) {
   return Object.fromEntries(Object.keys(value).sort().map((key) => [key, m22A6CanonicalValueV1(value[key])]));
 }
 
-export function m22A6MissionPlanMatchesV1({ mission, deviceId = M22_A6_ALLOWED_DEVICE_ID, runId, ordinal, humanGateRef }) {
+export async function m22A6MissionPlanMatchesV1({ mission, deviceId = M22_A6_ALLOWED_DEVICE_ID, runId, ordinal, humanGateRef }) {
   if (!mission || typeof mission !== "object" || Array.isArray(mission) ||
       norm(deviceId) !== M22_A6_ALLOWED_DEVICE_ID) return false;
   try {
     const expectedStep = m22A6BuildContinuityProbeStepV1(deviceId, runId, ordinal, humanGateRef);
-    const plan = mission.checkpoint?.plan;
+    const checkpoint = mission.checkpoint && typeof mission.checkpoint === "object"
+      ? mission.checkpoint : {};
+    const plan = checkpoint.plan;
     if (!Array.isArray(plan) || plan.length !== 1) return false;
-    if (JSON.stringify(m22A6CanonicalValueV1(plan[0])) !== JSON.stringify(m22A6CanonicalValueV1(expectedStep))) return false;
+
+    // Durable A6 recovery deliberately reuses the original job_id while moving
+    // only the checkpoint to attempt 2. Accept that exact state, not a generic
+    // second attempt or a newly-created job.
+    const expectedMissionId = m22A6MissionIdV1(runId, ordinal);
+    const expectedJobId = await m22A6ExpectedJobIdV1(expectedMissionId, expectedStep.id);
+    const planStep = plan[0];
+    const stepAttempts = planStep?.max_attempts;
+    let expectedPlanStep = expectedStep;
+
+    if (stepAttempts === 2) {
+      const recovery = checkpoint.recovery;
+      const pending = checkpoint.pending_jobs?.[expectedStep.id];
+      if (!recovery || recovery.status !== "waiting_for_async_executor" ||
+          recovery.reason !== "a6_same_job_reclaimed_after_interruption" ||
+          recovery.job_id !== expectedJobId ||
+          recovery.previous_attempt !== 1 ||
+          recovery.next_attempt !== 2 ||
+          recovery.new_job_created !== false ||
+          pending?.status !== "queued" ||
+          pending?.attempt !== 2 ||
+          pending?.job_id !== expectedJobId ||
+          checkpoint.attempts?.[expectedStep.id] !== 2) return false;
+      expectedPlanStep = { ...expectedStep, max_attempts: 2 };
+    } else if (stepAttempts === 1) {
+      const pending = checkpoint.pending_jobs?.[expectedStep.id];
+      const recordedAttempt = checkpoint.attempts?.[expectedStep.id];
+      if (checkpoint.recovery?.status === "waiting_for_async_executor" ||
+          (Number.isSafeInteger(recordedAttempt) && recordedAttempt > 1) ||
+          (pending && Number(pending.attempt || 1) > 1)) return false;
+    } else {
+      return false;
+    }
+
+    if (JSON.stringify(m22A6CanonicalValueV1(planStep)) !==
+        JSON.stringify(m22A6CanonicalValueV1(expectedPlanStep))) return false;
     if (Number(mission.total_steps) !== 1) return false;
     if (!Number.isSafeInteger(Number(mission.current_step)) ||
         !Number.isSafeInteger(Number(mission.completed_steps))) return false;

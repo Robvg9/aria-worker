@@ -9,7 +9,6 @@ on:
       - android-ui-agent/**
       - computer-use/android-accessibility-v1.js
       - agents/termux/aria-agent.js
-      - .github/workflows/rwht-android-apk.yml
   workflow_dispatch:
 
 concurrency:
@@ -21,6 +20,7 @@ permissions:
 
 jobs:
   build-apk:
+    if: github.event_name != 'pull_request' || (!startsWith(github.head_ref, 'ops/a6-') && !startsWith(github.head_ref, 'fix/a6-'))
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:

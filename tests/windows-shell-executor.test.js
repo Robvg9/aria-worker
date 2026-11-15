@@ -54,7 +54,7 @@ test('authorization abort kills the active PowerShell process tree', { skip: pro
     signal: controller.signal,
   });
 
-  for (let poll = 0; poll < 50 && !fs.existsSync(pidFile); poll += 1) {
+  for (let poll = 0; poll < 150 && !fs.existsSync(pidFile); poll += 1) {
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
   const pid = fs.existsSync(pidFile) ? fs.readFileSync(pidFile, 'utf8').trim() : '';

@@ -17,12 +17,21 @@ import {
   m22A6ExpectedJobIdV1,
   m22A6ArtifactPathV1,
   m22A6BuildContinuityProbeStepV1,
+  m22A6BuildRunScopeSpecsV1,
   m22A6ContinuityProbeStepMatchesV1,
   m22A6ScopeRowMatchesV1,
   m22A6MissionPlanMatchesV1,
 } from "../supabase/functions/_shared/mission-wonder-2-a6-scope-v1.mjs";
 
 globalThis.crypto ??= webcrypto;
+const identityFixtureRun = "m22-a6-abcdef123456";
+const identityFixtureMission = m22A6MissionIdV1(identityFixtureRun, 1);
+const identityFixtureGoal = m22A6GoalV1(identityFixtureRun, 1);
+assert.equal(await m22A6ExpectedJobIdV1(identityFixtureMission, m22A6StepIdV1(1)),
+  "uo_mission_m22_a6_abcdef123456__a6_continuity_marker_01_a1_1bba4d59ea4995e2");
+assert.equal(await m22A6GoalIdentityHashV1("a6-owner-user", identityFixtureGoal, null),
+  "064a6a41f05d10bfa3b2bc5e25a1471534dee6c773f2722d98ce3aa048591f40");
+
 const RUN_ID = "m22-a6-abcdef123456";
 const OWNER = "a6-owner-user";
 const REQUEST = "a6-request-0001";
@@ -46,6 +55,26 @@ assert.equal(m22A6ArtifactPathV1(RUN_ID, 4),
 assert.throws(() => m22A6MissionIdV1(RUN_ID, 6), /ordinal_invalid/);
 assert.throws(() => m22A6BuildContinuityProbeStepV1("other-device", RUN_ID, 1, HUMAN_GATE_REF), /device_not_allowlisted/);
 assert.throws(() => m22A6ArtifactPathV1("m22-a6-../../evil", 1), /run_id_invalid/);
+
+const canonicalArmSpecs = await m22A6BuildRunScopeSpecsV1({
+  runId: RUN_ID,
+  userId: OWNER,
+  humanGateRef: HUMAN_GATE_REF,
+});
+assert.equal(canonicalArmSpecs.length, M22_A6_MISSION_COUNT);
+for (const [index, spec] of canonicalArmSpecs.entries()) {
+  const ordinal = index + 1;
+  const canonicalStep = m22A6BuildContinuityProbeStepV1(DEVICE, RUN_ID, ordinal, HUMAN_GATE_REF);
+  assert.equal(spec.ordinal, ordinal);
+  assert.equal(spec.command, canonicalStep.input.command);
+  assert.equal(spec.command, spec.command.trim(), "arm payload command must have no outer whitespace");
+  assert.equal(spec.command.startsWith("\n"), false);
+  assert.equal(spec.command.endsWith("\n"), false);
+  assert.equal(spec.mission_id, m22A6MissionIdV1(RUN_ID, ordinal));
+  assert.equal(spec.scope_id, m22A6ChildScopeIdV1(RUN_ID, ordinal));
+  assert.equal(spec.request_id, RUN_ID + "." + ordinal);
+  assert.equal(spec.job_id, await m22A6ExpectedJobIdV1(spec.mission_id, canonicalStep.id));
+}
 
 for (let ordinal = 1; ordinal <= M22_A6_MISSION_COUNT; ordinal += 1) {
   const missionId = m22A6MissionIdV1(RUN_ID, ordinal);
@@ -82,6 +111,7 @@ for (let ordinal = 1; ordinal <= M22_A6_MISSION_COUNT; ordinal += 1) {
 }
 
 const ordinal = 1;
+const stepId = m22A6StepIdV1(ordinal);
 const missionId = m22A6MissionIdV1(RUN_ID, ordinal);
 const goal = m22A6GoalV1(RUN_ID, ordinal);
 const goalHash = await m22A6GoalIdentityHashV1(OWNER, goal, null);
@@ -140,6 +170,10 @@ const args = {
   requiredStatuses: ["bound"], nowMs: NOW,
 };
 assert.equal(await m22A6ScopeRowMatchesV1(args), true);
+assert.equal(await m22A6ScopeRowMatchesV1({
+  ...args,
+  scope: { ...scope, command: "\n" + scope.command + "\n" },
+}), false, "the runtime must reject the exact leading/trailing newline defect from the failed live run");
 for (const change of [
   { run: { ...run, status: "revoked" } },
   { run: { ...run, max_jobs: 6 } },
@@ -169,32 +203,109 @@ const missionPlan = {
   total_steps: 1,
   checkpoint: { plan: [step] },
 };
-assert.equal(m22A6MissionPlanMatchesV1({ mission: missionPlan, runId: RUN_ID, ordinal, humanGateRef: HUMAN_GATE_REF }), true);
+assert.equal(await m22A6MissionPlanMatchesV1({ mission: missionPlan, runId: RUN_ID, ordinal, humanGateRef: HUMAN_GATE_REF }), true);
+
+const recoveredMissionPlan = {
+  ...missionPlan,
+  status: "waiting",
+  checkpoint: {
+    plan: [{ ...step, max_attempts: 2 }],
+    attempts: { [stepId]: 2 },
+    pending_jobs: {
+      [stepId]: { status: "queued", attempt: 2, job_id: jobId },
+    },
+    recovery: {
+      status: "waiting_for_async_executor",
+      reason: "a6_same_job_reclaimed_after_interruption",
+      job_id: jobId,
+      previous_attempt: 1,
+      next_attempt: 2,
+      new_job_created: false,
+      at: new Date(NOW).toISOString(),
+    },
+  },
+};
+assert.equal(await m22A6MissionPlanMatchesV1({
+  mission: recoveredMissionPlan, runId: RUN_ID, ordinal, humanGateRef: HUMAN_GATE_REF,
+}), true, "the exact same-job attempt-2 checkpoint must pass the frozen A6 gate");
+assert.equal(await m22A6MissionPlanMatchesV1({
+  mission: {
+    ...recoveredMissionPlan,
+    checkpoint: {
+      ...recoveredMissionPlan.checkpoint,
+      recovery: { ...recoveredMissionPlan.checkpoint.recovery, job_id: "different-job" },
+    },
+  },
+  runId: RUN_ID, ordinal, humanGateRef: HUMAN_GATE_REF,
+}), false, "recovery must retain the deterministic original job_id");
+
+assert.equal(await m22A6MissionPlanMatchesV1({
+  mission: {
+    ...recoveredMissionPlan,
+    checkpoint: {
+      ...recoveredMissionPlan.checkpoint,
+      recovery: { ...recoveredMissionPlan.checkpoint.recovery, reason: "a6_same_job_idempotent_recovery" },
+    },
+  },
+  runId: RUN_ID, ordinal, humanGateRef: HUMAN_GATE_REF,
+}), false, "recovery reason must match the exact durable SQL checkpoint contract");
+assert.equal(await m22A6MissionPlanMatchesV1({
+  mission: {
+    ...recoveredMissionPlan,
+    checkpoint: {
+      ...recoveredMissionPlan.checkpoint,
+      pending_jobs: { [stepId]: { status: "queued", attempt: 2, job_id: "different-job" } },
+    },
+  },
+  runId: RUN_ID, ordinal, humanGateRef: HUMAN_GATE_REF,
+}), false, "pending job must match the recovered job_id");
+assert.equal(await m22A6MissionPlanMatchesV1({
+  mission: {
+    ...recoveredMissionPlan,
+    checkpoint: {
+      ...recoveredMissionPlan.checkpoint,
+      attempts: { [stepId]: 1 },
+    },
+  },
+  runId: RUN_ID, ordinal, humanGateRef: HUMAN_GATE_REF,
+}), false, "checkpoint attempt counter must be exactly 2");
+assert.equal(await m22A6MissionPlanMatchesV1({
+  mission: {
+    ...recoveredMissionPlan,
+    checkpoint: { plan: [{ ...step, max_attempts: 2 }] },
+  },
+  runId: RUN_ID, ordinal, humanGateRef: HUMAN_GATE_REF,
+}), false, "attempt 2 without durable recovery evidence must fail closed");
 assert.equal(step.authorization.evidence_ref, HUMAN_GATE_REF);
 assert.throws(() => m22A6BuildContinuityProbeStepV1(DEVICE, RUN_ID, ordinal, "not-a-human-gate"), /human_gate_ref_invalid/);
 assert.throws(() => m22A6BuildContinuityProbeStepV1(DEVICE, RUN_ID, ordinal, "a6-human-gate-1730912400x123"), /human_gate_ref_invalid/);
 const databaseOrderedStep = Object.fromEntries(Object.entries(step).reverse());
-assert.equal(m22A6MissionPlanMatchesV1({
+assert.equal(await m22A6MissionPlanMatchesV1({
   mission: { ...missionPlan, checkpoint: { plan: [databaseOrderedStep] } },
   runId: RUN_ID, ordinal, humanGateRef: HUMAN_GATE_REF,
 }), true);
-assert.equal(m22A6MissionPlanMatchesV1({
+assert.equal(await m22A6MissionPlanMatchesV1({
   mission: { ...missionPlan, checkpoint: { plan: [{ ...step, timeout_ms: 60001 }] } },
   runId: RUN_ID, ordinal, humanGateRef: HUMAN_GATE_REF,
 }), false);
-assert.equal(m22A6MissionPlanMatchesV1({
+assert.equal(await m22A6MissionPlanMatchesV1({
   mission: { ...missionPlan, total_steps: 2 }, runId: RUN_ID, ordinal, humanGateRef: HUMAN_GATE_REF,
 }), false);
-assert.equal(m22A6MissionPlanMatchesV1({
+assert.equal(await m22A6MissionPlanMatchesV1({
   mission: { ...missionPlan, checkpoint: { plan: [step, step] } }, runId: RUN_ID, ordinal, humanGateRef: HUMAN_GATE_REF,
 }), false);
-assert.equal(m22A6MissionPlanMatchesV1({
+assert.equal(await m22A6MissionPlanMatchesV1({
   mission: { ...missionPlan, status: "blocked" }, runId: RUN_ID, ordinal, humanGateRef: HUMAN_GATE_REF,
 }), false);
-assert.equal(m22A6MissionPlanMatchesV1({
+assert.equal(await m22A6MissionPlanMatchesV1({
   mission: missionPlan, deviceId: "other-device", runId: RUN_ID, ordinal, humanGateRef: HUMAN_GATE_REF,
 }), false);
 
+
+const a6RunnerSource = fs.readFileSync("supabase/functions/aria-mission-runner-v22/index.ts", "utf8");
+assert.ok(a6RunnerSource.includes('.from("mission_state").select("mission_id,goal,status,checkpoint,metadata,current_step,completed_steps,total_steps")'),
+  "A6 paused-scope plan validation must fetch every mission progress field it validates");
+assert.match(a6RunnerSource, /const planValid = await m22A6MissionPlanMatchesV1/);
 
 const supabaseDeployWorkflow = fs.readFileSync(".github/workflows/supabase-canonical-deploy.yml", "utf8");
 const pwaDeployWorkflow = fs.readFileSync(".github/workflows/aria-pwa-fast-deploy.yml", "utf8");
@@ -218,3 +329,15 @@ assert.match(cloudflareDeployWorkflow, /'.github\/workflows\/mission-wonder-2-st
 assert.match(cloudflareDeployWorkflow, /'.github\/scripts\/mission-wonder-2-step6-a6-isolated-scope-v1\.sql'/);
 
 console.log("MISSION_WONDER_2_STEP6_A6_ISOLATED_SCOPE_CONTRACT=PASS");
+
+const a6ScopeTemplate = fs.readFileSync(".github/scripts/mission-wonder-2-step6-a6-isolated-scope-v1.sql", "utf8");
+const a6IdentityMigration = fs.readFileSync("supabase/migrations/20261110120000_aria_mission_wonder_2_a6_isolated_scope_v1.sql", "utf8");
+for (const source of [a6ScopeTemplate, a6IdentityMigration]) {
+  assert.ok(source.includes("expected_goal_hash := encode(extensions.digest"));
+  assert.ok(source.includes("expected_job_id := 'uo_'||left(expected_mission,28)"));
+  assert.ok(source.includes("item->>'goal_hash' is distinct from expected_goal_hash"));
+  assert.ok(source.includes("item->>'job_id' is distinct from expected_job_id"));
+}
+const a6ContractWorkflow = fs.readFileSync(".github/workflows/mission-wonder-2-step6-a6-isolated-contract.yml", "utf8");
+assert.ok(a6ContractWorkflow.includes("psql -v ON_ERROR_STOP=1 -f supabase/migrations/20261110120000_aria_mission_wonder_2_a6_isolated_scope_v1.sql"));
+assert.ok(a6ContractWorkflow.includes("create extension if not exists pgcrypto with schema extensions"));

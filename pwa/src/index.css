@@ -192,7 +192,9 @@ h1{margin:2px 0 4px;font-size:28px;letter-spacing:-.03em}h2{margin:4px 0 7px;fon
 .recoveryLink{text-decoration:none;display:inline-flex;align-items:center;justify-content:center}
 
 /* Global PWA navigation + human mission presentation */
-.globalPageFrame{min-height:100dvh;width:100%;touch-action:pan-y;overscroll-behavior-x:none}
+.globalPageFrame{height:100dvh;min-height:0;width:100%;overflow:hidden;display:flex;flex-direction:column;touch-action:pan-y;overscroll-behavior:none}
+.globalPageFrame>.appShell{flex:1 1 auto;width:100%;height:100%;min-height:0;overflow:hidden}
+.globalPageFrame.keyboardOpen .bottomNav{display:none!important}
 .globalPageFrame:not(.animationsOff) .appShell{animation:globalPageEnter .22s ease both}
 .globalPageFrame.animationsOff *,
 .globalPageFrame.animationsOff *::before,
@@ -211,7 +213,15 @@ h1{margin:2px 0 4px;font-size:28px;letter-spacing:-.03em}h2{margin:4px 0 7px;fon
 
 /* ARIA Project Workspaces / ARTIA */
 .statButton{width:100%;text-align:left;cursor:pointer}
-.projectShell{max-width:1240px;overflow-anchor:none}
+.projectShell{max-width:1240px;overflow-anchor:none;display:flex;flex:1 1 auto;flex-direction:column;height:100%;min-height:0;overflow:hidden}
+.projectGrid,.projectHero,.projectTabs{flex:0 0 auto;min-width:0}
+.projectHero .projectSummary{margin:4px 0 0;line-height:1.4;max-width:58ch}
+.projectContextDetails{margin:0 0 10px;border:1px solid var(--line);border-radius:14px;background:rgba(255,255,255,.025);overflow:hidden}
+.projectContextDetails summary{display:flex;min-height:44px;align-items:center;justify-content:space-between;gap:12px;padding:10px 13px;cursor:pointer;color:var(--muted);font-size:11px;font-weight:850;list-style:none}
+.projectContextDetails summary::-webkit-details-marker{display:none}
+.projectContextDetails summary::after{content:'＋';color:var(--violet);font-size:16px;line-height:1}
+.projectContextDetails[open] summary::after{content:'−'}
+.projectContextText{margin:0;padding:0 13px 13px;line-height:1.5;overflow-wrap:anywhere}
 .projectGrid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px}
 .projectCard{display:flex;align-items:center;gap:12px;text-align:left;padding:15px;border:1px solid var(--line);border-radius:18px;background:linear-gradient(180deg,#191328,#120e1c);color:var(--text)}
 .projectCard.selected{border-color:#7658df;box-shadow:0 0 0 1px rgba(159,124,255,.15),0 12px 40px rgba(84,60,160,.15)}
@@ -304,7 +314,11 @@ button{touch-action:manipulation;}
 .visualInstruction{height:58px;min-height:58px;max-height:80px;resize:none;box-sizing:border-box;}
 .projectShell .topBar{flex:0 0 auto;}
 .projectShell{min-height:0;}
-.projectBodyViewport{flex:1 1 auto;min-height:0;overflow:auto;overscroll-behavior:contain;padding-bottom:calc(12px + env(safe-area-inset-bottom));touch-action:pan-y;}
+.projectBodyViewport{flex:1 1 0;min-height:0;min-width:0;overflow-x:hidden;overflow-y:auto;overscroll-behavior-y:contain;-webkit-overflow-scrolling:touch;padding-bottom:calc(12px + env(safe-area-inset-bottom));touch-action:pan-y;}
+.projectBodyViewportChat{overflow:hidden!important;display:flex;flex-direction:column;min-height:0;padding-bottom:0!important;}
+.projectBodyViewportChat>.chatPanel{flex:1 1 0;min-height:0;height:100%;overflow:hidden;}
+.projectBodyViewportChat>.chatPanel>.projectChatWindow{flex:1 1 0;min-height:0;overflow-y:auto;overscroll-behavior-y:contain;-webkit-overflow-scrolling:touch;}
+.projectBodyViewportChat>.chatPanel>.composer{flex:0 0 auto;}
 .projectTabs{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;}
 .projectTabs .tabButton{min-width:0;}
 .projectCard{min-width:0;min-height:64px;}
@@ -320,6 +334,7 @@ button{touch-action:manipulation;}
   .desktopOnly{display:none !important;}
   .appShell{padding:10px 10px calc(74px + env(safe-area-inset-bottom));}
   .pwaShell{padding-bottom:calc(74px + env(safe-area-inset-bottom));}
+  .globalPageFrame.keyboardOpen>.appShell{padding-bottom:calc(10px + env(safe-area-inset-bottom))!important;}
   .topBar{gap:8px;}
   .topBar h1{font-size:20px;}
   .topBar .sub{font-size:10px;}
@@ -357,7 +372,11 @@ button{touch-action:manipulation;}
   .projectCard strong{font-size:10px;white-space:nowrap;}
   .projectCard small{font-size:8px;margin:0;}
   .projectHero{padding:12px;gap:8px;}
-  .projectHero .muted{font-size:10px;line-height:1.35;}
+  .projectHero .muted{font-size:11px;line-height:1.4;}
+  .projectHero .projectSummary{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;}
+  .projectContextDetails{margin-bottom:8px;}
+  .projectContextDetails summary{min-height:42px;padding:9px 11px;}
+  .projectContextText{font-size:11px;line-height:1.45;padding:0 11px 11px;}
   .projectTabs .tabButton{padding:8px 5px;font-size:10px;}
   .projectBodyViewport{padding-top:4px;}
   .missionCreateRow{position:sticky;top:0;z-index:5;background:#120e1d;padding-bottom:6px;}
@@ -851,3 +870,186 @@ button{touch-action:manipulation;}
 .voiceCommandState-failed,.voiceCommandState-expired,.voiceCommandState-cancelled{color:var(--red);background:rgba(255,120,149,.1)}
 .voiceCommandStatus .ghost{justify-self:start;min-height:32px;padding:6px 9px;font-size:10px}
 @media(max-width:520px){.voiceCommandStatusHeader{align-items:flex-start;flex-direction:column}.voiceCommandState{white-space:normal}}
+
+
+/* 2026-11-12 — compact Android layout + explicit scroll ownership.
+   Fit short content first; preserve access to every longer section via its own scroller. */
+.homeEssential{
+  box-sizing:border-box;
+  height:auto;
+  flex:1 1 0;
+  min-height:0;
+  overflow-x:hidden;
+  overflow-y:auto;
+  overscroll-behavior-y:contain;
+  -webkit-overflow-scrolling:touch;
+  touch-action:pan-y;
+}
+@media(max-width:700px){
+  .appShell{padding-top:8px!important;padding-left:8px!important;padding-right:8px!important;}
+  .topBar{margin-bottom:8px;gap:6px;}
+  .topBar h1{font-size:18px;}
+  .topBar .sub{font-size:9px;line-height:1.25;}
+  .brandLine{gap:8px;}
+  .brandOrb{width:38px;height:38px;border-radius:12px;}
+  .panel{padding:10px;margin-bottom:8px;border-radius:16px;}
+  .appScreen{gap:8px;padding-bottom:8px;}
+
+  /* Dashboard remains visually compact, with a single vertical scroller. */
+  .homeEssential{gap:8px;padding:6px 1px calc(14px + env(safe-area-inset-bottom));justify-content:flex-start;}
+  .homeBrand{align-items:center;gap:9px;padding:0 2px;}
+  .homeBrand .heroOrb{width:52px;height:52px;flex:0 0 52px;font-size:10px;letter-spacing:1px;}
+  .homeBrand h2{font-size:21px;margin:2px 0;}
+  .homeBrand p{font-size:10px;line-height:1.3;}
+  .homeMissionCard{padding:10px;margin-bottom:0;}
+  .homeMissionCard h3{font-size:16px;margin:3px 0 2px;}
+  .homeMissionCard p{font-size:10px;line-height:1.3;margin:4px 0;}
+  .wideHomeAction{margin-top:6px;min-height:44px;}
+  .homeQuickActions{grid-template-columns:repeat(3,minmax(0,1fr));gap:5px;}
+  .homeQuickActions button{min-height:44px;padding:6px 4px;font-size:9px;line-height:1.15;white-space:normal;}
+  .homeOperationalWarning{gap:6px;padding:8px 10px;font-size:10px;line-height:1.3;}
+  .homeOperationalWarning strong{white-space:normal;}
+
+  /* Chat chrome uses less height; only the message history scrolls. */
+  .chatPanel{height:100%;min-height:0!important;flex:1 1 0;display:flex;flex-direction:column;gap:7px;padding:9px;overflow:hidden;}
+  .chatPanel .panelHeading{gap:6px;margin-bottom:0;flex:0 0 auto;}
+  .chatPanel .panelHeading h2{font-size:15px;margin:2px 0;}
+  .chatPanel .voiceModeToggle{min-height:40px;padding:7px 9px;font-size:10px;}
+  .chatPanel .chatWindow{flex:1 1 0;min-height:0;max-height:none;overflow-x:hidden;overflow-y:auto;overscroll-behavior-y:contain;-webkit-overflow-scrolling:touch;padding:2px;}
+  .chatPanel .bubble{max-width:96%;padding:8px 10px;font-size:13px;}
+  .chatPanel .markdownBody{font-size:12px;line-height:1.4;}
+  .chatPanel .composer{margin-top:5px;gap:5px;}
+  .chatPanel .composer textarea{min-height:44px;max-height:88px;padding:8px 10px;font-size:13px;}
+  .chatPanel .send{width:44px;min-width:44px;height:44px;}
+  .chatPanel .telegramSetupPanel{margin:3px 0 4px;}
+  .chatPanel .telegramSetupToggle{min-height:40px;padding:7px 9px;font-size:10px;}
+  .chatPanel .emptyState{min-height:72px;padding:10px;font-size:11px;line-height:1.4;}
+
+  /* Existing long-form sections keep their bounded vertical scroll. */
+  .pageBodyViewport{overscroll-behavior-y:contain;-webkit-overflow-scrolling:touch;}
+  .capabilitiesViewport,.meditationViewport,.settingsViewport{min-height:0;}
+}
+
+
+/* 2026-11-12 — shared compact density for the remaining PWA sections.
+   These screens still scroll when their data exceeds the viewport; no content is hidden. */
+@media(max-width:700px){
+  .pageBodyViewport{gap:8px;padding-left:0;padding-right:0;}
+  .pageBodyViewport>.panel,
+  .pageBodyViewport>.statePanel,
+  .pageBodyViewport>.errorBox{margin-bottom:7px;}
+  .pageBodyViewport .panel{padding:10px;border-radius:15px;}
+  .pageBodyViewport .panelTitle{font-size:9px;letter-spacing:1.1px;}
+  .pageBodyViewport .panelHeading{gap:7px;}
+  .pageBodyViewport .panelHeading h2,
+  .pageBodyViewport h2{font-size:15px;line-height:1.25;margin-top:3px;margin-bottom:4px;}
+  .pageBodyViewport p.muted,
+  .pageBodyViewport .muted{font-size:10px;line-height:1.4;}
+  .pageBodyViewport .actions{gap:6px;margin-top:9px;}
+  .pageBodyViewport .actions button{min-height:44px;padding:8px 10px;font-size:10px;}
+  .pageBodyViewport .statsGrid{gap:6px;}
+  .pageBodyViewport .statCard{min-height:54px;padding:8px;}
+  .pageBodyViewport .statValue{font-size:19px;}
+  .pageBodyViewport .statLabel{font-size:9px;margin-top:3px;}
+  .capabilitiesViewport{padding-bottom:calc(14px + env(safe-area-inset-bottom));}
+  .capabilitiesViewport>.panel{gap:8px;}
+  .capabilitiesViewport .capHero{gap:9px;padding:10px;border-radius:14px;}
+  .capabilitiesViewport .capHero .smallOrb{width:48px;height:48px;font-size:10px;flex:0 0 48px;}
+  .capabilitiesViewport .capHeroText{font-size:13px;line-height:1.35;margin:2px 0 4px;}
+  .capabilitiesViewport .capTabs{flex-wrap:nowrap;overflow-x:auto;overscroll-behavior-x:contain;scrollbar-width:none;padding:2px 0 5px;margin:7px 0;touch-action:pan-x;}
+  .capabilitiesViewport .capTabs::-webkit-scrollbar{display:none;}
+  .capabilitiesViewport .capTabs .tabButton{flex:0 0 auto;min-height:40px;padding:7px 9px;font-size:10px;white-space:nowrap;}
+  .capabilitiesViewport .capGrid{grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;}
+  .capabilitiesViewport .capTile{padding:10px;border-radius:13px;}
+  .capabilitiesViewport .capTile strong{font-size:21px;margin-top:5px;}
+  .capabilitiesViewport .capTile small{font-size:9px;line-height:1.35;}
+  .capabilitiesViewport .searchRow{gap:6px;align-items:stretch;flex-wrap:wrap;}
+  .capabilitiesViewport .searchRow input{min-width:0;min-height:40px;padding:8px 10px;}
+  .capabilitiesViewport .catalogList{margin-top:7px;}
+  .capabilitiesViewport .catalogRow{gap:8px;padding:9px 0;}
+  .capabilitiesViewport .catalogRow strong{font-size:11px;}
+  .capabilitiesViewport .catalogRow small{font-size:9px;}
+  .meditationViewport{gap:8px;}
+  .meditationViewport>.executionHero{padding:11px;border-radius:16px;margin-bottom:0;}
+  .meditationViewport .executionHeroTitle{font-size:18px;line-height:1.25;}
+  .meditationViewport .executionGoal{font-size:11px;line-height:1.4;}
+  .meditationViewport .executionProgressRow{margin-top:9px;}
+  .meditationViewport .executionNarrative{margin-top:8px;padding:10px;border-radius:14px;}
+  .meditationViewport .executionNarrative>strong{font-size:15px;}
+  .meditationViewport .executionNarrativeGrid{gap:6px;margin-top:7px;}
+  .meditationViewport .executionNarrativeGrid>div{padding:7px;border-radius:10px;}
+  .meditationViewport .meditationToolsPanel{padding:10px;}
+  .meditationViewport .meditationToolHeader h3{font-size:15px;}
+  .meditationViewport .meditationSecondary{gap:8px;margin-top:8px;}
+  .settingsViewport{gap:8px;padding-bottom:calc(14px + env(safe-area-inset-bottom));}
+  .settingsViewport .settingsHero{gap:6px;}
+  .settingsViewport .settingsOption{gap:8px;padding:9px 0;align-items:center;}
+  .settingsViewport .settingsOption strong{font-size:11px;line-height:1.3;}
+  .settingsViewport .settingsOption small{font-size:9px;line-height:1.35;margin-top:3px;}
+  .settingsViewport .toggleButton{min-height:40px;min-width:90px;padding:7px 9px;font-size:10px;}
+  .projectBodyViewport{padding-top:3px;}
+  .projectBodyViewport>.panel{padding:10px;margin-bottom:7px;border-radius:15px;}
+  .projectBodyViewport .panelHeading h2{font-size:15px;line-height:1.3;}
+  .projectBodyViewport .muted{font-size:10px;line-height:1.4;}
+  .projectBodyViewport .statsGrid{gap:6px;}
+  .projectBodyViewport .statCard{padding:8px;min-height:54px;}
+  .projectBodyViewport .actions button{min-height:44px;}
+}
+
+
+/* 2026-11-12 — harden mobile scroll ownership after physical Android QA. */
+@media(max-width:700px){
+  /* Establish a real fixed-height flex viewport inside Android WebView. */
+  .appShell{
+    display:flex!important;
+    flex-direction:column!important;
+    width:100%;
+    height:100dvh!important;
+    min-height:0!important;
+    max-height:100dvh!important;
+    overflow:hidden!important;
+    box-sizing:border-box;
+  }
+  .topBar{flex:0 0 auto!important;}
+  .screenViewport{
+    position:relative;
+    flex:1 1 0!important;
+    height:auto!important;
+    min-height:0!important;
+    overflow:hidden!important;
+  }
+  .screenTrack{height:100%!important;min-height:0;}
+  .appScreen{height:100%!important;min-height:0!important;overflow:hidden!important;}
+
+  /* One clear scroll owner for the entire Dashboard: no nested/clipped home pane. */
+  .dashboardScreen{
+    display:block!important;
+    overflow-x:hidden!important;
+    overflow-y:auto!important;
+    overscroll-behavior-y:contain;
+    -webkit-overflow-scrolling:touch;
+    touch-action:pan-y;
+    padding-bottom:calc(18px + env(safe-area-inset-bottom));
+  }
+  .homeEssential{
+    height:auto!important;
+    min-height:100%;
+    flex:none!important;
+    overflow:visible!important;
+    justify-content:flex-start;
+  }
+
+  /* The chat history is the only scrollable part of the conversation screen. */
+  .chatScreen{height:100%;min-height:0;overflow:hidden;}
+  .chatPanel{height:100%;min-height:0!important;overflow:hidden;}
+  .chatPanel .chatWindow{
+    flex:1 1 0;
+    min-height:0!important;
+    max-height:none!important;
+    overflow-x:hidden!important;
+    overflow-y:auto!important;
+    overscroll-behavior-y:contain;
+    -webkit-overflow-scrolling:touch;
+    touch-action:pan-y;
+  }
+}

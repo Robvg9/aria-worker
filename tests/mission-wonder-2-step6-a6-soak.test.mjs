@@ -15,12 +15,14 @@ const hours = count => new Date(start + count * 60 * 60 * 1000).toISOString();
 const thresholds = {
   minimumDurationHours: 24,
   minimumMissions: 5,
-  heartbeatIntervalMs: 5000,
-  maxNormalHeartbeatGapMs: 15000,
+  heartbeatIntervalMs: 30000,
+  heartbeatSampleIntervalMs: 60000,
+  minimumHeartbeatCoverageRatio: 0.95,
+  maxNormalHeartbeatGapMs: 90000,
   maxRecoveryMs: 120000,
   maxP95LatencyMs: 90000,
-  maxTotalCostUsd: 0.05,
-  maxAttemptsPerJob: 3,
+  maxTotalCostUsd: 0,
+  maxAttemptsPerJob: 1,
   maxBacklogAgeMs: 300000,
   maxMissionIntermissionMs: 7 * 60 * 60 * 1000,
   minimumMissionSpanRatio: 0.75,
@@ -34,7 +36,7 @@ const missions = Array.from({ length: 5 }, (_, index) => ({
   objectiveVerified: true,
   verificationEventId: "a6-verified-event-" + index,
   verificationEventCount: 1,
-  attemptCount: index === 2 ? 2 : 1,
+  attemptCount: 1,
   artifactSha256: [(index.toString(16).padStart(64, "0"))],
   duplicateCount: 0,
   activeAtEnd: false,
@@ -67,14 +69,14 @@ const validEvidence = {
   heartbeatCoverage: {
     observedStartAt: hours(0),
     observedEndAt: hours(24),
-    expectedIntervals: 17280,
-    observedIntervals: 17271,
-    outageMissingIntervals: 9,
+    expectedIntervals: 1440,
+    observedIntervals: 1440,
+    outageMissingIntervals: 0,
     unexplainedMissingIntervals: 0,
   },
   faultScenarios,
   latencySamplesMs: [900, 1200, 1500, 2400, 3000, 4200, 5800, 7000, 8500, 12000],
-  costSamplesUsd: [0.001, 0.001, 0.001, 0.001, 0.001],
+  costSamplesUsd: [0, 0, 0, 0, 0],
   a6BacklogSamples: [
     { a6PendingJobs: 2, oldestA6PendingAgeMs: 1000 },
     { a6PendingJobs: 0, oldestA6PendingAgeMs: 0 },
@@ -93,7 +95,7 @@ assert.equal(report.liveAttestation, "NOT_CHECKED_BY_PURE_EVALUATOR");
 assert.equal(report.metrics.elapsedHours, 24);
 assert.equal(report.metrics.missionCount, 5);
 assert.ok(report.metrics.missionCompletionSpanRatio >= 0.75);
-assert.equal(report.metrics.heartbeatCoverage.expectedIntervals, 17280);
+assert.equal(report.metrics.heartbeatCoverage.expectedIntervals, 1440);
 assert.equal(report.metrics.heartbeatCoverage.unexplainedMissingIntervals, 0);
 assert.equal(report.metrics.independentlyVerifiedMissionCount, 5);
 assert.equal(report.metrics.uniqueJobCount, 5);
@@ -106,7 +108,7 @@ assert.equal(report.metrics.ambient.nonA6ActiveJobCount, 0);
 assert.equal(report.metrics.ambient.ambientFingerprintUnchanged, true);
 assert.equal(report.metrics.ambient.crons48_49_50RemainDisabled, true);
 assert.equal(report.metrics.ambient.globalMissionFreezeRemainsEnabled, true);
-assert.ok(Math.abs(report.metrics.totalCostUsd - 0.005) < 1e-9);
+assert.equal(report.metrics.totalCostUsd, 0);
 assert.equal(M22_A6_SOAK_WINDOWS_V1.initial_hours, 24);
 assert.equal(M22_A6_SOAK_WINDOWS_V1.reinforced_hours, 72);
 assert.equal(M22_A6_SOAK_WINDOWS_V1.proposed_minimum_missions_per_24h, 5);
@@ -122,7 +124,7 @@ assert.ok(insufficient72HourVolume.blockers.includes("threshold_minimum_missions
 
 const excessiveHeartbeatTolerance = m22A6BuildSoakReportV1({
   ...validEvidence,
-  thresholds: { ...thresholds, maxNormalHeartbeatGapMs: 15001 },
+  thresholds: { ...thresholds, maxNormalHeartbeatGapMs: 90001 },
 });
 assert.equal(excessiveHeartbeatTolerance.status, "BLOCKED");
 assert.ok(excessiveHeartbeatTolerance.blockers.includes("heartbeat_threshold_exceeds_three_intervals"));
@@ -187,12 +189,39 @@ const unexplainedHeartbeatGap = m22A6BuildSoakReportV1({
   ...validEvidence,
   heartbeatCoverage: {
     ...validEvidence.heartbeatCoverage,
+    observedIntervals: 1431,
     outageMissingIntervals: 8,
     unexplainedMissingIntervals: 1,
   },
 });
 assert.equal(unexplainedHeartbeatGap.status, "BLOCKED");
 assert.ok(unexplainedHeartbeatGap.blockers.includes("heartbeat_unexplained_missing_intervals"));
+
+
+const insufficientHeartbeatCoverage = m22A6BuildSoakReportV1({
+  ...validEvidence,
+  heartbeatCoverage: {
+    ...validEvidence.heartbeatCoverage,
+    observedIntervals: 1367,
+    outageMissingIntervals: 73,
+  },
+});
+assert.equal(insufficientHeartbeatCoverage.status, "BLOCKED");
+assert.ok(insufficientHeartbeatCoverage.blockers.includes("heartbeat_coverage_below_minimum_ratio"));
+
+const missingSampleCadence = m22A6BuildSoakReportV1({
+  ...validEvidence,
+  thresholds: Object.fromEntries(Object.entries(thresholds).filter(([key]) => key !== "heartbeatSampleIntervalMs")),
+});
+assert.equal(missingSampleCadence.status, "BLOCKED");
+assert.ok(missingSampleCadence.blockers.includes("heartbeat_sample_interval_invalid"));
+
+const wrongSampleCadence = m22A6BuildSoakReportV1({
+  ...validEvidence,
+  thresholds: { ...thresholds, heartbeatSampleIntervalMs: 30000 },
+});
+assert.equal(wrongSampleCadence.status, "BLOCKED");
+assert.ok(wrongSampleCadence.blockers.includes("heartbeat_expected_interval_count_below_window_floor"));
 
 const duplicateJob = missions.map(item => ({ ...item }));
 duplicateJob[1].jobId = duplicateJob[0].jobId;
@@ -219,7 +248,7 @@ assert.ok(missingFaultReport.blockers.includes("fault_scenario_provider_degraded
 
 const heartbeatFailure = m22A6BuildSoakReportV1({
   ...validEvidence,
-  heartbeatGaps: [{ gapMs: 20000, expectedOutage: false }],
+  heartbeatGaps: [{ gapMs: 90001, expectedOutage: false }],
 });
 assert.equal(heartbeatFailure.status, "BLOCKED");
 assert.ok(heartbeatFailure.blockers.includes("heartbeat_gap_0_exceeded_threshold"));
@@ -253,6 +282,7 @@ assert.ok(p95Failure.blockers.includes("p95_latency_exceeded_threshold"));
 
 const costFailure = m22A6BuildSoakReportV1({
   ...validEvidence,
+  costSamplesUsd: [0.001, 0.001, 0.001, 0.001, 0.001],
   thresholds: { ...thresholds, maxTotalCostUsd: 0.001 },
 });
 assert.equal(costFailure.status, "BLOCKED");

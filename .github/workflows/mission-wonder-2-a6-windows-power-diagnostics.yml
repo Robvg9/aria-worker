@@ -1,0 +1,190 @@
+name: Mission Wonder 2 A6 Windows Power Diagnostics
+
+on:
+  push:
+    branches:
+      - fix/mission-wonder-2-a6-windows-heartbeat-continuity-v1
+    paths:
+      - 'agents/windows/aria-agent.js'
+      - 'agents/windows/run-agent.ps1'
+      - 'agents/windows/install-v2.ps1'
+      - '.github/workflows/mission-wonder-2-a6-windows-power-diagnostics.yml'
+      - '.github/workflows/mission-wonder-2-a6-windows-diagnostics-queue-guard.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mission-wonder-2-a6-windows-power-diagnostics-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  diagnostics:
+    name: Read-only Windows power and heartbeat evidence
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    steps:
+      - name: Capture bounded local heartbeat and power snapshot
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $root = 'D:\ARIA-Windows-Agent'
+          $logs = Join-Path $root 'Logs'
+          $outDir = Join-Path $env:RUNNER_TEMP 'a6-windows-power-diagnostics'
+          New-Item -ItemType Directory -Force -Path $outDir | Out-Null
+          $snapshotPath = Join-Path $outDir 'a6-windows-runtime-snapshot.txt'
+
+          function Add-Line([string]$Value) {
+            [void]$script:builder.AppendLine($Value)
+          }
+          function Read-BoundedText([string]$Path,[int]$MaxChars=8192) {
+            if (-not (Test-Path -LiteralPath $Path)) { return 'FILE_NOT_PRESENT' }
+            try {
+              $value = [System.IO.File]::ReadAllText($Path)
+              if ($value.Length -gt $MaxChars) { return $value.Substring(0,$MaxChars) + [Environment]::NewLine + 'TRUNCATED_AFTER_CHARS=' + $MaxChars }
+              return $value
+            } catch {
+              return 'READ_ERROR=' + $_.Exception.Message
+            }
+          }
+          function Read-BoundedTail([string]$Path,[int]$MaxBytes=65536) {
+            if (-not (Test-Path -LiteralPath $Path)) { return 'FILE_NOT_PRESENT' }
+            $stream = $null
+            $reader = $null
+            try {
+              $stream = [System.IO.File]::Open($Path,[System.IO.FileMode]::Open,[System.IO.FileAccess]::Read,[System.IO.FileShare]::ReadWrite)
+              $tailBytes = [Math]::Min($MaxBytes,$stream.Length)
+              [void]$stream.Seek(-$tailBytes,[System.IO.SeekOrigin]::End)
+              $reader = New-Object System.IO.StreamReader($stream,[System.Text.Encoding]::UTF8,$true,4096,$true)
+              $tailText = $reader.ReadToEnd()
+              return ($tailText -split "\r?\n" | Select-Object -Last 100) -join [Environment]::NewLine
+            } catch {
+              return 'TAIL_READ_ERROR=' + $_.Exception.Message
+            } finally {
+              if ($reader) { $reader.Dispose() }
+              if ($stream) { $stream.Dispose() }
+            }
+          }
+          function Invoke-BoundedNativeCommand([string]$FilePath,[string[]]$Arguments,[int]$TimeoutMs=5000) {
+            $base = Join-Path $env:RUNNER_TEMP ([guid]::NewGuid().ToString('N'))
+            $stdoutPath = $base + '.out'
+            $stderrPath = $base + '.err'
+            $proc = $null
+            try {
+              $proc = Start-Process -FilePath $FilePath -ArgumentList ($Arguments -join ' ') -PassThru -WindowStyle Hidden -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath
+              if (-not $proc.WaitForExit($TimeoutMs)) {
+                Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+                return 'TIMED_OUT_AFTER_MS=' + $TimeoutMs
+              }
+              $stdout = if (Test-Path -LiteralPath $stdoutPath) { Read-BoundedText $stdoutPath 12000 } else { '' }
+              $stderr = if (Test-Path -LiteralPath $stderrPath) { Read-BoundedText $stderrPath 4000 } else { '' }
+              return ('EXIT_CODE=' + $proc.ExitCode + [Environment]::NewLine + 'STDOUT=' + [Environment]::NewLine + $stdout + [Environment]::NewLine + 'STDERR=' + [Environment]::NewLine + $stderr)
+            } catch {
+              return 'COMMAND_ERROR=' + $_.Exception.Message
+            } finally {
+              Remove-Item -LiteralPath $stdoutPath,$stderrPath -Force -ErrorAction SilentlyContinue
+            }
+          }
+
+          $script:builder = New-Object System.Text.StringBuilder
+          Add-Line 'CLASSIFICATION=READ_ONLY_DIAGNOSTICS'
+          Add-Line ('CAPTURED_AT_UTC=' + (Get-Date).ToUniversalTime().ToString('o'))
+          Add-Line ('COMPUTER=' + $env:COMPUTERNAME)
+          Add-Line ('RUNNER_NAME=' + $env:RUNNER_NAME)
+          Add-Line ('RUNNER_OS=' + $env:RUNNER_OS)
+
+          Write-Host 'A6DIAG_STEP=HEARTBEAT_FILE_START'
+          Add-Line '--- AGENT_HEARTBEAT_JSON ---'
+          Add-Line (Read-BoundedText (Join-Path $logs 'agent-heartbeat.json') 8192)
+          Write-Host 'A6DIAG_STEP=WATCHDOG_STATUS_START'
+          Add-Line '--- WATCHDOG_STATUS_JSON ---'
+          Add-Line (Read-BoundedText (Join-Path $logs 'status.json') 8192)
+
+          Write-Host 'A6DIAG_STEP=WATCHDOG_TAIL_START'
+          $watchdogPath = Join-Path $logs 'watchdog.log'
+          $watchdogBytes = if (Test-Path -LiteralPath $watchdogPath) { (Get-Item -LiteralPath $watchdogPath).Length } else { 0 }
+          Add-Line ('WATCHDOG_LOG_BYTES=' + $watchdogBytes)
+          Add-Line '--- WATCHDOG_LOG_TAIL_MAX_64KB ---'
+          Add-Line (Read-BoundedTail $watchdogPath 65536)
+
+          Write-Host 'A6DIAG_STEP=SCHEDULED_TASK_START'
+          Add-Line '--- SCHEDULED_TASK ---'
+          Add-Line (Invoke-BoundedNativeCommand (Join-Path $env:WINDIR 'System32\schtasks.exe') @('/query','/TN','\ARIA-Windows-Local-Agent','/FO','LIST') 5000)
+
+          Write-Host 'A6DIAG_STEP=POWERCFG_REQUESTS_START'
+          Add-Line '--- POWERCFG_REQUESTS ---'
+          Add-Line (Invoke-BoundedNativeCommand (Join-Path $env:WINDIR 'System32\powercfg.exe') @('/requests') 5000)
+
+          Write-Host 'A6DIAG_STEP=POWERCFG_SLEEP_PLAN_START'
+          Add-Line '--- POWERCFG_SLEEP_PLAN ---'
+          Add-Line (Invoke-BoundedNativeCommand (Join-Path $env:WINDIR 'System32\powercfg.exe') @('/query','SCHEME_CURRENT','SUB_SLEEP') 5000)
+
+          Write-Host 'A6DIAG_STEP=POWERCFG_LAST_WAKE_START'
+          Add-Line '--- POWERCFG_LAST_WAKE ---'
+          Add-Line (Invoke-BoundedNativeCommand (Join-Path $env:WINDIR 'System32\powercfg.exe') @('/lastwake') 5000)
+
+          Write-Host 'A6DIAG_STEP=PROCESS_SNAPSHOT_START'
+          $processes = @(Get-Process -Name node,powershell -ErrorAction SilentlyContinue | ForEach-Object { $_.ProcessName + ':' + $_.Id })
+          Add-Line ('ACTIVE_NODE_POWERSHELL_PROCESSES=' + ($processes -join ','))
+          Add-Line ('ACTIVE_NODE_POWERSHELL_PROCESS_COUNT=' + $processes.Count)
+
+          Write-Host 'A6DIAG_STEP=REPORT_WRITE_START'
+          [System.IO.File]::WriteAllText($snapshotPath,$script:builder.ToString(),[System.Text.UTF8Encoding]::new($false))
+          Write-Host ('A6DIAG_REPORT_WRITE=PASS;BYTES=' + (Get-Item -LiteralPath $snapshotPath).Length)
+          Write-Host 'A6DIAG_RUNTIME_SNAPSHOT=PASS'
+
+      - name: Collect bounded Windows power events
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $outDir = Join-Path $env:RUNNER_TEMP 'a6-windows-power-diagnostics'
+          New-Item -ItemType Directory -Force -Path $outDir | Out-Null
+          $out = Join-Path $outDir 'a6-windows-power-events.txt'
+          $err = Join-Path $outDir 'a6-windows-power-events.err.txt'
+          $xpath = "*[System[(EventID=41 or EventID=42 or EventID=107 or EventID=506 or EventID=507 or (Provider[@Name='Microsoft-Windows-Power-Troubleshooter'] and EventID=1))]]"
+          $eventArgs = 'qe System /q:"' + $xpath + '" /c:40 /rd:true /f:Text'
+          try {
+            $proc = Start-Process -FilePath (Join-Path $env:WINDIR 'System32\wevtutil.exe') -ArgumentList $eventArgs -PassThru -WindowStyle Hidden -RedirectStandardOutput $out -RedirectStandardError $err
+            if (-not $proc.WaitForExit(12000)) {
+              Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+              [System.IO.File]::WriteAllText($out,'WEVTUTIL_TIMED_OUT_AFTER_12000_MS')
+            }
+          } catch {
+            [System.IO.File]::WriteAllText($out,'WEVTUTIL_ERROR=' + $_.Exception.Message)
+          }
+          Write-Host 'A6DIAG_POWER_EVENTS_CAPTURE=FINISHED'
+
+      - name: Stage bounded diagnostics for upload
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $source = Join-Path $env:RUNNER_TEMP 'a6-windows-power-diagnostics'
+          $target = Join-Path $env:GITHUB_WORKSPACE 'a6-windows-power-diagnostics'
+          New-Item -ItemType Directory -Force -Path $target | Out-Null
+          foreach ($name in @('a6-windows-runtime-snapshot.txt','a6-windows-power-events.txt','a6-windows-power-events.err.txt')) {
+            $file = Join-Path $source $name
+            if (Test-Path -LiteralPath $file) {
+              Copy-Item -LiteralPath $file -Destination (Join-Path $target $name) -Force
+            }
+          }
+          $logs = 'D:\ARIA-Windows-Agent\Logs'
+          foreach ($name in @('agent-heartbeat.json','status.json')) {
+            $file = Join-Path $logs $name
+            if (Test-Path -LiteralPath $file) {
+              $length = (Get-Item -LiteralPath $file).Length
+              if ($length -le 16384) {
+                Copy-Item -LiteralPath $file -Destination (Join-Path $target $name) -Force
+              } else {
+                Write-Host "SKIP_LARGE_LOG=$name;BYTES=$length"
+              }
+            }
+          }
+          Write-Host ('STAGED_FILE_COUNT=' + (Get-ChildItem -LiteralPath $target -File | Measure-Object).Count)
+
+      - name: Upload bounded Windows evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: mission-wonder-2-a6-windows-power-diagnostics-${{ github.sha }}
+          path: a6-windows-power-diagnostics/**
+          if-no-files-found: error
+          retention-days: 14
