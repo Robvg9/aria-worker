@@ -52,8 +52,8 @@ const NATIVE_ERROR_MESSAGES: Record<string, string> = {
   voice_asr_permission_required: 'Android no concedió el permiso del micrófono. Actívalo para ARIA Unificada y vuelve a intentarlo.',
   voice_asr_on_device_unavailable: 'Este teléfono no tiene disponible el reconocimiento de voz sin conexión. No se enviará el audio a un servicio remoto.',
   voice_asr_language_invalid: 'El idioma de reconocimiento no está disponible en este teléfono.',
-  voice_asr_language_unsupported: 'El reconocimiento local no admite el idioma seleccionado.',
-  voice_asr_language_unavailable: 'Activa o descarga el paquete de reconocimiento de español sin conexión en Android.',
+  voice_asr_language_unsupported: 'Este Android tampoco admite el modelo local de español general (es-ES). Instala un paquete de español compatible en los ajustes de reconocimiento de voz.',
+  voice_asr_language_unavailable: 'El modelo local de español es compatible, pero todavía no está descargado. Descarga el paquete de español en los ajustes de reconocimiento de voz de Android.',
   voice_asr_no_match: 'No pude reconocer palabras. Habla cerca del micrófono y haz una pausa al terminar.',
   voice_asr_timeout: 'Se agotó el tiempo de escucha. Pulsa Dictar y prueba una frase más corta.',
   voice_asr_listener_active: 'Detén primero la escucha residente antes de usar Dictar.',
@@ -97,23 +97,26 @@ export function VoiceInputButton({
     sessionRef.current = null;
   }, []);
 
-  async function deliverTranscript(transcript: string, audioAttached = false, audioError = '') {
+  async function deliverTranscript(transcript: string, audioAttached = false, audioError = '', localeFallback = '') {
+    const localeNote = localeFallback
+      ? 'Se utilizó el modelo local de español general (' + localeFallback + '). '
+      : '';
     if (autoSubmit) {
-      setNotice('Transcripción recibida. ARIA está preparando tu respuesta…');
+      setNotice(localeNote + 'Transcripción recibida. ARIA está preparando tu respuesta…');
       try {
         const result = await onTranscriptRef.current(transcript);
-        setNotice(result === false
+        setNotice(localeNote + (result === false
           ? 'ARIA no pudo completar la respuesta. Revisa el error del chat.'
-          : 'Respuesta recibida. Puedes hablar de nuevo.');
+          : 'Respuesta recibida. Puedes hablar de nuevo.'));
       } catch {
-        setNotice('No se pudo completar la respuesta. Revisa el error del chat.');
+        setNotice(localeNote + 'No se pudo completar la respuesta. Revisa el error del chat.');
       }
       return;
     }
     onTranscriptRef.current(transcript);
-    if (audioAttached) setNotice('Audio adjuntado y transcripción insertada. Revisa el texto y pulsa Enviar.');
-    else if (audioError) setNotice('Transcripción insertada; no se pudo adjuntar el audio: ' + audioError);
-    else setNotice('Transcripción insertada. Revísala y envíala.');
+    if (audioAttached) setNotice(localeNote + 'Audio adjuntado y transcripción insertada. Revisa el texto y pulsa Enviar.');
+    else if (audioError) setNotice(localeNote + 'Transcripción insertada; no se pudo adjuntar el audio: ' + audioError);
+    else setNotice(localeNote + 'Transcripción insertada. Revísala y envíala.');
   }
 
   function settle(session: VoiceSession) {
@@ -201,12 +204,27 @@ export function VoiceInputButton({
     setListening(true);
     setNotice('Escuchando en este Android… di tu frase y haz una pausa para terminar. El audio no se adjunta.');
 
+    let recognitionLanguage = locale;
     try {
-      const result = await bridge.recognizeUtterance({ max_duration_ms: 8000, language: locale });
+      let result: any;
+      try {
+        result = await bridge.recognizeUtterance({ max_duration_ms: 8000, language: recognitionLanguage });
+      } catch (cause) {
+        const code = cause instanceof Error ? cause.message : 'voice_asr_failed';
+        const mayUseGeneralSpanish = code === 'voice_asr_language_unsupported'
+          || code === 'voice_asr_language_unavailable';
+        if (!mayUseGeneralSpanish || recognitionLanguage.toLowerCase() === 'es-es') throw cause;
+
+        recognitionLanguage = 'es-ES';
+        setNotice('Android no tiene disponible el modelo local de ' + locale
+          + '. Probando español general (es-ES)… El audio permanece en este teléfono.');
+        result = await bridge.recognizeUtterance({ max_duration_ms: 8000, language: recognitionLanguage });
+      }
+
       if (!activeRef.current || !nativeRecognitionRef.current) return;
       if (!result || typeof result.transcript !== 'string'
           || !result.transcript.trim() || result.transcript.length > 2000
-          || result.language !== locale || result.recognitionMode !== 'on_device'
+          || result.language !== recognitionLanguage || result.recognitionMode !== 'on_device'
           || !Number.isSafeInteger(result.durationMs)
           || result.durationMs < 0 || result.durationMs > 11000) {
         throw new Error('voice_asr_response_invalid');
@@ -214,7 +232,12 @@ export function VoiceInputButton({
       activeRef.current = false;
       nativeRecognitionRef.current = false;
       setListening(false);
-      await deliverTranscript(result.transcript.trim());
+      await deliverTranscript(
+        result.transcript.trim(),
+        false,
+        '',
+        recognitionLanguage !== locale ? recognitionLanguage : ''
+      );
     } catch (cause) {
       if (!activeRef.current || !nativeRecognitionRef.current) return;
       activeRef.current = false;
