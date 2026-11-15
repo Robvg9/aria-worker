@@ -5,7 +5,7 @@ const path = require('path');
 const file = path.join(__dirname, '..', 'supabase', 'functions', 'aria-device-gateway', 'index.ts');
 const source = fs.readFileSync(file, 'utf8');
 
-const pausedSet = source.match(/const PAUSED_MISSION_ENDPOINTS = new Set\\(\\[([\\s\\S]*?)\\]\\);/);
+const pausedSet = source.match(/const PAUSED_MISSION_ENDPOINTS = new Set\(\[([\s\S]*?)\]\);/);
 assert.ok(pausedSet, 'global mission pause set must be defined');
 for (const endpoint of ["/v1/jobs/claim", "/v1/voice/commands/claim"]) {
   assert.ok(pausedSet[1].includes(JSON.stringify(endpoint)), `global execution pause must block ${endpoint}`);
