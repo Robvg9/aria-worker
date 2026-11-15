@@ -32,7 +32,8 @@ assert.ok(agent.includes("process.on('SIGTERM',()=>requestStop('SIGTERM'))"), 'S
 assert.ok(transport.includes('http://127.0.0.1:45874/execute'), 'executor must use loopback IPC');
 assert.ok(transport.includes("const PACKAGE = 'com.robvg9.aria.unified'"), 'Termux must target the unified ARIA application package');
 assert.ok(transport.includes('com.robvg9.ariauiagent.CommandReceiver'), 'Termux fallback must target the qualified module receiver class');
-assert.ok(transport.includes('com.robvg9.ariauiagent.MainActivity'), 'Termux recovery must launch the module MainActivity inside the unified app');
+assert.ok(!transport.includes('MainActivity'), 'Termux must not launch the non-exported module MainActivity; owner action is required when IPC recovery fails');
+assert.ok(transport.includes('android_ui_agent_owner_action_required'), 'Termux recovery must fail closed with an explicit owner-action gate');
 assert.ok(transport.includes("payload.package !== PACKAGE"), 'health probe must reject a legacy APK that owns the old shared port');
 assert.ok(transport.includes("payload.service_package !== PACKAGE"), 'action transport must reject stale service responses before fallback');
 assert.ok(transport.includes('android_local_ipc_package_mismatch'), 'package mismatch must remain diagnosable');
