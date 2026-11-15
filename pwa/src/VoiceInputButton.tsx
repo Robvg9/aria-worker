@@ -356,9 +356,9 @@ export function VoiceInputButton({
       }
 
       nativeRecognitionActiveRef.current = true;
-      setNotice('Escuchando con el reconocedor local del teléfono… habla ahora.');
+      setNotice('Escuchando localmente. Puedes hacer pausas breves; finalizará tras 2,5 segundos de silencio (máximo 30 segundos).');
       const result = await bridge.recognizeUtterance({
-        max_duration_ms: 8000,
+        max_duration_ms: 30000,
         language: model.language
       });
       if (activeRef.current) {
