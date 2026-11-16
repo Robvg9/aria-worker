@@ -1,0 +1,28 @@
+name: RWHT Final Root Cause Probe
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Reload PostgREST schema and run mission
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail-with-body --silent --show-error --max-time 240             -X POST -H 'content-type: application/json'             --data '{"mission_id":"mission_rwht_final_20260920_02"}'             'https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-device-gateway/v1/rwht-final-repair'             | tee /tmp/probe.json
+      - name: Assert backend outcome
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          p=json.load(open('/tmp/probe.json'))
+          print(json.dumps(p,indent=2)[:12000])
+          status=p.get("status")
+          if status not in {"succeeded","paused","failed","human_gate_required"}:
+              raise SystemExit("unexpected runtime status: "+str(status))
+          PY
