@@ -27,6 +27,36 @@ function rpc(method, params, id) {
 }
 
 {
+  const res = handle(req({
+    method: 'GET',
+    headers: { authorization: `Bearer ${TOKEN}`, accept: 'text/event-stream', 'mcp-protocol-version': '2025-11-25' }
+  }));
+  assert.strictEqual(res.status, 405);
+  assert.strictEqual(res.body.error, 'method_not_allowed');
+  assert.strictEqual(res.body.reason, 'get_stream_not_supported');
+  assert.strictEqual(res.headers.allow, 'POST, OPTIONS');
+}
+{
+  const res = handle(req({
+    method: 'GET',
+    headers: { authorization: `Bearer ${TOKEN}`, accept: 'application/json', 'mcp-protocol-version': '2026-07-28' }
+  }));
+  assert.strictEqual(res.status, 405);
+}
+{
+  const res = handle(req({
+    method: 'GET',
+    path: '/mcp-inbound/.well-known/oauth-protected-resource',
+    headers: { accept: 'text/event-stream' }
+  }));
+  assert.strictEqual(res.status, 200, 'OAuth metadata GET remains available');
+}
+{
+  const res = handle(req({ method: 'HEAD' }));
+  assert.strictEqual(res.status, 200, 'HEAD behavior remains unchanged');
+}
+
+{
   const res = handle(req({ method: 'GET', path: '/mcp-inbound/.well-known/oauth-protected-resource' }));
   assert.strictEqual(res.status, 200);
   assert.strictEqual(res.body.resource, 'https://example.test/mcp-inbound');
