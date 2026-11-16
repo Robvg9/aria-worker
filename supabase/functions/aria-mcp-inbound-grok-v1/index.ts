@@ -1,4 +1,5 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import { shouldRejectMcpGet } from "./transport.mjs";
 import { createClient } from "npm:@supabase/supabase-js@2";
 
 /**
@@ -1581,6 +1582,17 @@ Deno.serve(async (req) => {
     }
 
     return json(400, { error: "unsupported_grant_type" });
+  }
+
+  // No server-initiated SSE stream is exposed. Legacy Streamable HTTP allows
+  // a server to reject this optional GET with 405; protocol 2026-07-28 removed
+  // the standalone GET stream. OAuth discovery GET routes are handled above.
+  if (req.method === "GET" && shouldRejectMcpGet(req)) {
+    return json(405, {
+      error: "method_not_allowed",
+      transport: "streamable-http",
+      reason: "get_stream_not_supported",
+    }, { allow: "POST, OPTIONS" });
   }
 
   if (req.method === "GET" || req.method === "HEAD") {

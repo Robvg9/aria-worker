@@ -81,6 +81,16 @@ function negotiateProtocol(requested) {
   return PROTOCOL_VERSIONS.includes(requested) ? requested : null;
 }
 
+function acceptsEventStream(headers) {
+  const accept = headers && (headers.accept || headers.Accept);
+  return String(accept ?? "").split(",").some((entry) => {
+    const [mediaType, ...parameters] = entry.trim().split(";");
+    if (String(mediaType ?? "").trim().toLowerCase() !== "text/event-stream") return false;
+    const quality = parameters.map((p) => p.trim()).find((p) => /^q\s*=/i.test(p));
+    return quality === undefined || Number(quality.slice(quality.indexOf("=") + 1).trim()) > 0;
+  });
+}
+
 function createHandler(options) {
   const token = options && options.token ? String(options.token) : '';
   const resource = (options && options.resource) || 'https://aria.robvg9.workers.dev/mcp-inbound';
@@ -193,6 +203,17 @@ function createHandler(options) {
           authorization_servers: [],
           scopes_supported: ['aria.mcp.inbound']
         }
+      };
+    }
+
+    if (methodHttp === 'GET' && (
+      (req.headers['mcp-protocol-version'] || req.headers['MCP-Protocol-Version']) === '2026-07-28' ||
+      acceptsEventStream(req.headers)
+    )) {
+      return {
+        status: 405,
+        headers: jsonHeaders({ allow: 'POST, OPTIONS' }),
+        body: { error: 'method_not_allowed', transport: 'streamable-http', reason: 'get_stream_not_supported' }
       };
     }
 
