@@ -1,0 +1,83 @@
+name: ARIA PWA Live Browser Diagnostic
+
+on:
+  push:
+    branches: [diag/pwa-live-browser-20260922]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  browser:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Probe live HTTP assets
+        run: |
+          set -euo pipefail
+          base="https://aria.robvg9.workers.dev/pwa/"
+          echo "VERSION_ENDPOINT"
+          set +e
+          version_code="$(curl --silent --show-error --max-time 10 --retry 1 --retry-delay 1 -o /tmp/version.json -w '%{http_code}' "$base/version.json?browser_probe=$(date +%s)")"
+          version_status=$?
+          set -e
+          echo "VERSION_HTTP=$version_code CURL_STATUS=$version_status"
+          cat /tmp/version.json 2>/dev/null || true
+          echo
+          echo "HTML_ENDPOINT"
+          curl --fail --silent --show-error --max-time 15 --retry 3 --retry-delay 1 "$base?browser_probe=$(date +%s)" -o /tmp/index.html
+          grep -E 'aria-build|assets/index-|aria-boot' /tmp/index.html | head -n 20 || true
+          js_asset="$(grep -Eo '/pwa/assets/[^"]+.js' /tmp/index.html | head -n 1)"
+          css_asset="$(grep -Eo '/pwa/assets/[^"]+.css' /tmp/index.html | head -n 1)"
+          echo "JS_ASSET=$js_asset"
+          echo "CSS_ASSET=$css_asset"
+          test -n "$js_asset"
+          test -n "$css_asset"
+
+          echo "JS_ENDPOINT"
+          js_code="$(curl --silent --show-error --max-time 20 --retry 3 --retry-delay 1 -o /tmp/app.js -w '%{http_code}' "https://aria.robvg9.workers.dev$js_asset")"
+          echo "JS_HTTP=$js_code"
+          echo "JS_BYTES=$(wc -c </tmp/app.js)"
+
+          echo "CSS_ENDPOINT"
+          css_code="$(curl --silent --show-error --max-time 20 --retry 3 --retry-delay 1 -o /tmp/app.css -w '%{http_code}' "https://aria.robvg9.workers.dev$css_asset")"
+          echo "CSS_HTTP=$css_code"
+          echo "CSS_BYTES=$(wc -c </tmp/app.css)"
+
+          echo "SW_ENDPOINT"
+          sw_asset="/pwa/sw-7629564dda80fb78c50af6b4daee8ec4a2c6986b.js"
+          sw_code="$(curl --silent --show-error --max-time 20 --retry 3 --retry-delay 1 -o /tmp/sw.js -w '%{http_code}' "https://aria.robvg9.workers.dev$sw_asset")"
+          echo "SW_HTTP=$sw_code"
+          echo "SW_BYTES=$(wc -c </tmp/sw.js)"
+          grep -Eo "aria-pwa-[a-f0-9]{40}" /tmp/sw.js | head -n 3 || true
+
+          test "$js_code" = "200"
+          test "$css_code" = "200"
+          test "$sw_code" = "200"
+          test -s /tmp/app.js
+          test -s /tmp/app.css
+          test -s /tmp/sw.js
+          echo STATIC_ASSETS_OK
+
+      - name: Browser smoke
+        run: |
+          set -euo pipefail
+          if command -v google-chrome >/dev/null 2>&1; then chrome=google-chrome; else chrome=chromium; fi
+          "$chrome" --version
+          rm -rf /tmp/aria-chrome
+          "$chrome" --headless --no-sandbox --disable-gpu --disable-dev-shm-usage --user-data-dir=/tmp/aria-chrome --virtual-time-budget=20000 --enable-logging=stderr --v=1 --dump-dom 'https://aria.robvg9.workers.dev/pwa/?browser_probe=clean' > /tmp/aria-dom.html 2>/tmp/aria-chrome.log
+          echo "DOM_MARKERS"
+          grep -Eo 'Tu centro de mando cognitivo|ARIA no pudo iniciar|Error al iniciar ARIA|Iniciando Centro de Mando' /tmp/aria-dom.html | sort | uniq -c || true
+          echo "CHROME_ERRORS"
+          grep -Ei 'error|failed|ERR_|exception|module|service.?worker' /tmp/aria-chrome.log | tail -n 80 || true
+          if grep -q 'Tu centro de mando cognitivo' /tmp/aria-dom.html; then
+            echo BROWSER_MOUNT_PASS
+          else
+            echo BROWSER_MOUNT_FAIL
+            sed -n '1,220p' /tmp/aria-dom.html
+            exit 1
+          fi
