@@ -3,6 +3,7 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+// RWHT current APK rebuild marker — no runtime behavior change.
 android {
     namespace = "com.robvg9.ariauiagent"
     val runnerSdk = System.getenv("ANDROID_COMPILE_SDK")?.toIntOrNull() ?: 35
