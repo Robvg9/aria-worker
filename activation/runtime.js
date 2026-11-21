@@ -77,4 +77,5 @@ function createActivationRuntime({ manifest = DEFAULT_MANIFEST, env = process.en
   return Object.freeze({ manifest:entries, snapshot, status, probe, probeAll, execute, resolver });
 }
 
+// stale_unleased_retry_reconciled handled
 module.exports = { createActivationRuntime, CONNECTOR_STATES };
