@@ -47,6 +47,22 @@ class RecoveryRulesTest {
     }
 
     @Test
+    fun stale_mission_recovered_automatically_is_blocked() {
+        val m = LocalMission(
+            state = MissionState.ACTION,
+            proposedAction = LocalAction(
+                actionType = "press",
+                approved = true,
+                executedAtMs = null
+            )
+        )
+        val safe = recoverLogic(m)
+        // Ensure it does not auto-execute, must reset approval
+        assertFalse("Mission should not auto-execute after recovery", safe.proposedAction!!.approved)
+        assertEquals(MissionState.PENDING_APPROVAL, safe.state)
+    }
+
+    @Test
     fun cancelled_unchanged() {
         val m = LocalMission(state = MissionState.CANCELLED, cancelledByOwner = true)
         val safe = recoverLogic(m)
