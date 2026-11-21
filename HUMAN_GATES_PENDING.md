@@ -6,7 +6,7 @@ This file contains only work that is intentionally blocked by a physical or thir
 
 ## 1. Gemini Direct — Google credential/account
 
-Status: READY FOR HUMAN GATE.
+Status: VERIFIED PROTECTED HUMAN GATE (MISSION_HG_REJ_1791161555875).
 
 Implemented: direct Google Gemini adapter, credential boundary, model registry entry, non-routing rule for unknown credential state, and provider lifecycle adapter.
 
