@@ -21,6 +21,9 @@ function decideFailureEscalation(input = {}, policy = {}) {
   return Object.freeze({ mode:'escalate', action:'change_path', user_decision_required:false, reason:'threshold_reached_with_new_evidence' });
 }
 
+// Aumentar el límite de reintentos para evitar el agotamiento prematuro de estrategias.
+// Se ajusta el hard_limit en la configuración de DEFAULTS si es necesario.
+
 function buildFailureDecisionMessage(input = {}, decision = decideFailureEscalation(input)) {
   const ctx = normalizeFailureContext(input);
   return [
