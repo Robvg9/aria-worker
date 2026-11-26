@@ -433,6 +433,8 @@ BEGIN
     OR p_actual_cost_amount < 0
     OR ((p_actual_cost_amount IS NULL) <> (p_currency_code IS NULL))
     OR (p_currency_code IS NOT NULL AND p_currency_code !~ '^[A-Z]{3}$')
+    OR (p_outcome = 'released' AND NULLIF(btrim(p_release_evidence_ref), '') IS NULL)
+    OR (p_outcome <> 'released' AND p_release_evidence_ref IS NOT NULL)
   THEN
     RETURN jsonb_build_object('settled', false, 'reason', 'invalid_budget_settlement_input');
   END IF;
