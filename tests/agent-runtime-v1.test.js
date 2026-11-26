@@ -24,7 +24,7 @@ assert.match(source, /mutating_operation_required/, 'agent runtime must honor mu
 assert.match(source, /LOW_RISK_WRITE/, 'LOW_RISK_WRITE must activate governed repair mode');
 assert.match(source, /executor_type.*agent/);
 assert.match(source, /aria-execution-runtime-v1/);
-assert.match(source, /const requestId = `agent:/);
+assert.match(source, /const requestId = `\$\{missionId\}:\$\{stepId\}:\$\{crypto\.randomUUID\(\)\}`;/);
 assert.match(source, /request_id:\s*requestId/);
 assert.match(source, /authorization/);
 assert.match(source, /risk_class/);
