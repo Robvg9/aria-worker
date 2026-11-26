@@ -16,6 +16,39 @@ assert.equal(out.selected.model_id,'m-research');
 assert.ok(out.fallback.length>=1);
 assert.ok(out.selection_evidence.specialization.score===1);
 
+// Unknown quota must never be selected, even when every other signal is excellent.
+const unknownQuotaCandidate = {
+  ...candidates[1],
+  model: { ...candidates[1].model, model_id: 'm-unknown-quota', provider_id: 'p-unknown' },
+  account: { ...candidates[1].account, account_id: 'a-unknown' },
+  quota: { status: 'unknown', rate_limit_status: 'unknown' },
+  observation: { attempts: 100, successes: 100, avg_latency_ms: 1 }
+};
+out = r.select([unknownQuotaCandidate], {task:'research and compare architecture approaches',capability:'text_generation',risk:'medium'});
+assert.equal(out.status, 'no_route');
+assert.ok(out.rejected[0].reasons.includes('quota_status_unknown'));
+
+out = r.select([...candidates, unknownQuotaCandidate], {task:'research and compare architecture approaches',capability:'text_generation',risk:'medium'});
+assert.equal(out.status, 'selected');
+assert.equal(out.selected.model_id, 'm-research');
+assert.ok(!out.fallback.some(x => x.model_id === 'm-unknown-quota'));
+
+const knownLimitOnlyCandidate = {
+  ...unknownQuotaCandidate,
+  model: { ...unknownQuotaCandidate.model, model_id: 'm-known-limit-only' },
+  quota: { status: 'known', rate_limit_status: 'unknown' }
+};
+out = r.select([knownLimitOnlyCandidate], {task:'research and compare architecture approaches',capability:'text_generation',risk:'medium'});
+assert.equal(out.status, 'no_route');
+assert.ok(out.rejected[0].reasons.includes('quota_not_available'));
+
+// Existing candidates explicitly marked quota=available remain eligible even
+// when their separate rate-limit status is unknown.
+out = r.select(candidates.slice(0,2), {task:'research and compare architecture approaches',capability:'text_generation',risk:'medium'});
+assert.equal(out.status, 'selected');
+assert.equal(out.selected.model_id, 'm-research');
+
+
 out=r.select(candidates,{task:'debug this code and implement a safe patch',capability:'text_generation',risk:'high'});
 assert.equal(out.selected.model_id,'m-fast');
 assert.equal(out.selected.agent_role,'coder');
