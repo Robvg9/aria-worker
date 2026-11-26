@@ -1274,6 +1274,7 @@ export class AriaMissionStore {
       return;
     }
 
+    const event = record.event && typeof record.event === 'object' && !Array.isArray(record.event) ? record.event : {};
     const oneShot = event.one_shot_delivery === true;
     const maxAttempts = oneShot ? 1 : 5;
     record.attempts = Number.isSafeInteger(record.attempts) && record.attempts >= 0 ? record.attempts : 0;
@@ -1285,7 +1286,6 @@ export class AriaMissionStore {
       return;
     }
 
-    const event = record.event && typeof record.event === 'object' && !Array.isArray(record.event) ? record.event : {};
     const payload = {
       source: 'ARIA Mission Control',
       notification_id: String(record.notification_id || '').slice(0, 128),
