@@ -133,8 +133,8 @@ async function main() {
     currentTime += 3_001;
     assert.equal((await retryBreaker.beforeRequest('/v1/jobs/claim')).allowed, true);
 
-    const globalPath = path.join(root, 'global-sync.json');
-    const globalBreaker = createRemoteServiceCircuitBreaker({ statePath: globalPath });
+    const globalSyncPath = path.join(root, 'global-sync.json');
+    const globalBreaker = createRemoteServiceCircuitBreaker({ statePath: globalSyncPath });
     const globalApplied = await globalBreaker.applyGlobalCircuit({
       open: true,
       circuit: {
