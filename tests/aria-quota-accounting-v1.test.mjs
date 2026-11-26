@@ -246,7 +246,7 @@ for (const [name, endpoint] of providerCallsites) {
   assert.ok(adapter.includes("settleProviderAttempt(reservationKey,budgetContext,\"failed\""), name + " must settle failed provider outcomes");
   assert.ok(adapter.includes("settleProviderAttempt(reservationKey,budgetContext,\"succeeded\""), name + " must settle successful provider outcomes");
   const reserveIndex = adapter.indexOf("reserveProviderCall(route,requestId,budgetContext");
-  const fetchIndex = adapter.indexOf("fetch(" + JSON.stringify(endpoint));
+  const fetchIndex = adapter.indexOf(endpoint);
   assert.ok(fetchIndex > reserveIndex, name + " must reserve before inference HTTP request");
 }
 const reserveWrapper = runtime.slice(runtime.indexOf("async function reserveProviderCall("), runtime.indexOf("\nasync function directGemini("));
