@@ -934,6 +934,57 @@ async function testSubmittedReplanMustProveFailedTaskReplacement() {
   assert.equal(persisted.tasks[0].superseded_by_task_id, 'replacement-proven');
 }
 
+async function testGlobalCircuitTelegramAmbiguousDeliveryIsNeverRetried() {
+  const originalFetch = global.fetch;
+  let outbound = 0;
+  try {
+    global.fetch = async () => {
+      outbound += 1;
+      throw new Error('network response lost after possible Telegram acceptance');
+    };
+    const { state, store } = createStore({
+      paused: true,
+      extraEnv: {
+        ARIA_TELEGRAM_BOT_TOKEN: '123456:FakeTelegramCircuitBotToken_0123456789',
+        ARIA_TELEGRAM_CHAT_ID: '1472893961'
+      }
+    });
+    const event = {
+      incident_id: 'ambiguous-telegram-402-0001',
+      classification: 'unknown_402',
+      route: '/v1/devices/heartbeat',
+      source_id_sha256: 'c'.repeat(64),
+      agent: 'windows',
+      observed_at: new Date().toISOString()
+    };
+    const first = await store.fetch(request('/api/worker/service-circuit', {
+      method: 'POST', token: workerToken, body: event
+    }));
+    assert.equal(first.status, 200);
+    const firstPayload = await body(first);
+    assert.equal(firstPayload.open, true);
+    assert.equal(outbound, 1);
+    const notification = Array.from((await state.storage.list({ prefix: 'notification:' })).values())
+      .find(item => item.event.type === 'gateway_circuit_open');
+    assert.ok(notification);
+    assert.equal(notification.status, 'unknown');
+    assert.equal(notification.attempts, 1);
+    assert.equal(state.pending.length, 0, 'one-shot incident alerts must not schedule background retries');
+
+    const repeated = await store.fetch(request('/api/worker/service-circuit', {
+      method: 'POST',
+      token: workerToken,
+      body: { ...event, incident_id: 'ambiguous-telegram-402-0002', source_id_sha256: 'd'.repeat(64), agent: 'termux' }
+    }));
+    assert.equal(repeated.status, 200);
+    assert.equal((await body(repeated)).opened_now, false);
+    await store.alarm();
+    assert.equal(outbound, 1, 'ambiguous Telegram delivery is never automatically repeated');
+  } finally {
+    global.fetch = originalFetch;
+  }
+}
+
 async function testDistributedGatewayCircuitAndTelegramAlertWorkDuringFreeze() {
   const originalFetch = global.fetch;
   let telegramSends = 0;
@@ -1086,6 +1137,7 @@ async function testDistributedGatewayCircuitAndTelegramAlertWorkDuringFreeze() {
     isMissionExecutionPaused() { return false; }
   };
   await testGlobalFreezeStopsMutationsAndAlarmRecovery();
+  await testGlobalCircuitTelegramAmbiguousDeliveryIsNeverRetried();
   await testDistributedGatewayCircuitAndTelegramAlertWorkDuringFreeze();
   await testControlAndWorkerTokensMustDiffer();
   await testAuthAndVerifiedMissionLifecycle();
