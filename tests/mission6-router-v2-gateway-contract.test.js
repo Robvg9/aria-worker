@@ -29,6 +29,8 @@ assert.ok(mission5ModelSource.includes("request_id:requestId")&&mission5ModelSou
   'Mission 5 model probes bind the request key and metadata to the same mission/step');
 assert.ok(mission5AgentSource.includes("if(!missionId||!stepId)return {ok:false,status:'blocked'")&&!mission5AgentSource.includes("mission5-agent-probe-'+crypto.randomUUID()"),
   'Mission 5 agent probes must not manufacture synthetic mission identity');
+assert.ok(mission5AgentSource.includes("upstreamCode.startsWith('mission_budget_')")&&mission5AgentSource.includes("status:errorCode.startsWith('mission_budget_')?'blocked':'failed'"),
+  'Mission 5 agent probe must preserve upstream budget denial instead of converting it to a generic error');
 assert.ok(agentRuntimeSource.includes('const requestId = `${missionId}:${stepId}:${crypto.randomUUID()}`;'),
   'agent runtime request IDs use mission:step:nonce identity');
 assert.ok(routerExecuteSource.includes("if(!missionId||!stepId)return{status:'blocked',reason:'mission_budget_mission_context_missing'}"),
