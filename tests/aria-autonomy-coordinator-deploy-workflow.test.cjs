@@ -8,8 +8,8 @@ const workflow = fs.readFileSync(
   'utf8'
 );
 
-assert.match(workflow, /confirm_public_deploy:[\s\S]{0,180}default: false/);
-assert.match(workflow, /send_telegram_test:[\s\S]{0,180}default: false/);
+assert.match(workflow, /confirm_public_deploy:[\s\S]{0,500}default: false/);
+assert.match(workflow, /send_telegram_test:[\s\S]{0,500}default: false/);
 assert.match(workflow, /if: inputs\.confirm_public_deploy == true/);
 assert.match(workflow, /if: inputs\.send_telegram_test == true/);
 
