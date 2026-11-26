@@ -13,7 +13,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: aria-optima-provider-telemetry-postgres-\${{ github.event.pull_request.number || github.ref }}
+  group: aria-optima-provider-telemetry-postgres-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
