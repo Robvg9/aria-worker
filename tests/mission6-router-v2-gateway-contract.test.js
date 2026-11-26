@@ -16,6 +16,7 @@ for(const marker of [
 ]) assert.ok(source.includes(marker),'missing Mission 6 gateway marker: '+marker);
 
 const agentRuntimeSource=fs.readFileSync('supabase/functions/aria-agent-runtime-v1/index.ts','utf8');
+const geminiLiveCheckSource=fs.readFileSync('supabase/functions/aria-gemini-direct-live-check-v1/index.ts','utf8');
 const mission5ModelSource=source.slice(source.indexOf('async function mission5ModelProbe'),source.indexOf('async function mission5AgentProbe'));
 const mission5AgentSource=source.slice(source.indexOf('async function mission5AgentProbe'),source.indexOf('async function markMeditationNotificationsRead'));
 const routerExecuteSource=source.slice(source.indexOf('async function intelligentRouterExecute'),source.indexOf('async function intelligentRouterParallelExecute'));
@@ -116,7 +117,19 @@ console.log('MISSION 6 ROUTER V2 GATEWAY CONTRACT: PASS');
     'individual and parallel fallback governance use the currently failing route');
   ok((gatewaySource.match(/if\(payload\?\.status==='succeeded'&&response\.ok\)/g) || []).length === 2,
     'non-2xx responses cannot be accepted as successful executions');
-  console.log('MISSION 6 ROUTER V2 FALLBACK GOVERNANCE:', count + ' assertions PASS');
+  
+assert.ok(geminiLiveCheckSource.includes("mission_budget_mission_context_missing"),
+  'Gemini diagnostic probe requires an explicit mission and step');
+assert.ok(geminiLiveCheckSource.includes('aria-execution-runtime-v1') &&
+  geminiLiveCheckSource.includes('metadata:') &&
+  geminiLiveCheckSource.includes('mission_id: missionId') &&
+  geminiLiveCheckSource.includes('step_id: stepId'),
+  'Gemini live diagnostic probe routes through the shared budget runtime');
+assert.ok(!geminiLiveCheckSource.includes('generativelanguage.googleapis.com') &&
+  !geminiLiveCheckSource.includes('GOOGLE_API_KEY'),
+  'Gemini diagnostic edge function no longer bypasses the shared provider runtime');
+
+console.log('MISSION 6 ROUTER V2 FALLBACK GOVERNANCE:', count + ' assertions PASS');
 })().catch((error) => {
   console.error(error);
   process.exitCode = 1;
