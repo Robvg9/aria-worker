@@ -11,6 +11,13 @@ agent probe now require real caller-supplied mission/step context and pass it th
 ledger. Agent runtime request IDs follow the required mission:step:nonce shape. Mission 6 fallback
 also stops immediately on any mission-budget denial or uncertain settlement.
 
+The agent runtime's repair/tool-use loop is intentionally blocked with
+`mission_budget_tool_execution_not_integrated`: its legacy `tool-loop.ts` still contains direct
+Google and OpenRouter HTTP adapters and an independent fallback. No tool-loop provider request is
+allowed until that flow is refactored to use the central runtime for every turn. The normal
+agent-delegation path remains routed through `aria-execution-runtime-v1`, and the agent wrapper
+preserves `mission_budget_*` errors to the mission runner.
+
 The separate Gemini diagnostic live-check no longer calls Google directly: it requires mission ID,
 step ID, and its one-shot diagnostic nonce, then calls the shared execution runtime. Its cost and
 token estimates remain unknown, so configured ceilings on those dimensions still block it.
