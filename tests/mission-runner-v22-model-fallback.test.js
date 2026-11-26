@@ -56,6 +56,13 @@ for (const fragment of required) {
   }
 }
 
+const budgetStopIndex = source.indexOf('if (String(err.code || "").startsWith("mission_budget_"))');
+const fallbackClassifierIndex = source.indexOf("const failureKind = m22ClassifyModelFallbackFailure(", budgetStopIndex);
+if (budgetStopIndex < 0 || fallbackClassifierIndex < 0 || budgetStopIndex > fallbackClassifierIndex) {
+  throw new Error("mission budget denial must short-circuit before model fallback classification");
+}
+console.log("mission-runner mission budget terminal fallback gate: PASS");
+
 // Regression contract for durable async Windows/Ollama model jobs.
 const asyncReconciliationRequired = [
   'if (localResult?.status === "waiting" && typeof localResult?.job_id === "string"',
