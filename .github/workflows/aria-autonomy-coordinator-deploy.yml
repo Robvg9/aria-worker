@@ -42,16 +42,23 @@ jobs:
           ARIA_PLAN_PRODUCER_SHARED_SECRET: ${{ secrets.ARIA_PLAN_PRODUCER_SHARED_SECRET }}
           ARIA_NOTIFICATION_WEBHOOK_URL: ${{ secrets.ARIA_AUTONOMY_NOTIFICATION_WEBHOOK_URL }}
           ARIA_NOTIFICATION_TOKEN: ${{ secrets.ARIA_AUTONOMY_NOTIFICATION_TOKEN }}
+          ARIA_TELEGRAM_BOT_TOKEN: ${{ secrets.ARIA_AUTONOMY_TELEGRAM_BOT_TOKEN }}
+          ARIA_TELEGRAM_CHAT_ID: ${{ secrets.ARIA_AUTONOMY_TELEGRAM_CHAT_ID }}
+          SEND_TELEGRAM_TEST: ${{ inputs.send_telegram_test }}
         run: |
           set -euo pipefail
           python - <<'PY'
           import os
+          import re
           import sys
 
           control = os.environ.get("ARIA_CONTROL_TOKEN", "")
           worker = os.environ.get("ARIA_WORKER_TOKEN", "")
           bridge = os.environ.get("ARIA_PLAN_PRODUCER_SHARED_SECRET", "")
           webhook = os.environ.get("ARIA_NOTIFICATION_WEBHOOK_URL", "")
+          telegram_bot = os.environ.get("ARIA_TELEGRAM_BOT_TOKEN", "")
+          telegram_chat = os.environ.get("ARIA_TELEGRAM_CHAT_ID", "")
+          send_telegram_test = os.environ.get("SEND_TELEGRAM_TEST", "false").lower() == "true"
 
           checks = {
               "CLOUDFLARE_API_TOKEN_PRESENT": bool(os.environ.get("CLOUDFLARE_API_TOKEN", "")),
@@ -62,6 +69,10 @@ jobs:
               "ARIA_PLAN_SECRET_DISTINCT_FROM_CONTROL_AND_WORKER": bool(bridge and bridge != control and bridge != worker),
               "ARIA_CONTROL_WORKER_TOKENS_DISTINCT": bool(control and worker and control != worker),
               "OPTIONAL_NOTIFICATION_WEBHOOK_HTTPS": not webhook or webhook.startswith("https://"),
+              "OPTIONAL_TELEGRAM_SECRET_PAIR_COMPLETE": bool(telegram_bot) == bool(telegram_chat),
+              "OPTIONAL_TELEGRAM_BOT_TOKEN_FORMAT": not telegram_bot or bool(re.fullmatch(r"\\d+:[A-Za-z0-9_-]{20,}", telegram_bot)),
+              "OPTIONAL_TELEGRAM_CHAT_ID_FORMAT": not telegram_chat or bool(re.fullmatch(r"-?\\d{1,25}", telegram_chat)),
+              "TELEGRAM_TEST_REQUIRES_DIRECT_BOT_CREDENTIALS": not send_telegram_test or bool(telegram_bot and telegram_chat),
           }
           for name, passed in checks.items():
               print(f"{name}={'PASS' if passed else 'FAIL'}")
@@ -82,6 +93,8 @@ jobs:
           ARIA_PLAN_PRODUCER_SHARED_SECRET: ${{ secrets.ARIA_PLAN_PRODUCER_SHARED_SECRET }}
           ARIA_NOTIFICATION_WEBHOOK_URL: ${{ secrets.ARIA_AUTONOMY_NOTIFICATION_WEBHOOK_URL }}
           ARIA_NOTIFICATION_TOKEN: ${{ secrets.ARIA_AUTONOMY_NOTIFICATION_TOKEN }}
+          ARIA_TELEGRAM_BOT_TOKEN: ${{ secrets.ARIA_AUTONOMY_TELEGRAM_BOT_TOKEN }}
+          ARIA_TELEGRAM_CHAT_ID: ${{ secrets.ARIA_AUTONOMY_TELEGRAM_CHAT_ID }}
         shell: bash
         run: |
           set -euo pipefail
@@ -97,7 +110,7 @@ jobs:
               "ARIA_WORKER_TOKEN": os.environ["ARIA_WORKER_TOKEN"],
               "ARIA_PLAN_PRODUCER_TOKEN": derived,
           }
-          for key in ("ARIA_NOTIFICATION_WEBHOOK_URL", "ARIA_NOTIFICATION_TOKEN"):
+          for key in ("ARIA_NOTIFICATION_WEBHOOK_URL", "ARIA_NOTIFICATION_TOKEN", "ARIA_TELEGRAM_BOT_TOKEN", "ARIA_TELEGRAM_CHAT_ID"):
               if os.environ.get(key):
                   payload[key] = os.environ[key]
           with open(".aria-autonomy-secrets.json", "w", encoding="utf-8") as handle:
