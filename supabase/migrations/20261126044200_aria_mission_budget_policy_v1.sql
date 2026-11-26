@@ -239,6 +239,7 @@ DECLARE
 BEGIN
   IF NULLIF(btrim(p_mission_id), '') IS NULL
     OR COALESCE(length(btrim(p_reservation_key)), 0) NOT BETWEEN 1 AND 240
+    OR p_request_kind IS NULL
     OR p_request_kind NOT IN ('execution', 'test', 'closure')
     OR p_estimated_tokens < 0
     OR p_estimated_cost_amount < 0
@@ -286,7 +287,7 @@ BEGIN
     RETURN jsonb_build_object('allowed', false, 'reason', 'mission_budget_cost_estimate_unknown');
   END IF;
 
-  IF v_policy.max_cost_amount IS NOT NULL AND p_currency_code <> v_policy.currency_code THEN
+  IF v_policy.max_cost_amount IS NOT NULL AND p_currency_code IS DISTINCT FROM v_policy.currency_code THEN
     RETURN jsonb_build_object('allowed', false, 'reason', 'mission_budget_currency_mismatch');
   END IF;
 
@@ -421,7 +422,8 @@ DECLARE
   v_close_cost_used numeric := 0;
   v_overrun boolean := false;
 BEGIN
-  IF p_outcome NOT IN ('succeeded', 'failed', 'unknown', 'released')
+  IF p_outcome IS NULL
+    OR p_outcome NOT IN ('succeeded', 'failed', 'unknown', 'released')
     OR p_actual_tokens < 0
     OR p_actual_cost_amount < 0
     OR ((p_actual_cost_amount IS NULL) <> (p_currency_code IS NULL))
