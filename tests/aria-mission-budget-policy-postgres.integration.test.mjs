@@ -56,6 +56,14 @@ try {
   assert.deepEqual(await reserve(client,"mission-missing","missing-001","execution",10),{allowed:false,reason:"mission_budget_policy_missing"});
   await client.query("INSERT INTO aria_internal.mission_budget_policies_v1(mission_id,policy_version,max_requests,approval_ref) VALUES ('mission-draft',1,2,'draft-only')");
   assert.deepEqual(await reserve(client,"mission-draft","draft-001","execution",10),{allowed:false,reason:"mission_budget_policy_not_approved"});
+  await assert.rejects(
+    client.query("INSERT INTO aria_internal.mission_budget_policies_v1(mission_id,policy_version,status,max_cost_amount,approval_ref,approved_by,approved_at) VALUES ('mission-draft',2,'draft',5,'bad-currency','test-owner',clock_timestamp())"),
+    /mission_budget_policy_cost_currency/,
+  );
+  await assert.rejects(
+    client.query("INSERT INTO aria_internal.mission_budget_policies_v1(mission_id,policy_version,status,max_requests,approval_ref,approved_by,approved_at) VALUES ('mission-draft',3,'approved',5,'direct-approval','test-owner',clock_timestamp())"),
+    /mission budget policies must begin as draft/,
+  );
   assert.deepEqual(await reserve(client,"mission-missing","invalid-kind-001",null,1),{allowed:false,reason:"invalid_budget_reservation_input"});
   assert.deepEqual(await settle(client,"not-found",null),{settled:false,reason:"invalid_budget_settlement_input"});
 
