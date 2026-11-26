@@ -108,6 +108,8 @@ for (const fragment of [
   "quota_reserve_model_request_v2",
   "quota_settle_model_request_v2",
   "provider_execution_observability_v1",
+  "last_success_at",
+  "provider_http_408",
   "provider_quota_capacity_v1",
   "REVOKE ALL ON aria_internal.provider_execution_observability_v1 FROM PUBLIC, anon, authenticated",
   "GRANT SELECT ON aria_internal.provider_quota_capacity_v1 TO service_role",
