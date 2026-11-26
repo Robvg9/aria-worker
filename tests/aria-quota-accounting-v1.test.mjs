@@ -5,6 +5,14 @@ import {
   extractProviderUsage,
   parseQuotaReservation,
 } from "../supabase/functions/aria-execution-runtime-v1/quota-accounting-v1.mjs";
+import {
+  createMissionBudgetContext,
+  missionBudgetReserveArgs,
+  missionBudgetSettlementArgs,
+  reserveMissionBudget,
+  settleMissionBudget,
+  missionBudgetSettlementPending,
+} from "../supabase/functions/aria-execution-runtime-v1/mission-budget-guard-v1.mjs";
 
 const migration = await readFile(
   new URL("../supabase/migrations/20261102000000_aria_atomic_provider_quota_accounting_v1.sql", import.meta.url),
@@ -85,5 +93,140 @@ assert.ok(runtime.includes("quota_settle_model_request_v1"), "runtime must settl
 assert.ok(runtime.includes("parseOpenRouterFreeDailyQuota"), "runtime must read authoritative OpenRouter daily quota");
 assert.ok(runtime.includes('route.provider_id==="mistral"'), "permanently excluded Mistral route must be blocked");
 assert.ok(runtime.includes("const MISSION_EXECUTION_PAUSED = true"), "global mission execution freeze must stay enabled");
+
+
+const budgetContext = createMissionBudgetContext({
+  requestId: "mission-123:step-7:request-abc",
+  missionId: "mission-123",
+  stepId: "step-7",
+});
+assert.equal(budgetContext.ok, true);
+assert.deepEqual(missionBudgetReserveArgs(budgetContext), {
+  p_mission_id: "mission-123",
+  p_reservation_key: "mission-123:step-7:request-abc",
+  p_request_kind: "execution",
+  p_estimated_tokens: null,
+  p_estimated_cost_amount: null,
+  p_currency_code: null,
+});
+assert.equal(
+  createMissionBudgetContext({ requestId: "request-only" }).reason,
+  "mission_budget_mission_context_missing",
+);
+assert.equal(
+  createMissionBudgetContext({
+    requestId: "another-mission:step-7:request-abc",
+    missionId: "mission-123",
+    stepId: "step-7",
+  }).reason,
+  "mission_budget_request_identity_invalid",
+);
+assert.equal(
+  createMissionBudgetContext({
+    requestId: "mission-123:step-7:request-abc",
+    missionId: "mission-123",
+    stepId: "step-7",
+    requestKind: "owner-approved-test",
+  }).reason,
+  "mission_budget_request_kind_invalid",
+);
+assert.equal(
+  createMissionBudgetContext({
+    requestId: "mission-123:step-7:request-abc",
+    missionId: "mission-123",
+    stepId: "step-7",
+    requestKind: "test",
+  }).requestKind,
+  "test",
+);
+
+assert.deepEqual(missionBudgetSettlementArgs(budgetContext, {
+  outcome: "succeeded",
+  actualTokens: 41,
+}), {
+  p_reservation_key: "mission-123:step-7:request-abc",
+  p_outcome: "succeeded",
+  p_actual_tokens: 41,
+  p_actual_cost_amount: null,
+  p_currency_code: null,
+  p_release_evidence_ref: null,
+});
+assert.throws(
+  () => missionBudgetSettlementArgs(budgetContext, { outcome: "released" }),
+  /mission_budget_release_evidence_required/,
+);
+assert.throws(
+  () => missionBudgetSettlementArgs(budgetContext, {
+    outcome: "released",
+    actualTokens: 1,
+    releaseEvidenceRef: "no-provider-request",
+  }),
+  /mission_budget_release_cannot_report_usage/,
+);
+assert.equal(
+  missionBudgetSettlementArgs(budgetContext, {
+    outcome: "unknown",
+    actualTokens: null,
+  }).p_actual_tokens,
+  null,
+);
+assert.deepEqual(missionBudgetSettlementPending(), {
+  status: "blocked",
+  error: {
+    code: "mission_budget_settlement_pending",
+    message: "Mission budget settlement could not be confirmed; fallback is forbidden.",
+  },
+});
+
+const budgetRpcCalls = [];
+const approvedBudget = await reserveMissionBudget(async (name, args) => {
+  budgetRpcCalls.push({ name, args });
+  return { data: { allowed: true, reservation_key: args.p_reservation_key, policy_id: "policy-test" }, error: null };
+}, budgetContext);
+assert.equal(approvedBudget.allowed, true);
+assert.equal(budgetRpcCalls.length, 1);
+assert.equal(budgetRpcCalls[0].name, "mission_budget_reserve_request_v1");
+assert.equal(budgetRpcCalls[0].args.p_estimated_tokens, null);
+assert.equal(budgetRpcCalls[0].args.p_estimated_cost_amount, null);
+
+const deniedBudget = await reserveMissionBudget(async () => ({
+  data: { allowed: false, reason: "mission_budget_policy_missing" },
+  error: null,
+}), budgetContext);
+assert.deepEqual(deniedBudget, { allowed: false, reason: "mission_budget_policy_missing" });
+const rpcUnavailable = await reserveMissionBudget(async () => ({
+  data: null,
+  error: new Error("database unavailable"),
+}), budgetContext);
+assert.deepEqual(rpcUnavailable, { allowed: false, reason: "mission_budget_reservation_unavailable" });
+
+let settledArgs = null;
+const settledBudget = await settleMissionBudget(async (name, args) => {
+  assert.equal(name, "mission_budget_settle_request_v1");
+  settledArgs = args;
+  return { data: { settled: true }, error: null };
+}, budgetContext, { outcome: "unknown" });
+assert.equal(settledBudget, true);
+assert.equal(settledArgs.p_outcome, "unknown");
+assert.equal(settledArgs.p_actual_tokens, null);
+assert.equal(settledArgs.p_release_evidence_ref, null);
+
+let releasedArgs = null;
+const releasedBudget = await settleMissionBudget(async (name, args) => {
+  releasedArgs = args;
+  return { data: { settled: true }, error: null };
+}, budgetContext, {
+  outcome: "released",
+  releaseEvidenceRef: "aria-execution-runtime-v1:provider-quota-denied:mission-123:step-7",
+});
+assert.equal(releasedBudget, true);
+assert.equal(releasedArgs.p_outcome, "released");
+assert.equal(releasedArgs.p_release_evidence_ref, "aria-execution-runtime-v1:provider-quota-denied:mission-123:step-7");
+
+const pendingSettlement = await settleMissionBudget(async () => ({
+  data: { settled: false, reason: "reservation_already_settled" },
+  error: null,
+}), budgetContext, { outcome: "succeeded", actualTokens: 41 });
+assert.equal(pendingSettlement, false);
 
 console.log("ARIA atomic provider quota accounting contract: PASS");
