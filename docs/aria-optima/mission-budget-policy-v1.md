@@ -14,7 +14,7 @@ what one mission is authorized to reserve.
 - No policy rows or budget values are seeded by this migration.
 - A policy must be created as draft and approved with an approval reference, approver, timestamp,
   and at least one explicit ceiling.
-- Approved policies are immutable. To change one, revoke it and create a new, higher version.
+- Approved policies are immutable. To change one, revoke it and create a new, higher version. Previous request, token, and cost consumption remains cumulative across policy versions.
 - One approved policy per mission is enforced by a partial unique index.
 - Request, token, and cost ceilings are optional independently. When a ceiling is configured, its
   corresponding estimate must be known before reservation.
@@ -22,8 +22,8 @@ what one mission is authorized to reserve.
   provider price, exchange rate, or currency is inferred.
 - Test and closure reserves are absolute request/token/cost quantities. They are not percentages.
   There is no default reserve ratio. The owner must specify values explicitly.
-- An unknown outcome retains the estimate against the budget. Only released frees a reservation,
-  and callers may use that outcome only when reliable evidence proves no upstream request was sent.
+- An unknown outcome retains the estimate against the budget. Only released frees a reservation, and the
+  settlement must persist a non-empty release evidence reference proving no upstream request was sent.
 - Settlement is single-use. Actual consumption may exceed estimates; the settlement records the
   measured values and returns budget_overrun=true without deleting or rewriting history.
 - Reservation calls serialize on the approved policy row (FOR UPDATE) to prevent concurrent
