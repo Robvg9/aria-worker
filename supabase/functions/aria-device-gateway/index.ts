@@ -1458,38 +1458,6 @@ async function runModelAuditor(runId:string,m:any,account:any,snapshot:any){
     model_id:m?.model_id||null,
     metadata:{classification:'blocked_budget_context',run_id:runId}
   };
-  if(!account)throw new Error('model_account_unavailable');
-  const selected={status:'selected',provider_id:account.provider_id,account_id:account.account_id,model_id:m.model_id,capability:'text_generation'};
-  const r=await internalFunctionFetch(`${SUPABASE_URL}/functions/v1/aria-execution-runtime-v1`,{
-    method:'POST',
-    headers:{'content-type':'application/json',authorization:`Bearer ${RUNTIME_SECRET}`},
-    body:JSON.stringify({
-      execution_version:'1',
-      request_id:'all-for-one:'+runId+':model:'+m.model_id+':'+crypto.randomUUID(),
-      task_id:'all-for-one:'+runId,
-      capability:'text_generation',
-      selected_route:selected,
-      authorization:{status:'approved',risk_class:'READ',evidence_ref:'all-for-one-v1'},
-      input:{payload:{prompt:auditPrompt(snapshot,'independent model reviewer',String(m.model_id)).slice(0,16000),max_tokens:1400,temperature:0}},
-      policy:{read_only:true},
-      metadata:{executor_type:'model',audit_protocol:'all-for-one-v1',run_id:runId,model_id:m.model_id}
-    })
-  });
-  const b:any=await r.json().catch(()=>null);
-  if(!r.ok||b?.status!=='succeeded'){
-    const blocked=classifyAllForOneProviderBlock(b,r.status);
-    if(blocked){
-      return {
-        status:'blocked',
-        reason:blocked.reason,
-        report:'PROVIDER BLOCKED: '+blocked.reason+' — '+blocked.message,
-        model_id:m.model_id,
-        metadata:{classification:'blocked_provider',reason:blocked.reason,provider_status:blocked.provider_status,error:b?.error??null}
-      };
-    }
-    throw new Error(String(b?.error?.message||b?.error||`model_runtime_${r.status}`));
-  }
-  return {status:'succeeded',report:String(b?.response?.content??''),model_id:m.model_id,metadata:b};
 }
 async function allForOneStart(){
   const {data:existing}=await supabase.schema('aria_internal').from('all_for_one_runs').select('*').order('updated_at',{ascending:false}).limit(1).maybeSingle();
