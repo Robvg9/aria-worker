@@ -2,6 +2,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { m22Gate3HumanGateActionHash, m22Gate3RouteAllowed, m22MissionWonder2ScopedProbeAllowed } from "../_shared/mission-wonder-2-gate3-scope-v1.mjs";
 import { parseOpenRouterFreeDailyQuota, extractProviderUsage, parseQuotaReservation } from "./quota-accounting-v1.mjs";
+import { createMissionBudgetContext, reserveMissionBudget, settleMissionBudget, missionBudgetSettlementPending } from "./mission-budget-guard-v1.mjs";
 import { isCloudflarePlanPreviewRequest } from "../_shared/cloudflare-plan-preview-auth-v1.mjs";
 const MISSION_EXECUTION_PAUSED = true;
 const URL=Deno.env.get("SUPABASE_URL")!;const KEY=Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;const SECRET=Deno.env.get("ARIA_RUNTIME_SHARED_SECRET")??"";const PLAN_BRIDGE_SECRET=Deno.env.get("ARIA_PLAN_PRODUCER_SHARED_SECRET")??"";const GOOGLE_API_KEY=Deno.env.get("GOOGLE_API_KEY")??"";
@@ -70,7 +71,63 @@ async function settleModelQuota(reservationKey:string,outcome:string,providerSta
   return !error&&data?.settled===true;
 }
 
-async function directGemini(route:any,input:any,requestId:string,providerTimeoutMs:number|null=null){
+
+async function safeSettleModelQuota(reservationKey:string,outcome:string,providerStatus:number|null,payload:any,providerResponseId:string|null=null) {
+  try { return await safeSettleModelQuota(reservationKey,outcome,providerStatus,payload,providerResponseId); }
+  catch { return false; }
+}
+
+const missionBudgetRpc = (name:string,args:any) => sb.schema("aria_internal").rpc(name,args);
+
+async function settleMissionBudgetAttempt(context:any,outcome:string,payload:any,releaseEvidenceRef:string|null=null) {
+  if(!context) return true; // Explicitly validated conversation-only / Cloudflare plan-preview exemption.
+  const usage=extractProviderUsage(payload);
+  return settleMissionBudget(missionBudgetRpc,context,{
+    outcome,
+    actualTokens:usage.total_tokens,
+    releaseEvidenceRef,
+  });
+}
+
+async function reserveProviderCall(route:any,requestId:string,budgetContext:any,suppliedOpenRouterKey:string|null=null,quotaSnapshotTimeoutMs=8000) {
+  if(budgetContext){
+    const budget=await reserveMissionBudget(missionBudgetRpc,budgetContext);
+    if(!budget.allowed){
+      return {
+        allowed:false,
+        response:out({status:"blocked",reason:budget.reason,error:{code:budget.reason}},423),
+      };
+    }
+  }
+
+  let quotaReservation:any;
+  try {
+    quotaReservation=await reserveModelQuota(route,requestId,suppliedOpenRouterKey,quotaSnapshotTimeoutMs);
+  } catch {
+    quotaReservation={allowed:false,reason:"provider_quota_reservation_unavailable"};
+  }
+  if(!quotaReservation?.allowed){
+    if(budgetContext){
+      const evidence="aria-execution-runtime-v1:provider-quota-denied:"+requestId;
+      const released=await settleMissionBudgetAttempt(budgetContext,"released",null,evidence);
+      if(!released){
+        return {allowed:false,response:out(missionBudgetSettlementPending(),503)};
+      }
+    }
+    const reason=String(quotaReservation?.reason||"provider_quota_reservation_denied");
+    return {
+      allowed:false,
+      response:out({status:"blocked",reason},reason.includes("exhausted")?429:503),
+    };
+  }
+  return {
+    allowed:true,
+    reservationKey:String(quotaReservation.reservation_key||requestId),
+    providerSecret:quotaReservation.provider_secret||null,
+  };
+}
+
+async function directGemini(route:any,input:any,requestId:string,providerTimeoutMs:number|null=null,budgetContext:any=null){
   if(route.capability!=="text_generation")return out({status:"blocked",reason:"capability_missing"});
   if(route.account_id!=="acct_google_gemini_free")return out({status:"blocked",reason:"route_not_selectable"});
   const googleModels:Record<string,string>={
@@ -86,9 +143,9 @@ async function directGemini(route:any,input:any,requestId:string,providerTimeout
   if(!GOOGLE_API_KEY)return out({status:"failed",error:{code:"credential_unavailable",message:"google credential unavailable"}});
   const p=input?.payload??{};const contents=Array.isArray(p.contents)&&p.contents.length?p.contents:(typeof p.prompt==="string"&&p.prompt.length?[{role:"user",parts:[{text:p.prompt}]}]:null);
   if(!contents)return out({status:"blocked",reason:"input_missing"});
-  const reservation=await reserveModelQuota(route,requestId,null,providerTimeoutMs?Math.min(3000,providerTimeoutMs):8000);
-  if(!reservation.allowed)return out({status:"blocked",reason:reservation.reason},reservation.reason.includes("exhausted")?429:503);
-  const reservationKey=reservation.reservation_key;
+  const guardedReservation=await reserveProviderCall(route,requestId,budgetContext,null,providerTimeoutMs?Math.min(3000,providerTimeoutMs):8000);
+  if(!guardedReservation.allowed)return guardedReservation.response;
+  const reservationKey=guardedReservation.reservationKey;
   const body:any={contents};if(p.systemInstruction)body.systemInstruction=p.systemInstruction;if(p.generationConfig)body.generationConfig={...p.generationConfig};
   if(body.generationConfig?.temperature!==undefined){const {temperature,...rest}=body.generationConfig;body.generationConfig=rest;}
   if(body.generationConfig?.topP!==undefined){const {topP,...rest}=body.generationConfig;body.generationConfig=rest;}
@@ -99,16 +156,16 @@ async function directGemini(route:any,input:any,requestId:string,providerTimeout
     res=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,{method:"POST",headers:{"Content-Type":"application/json","x-goog-api-key":GOOGLE_API_KEY},body:JSON.stringify(body),signal:controller.signal});
     json=await res.json().catch((error:any)=>{if(error?.name==="AbortError")throw error;return null;});
   }catch(error){
-    await settleModelQuota(reservationKey,"unknown",null,null);
+    await safeSettleModelQuota(reservationKey,"unknown",null,null);
     const timedOut=error instanceof Error&&error.name==="AbortError";
     return out({status:"failed",error:{code:timedOut?"transport_timeout":"transport_error",message:timedOut?"provider request timed out":"transport failure"}});
-  }finally{clearTimeout(timeout)}if(!res.ok){await settleModelQuota(reservationKey,"failed",res.status,json);return out({status:"failed",error:{code:"provider_error",message:sanitize(json?.error?.message||`provider returned HTTP ${res.status}`),provider_status:res.status}});}
+  }finally{clearTimeout(timeout)}if(!res.ok){await safeSettleModelQuota(reservationKey,"failed",res.status,json);return out({status:"failed",error:{code:"provider_error",message:sanitize(json?.error?.message||`provider returned HTTP ${res.status}`),provider_status:res.status}});}
   const parts=json?.candidates?.[0]?.content?.parts;const text=Array.isArray(parts)?parts.filter((x:any)=>typeof x?.text==="string").map((x:any)=>x.text).join(""):"";
-  if(!text){await settleModelQuota(reservationKey,"failed",res.status,json);return out({status:"failed",error:{code:"invalid_response",message:"no text content in provider response"}});}
-  const settled=await settleModelQuota(reservationKey,"succeeded",res.status,json);
+  if(!text){await safeSettleModelQuota(reservationKey,"failed",res.status,json);return out({status:"failed",error:{code:"invalid_response",message:"no text content in provider response"}});}
+  const settled=await safeSettleModelQuota(reservationKey,"succeeded",res.status,json);
   return out({status:"succeeded",response:{modality:"text",content:text,provider_response_id:null,finish_reason:json?.candidates?.[0]?.content?.finishReason??json?.candidates?.[0]?.finishReason??null,provider_model:route.model_id},usage:json?.usageMetadata?{status:"known",prompt_tokens:json.usageMetadata.promptTokenCount??null,completion_tokens:json.usageMetadata.candidatesTokenCount??null,total_tokens:json.usageMetadata.totalTokenCount??null}:{status:"unknown"},metadata:{runtime:"aria-execution-runtime-v1",adapter_id:"google_gemini_generate_content",provider_id:"google",route_type:"direct",attempt:1,quota_accounting:settled?"settled":"reserved_settlement_pending",canonical_write:false,memory_authority:"none"}});
 }
-async function xaiResponses(route:any,input:any,requestId:string,providerTimeoutMs:number|null=null){
+async function xaiResponses(route:any,input:any,requestId:string,providerTimeoutMs:number|null=null,budgetContext:any=null){
   if(route.capability!=="text_generation")return out({status:"blocked",reason:"capability_missing"});
   if(route.account_id!=="acct_xai_primary")return out({status:"blocked",reason:"route_not_selectable"});
   if(route.model_id!=="xai/grok-4.6")return out({status:"blocked",reason:"model_not_verified"});
@@ -147,16 +204,16 @@ async function xaiResponses(route:any,input:any,requestId:string,providerTimeout
     res=await fetch("https://api.x.ai/v1/responses",{method:"POST",headers:{Authorization:`Bearer ${sec}`,"Content-Type":"application/json"},body:JSON.stringify(body),...(controller?{signal:controller.signal}:{})});
     json=await res.json().catch((error:any)=>{if(error?.name==="AbortError")throw error;return null;});
   }catch(error){
-    await settleModelQuota(reservationKey,"unknown",null,null);
+    await safeSettleModelQuota(reservationKey,"unknown",null,null);
     const timedOut=controller&&(error as any)?.name==="AbortError";
     return out({status:"failed",error:{code:timedOut?"transport_timeout":"transport_error",message:timedOut?"provider request timed out":"transport failure"}});
   }finally{
     if(timeout)clearTimeout(timeout);
-  }if(!res.ok){await settleModelQuota(reservationKey,"failed",res.status,json);return out({status:"failed",error:{code:"provider_error",message:sanitize(json?.error?.message||`provider returned HTTP ${res.status}`),provider_status:res.status}});}
+  }if(!res.ok){await safeSettleModelQuota(reservationKey,"failed",res.status,json);return out({status:"failed",error:{code:"provider_error",message:sanitize(json?.error?.message||`provider returned HTTP ${res.status}`),provider_status:res.status}});}
   const parts=Array.isArray(json?.output)?json.output:[];const text=parts.flatMap((item:any)=>item?.type==="message"&&Array.isArray(item?.content)?item.content:[]).filter((c:any)=>typeof c?.text==="string").map((c:any)=>c.text).join("")|| (typeof json?.output_text==="string"?json.output_text:"");
-  if(!text){await settleModelQuota(reservationKey,"failed",res.status,json);return out({status:"failed",error:{code:"invalid_response",message:"no text content in provider response"}});}
+  if(!text){await safeSettleModelQuota(reservationKey,"failed",res.status,json);return out({status:"failed",error:{code:"invalid_response",message:"no text content in provider response"}});}
   const u=json?.usage;const inTok=typeof u?.input_tokens==="number"?u.input_tokens:null;const outTok=typeof u?.output_tokens==="number"?u.output_tokens:null;const total=typeof u?.total_tokens==="number"?u.total_tokens:(inTok!==null&&outTok!==null?inTok+outTok:null);
-  const settled=await settleModelQuota(reservationKey,"succeeded",res.status,json,typeof json?.id==="string"?json.id:null);
+  const settled=await safeSettleModelQuota(reservationKey,"succeeded",res.status,json,typeof json?.id==="string"?json.id:null);
   return out({status:"succeeded",response:{modality:"text",content:text,provider_response_id:typeof json?.id==="string"?json.id:null,finish_reason:typeof json?.status==="string"?json.status:null,provider_model:typeof json?.model==="string"?json.model:route.model_id},usage:{status:"reported",prompt_tokens:inTok,completion_tokens:outTok,total_tokens:total},metadata:{runtime:"aria-execution-runtime-v1",adapter_id:"xai_responses",provider_id:"xai",route_type:"direct",attempt:1,quota_accounting:settled?"settled":"reserved_settlement_pending",canonical_write:false,memory_authority:"none"}});
 }
 Deno.serve(async r=>{if(r.method!=="POST")return out({error:"method_not_allowed"},405);if(!(await auth(r)))return out({error:"unauthorized"},401);const body=await r.json().catch(()=>({}));const route=body?.selected_route;const input=body?.input;const az=body?.authorization;const policy=body?.policy;const rawVoiceTimeout=Number(body?.metadata?.voice_provider_timeout_ms);const voiceProviderTimeoutMs=body?.metadata?.voice_mode===true?Math.max(1000,Math.min(8000,Number.isFinite(rawVoiceTimeout)&&rawVoiceTimeout>0?rawVoiceTimeout:6000)):null;
@@ -231,7 +288,19 @@ if(MISSION_EXECUTION_PAUSED){
   if(!gate3ScopedProbeAllowed&&!cloudflarePlanPreviewAllowed&&!conversationOnlyAllowed){
     return out({status:"paused",error:{code:"mission_execution_paused"},execution_enabled:false},423);
   }
-}if(!route||typeof route!=="object")return out({status:"blocked",reason:"route_missing"});if(!az||az.status!=="approved")return out({status:"blocked",reason:"authorization_not_approved"});if(policy?.human_gate_required===true){if(az.human_gate_verified!==true)return out({status:"blocked",reason:"human_gate_required"});if(typeof az.human_gate_mission_id!=="string"||typeof az.human_gate_step_id!=="string"||typeof az.human_gate_action_hash!=="string"||typeof az.human_gate_approval_token!=="string")return out({status:"blocked",reason:"human_gate_evidence_missing"});const {data:gateOk,error:gateError}=await sb.rpc("human_gate_authorize_execution",{p_mission_id:az.human_gate_mission_id,p_step_id:az.human_gate_step_id,p_action_hash:az.human_gate_action_hash,p_approval_token:az.human_gate_approval_token});if(gateError||gateOk!==true)return out({status:"blocked",reason:"human_gate_authorization_invalid"});}
+}if(!route||typeof route!=="object")return out({status:"blocked",reason:"route_missing"});if(!az||az.status!=="approved")return out({status:"blocked",reason:"authorization_not_approved"});
+const budgetExempt=conversationOnlyAllowed||cloudflarePlanPreviewAllowed;
+const requestId=String(body?.request_id||"");
+const missionBudgetContext=budgetExempt?null:createMissionBudgetContext({
+  requestId,
+  missionId:body?.metadata?.mission_id,
+  stepId:body?.metadata?.step_id,
+  requestKind:gate3ScopedProbeAllowed?"test":"execution",
+});
+if(!budgetExempt&&!missionBudgetContext?.ok){
+  const reason=missionBudgetContext?.reason||"mission_budget_mission_context_missing";
+  return out({status:"blocked",reason,error:{code:reason}},423);
+}if(policy?.human_gate_required===true){if(az.human_gate_verified!==true)return out({status:"blocked",reason:"human_gate_required"});if(typeof az.human_gate_mission_id!=="string"||typeof az.human_gate_step_id!=="string"||typeof az.human_gate_action_hash!=="string"||typeof az.human_gate_approval_token!=="string")return out({status:"blocked",reason:"human_gate_evidence_missing"});const {data:gateOk,error:gateError}=await sb.rpc("human_gate_authorize_execution",{p_mission_id:az.human_gate_mission_id,p_step_id:az.human_gate_step_id,p_action_hash:az.human_gate_action_hash,p_approval_token:az.human_gate_approval_token});if(gateError||gateOk!==true)return out({status:"blocked",reason:"human_gate_authorization_invalid"});}
 // LIVE resilience fault injection: auth already required; gated by evidence_ref prefix only.
 // Produces the SAME error shapes as real upstream failures so recovery paths can be exercised end-to-end.
 const _fault=body?.metadata?.fault_injection;const _eref=String(az?.evidence_ref||"");
@@ -243,7 +312,7 @@ if(typeof _fault==="string"&&_eref.startsWith("live-resilience-inject:")){
   if(_fault==="invalid_response")return out({status:"failed",error:{code:"invalid_response",message:"no text content in provider response",injected:true},metadata:{runtime:"aria-execution-runtime-v1",fault_injection:"invalid_response"}});
   if(_fault==="partial_empty")return out({status:"failed",error:{code:"invalid_response",message:"no text content in provider response",injected:true,partial:true},metadata:{runtime:"aria-execution-runtime-v1",fault_injection:"partial_empty"}});
 }
-async function openRouterChat(route:any,input:any,requestId:string,providerTimeoutMs:number|null=null){
+async function openRouterChat(route:any,input:any,requestId:string,providerTimeoutMs:number|null=null,budgetContext:any=null){
   if(route.capability!=="text_generation")return out({status:"blocked",reason:"capability_missing"});
   if(route.account_id!=="acct_openrouter_primary")return out({status:"blocked",reason:"route_not_selectable"});
   const freeOpenRouterModels=new Set([
@@ -275,9 +344,9 @@ async function openRouterChat(route:any,input:any,requestId:string,providerTimeo
 
   const providerKey=await secret("aria_openrouter_primary");
   if(!providerKey)return out({status:"failed",error:{code:"credential_unavailable",message:"credential unavailable"}});
-  const reservation=await reserveModelQuota(route,requestId,providerKey,providerTimeoutMs?Math.min(3000,providerTimeoutMs):8000);
-  if(!reservation.allowed)return out({status:"blocked",reason:reservation.reason},reservation.reason.includes("exhausted")?429:503);
-  const reservationKey=reservation.reservation_key;
+  const guardedReservation=await reserveProviderCall(route,requestId,budgetContext,providerKey,providerTimeoutMs?Math.min(3000,providerTimeoutMs):8000);
+  if(!guardedReservation.allowed)return guardedReservation.response;
+  const reservationKey=guardedReservation.reservationKey;
 
   let res:Response;
   const controller=new AbortController();
@@ -292,20 +361,20 @@ async function openRouterChat(route:any,input:any,requestId:string,providerTimeo
     });
     json=await res.json().catch((error:any)=>{if(error?.name==="AbortError")throw error;return null;});
   }catch(error){
-    await settleModelQuota(reservationKey,"unknown",null,null);
+    await safeSettleModelQuota(reservationKey,"unknown",null,null);
     const timedOut=error instanceof Error&&error.name==="AbortError";
     return out({status:"failed",error:{code:timedOut?"transport_timeout":"transport_error",message:timedOut?"provider request timed out":"transport failure"}});
   }finally{clearTimeout(timeout)}
   if(!res.ok){
-    await settleModelQuota(reservationKey,"failed",res.status,json);
+    await safeSettleModelQuota(reservationKey,"failed",res.status,json);
     return out({status:"failed",error:{code:"provider_error",message:sanitize(json?.error?.message||`provider returned HTTP ${res.status}`),provider_status:res.status}});
   }
   const content=json?.choices?.[0]?.message?.content;
   if(typeof content!=="string"){
-    await settleModelQuota(reservationKey,"failed",res.status,json);
+    await safeSettleModelQuota(reservationKey,"failed",res.status,json);
     return out({status:"failed",error:{code:"invalid_response",message:"no text content in provider response"}});
   }
-  const settled=await settleModelQuota(reservationKey,"succeeded",res.status,json,typeof json?.id==="string"?json.id:null);
+  const settled=await safeSettleModelQuota(reservationKey,"succeeded",res.status,json,typeof json?.id==="string"?json.id:null);
   return out({
     status:"succeeded",
     response:{
@@ -320,9 +389,8 @@ async function openRouterChat(route:any,input:any,requestId:string,providerTimeo
   });
 }
 if(route.provider_id==="mistral")return out({status:"blocked",reason:"provider_permanently_excluded"});
-const requestId=String(body?.request_id||"");
-if(route.provider_id==="google")return await directGemini(route,input,requestId,voiceProviderTimeoutMs);
-if(route.provider_id==="xai")return await xaiResponses(route,input,requestId,voiceProviderTimeoutMs);
+if(route.provider_id==="google")return await directGemini(route,input,requestId,voiceProviderTimeoutMs,missionBudgetContext);
+if(route.provider_id==="xai")return await xaiResponses(route,input,requestId,voiceProviderTimeoutMs,missionBudgetContext);
 if(route.provider_id!=="openrouter")return out({status:"blocked",reason:"adapter_unavailable"});
-return await openRouterChat(route,input,requestId,voiceProviderTimeoutMs);
+return await openRouterChat(route,input,requestId,voiceProviderTimeoutMs,missionBudgetContext);
 });
