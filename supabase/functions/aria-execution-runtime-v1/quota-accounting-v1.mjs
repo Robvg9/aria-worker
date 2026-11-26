@@ -34,6 +34,7 @@ export function extractProviderUsage(payload) {
       prompt_tokens: null,
       completion_tokens: null,
       total_tokens: null,
+      cached_input_tokens: null,
     };
   }
 
@@ -45,11 +46,20 @@ export function extractProviderUsage(payload) {
     : prompt !== null && completion !== null
       ? prompt + completion
       : null;
+  const cached = tokenCount(
+    usage.cached_input_tokens,
+    usage.cache_read_input_tokens,
+    usage.prompt_tokens_details?.cached_tokens,
+    usage.input_tokens_details?.cached_tokens,
+    usage.promptTokenDetails?.cachedTokens,
+    usage.cachedContentTokenCount,
+  );
 
   return {
     prompt_tokens: prompt,
     completion_tokens: completion,
     total_tokens: total,
+    cached_input_tokens: cached,
   };
 }
 

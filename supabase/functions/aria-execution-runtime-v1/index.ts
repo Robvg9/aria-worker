@@ -17,6 +17,7 @@ async function reserveModelQuota(route:any, requestId:string, suppliedOpenRouter
   if(!reservationKey||reservationKey.length>240) return {allowed:false,reason:"quota_reservation_identity_missing"};
   let providerUsed:number|null=null;
   let providerLimit:number|null=null;
+  let providerRemaining:number|null=null;
   let providerSecret=suppliedOpenRouterKey;
 
   if(route?.provider_id==="openrouter"&&String(route?.model_id||"").endsWith(":free")){
@@ -39,15 +40,17 @@ async function reserveModelQuota(route:any, requestId:string, suppliedOpenRouter
     if(!daily) return {allowed:false,reason:"provider_free_daily_quota_unverified"};
     providerUsed=daily.used;
     providerLimit=daily.limit;
+    providerRemaining=daily.remaining;
   }
 
-  const {data,error}=await sb.schema("aria_internal").rpc("quota_reserve_model_request_v1",{
+  const {data,error}=await sb.schema("aria_internal").rpc("quota_reserve_model_request_v2",{
     p_reservation_key:reservationKey,
     p_provider_id:String(route?.provider_id||""),
     p_account_id:String(route?.account_id||""),
     p_model_id:String(route?.model_id||""),
     p_provider_used:providerUsed,
     p_provider_limit:providerLimit,
+    p_provider_remaining:providerRemaining,
   });
   if(error) return {allowed:false,reason:"quota_reservation_database_error"};
   const parsed=parseQuotaReservation(data);
@@ -58,7 +61,7 @@ async function reserveModelQuota(route:any, requestId:string, suppliedOpenRouter
 async function settleModelQuota(reservationKey:string,outcome:string,providerStatus:number|null,payload:any,providerResponseId:string|null=null) {
   if(!reservationKey) return false;
   const usage=extractProviderUsage(payload);
-  const {data,error}=await sb.schema("aria_internal").rpc("quota_settle_model_request_v1",{
+  const {data,error}=await sb.schema("aria_internal").rpc("quota_settle_model_request_v2",{
     p_reservation_key:reservationKey,
     p_outcome:outcome,
     p_provider_status:providerStatus,
@@ -66,6 +69,7 @@ async function settleModelQuota(reservationKey:string,outcome:string,providerSta
     p_completion_tokens:usage.completion_tokens,
     p_total_tokens:usage.total_tokens,
     p_provider_response_id:providerResponseId,
+    p_cached_input_tokens:usage.cached_input_tokens,
   });
   return !error&&data?.settled===true;
 }
