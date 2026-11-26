@@ -87,7 +87,9 @@ function normalizeState(value) {
       route: safeRoute(value.service_circuit.route),
       opened_at: typeof value.service_circuit.opened_at === 'string' ? value.service_circuit.opened_at : null,
       incident_id: typeof value.service_circuit.incident_id === 'string' ? value.service_circuit.incident_id : 'unknown',
-      alert_emitted: value.service_circuit.alert_emitted === true
+      alert_emitted: value.service_circuit.alert_emitted === true,
+      global: value.service_circuit.global === true,
+      global_incident_id: typeof value.service_circuit.global_incident_id === 'string' ? value.service_circuit.global_incident_id : null
     };
   }
   for (const route of Object.keys(value.paused_routes || {})) {
@@ -274,7 +276,9 @@ function createRemoteServiceCircuitBreaker(options = {}) {
             route: event.route,
             opened_at: new Date(now()).toISOString(),
             incident_id: event.incident_id,
-            alert_emitted: true
+            alert_emitted: true,
+            global: false,
+            global_incident_id: null
           };
           incident = event;
         } else if (Number(status) === 423 && !current.paused_routes[route]) {
@@ -315,6 +319,83 @@ function createRemoteServiceCircuitBreaker(options = {}) {
     return { recorded: Boolean(incident), retry_after_ms: retryAfterMs };
   }
 
+  async function applyGlobalCircuit(snapshot) {
+    if (!snapshot || typeof snapshot !== 'object' || typeof snapshot.open !== 'boolean') {
+      return { applied: false, reason: 'global_circuit_state_invalid' };
+    }
+    if (memoryBlocked) return { applied: false, reason: memoryBlocked.reason };
+    if (snapshot.open === true) {
+      const circuit = snapshot.circuit;
+      if (!circuit || Number(circuit.status) !== 402 ||
+          typeof circuit.incident_id !== 'string' ||
+          typeof circuit.classification !== 'string') {
+        return { applied: false, reason: 'global_circuit_incident_invalid' };
+      }
+      try {
+        await withLock(async () => {
+          const current = (await readState()).state;
+          const existing = current.service_circuit;
+          if (!existing || existing.global_incident_id !== circuit.incident_id) {
+            current.service_circuit = {
+              open: true,
+              status: 402,
+              classification: circuit.classification,
+              route: safeRoute(circuit.route),
+              opened_at: typeof circuit.opened_at === 'string' ? circuit.opened_at : new Date(now()).toISOString(),
+              incident_id: existing?.incident_id || circuit.incident_id,
+              alert_emitted: true,
+              global: true,
+              global_incident_id: circuit.incident_id
+            };
+          } else {
+            existing.global = true;
+            existing.global_incident_id = circuit.incident_id;
+          }
+          await writeState(current);
+        });
+      } catch (error) {
+        memoryBlocked = { code: 'circuit_state_unavailable', reason: 'circuit_state_persist_failed' };
+        return { applied: false, reason: memoryBlocked.reason };
+      }
+      return { applied: true, open: true, incident_id: circuit.incident_id };
+    }
+
+    const reset = snapshot.last_reset;
+    if (!reset || reset.service_restored !== true || typeof reset.incident_id !== 'string') {
+      return { applied: false, reason: 'global_circuit_reset_not_authorized' };
+    }
+    let current;
+    try {
+      current = (await readState()).state;
+    } catch (error) {
+      memoryBlocked = { code: 'circuit_state_unavailable', reason: 'circuit_state_read_failed' };
+      return { applied: false, reason: memoryBlocked.reason };
+    }
+    if (!current.service_circuit ||
+        current.service_circuit.global !== true ||
+        current.service_circuit.global_incident_id !== reset.incident_id) {
+      return { applied: false, reason: 'global_circuit_reset_does_not_match_local_incident' };
+    }
+    try {
+      await withLock(async () => {
+        const latest = (await readState()).state;
+        if (!latest.service_circuit ||
+            latest.service_circuit.global !== true ||
+            latest.service_circuit.global_incident_id !== reset.incident_id) {
+          throw new Error('global_circuit_reset_does_not_match_local_incident');
+        }
+        latest.service_circuit = null;
+        // Preserve 423 route pauses. Clearing a quota circuit must never clear
+        // the canonical mission-execution freeze or route-specific pause state.
+        await writeState(latest);
+      });
+      retryAfterUntil.clear();
+      return { applied: true, open: false, reset };
+    } catch (error) {
+      return { applied: false, reason: error && error.message || 'global_circuit_reset_failed' };
+    }
+  }
+
   async function isOpen() {
     const result = await beforeRequest('/__aria_status_check__');
     return result.kind === 'service_circuit_open' || result.kind === 'state_unavailable';
@@ -351,6 +432,7 @@ function createRemoteServiceCircuitBreaker(options = {}) {
     recordResponse,
     isOpen,
     isRoutePaused,
+    applyGlobalCircuit,
     resetAfterAuthorizedRecovery
   };
 }
