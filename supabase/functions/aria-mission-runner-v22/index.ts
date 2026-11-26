@@ -2429,6 +2429,32 @@ async function modelExecute(missionId: string, step: any, auth: AuthContext, mis
       message: String(err.message || "model execution failed"),
       provider_status: err.provider_status ?? null,
     });
+    // Mission budget is mission-wide, not route-specific. Never try another
+    // provider when a budget reservation or its settlement is denied/uncertain.
+    if (String(err.code || "").startsWith("mission_budget_")) {
+      return {
+        status: "blocked",
+        executor_type: "model",
+        operation: step.operation,
+        provider_id: route.provider_id,
+        account_id: route.account_id,
+        model_id: route.model_id,
+        error: {
+          code: String(err.code),
+          message: String(err.message || "mission budget gate blocked provider execution"),
+          provider_status: err.provider_status ?? response.status,
+          attempts: failures.length,
+        },
+        model_execution_failures: failures.map((failure:any) => ({
+          provider_id: failure.provider_id,
+          model_id: failure.model_id,
+          http_status: failure.http_status,
+          code: failure.code,
+          message: failure.message,
+          provider_status: failure.provider_status,
+        })),
+      };
+    }
     const failureKind = m22ClassifyModelFallbackFailure(
       response.status,
       err.provider_status,
