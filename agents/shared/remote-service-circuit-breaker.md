@@ -1,9 +1,10 @@
 # ARIA shared remote-service circuit breaker
 
-The Windows and Termux agents share a local persistent state file at
+The Windows and Termux agents use a persistent local state file at
 `~/.aria/state/remote-service-circuit.json` by default. Set
-`ARIA_AGENT_STATE_DIR` to override the directory when both agents need
-to share a different writable location.
+`ARIA_AGENT_STATE_DIR` to override the directory. The file is shared only by
+processes on the same host/user profile when they point to the same directory;
+it is not a cloud-wide or cross-device coordination service.
 
 ## Behavior
 
