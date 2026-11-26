@@ -599,6 +599,10 @@ async function mission5ModelProbe(b:any,d:any){
   const modelId=typeof b?.model_id==='string'?b.model_id.trim():'';
   const prompt=typeof b?.prompt==='string'?b.prompt.trim():'';
   const risk=typeof b?.risk==='string'?b.risk:'READ';
+  const missionId=typeof b?.mission_id==='string'?b.mission_id.trim():'';
+  const stepId=typeof b?.step_id==='string'?b.step_id.trim():'';
+  if(!missionId||!stepId)return {ok:false,status:'blocked',error:{code:'mission_budget_mission_context_missing'}};
+  const requestId=missionId+':'+stepId+':'+crypto.randomUUID();
   // Only routes that exist in model_registry with status=available + verified capability.
   // Invented model IDs (3.5-flash-direct, 3.6+, 3.7+, 3.8+) produced unauthorized / provider_error.
   const allowed={
@@ -632,13 +636,14 @@ async function mission5ModelProbe(b:any,d:any){
       headers:{'content-type':'application/json',authorization:`Bearer ${RUNTIME_SECRET}`,'x-aria-trigger':'mission5-model-probe'},
       body:JSON.stringify({
         execution_version:'1',
-        request_id:`mission5:model:${modelId}:${crypto.randomUUID()}`,
-        task_id:'mission5_model_probe',
+        request_id:requestId,
+        task_id:stepId,
         capability:'text_generation',
         selected_route:{status:'selected',provider_id:route.provider_id,account_id:route.account_id,model_id:modelId,capability:'text_generation'},
         authorization:{status:'approved',risk_class:'READ',evidence_ref:`mission5:model-probe:${modelId}`},
         input:{payload:{prompt,...(typeof b?.generationConfig==='object'&&b.generationConfig?{generationConfig:b.generationConfig}:{})}},
-        policy:{risk:'READ',mission5:true,probe:true}
+        policy:{risk:'READ',mission5:true,probe:true},
+        metadata:{mission_id:missionId,step_id:stepId,executor_type:'model',runner:'aria-device-gateway-mission5-model-probe'}
       }),
       signal:controller.signal
     });
@@ -656,8 +661,9 @@ async function mission5AgentProbe(b:any,d:any){
   const agentId=typeof b?.agent_id==='string'?b.agent_id.trim():'';
   const prompt=typeof b?.prompt==='string'?b.prompt.trim():'';
   const risk=typeof b?.risk==='string'?b.risk:'READ';
-  const missionId=typeof b?.mission_id==='string'&&b.mission_id.trim()?b.mission_id.trim():'mission5-agent-probe-'+crypto.randomUUID();
-  const stepId=typeof b?.step_id==='string'&&b.step_id.trim()?b.step_id.trim():'mission5_probe_1';
+  const missionId=typeof b?.mission_id==='string'?b.mission_id.trim():'';
+  const stepId=typeof b?.step_id==='string'?b.step_id.trim():'';
+  if(!missionId||!stepId)return {ok:false,status:'blocked',error:{code:'mission_budget_mission_context_missing'}};
   const allowed=new Set(['aria-agent-planner-gemini35-v1','aria-agent-verifier-gemini35-v1']);
   if(!allowed.has(agentId))throw new Error('agent_not_allowed_for_mission5_probe');
   if(risk!=='READ')throw new Error('mission5_probe_read_only');
@@ -766,6 +772,9 @@ async function intelligentRouterDecision(b:any){
 async function intelligentRouterExecute(b:any,d:any){
   const authorization=b?.authorization;
   if(!authorization||authorization.status!=='approved')return{status:'blocked',reason:'authorization_not_approved'};
+  const missionId=typeof b?.mission_id==='string'?b.mission_id.trim():'';
+  const stepId=typeof b?.step_id==='string'?b.step_id.trim():'';
+  if(!missionId||!stepId)return{status:'blocked',reason:'mission_budget_mission_context_missing'};
   const routeDecision=await intelligentRouterDecision({
     task:b?.task,capability:b?.capability||'text_generation',complexity:b?.complexity,risk:b?.risk,
     preferred_model:b?.preferred_model,preferred_provider:b?.preferred_provider,trace_id:b?.trace_id||null
@@ -780,16 +789,19 @@ async function intelligentRouterExecute(b:any,d:any){
       method:'POST',
       headers:{'content-type':'application/json',authorization:`Bearer ${RUNTIME_SECRET}`,'x-aria-trigger':'mission6-router-execution'},
       body:JSON.stringify({
-        execution_version:'1',request_id:`mission6:${d.device_id}:${crypto.randomUUID()}`,
-        task_id:String(b?.task_id||'mission6-router-execution'),capability:b?.capability||'text_generation',
+        execution_version:'1',request_id:`${missionId}:${stepId}:${crypto.randomUUID()}`,
+        task_id:String(b?.task_id||stepId),capability:b?.capability||'text_generation',
         selected_route:{status:'selected',provider_id:selected.provider_id,account_id:selected.account_id,model_id:selected.model_id,capability:b?.capability||'text_generation',agent_id:selected.agent_id||null},
         authorization,input:b?.input||{payload:{prompt:String(b?.task||'')}},
-        policy:{risk:String(b?.risk||'READ'),mission6:true,router_decision:true,selected_agent_id:selected.agent_id||null}
+        policy:{risk:String(b?.risk||'READ'),mission6:true,router_decision:true,selected_agent_id:selected.agent_id||null},
+        metadata:{mission_id:missionId,step_id:stepId,executor_type:'model',runner:'aria-device-gateway-mission6-router',fallback_route:attempts>1}
       })
     });
     const tb=await response.text();let payload:any;try{payload=tb?JSON.parse(tb):{}}catch{payload={status:'failed',error:'invalid_execution_runtime_json'}};
     const failureKind=payload?.status==='succeeded'&&response.ok?null:m6ClassifyFallbackFailure(payload,response.status);
     results.push({rank:attempts,route:selected,http_status:response.status,failure_kind:failureKind,status:payload?.status||'failed',response:payload?.response||null,usage:payload?.usage||null,error:payload?.error||null});
+    const budgetErrorCode=String(payload?.error?.code||payload?.error?.reason||'');
+    if(budgetErrorCode.startsWith('mission_budget_'))return{status:'blocked',reason:budgetErrorCode,route_decision:routeDecision,attempts,attempt_results:results,fallback_used:false,metadata:{router_version:'aria-intelligent-router-v2.0.0',device_id:d.device_id}};
     if(payload?.status==='succeeded'&&response.ok)return{status:'succeeded',route_decision:routeDecision,selected_route:selected,attempts,attempt_results:results,fallback_used:attempts>1,metadata:{router_version:'aria-intelligent-router-v2.0.0',device_id:d.device_id}};
     routes=m6GovernFallback(selected,routes,failureKind||'execution_failure',{allow_rate_limit_fallback:b?.allow_rate_limit_fallback===true,visited:results.map((x:any)=>m6FallbackRouteKey(x.route))});
   }
@@ -798,6 +810,8 @@ async function intelligentRouterExecute(b:any,d:any){
 async function intelligentRouterParallelExecute(b:any,d:any){
  const authorization=b?.authorization;
  if(!authorization||authorization.status!=='approved')return{status:'blocked',reason:'authorization_not_approved'};
+ const missionId=typeof b?.mission_id==='string'?b.mission_id.trim():'';
+ if(!missionId)return{status:'blocked',reason:'mission_budget_mission_context_missing'};
  const tasks=Array.isArray(b?.tasks)?b.tasks:[];
  if(!tasks.length)return{status:'blocked',reason:'tasks_required'};
  const decision=await intelligentRouterDecision({...b,tasks});
@@ -807,6 +821,8 @@ async function intelligentRouterParallelExecute(b:any,d:any){
  for(const batch of decision.parallel_plan.batches){
    const batchResults=await Promise.all(batch.map(async(taskId:string)=>{
      const task=tasks.find((t:any)=>String(t.id)===taskId);
+     const stepId=String(task?.step_id||task?.id||'').trim();
+     if(!stepId)return{task_id:taskId,status:'blocked',reason:'mission_budget_step_context_missing'};
      const selection=selectionById.get(taskId);
      if(!selection||selection.status!=='selected')return{task_id:taskId,status:'failed',error:'route_not_selected'};
      let routes=[selection.selected,...(Array.isArray(selection.fallback)?selection.fallback:[])];
@@ -818,18 +834,21 @@ async function intelligentRouterParallelExecute(b:any,d:any){
          headers:{'content-type':'application/json',authorization:`Bearer ${RUNTIME_SECRET}`,'x-aria-trigger':'mission6-parallel-router'},
          body:JSON.stringify({
            execution_version:'1',
-           request_id:`mission6-parallel:${d.device_id}:${crypto.randomUUID()}`,
-           task_id:taskId,
+           request_id:`${missionId}:${stepId}:${crypto.randomUUID()}`,
+           task_id:stepId,
            capability:task?.capability||b?.capability||'text_generation',
            selected_route:{status:'selected',provider_id:selected.provider_id,account_id:selected.account_id,model_id:selected.model_id,capability:task?.capability||b?.capability||'text_generation',agent_id:selected.agent_id||null},
            authorization,
            input:task?.input||b?.input||{payload:{prompt:String(task?.task||'')}},
-           policy:{risk:String(task?.risk||b?.risk||'READ'),mission6:true,router_parallel:true,selected_agent_id:selected.agent_id||null}
+           policy:{risk:String(task?.risk||b?.risk||'READ'),mission6:true,router_parallel:true,selected_agent_id:selected.agent_id||null},
+           metadata:{mission_id:missionId,step_id:stepId,executor_type:'model',runner:'aria-device-gateway-mission6-parallel-router',fallback_route:attemptCount>1}
          })
        });
        const tb=await response.text();let payload:any;try{payload=tb?JSON.parse(tb):{}}catch{payload={status:'failed',error:'invalid_execution_runtime_json'}};
        const failureKind=payload?.status==='succeeded'&&response.ok?null:m6ClassifyFallbackFailure(payload,response.status);
        attempts.push({rank:attemptCount,route:selected,http_status:response.status,failure_kind:failureKind,status:payload?.status||'failed',response:payload?.response||null,usage:payload?.usage||null,error:payload?.error||null});
+       const budgetErrorCode=String(payload?.error?.code||payload?.error?.reason||'');
+       if(budgetErrorCode.startsWith('mission_budget_'))return{task_id:taskId,status:'blocked',reason:budgetErrorCode,attempts,fallback_used:false};
        if(payload?.status==='succeeded'&&response.ok)return{task_id:taskId,status:'succeeded',selected_route:selected,attempts,fallback_used:attemptCount>1};
        routes=m6GovernFallback(selected,routes,failureKind||'execution_failure',{allow_rate_limit_fallback:b?.allow_rate_limit_fallback===true,visited:attempts.map((x:any)=>m6FallbackRouteKey(x.route))});
      }
@@ -1432,6 +1451,13 @@ function classifyAllForOneProviderBlock(payload:any,httpStatus:number){
   return null;
 }
 async function runModelAuditor(runId:string,m:any,account:any,snapshot:any){
+  return {
+    status:'blocked',
+    reason:'mission_budget_mission_context_missing',
+    report:'MODEL REVIEW BLOCKED: All-for-One audit run has no mission_state-backed mission ID and approved budget policy.',
+    model_id:m?.model_id||null,
+    metadata:{classification:'blocked_budget_context',run_id:runId}
+  };
   if(!account)throw new Error('model_account_unavailable');
   const selected={status:'selected',provider_id:account.provider_id,account_id:account.account_id,model_id:m.model_id,capability:'text_generation'};
   const r=await internalFunctionFetch(`${SUPABASE_URL}/functions/v1/aria-execution-runtime-v1`,{
@@ -1729,6 +1755,7 @@ if((req.method==='GET'||req.method==='POST')&&p==='/v1/rwht-final-probe'){
   }catch(e){return json({ok:false,status:'probe_failed',error:e instanceof Error?e.message:String(e),dbReload},502);}
 }if(req.method==='POST'&&p==='/v1/rwht-model-probe'){
   try{
+    return json({ok:false,status:'blocked',error:{code:'mission_budget_mission_context_missing',message:'A mission-backed, approved budget is required for provider probes.'}},423);
     if(!RUNTIME_SECRET)return json({ok:false,error:'runtime_secret_unavailable'},503);
     const response=await internalFunctionFetch(`${SUPABASE_URL}/functions/v1/aria-execution-runtime-v1`,{
       method:'POST',
