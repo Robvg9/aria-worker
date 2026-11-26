@@ -14,7 +14,7 @@ Windows and Termux persist local state at
 - The provider reason is classified only when the response body explicitly supports it; otherwise it remains `unknown_402`.
 - HTTP 423 with `mission_execution_paused` pauses only the affected claim route.
 - The local heartbeat file/health observation continues; the remote gateway is not polled while a local 402 circuit is open.
-- 408, 429 and 5xx retain bounded retries and honor `Retry-After.
+- 408, 429 and 5xx retain bounded retries and honor `Retry-After`.
 - Corrupt/unwritable circuit state fails closed.
 - Local persistence is per host/profile, not a cross-device coordinator.
 
@@ -31,7 +31,7 @@ Required agent environment:
 Behavior:
 1. The first local 402 is persisted locally and reported once to the independent coordinator using only an allow-listed classification, allow-listed route, agent family, timestamp, random incident ID and SHA-256 installation identifier. Response bodies, prompts, credentials and raw device IDs are never sent.
 2. The coordinator stores one global open incident in the existing Durable Object. It does not use Supabase.
-3. The first global open creates one deduplicated notification through the coordinator's existing Telegram delivery path. Later devices/observations update counters but do not send duplicate alerts for the same incident.
+3. The first global open creates one deduplicated, one-shot notification through the coordinator's existing Telegram delivery path. It makes exactly one Telegram request; if the result is ambiguous it stores `unknown` and never retries automatically, avoiding duplicate messages. Later devices/observations update counters but do not send duplicate alerts for the same incident.
 4. Windows and Termux query the coordinator on a throttled interval (`ARIA_CIRCUIT_SYNC_INTERVAL_MS`, default 30 seconds). An open global incident is written to each installation's local circuit. The agents stop Supabase gateway requests while the circuit is open.
 5. If the coordinator is unavailable or not configured, the local circuit still blocks after that installation observes HTTP 402; distributed propagation is unavailable, but no new Supabase retry loop is introduced.
 
