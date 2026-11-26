@@ -1,0 +1,50 @@
+name: ARIA Optima — Provider Telemetry Real PostgreSQL Migration
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "supabase/migrations/20261125190000_aria_provider_usage_observability_v1.sql"
+      - "tests/aria-provider-telemetry-postgres.integration.test.mjs"
+      - ".github/workflows/aria-optima-provider-telemetry-postgres.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: aria-optima-provider-telemetry-postgres-\${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  provider-telemetry-postgres:
+    name: Apply telemetry migration and exercise v2 RPCs/views
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      ARIA_OPTIMA_PG_INTEGRATION_URL: postgresql://postgres:postgres@localhost:5432/postgres
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Install PostgreSQL driver (ephemeral, no manifest change)
+        run: npm install pg --no-save --no-fund --no-audit
+      - name: Execute provider telemetry migration in isolated PostgreSQL
+        run: node tests/aria-provider-telemetry-postgres.integration.test.mjs
