@@ -229,4 +229,37 @@ const pendingSettlement = await settleMissionBudget(async () => ({
 }), budgetContext, { outcome: "succeeded", actualTokens: 41 });
 assert.equal(pendingSettlement, false);
 
+
+const providerCallsites = [
+  ["directGemini", "https://generativelanguage.googleapis.com/v1beta/models/"],
+  ["xaiResponses", "https://api.x.ai/v1/responses"],
+  ["openRouterChat", "https://openrouter.ai/api/v1/chat/completions"],
+];
+for (const [name, endpoint] of providerCallsites) {
+  const start = runtime.indexOf("async function " + name + "(");
+  assert.notEqual(start, -1, "runtime provider adapter missing: " + name);
+  const next = runtime.indexOf("\nasync function ", start + 20);
+  const end = next === -1 ? runtime.length : next;
+  const adapter = runtime.slice(start, end);
+  assert.ok(adapter.includes("reserveProviderCall(route,requestId,budgetContext"), name + " must reserve mission budget before provider call");
+  assert.ok(adapter.includes("settleProviderAttempt(reservationKey,budgetContext,\"unknown\""), name + " must retain UNKNOWN outcomes");
+  assert.ok(adapter.includes("settleProviderAttempt(reservationKey,budgetContext,\"failed\""), name + " must settle failed provider outcomes");
+  assert.ok(adapter.includes("settleProviderAttempt(reservationKey,budgetContext,\"succeeded\""), name + " must settle successful provider outcomes");
+  const reserveIndex = adapter.indexOf("reserveProviderCall(route,requestId,budgetContext");
+  const fetchIndex = adapter.indexOf("fetch(" + JSON.stringify(endpoint));
+  assert.ok(fetchIndex > reserveIndex, name + " must reserve before inference HTTP request");
+}
+const reserveWrapper = runtime.slice(runtime.indexOf("async function reserveProviderCall("), runtime.indexOf("\nasync function directGemini("));
+assert.ok(
+  reserveWrapper.indexOf("reserveMissionBudget(missionBudgetRpc,budgetContext)") <
+    reserveWrapper.indexOf("reserveModelQuota(route,requestId"),
+  "mission budget reservation must precede provider quota reservation",
+);
+assert.ok(reserveWrapper.includes("settleMissionBudgetAttempt(budgetContext,\"released\",null,evidence)"), "provider quota denial must release only before inference");
+assert.ok(runtime.includes("const budgetExempt=conversationOnlyAllowed||cloudflarePlanPreviewAllowed"), "only validated conversation/plan-preview routes are exempt");
+assert.ok(runtime.includes("requestKind:gate3ScopedProbeAllowed?\"test\":\"execution\""), "test reserve classification must be derived from validated server-side scope");
+assert.ok(runtime.includes("mission_budget_mission_context_missing"), "ordinary provider calls without mission identity must fail closed");
+assert.ok(runtime.includes("if(!settlement.budgetSettled)return out(missionBudgetSettlementPending(),503)"), "uncertain settlement must not return provider output");
+assert.ok(runtime.includes("const MISSION_EXECUTION_PAUSED = true"), "global mission execution freeze must stay enabled");
+
 console.log("ARIA atomic provider quota accounting contract: PASS");
