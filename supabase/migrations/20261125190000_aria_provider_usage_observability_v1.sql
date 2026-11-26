@@ -135,6 +135,7 @@ SELECT
   count(*) FILTER (WHERE status = 'unknown')::bigint AS requests_unknown,
   count(*) FILTER (WHERE status = 'reserved')::bigint AS requests_still_reserved,
   count(*) FILTER (WHERE provider_status = 402)::bigint AS provider_http_402,
+  count(*) FILTER (WHERE provider_status = 408)::bigint AS provider_http_408,
   count(*) FILTER (WHERE provider_status = 429)::bigint AS provider_http_429,
   count(*) FILTER (WHERE provider_status BETWEEN 500 AND 599)::bigint AS provider_http_5xx,
   sum(prompt_tokens) AS prompt_tokens_reported_sum,
@@ -150,6 +151,7 @@ SELECT
   percentile_cont(0.95) WITHIN GROUP (
     ORDER BY EXTRACT(EPOCH FROM (settled_at - reserved_at)) * 1000
   ) FILTER (WHERE settled_at > reserved_at) AS p95_reservation_to_settlement_ms,
+  max(settled_at) FILTER (WHERE status = 'succeeded') AS last_success_at,
   max(settled_at) AS last_settled_at,
   max(reserved_at) AS last_reserved_at
 FROM aria_internal.quota_request_reservations_v1
