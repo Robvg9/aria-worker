@@ -1,13 +1,12 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import pg from "pg";
-
 const connectionString = String(process.env.ARIA_OPTIMA_PG_INTEGRATION_URL || "").trim();
 if (!connectionString) {
   console.log("SKIP ARIA Optima provider telemetry PostgreSQL integration: URL not configured");
   process.exit(0);
 }
 
+const { default: pg } = await import("pg");
 const client = new pg.Client({ connectionString });
 const migration = await readFile(
   new URL("../supabase/migrations/20261125190000_aria_provider_usage_observability_v1.sql", import.meta.url),
