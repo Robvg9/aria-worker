@@ -1722,27 +1722,7 @@ if((req.method==='GET'||req.method==='POST')&&p==='/v1/rwht-final-probe'){
     return new Response(text,{status:response.status,headers:{'content-type':response.headers.get('content-type')||'application/json','cache-control':'no-store','x-aria-db-reload':JSON.stringify(dbReload)}});
   }catch(e){return json({ok:false,status:'probe_failed',error:e instanceof Error?e.message:String(e),dbReload},502);}
 }if(req.method==='POST'&&p==='/v1/rwht-model-probe'){
-  try{
-    return json({ok:false,status:'blocked',error:{code:'mission_budget_mission_context_missing',message:'A mission-backed, approved budget is required for provider probes.'}},423);
-    if(!RUNTIME_SECRET)return json({ok:false,error:'runtime_secret_unavailable'},503);
-    const response=await internalFunctionFetch(`${SUPABASE_URL}/functions/v1/aria-execution-runtime-v1`,{
-      method:'POST',
-      headers:{'content-type':'application/json',authorization:`Bearer ${RUNTIME_SECRET}`,'x-aria-trigger':'rwht-direct-model-probe'},
-      body:JSON.stringify({
-        execution_version:'1',
-        request_id:'rwht-direct-model-probe',
-        task_id:'rwht-direct-model-probe',
-        capability:'text_generation',
-        selected_route:{status:'selected',provider_id:'openrouter',account_id:'acct_openrouter_primary',model_id:'nex-agi/nex-n2.5-mini:free',capability:'text_generation'},
-        authorization:{status:'approved',risk_class:'READ',evidence_ref:'rwht-direct-model-probe'},
-        input:{payload:{prompt:'FINDINGS. ARIA direct runtime probe. Return the exact marker ARIA_RUNTIME_PROBE_OK and one short factual sentence.',max_tokens:120,temperature:0}},
-        policy:{risk:'READ',runtime_probe:true},
-        metadata:{source:'rwht-direct-model-probe'}
-      })
-    });
-    const text=await response.text();
-    return new Response(text,{status:response.status,headers:{'content-type':response.headers.get('content-type')||'application/json','cache-control':'no-store'}});
-  }catch(e){return json({ok:false,status:'probe_failed',error:e instanceof Error?e.message:String(e)},502);}
+  return json({ok:false,status:'blocked',error:{code:'mission_budget_mission_context_missing',message:'A mission-backed, approved budget is required for provider probes.'}},423);
 }
 if(req.method==='GET'&&p==='/health')return json({ok:true,service:'aria-device-gateway',version:'12',canonical_runtime:true,meditation_owned_missions:true,goal_completion_sync:true,recursive_failure_guard:true,idea_to_mission:true});if(req.method==='POST'&&p==='/v1/devices/enroll'){if(typeof b.device_id!=='string'||typeof b.token!=='string')return json({error:'device_id_and_token_required'},400);const {data,error}=await supabase.rpc('enroll_device',{p_device_id:b.device_id,p_token:b.token});if(error)return json({error:'enrollment_failed',code:error.code??null,message:error.message??null},409);return json(data)}if(req.method==='POST'&&p==='/v1/meditation/tick-service'){
  try{
