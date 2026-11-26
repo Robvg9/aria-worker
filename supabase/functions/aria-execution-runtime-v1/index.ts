@@ -28,7 +28,7 @@ async function reserveModelQuota(route:any, requestId:string, suppliedOpenRouter
     try {
       snapshot=await fetch("https://openrouter.ai/api/v1/key",{
         method:"GET",
-        headers:{Authorization:\`Bearer \${providerSecret}\`},
+        headers:{Authorization:`Bearer ${providerSecret}`},
         signal:AbortSignal.timeout(Math.max(1000,Math.min(8000,Number(quotaSnapshotTimeoutMs)||8000))),
       });
     } catch {
