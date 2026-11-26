@@ -13,6 +13,10 @@ assert.match(workflow, /send_telegram_test:[\s\S]{0,180}default: false/);
 assert.match(workflow, /if: inputs\.confirm_public_deploy == true/);
 assert.match(workflow, /if: inputs\.send_telegram_test == true/);
 
+assert.ok(workflow.includes('r"\\d+:[A-Za-z0-9_-]{20,}"'), 'bot token format check must match a numeric bot id and token');
+assert.ok(workflow.includes('r"-?\\d{1,25}"'), 'chat id format check must accept numeric Telegram chat ids');
+
+
 for (const secret of [
   'secrets.ARIA_AUTONOMY_TELEGRAM_BOT_TOKEN',
   'secrets.ARIA_AUTONOMY_TELEGRAM_CHAT_ID'
