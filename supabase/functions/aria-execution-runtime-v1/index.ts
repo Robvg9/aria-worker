@@ -201,9 +201,9 @@ async function xaiResponses(route:any,input:any,requestId:string,providerTimeout
     });
     if(tools.length)body.tools=tools;
   }
-  const reservation=await reserveModelQuota(route,requestId,null,providerTimeoutMs?Math.min(3000,providerTimeoutMs):8000);
-  if(!reservation.allowed)return out({status:"blocked",reason:reservation.reason},reservation.reason.includes("exhausted")?429:503);
-  const reservationKey=reservation.reservation_key;
+  const guardedReservation=await reserveProviderCall(route,requestId,budgetContext,null,providerTimeoutMs?Math.min(3000,providerTimeoutMs):8000);
+  if(!guardedReservation.allowed)return guardedReservation.response;
+  const reservationKey=guardedReservation.reservationKey;
   let res:Response;
   const controller=providerTimeoutMs?new AbortController():null;
   const timeout=controller?setTimeout(()=>controller.abort(),providerTimeoutMs):null;
