@@ -15,19 +15,19 @@ const migration = await readFile(
 
 try {
   await client.connect();
-  await client.query(String.raw\`DO $$ BEGIN
+  await client.query(String.raw`DO $$ BEGIN
     CREATE ROLE anon NOLOGIN;
-  EXCEPTION WHEN duplicate_object THEN NULL; END $$;\`);
-  await client.query(String.raw\`DO $$ BEGIN
+  EXCEPTION WHEN duplicate_object THEN NULL; END $$;`);
+  await client.query(String.raw`DO $$ BEGIN
     CREATE ROLE authenticated NOLOGIN;
-  EXCEPTION WHEN duplicate_object THEN NULL; END $$;\`);
-  await client.query(String.raw\`DO $$ BEGIN
+  EXCEPTION WHEN duplicate_object THEN NULL; END $$;`);
+  await client.query(String.raw`DO $$ BEGIN
     CREATE ROLE service_role NOLOGIN;
-  EXCEPTION WHEN duplicate_object THEN NULL; END $$;\`);
+  EXCEPTION WHEN duplicate_object THEN NULL; END $$;`);
 
   await client.query("DROP SCHEMA IF EXISTS aria_internal CASCADE");
   await client.query("CREATE SCHEMA aria_internal");
-  await client.query(String.raw\`
+  await client.query(String.raw`
     CREATE TABLE aria_internal.quota_registry (
       quota_id text PRIMARY KEY,
       provider_id text NOT NULL,
@@ -115,7 +115,7 @@ try {
       ('quota-openrouter-account','openrouter','acct_openrouter_primary',NULL,'available',50,0,'day','{}'::jsonb),
       ('quota-openrouter-free-model','openrouter','acct_openrouter_primary','nvidia/nemotron-3.5-lightning:free','available',NULL,0,NULL,'{}'::jsonb),
       ('quota-google-direct','google','acct-google-direct','gemini-direct','available',NULL,0,NULL,'{}'::jsonb);
-  \`);
+  `);
 
   await client.query(migration);
   await client.query(migration); // migration must be idempotent
@@ -167,7 +167,7 @@ try {
     ["reservation-google-001","failed",429,4,2,6,null,null],
   );
 
-  const telemetry = await client.query(\`
+  const telemetry = await client.query(`
     SELECT requests_reserved,requests_succeeded,requests_failed,provider_http_429,
            prompt_tokens_reported_sum,completion_tokens_reported_sum,total_tokens_reported_sum,
            cached_input_tokens_reported_sum,cached_input_token_observations,
@@ -175,7 +175,7 @@ try {
       FROM aria_internal.provider_execution_observability_v1
      WHERE provider_id='openrouter' AND account_id='acct_openrouter_primary'
        AND model_id='nvidia/nemotron-3.5-lightning:free'
-  \`);
+  `);
   const row=telemetry.rows[0];
   assert.equal(Number(row.requests_reserved),1);
   assert.equal(Number(row.requests_succeeded),1);
@@ -188,35 +188,35 @@ try {
   assert.ok(Number(row.avg_reservation_to_settlement_ms)>=0);
   assert.ok(row.last_success_at instanceof Date);
 
-  const google = await client.query(\`
+  const google = await client.query(`
     SELECT requests_failed,provider_http_429,cached_input_tokens_reported_sum,cached_input_token_observations
       FROM aria_internal.provider_execution_observability_v1
      WHERE provider_id='google' AND account_id='acct-google-direct' AND model_id='gemini-direct'
-  \`);
+  `);
   assert.equal(Number(google.rows[0].requests_failed),1);
   assert.equal(Number(google.rows[0].provider_http_429),1);
   assert.equal(Number(google.rows[0].cached_input_tokens_reported_sum||0),0);
   assert.equal(Number(google.rows[0].cached_input_token_observations),0);
 
-  const capacity = await client.query(\`
+  const capacity = await client.query(`
     SELECT remaining_requests_derived,provider_reported_remaining_requests,
            quota_observed_at,quota_observation_source,quota_window_end
       FROM aria_internal.provider_quota_capacity_v1
      WHERE quota_id='quota-openrouter-account'
-  \`);
+  `);
   assert.equal(Number(capacity.rows[0].remaining_requests_derived),50);
   assert.equal(Number(capacity.rows[0].provider_reported_remaining_requests),38);
   assert.equal(capacity.rows[0].quota_observation_source,"https://openrouter.ai/api/v1/key");
   assert.equal(capacity.rows[0].quota_window_end,null);
 
-  const grants = await client.query(\`
+  const grants = await client.query(`
     SELECT
       has_table_privilege('anon','aria_internal.provider_execution_observability_v1','SELECT') AS anon_select,
       has_table_privilege('authenticated','aria_internal.provider_quota_capacity_v1','SELECT') AS authenticated_select,
       has_table_privilege('service_role','aria_internal.provider_execution_observability_v1','SELECT') AS service_select,
       has_function_privilege('anon','aria_internal.quota_reserve_model_request_v2(text,text,text,text,bigint,bigint,bigint)','EXECUTE') AS anon_execute,
       has_function_privilege('service_role','aria_internal.quota_reserve_model_request_v2(text,text,text,text,bigint,bigint,bigint)','EXECUTE') AS service_execute
-  \`);
+  `);
   assert.equal(grants.rows[0].anon_select,false);
   assert.equal(grants.rows[0].authenticated_select,false);
   assert.equal(grants.rows[0].service_select,true);
