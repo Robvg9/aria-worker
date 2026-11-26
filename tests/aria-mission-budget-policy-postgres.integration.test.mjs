@@ -17,8 +17,8 @@ const reserve = async (db, missionId, key, kind = "execution", tokens = null, co
   const result = await db.query("SELECT aria_internal.mission_budget_reserve_request_v1($1,$2,$3,$4,$5,$6) AS result", [missionId,key,kind,tokens,cost,currency]);
   return result.rows[0].result;
 };
-const settle = async (db, key, outcome, tokens = null, cost = null, currency = null) => {
-  const result = await db.query("SELECT aria_internal.mission_budget_settle_request_v1($1,$2,$3,$4,$5) AS result", [key,outcome,tokens,cost,currency]);
+const settle = async (db, key, outcome, tokens = null, cost = null, currency = null, releaseEvidence = null) => {
+  const result = await db.query("SELECT aria_internal.mission_budget_settle_request_v1($1,$2,$3,$4,$5,$6) AS result", [key,outcome,tokens,cost,currency,releaseEvidence]);
   return result.rows[0].result;
 };
 const createMission = async (db,id) => {
@@ -47,7 +47,7 @@ try {
   await client.query("CREATE SCHEMA aria_internal");
   await client.query("CREATE TABLE aria_internal.mission_state (mission_id text PRIMARY KEY,goal text NOT NULL,status text NOT NULL DEFAULT 'queued',checkpoint jsonb NOT NULL DEFAULT '{}'::jsonb,metadata jsonb NOT NULL DEFAULT '{}'::jsonb)");
 
-  for (const id of ["mission-missing","mission-draft","mission-main","mission-release","mission-unknown","mission-revoke","mission-race"]) {
+  for (const id of ["mission-missing","mission-draft","mission-main","mission-release","mission-unknown","mission-revoke","mission-race","mission-version-usage"]) {
     await createMission(client,id);
   }
   await client.query(migration);
@@ -94,8 +94,9 @@ try {
 
   await createApprovedPolicy(client,{missionId:"mission-release",maxRequests:1});
   assert.equal((await reserve(client,"mission-release","release-001","execution")).allowed,true);
-  assert.deepEqual(await settle(client,"release-001","released",1),{settled:false,reason:"released_reservation_cannot_report_usage"});
-  assert.equal((await settle(client,"release-001","released")).settled,true);
+  assert.deepEqual(await settle(client,"release-001","released"),{settled:false,reason:"invalid_budget_settlement_input"});
+  assert.deepEqual(await settle(client,"release-001","released",1,null,null,"ci:no-upstream-request"),{settled:false,reason:"released_reservation_cannot_report_usage"});
+  assert.equal((await settle(client,"release-001","released",null,null,null,"ci:no-upstream-request")).settled,true);
   assert.equal((await reserve(client,"mission-release","release-002","execution")).allowed,true);
 
   await createApprovedPolicy(client,{missionId:"mission-unknown",maxTokens:500});
@@ -113,6 +114,13 @@ try {
   await createApprovedPolicy(client,{missionId:"mission-revoke",policyVersion:2,maxRequests:2});
   assert.equal((await reserve(client,"mission-revoke","revoked-002","execution")).allowed,true);
 
+  await createApprovedPolicy(client,{missionId:"mission-version-usage",maxRequests:3});
+  assert.equal((await reserve(client,"mission-version-usage","version-001","execution")).allowed,true);
+  const oldPolicy=await client.query("SELECT policy_id FROM aria_internal.mission_budget_policies_v1 WHERE mission_id='mission-version-usage' AND status='approved'");
+  await client.query("UPDATE aria_internal.mission_budget_policies_v1 SET status='revoked' WHERE policy_id=$1",[oldPolicy.rows[0].policy_id]);
+  await createApprovedPolicy(client,{missionId:"mission-version-usage",policyVersion:2,maxRequests:1});
+  assert.deepEqual(await reserve(client,"mission-version-usage","version-002","execution"),{allowed:false,reason:"mission_budget_execution_request_limit"});
+
   await createApprovedPolicy(client,{missionId:"mission-race",maxRequests:1});
   const concurrent=await Promise.all([
     reserve(client,"mission-race","race-001","execution"),
@@ -121,7 +129,7 @@ try {
   assert.equal(concurrent.filter(x=>x.allowed).length,1);
   assert.equal(concurrent.filter(x=>x.reason==="mission_budget_execution_request_limit").length,1);
 
-  const security=await client.query("SELECT (SELECT relrowsecurity FROM pg_class WHERE oid='aria_internal.mission_budget_policies_v1'::regclass) AS policy_rls,(SELECT relrowsecurity FROM pg_class WHERE oid='aria_internal.mission_budget_reservations_v1'::regclass) AS reservation_rls,has_table_privilege('anon','aria_internal.mission_budget_policies_v1','SELECT') AS anon_policy_read,has_table_privilege('authenticated','aria_internal.mission_budget_reservations_v1','SELECT') AS auth_reservation_read,has_table_privilege('service_role','aria_internal.mission_budget_policies_v1','SELECT') AS service_policy_read,has_function_privilege('anon','aria_internal.mission_budget_reserve_request_v1(text,text,text,bigint,numeric,text)','EXECUTE') AS anon_reserve_exec,has_function_privilege('authenticated','aria_internal.mission_budget_settle_request_v1(text,text,bigint,numeric,text)','EXECUTE') AS auth_settle_exec,has_function_privilege('service_role','aria_internal.mission_budget_reserve_request_v1(text,text,text,bigint,numeric,text)','EXECUTE') AS service_reserve_exec");
+  const security=await client.query("SELECT (SELECT relrowsecurity FROM pg_class WHERE oid='aria_internal.mission_budget_policies_v1'::regclass) AS policy_rls,(SELECT relrowsecurity FROM pg_class WHERE oid='aria_internal.mission_budget_reservations_v1'::regclass) AS reservation_rls,has_table_privilege('anon','aria_internal.mission_budget_policies_v1','SELECT') AS anon_policy_read,has_table_privilege('authenticated','aria_internal.mission_budget_reservations_v1','SELECT') AS auth_reservation_read,has_table_privilege('service_role','aria_internal.mission_budget_policies_v1','SELECT') AS service_policy_read,has_function_privilege('anon','aria_internal.mission_budget_reserve_request_v1(text,text,text,bigint,numeric,text)','EXECUTE') AS anon_reserve_exec,has_function_privilege('authenticated','aria_internal.mission_budget_settle_request_v1(text,text,bigint,numeric,text,text)','EXECUTE') AS auth_settle_exec,has_function_privilege('service_role','aria_internal.mission_budget_reserve_request_v1(text,text,text,bigint,numeric,text)','EXECUTE') AS service_reserve_exec");
   const sr=security.rows[0];
   assert.equal(sr.policy_rls,true); assert.equal(sr.reservation_rls,true);
   assert.equal(sr.anon_policy_read,false); assert.equal(sr.auth_reservation_read,false);
