@@ -23,6 +23,8 @@ const required = [
   "blockedRateLimitProviders",
   "blockedRateLimitAccounts",
   "m22RateLimitFallbackAllowed(step.policy)",
+  'String(err.code || "").startsWith("mission_budget_")',
+  'message: String(err.message || "mission budget gate blocked provider execution")',
   "LOCAL_DEVICE_HEARTBEAT_FRESHNESS_MS = 3 * 60_000",
   "function isFreshDeviceHeartbeat(lastSeenAt: unknown",
   "isFreshDeviceHeartbeat(d?.last_seen_at)",
