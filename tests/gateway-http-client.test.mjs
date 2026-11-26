@@ -7,7 +7,7 @@ const { createGatewayRequest } = require('../agents/windows/gateway-http-client.
 
 const server = http.createServer((req, res) => {
   if (req.url === '/ok') {
-    res.writeHead(200, { 'content-type': 'application/json' });
+    res.writeHead(200, { 'content-type': 'application/json', 'retry-after': '3' });
     res.end('{"ok":true}');
     return;
   }
@@ -56,6 +56,7 @@ try {
 
   const ok = await request(base + '/ok');
   assert.equal(ok.status, 200);
+  assert.equal(ok.headers['retry-after'], '3');
   assert.equal(JSON.parse(ok.text).ok, true);
   assert.equal(ok.diagnostics.phase, 'complete');
   assert.equal(Number.isFinite(ok.diagnostics.elapsed_ms), true);
