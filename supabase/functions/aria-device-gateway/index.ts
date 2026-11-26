@@ -681,7 +681,11 @@ async function mission5AgentProbe(b:any,d:any){
     });
     const textBody=await response.text();
     let payload:any; try{payload=textBody?JSON.parse(textBody):{}}catch{payload={status:'failed',error:'invalid_agent_runtime_json'}};
-    if(!response.ok)throw new Error(String(payload?.error?.message||payload?.error||`agent_runtime_http_${response.status}`));
+    if(!response.ok){
+      const upstreamCode=String(payload?.error?.code||'');
+      const errorCode=upstreamCode.startsWith('mission_budget_')?upstreamCode:'agent_runtime_error';
+      return {ok:false,status:errorCode.startsWith('mission_budget_')?'blocked':'failed',device_id:d.device_id,mission5:true,probe:true,agent_id:agentId,mission_id:missionId,step_id:stepId,error:{code:errorCode,message:String(payload?.error?.message||payload?.error||`agent_runtime_http_${response.status}`),provider_status:response.status}};
+    }
     return {ok:true,device_id:d.device_id,mission5:true,probe:true,agent_id:agentId,mission_id:missionId,step_id:stepId,runtime_status:payload?.status||null,provider_id:payload?.provider_id||payload?.metadata?.provider_id||null,account_id:payload?.account_id||payload?.metadata?.account_id||null,model_id:payload?.model_id||payload?.metadata?.model_id||null,capability_id:payload?.capability_id||payload?.metadata?.capability_id||null,response:payload?.response||null,usage:payload?.usage||null,metadata:{...payload?.metadata,transport:'device-gateway',resource_graph:'aria_internal.resolve_agent_resource'}};
   }catch(e:any){
     if(e?.name==='AbortError')throw new Error('mission5_agent_probe_timeout');
