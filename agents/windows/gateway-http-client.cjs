@@ -108,6 +108,7 @@ function createGatewayRequest({
             settle(null, {
               status: Number(incoming.statusCode || 0),
               text: responseText,
+              headers: incoming.headers,
               diagnostics: diagnostics()
             });
           });
