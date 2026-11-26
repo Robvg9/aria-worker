@@ -22,13 +22,20 @@ async function runHeartbeatLoop({
 
   let consecutiveFailures = 0;
   while (!shouldStop()) {
-    let succeeded = false;
+    let outcome = false;
     try {
-      succeeded = (await sendHeartbeat()) === true;
+      outcome = await sendHeartbeat();
     } catch {
-      succeeded = false;
+      outcome = false;
     }
 
+    if (outcome === 'blocked') {
+      consecutiveFailures = 0;
+      await sleep(intervalMs);
+      continue;
+    }
+
+    const succeeded = outcome === true;
     if (succeeded) {
       consecutiveFailures = 0;
       await sleep(intervalMs);
