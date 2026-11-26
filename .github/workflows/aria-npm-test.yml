@@ -197,3 +197,32 @@ jobs:
           $global:LASTEXITCODE=0
           if($cleanupFailed){ throw 'OMNIROUTE_CLEANUP_INCOMPLETE' }
           Write-Host 'OMNIROUTE_CLEANUP_PASS'
+  mission-budget-postgres:
+    name: Mission budget policy PostgreSQL 16 integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      ARIA_OPTIMA_PG_INTEGRATION_URL: postgresql://postgres:postgres@localhost:5432/postgres
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Install PostgreSQL driver (ephemeral, no manifest change)
+        run: npm install pg --no-save --no-fund --no-audit
+      - name: Apply and verify mission budget policy migration
+        run: node tests/aria-mission-budget-policy-postgres.integration.test.mjs
