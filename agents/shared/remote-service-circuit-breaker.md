@@ -55,7 +55,7 @@ Agents apply the reset only when its incident ID matches their recorded global i
 
 ## Telegram alert
 
-- Uses the coordinator's existing server-only `ARIA_TELEGRAM_BOT_TOKEN` and `ARIA_TELEGRAM_CHAT_ID` secrets.
+- Uses the coordinator's server-only `ARIA_TELEGRAM_BOT_TOKEN` and `ARIA_TELEGRAM_CHAT_ID` secrets. The deployment workflow accepts GitHub secrets `ARIA_AUTONOMY_TELEGRAM_BOT_TOKEN` and `ARIA_AUTONOMY_TELEGRAM_CHAT_ID` and transfers them to Wrangler without printing values. When `send_telegram_test=true`, preflight requires both; the default remains false.
 - Alert key includes the global incident ID; only the first open sends one message.
 - If Telegram is not configured or transport fails, the notification remains in the coordinator's durable notification state; no automatic agent retry loop is added.
 - No bot token or chat ID is sent to Windows/Termux.
