@@ -70,8 +70,8 @@ jobs:
               "ARIA_CONTROL_WORKER_TOKENS_DISTINCT": bool(control and worker and control != worker),
               "OPTIONAL_NOTIFICATION_WEBHOOK_HTTPS": not webhook or webhook.startswith("https://"),
               "OPTIONAL_TELEGRAM_SECRET_PAIR_COMPLETE": bool(telegram_bot) == bool(telegram_chat),
-              "OPTIONAL_TELEGRAM_BOT_TOKEN_FORMAT": not telegram_bot or bool(re.fullmatch(r"\\d+:[A-Za-z0-9_-]{20,}", telegram_bot)),
-              "OPTIONAL_TELEGRAM_CHAT_ID_FORMAT": not telegram_chat or bool(re.fullmatch(r"-?\\d{1,25}", telegram_chat)),
+              "OPTIONAL_TELEGRAM_BOT_TOKEN_FORMAT": not telegram_bot or bool(re.fullmatch(r"\d+:[A-Za-z0-9_-]{20,}", telegram_bot)),
+              "OPTIONAL_TELEGRAM_CHAT_ID_FORMAT": not telegram_chat or bool(re.fullmatch(r"-?\d{1,25}", telegram_chat)),
               "TELEGRAM_TEST_REQUIRES_DIRECT_BOT_CREDENTIALS": not send_telegram_test or bool(telegram_bot and telegram_chat),
           }
           for name, passed in checks.items():
