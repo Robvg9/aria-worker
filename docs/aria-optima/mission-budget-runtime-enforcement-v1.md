@@ -6,6 +6,20 @@ This change connects the per-mission ledger from PR #1478 to the actual cloud pr
 `aria-execution-runtime-v1`. It protects the Google Gemini Direct, xAI Responses, and OpenRouter
 inference POST requests. It does not apply a cost ceiling to local Windows device execution.
 
+The device-gateway Mission 5 direct model probe, Mission 6 single/parallel router, and Mission 5
+agent probe now require real caller-supplied mission/step context and pass it through the same
+ledger. Agent runtime request IDs follow the required mission:step:nonce shape. Mission 6 fallback
+also stops immediately on any mission-budget denial or uncertain settlement.
+
+The separate Gemini diagnostic live-check no longer calls Google directly: it requires mission ID,
+step ID, and its one-shot diagnostic nonce, then calls the shared execution runtime. Its cost and
+token estimates remain unknown, so configured ceilings on those dimensions still block it.
+
+Unscoped maintenance paths are intentionally not exempted: the RWHT direct model probe and the
+All-for-One model reviewer are blocked until each has a real mission_state-backed mission and an
+approved policy. The Grok MCP inbound function contains no xAI provider API call; the xAI domain
+string found there is documentation only. This distinction is covered by the edge-function audit.
+
 ## Required call order
 
 For a mission-backed provider attempt:
