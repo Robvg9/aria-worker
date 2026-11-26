@@ -9,6 +9,7 @@ const { executeAutonomousAndroidMission } = require('./android-autonomous-runner
 const { resolveAndroidUiHealth, markAndroidUiExecutionSuccess } = require('./android-ui-health-state');
 const { executeVoiceDeviceCommand, parseAllowlist, UUID_RE } = require('../shared/voice-command-executor.cjs');
 const { createRemoteServiceCircuitBreaker } = require('../shared/remote-service-circuit-breaker.cjs');
+const { createRemoteServiceCircuitCoordinator } = require('../shared/remote-service-circuit-coordinator.cjs');
 
 const GATEWAY_URL = process.env.ARIA_DEVICE_GATEWAY_URL;
 const DEVICE_TOKEN = process.env.ARIA_DEVICE_TOKEN;
@@ -22,8 +23,13 @@ const HEARTBEAT_MS = Math.max(30_000, Number(process.env.ARIA_HEARTBEAT_MS || 60
 const POLL_MS = Math.max(5_000, Number(process.env.ARIA_POLL_MS || 12_000));
 const MAX_OUTPUT = 256 * 1024;
 const DISPLAY_OUTPUT = 4096;
+const circuitCoordinator = createRemoteServiceCircuitCoordinator({ agent: 'termux' });
 const remoteCircuit = createRemoteServiceCircuitBreaker({
-  onIncident: event => console.error(`[ARIA] ${event.type} status=${event.status} classification=${event.classification} route=${event.route} incident=${event.incident_id}`)
+  onIncident: async event => {
+    console.error(`[ARIA] ${event.type} status=${event.status} classification=${event.classification} route=${event.route} incident=${event.incident_id}`);
+    const published = await circuitCoordinator.reportIncident(event, remoteCircuit);
+    if (!published.ok) console.error(`[ARIA] GLOBAL_CIRCUIT_PUBLISH=${published.reason || 'unavailable'}; local circuit remains open`);
+  }
 });
 
 const VOICE_ALLOWED_APPS = parseAllowlist(process.env.ARIA_VOICE_ALLOWED_APPS || '');
@@ -189,6 +195,7 @@ if (!SUPABASE_API_KEY) {
   console.error('[ARIA] Missing ARIA_SUPABASE_API_KEY (or SUPABASE_PUBLISHABLE_KEY/SUPABASE_ANON_KEY); gateway requests may be rejected before device-token auth.');
 }
 async function api(path, options = {}) {
+  await circuitCoordinator.sync(remoteCircuit);
   const permit = await remoteCircuit.beforeRequest(path);
   if (!permit.allowed) {
     const blocked = new Error('gateway request blocked: ' + permit.code);
@@ -376,6 +383,7 @@ let heartbeatTimer=null;
 async function loop(){
   let consecutivePollFailures=0;
   while(!stopping){
+    await circuitCoordinator.sync(remoteCircuit);
     const globalPermit=await remoteCircuit.beforeRequest('/v1/jobs/claim');
     if(globalPermit.kind==='service_circuit_open'||globalPermit.kind==='state_unavailable'){
       await new Promise(r=>setTimeout(r,HEARTBEAT_MS));
