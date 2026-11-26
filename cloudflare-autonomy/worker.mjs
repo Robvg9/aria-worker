@@ -354,7 +354,8 @@ export class AriaMissionStore {
           type: 'gateway_circuit_open',
           transition: 'opened:' + circuit.incident_id,
           reason: 'gateway_http_402',
-          details: 'Gateway bloqueado por HTTP 402. Clasificación: ' + classification + '. Ruta inicial: ' + route + '. Ejecución remota detenida en los agentes. No se reintentará automáticamente.'
+          details: 'Gateway bloqueado por HTTP 402. Clasificación: ' + classification + '. Ruta inicial: ' + route + '. Ejecución remota detenida en los agentes. No se reintentará automáticamente.',
+          one_shot_delivery: true
         });
         if (notice && notice.status === 'pending') {
           await this.deliverNotification(notice.notification_id, { allowWhilePaused: true });
@@ -1223,7 +1224,7 @@ export class AriaMissionStore {
       })
     };
     await this.ctx.storage.put('notification:' + record.notification_id, record);
-    if (!isPackage3Probe) {
+    if (!isPackage3Probe && event.one_shot_delivery !== true) {
       this.ctx.waitUntil((async () => {
         try {
           if (configured) await this.exclusive(() => this.deliverNotification(record.notification_id));
@@ -1273,7 +1274,8 @@ export class AriaMissionStore {
       return;
     }
 
-    const maxAttempts = 5;
+    const oneShot = event.one_shot_delivery === true;
+    const maxAttempts = oneShot ? 1 : 5;
     record.attempts = Number.isSafeInteger(record.attempts) && record.attempts >= 0 ? record.attempts : 0;
     if (record.attempts >= maxAttempts) {
       record.status = 'failed';
@@ -1347,13 +1349,15 @@ export class AriaMissionStore {
       } else {
         const status = Number(response.status) || 0;
         const retryable = status === 408 || status === 425 || status === 429 || status >= 500;
-        record.status = retryable && record.attempts < maxAttempts ? 'pending' : 'failed';
+        record.status = oneShot && retryable
+          ? 'unknown'
+          : (retryable && record.attempts < maxAttempts ? 'pending' : 'failed');
         record.last_error = useTelegram
           ? (status ? 'telegram_http_' + status : 'telegram_response_not_accepted')
           : 'webhook_http_' + status;
       }
     } catch (err) {
-      record.status = record.attempts < maxAttempts ? 'pending' : 'failed';
+      record.status = oneShot ? 'unknown' : (record.attempts < maxAttempts ? 'pending' : 'failed');
       // Do not persist fetch errors for Telegram: some runtimes include the bot-token URL.
       record.last_error = useTelegram ? 'telegram_network_error' : String(err && err.message || err).slice(0, 500);
     }
