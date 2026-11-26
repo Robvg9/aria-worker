@@ -254,6 +254,175 @@ export class AriaMissionStore {
     return result;
   }
 
+  async readGlobalGatewayCircuit() {
+    const stored = await this.ctx.storage.get('global-service-circuit:gateway-402');
+    if (!stored) return json({ open: false, circuit: null, last_reset: null });
+    if (stored.open !== true || !stored.circuit) {
+      return json({ open: false, circuit: null, last_reset: stored.last_reset || null });
+    }
+    const circuit = stored.circuit;
+    return json({
+      open: true,
+      circuit: {
+        incident_id: circuit.incident_id,
+        status: 402,
+        classification: circuit.classification,
+        route: circuit.route,
+        opened_at: circuit.opened_at,
+        last_observed_at: circuit.last_observed_at,
+        observation_count: circuit.observation_count,
+        installation_count: circuit.installation_count
+      },
+      last_reset: stored.last_reset || null
+    });
+  }
+
+  async openGlobalGatewayCircuit(request) {
+    let body;
+    try { body = await request.json(); } catch (_) { return error('invalid_json', 400); }
+    if (!body || typeof body !== 'object' || Array.isArray(body)) return error('circuit_event_invalid', 400);
+    const allowedKeys = new Set(['incident_id', 'classification', 'route', 'source_id_sha256', 'agent', 'observed_at']);
+    if (Object.keys(body).some(key => !allowedKeys.has(key))) return error('circuit_event_field_rejected', 400);
+
+    const incidentId = String(body.incident_id || '');
+    const classification = String(body.classification || '');
+    const route = String(body.route || '');
+    const sourceHash = String(body.source_id_sha256 || '');
+    const agent = String(body.agent || '');
+    const observedAt = String(body.observed_at || '');
+    const allowedClassifications = new Set(['quota_exhausted', 'billing_restriction', 'service_restriction', 'unknown_402']);
+    const allowedRoutes = new Set([
+      '/v1/devices/heartbeat',
+      '/v1/devices/enroll',
+      '/v1/jobs/claim',
+      '/v1/voice/commands/claim'
+    ]);
+    const observedTimestamp = Date.parse(observedAt);
+    if (!/^[A-Za-z0-9_-]{8,128}$/.test(incidentId) ||
+        !allowedClassifications.has(classification) ||
+        !allowedRoutes.has(route) ||
+        !/^[a-f0-9]{64}$/.test(sourceHash) ||
+        !['windows', 'termux', 'unknown'].includes(agent) ||
+        !Number.isFinite(observedTimestamp) ||
+        observedTimestamp > Date.now() + 300_000 ||
+        Date.now() - observedTimestamp > 86_400_000) {
+      return error('circuit_event_invalid', 400);
+    }
+
+    return this.exclusive(async () => {
+      const key = 'global-service-circuit:gateway-402';
+      const prior = await this.ctx.storage.get(key);
+      const now = nowIso();
+      let circuit;
+      let openedNow = false;
+      if (prior && prior.open === true && prior.circuit) {
+        circuit = prior.circuit;
+        const seenEvents = Array.isArray(circuit.source_event_ids) ? circuit.source_event_ids : [];
+        const seenInstallations = Array.isArray(circuit.source_hashes) ? circuit.source_hashes : [];
+        if (!seenEvents.includes(incidentId)) {
+          circuit.observation_count = Math.min(1_000_000, Number(circuit.observation_count || 0) + 1);
+          circuit.source_event_ids = [...seenEvents, incidentId].slice(-64);
+          if (!seenInstallations.includes(sourceHash)) {
+            circuit.installation_count = Math.min(10_000, Number(circuit.installation_count || 0) + 1);
+            circuit.source_hashes = [...seenInstallations, sourceHash].slice(-64);
+          }
+          circuit.last_observed_at = now;
+          circuit.last_classification = classification;
+          circuit.last_route = route;
+        }
+      } else {
+        circuit = {
+          incident_id: 'gateway402_' + uuid('incident').replace(/[^A-Za-z0-9_-]/g, '').slice(-32),
+          status: 402,
+          classification,
+          route,
+          opened_at: now,
+          last_observed_at: now,
+          observation_count: 1,
+          installation_count: 1,
+          source_hashes: [sourceHash],
+          source_event_ids: [incidentId]
+        };
+        openedNow = true;
+      }
+      const next = { open: true, circuit, last_reset: prior?.last_reset || null };
+      await this.ctx.storage.put(key, next);
+
+      let notification = null;
+      if (openedNow) {
+        const notice = await this.persistNotification({
+          type: 'gateway_circuit_open',
+          transition: 'opened:' + circuit.incident_id,
+          reason: 'gateway_http_402',
+          details: 'Gateway bloqueado por HTTP 402. Clasificación: ' + classification + '. Ruta inicial: ' + route + '. Ejecución remota detenida en los agentes. No se reintentará automáticamente.'
+        });
+        if (notice && notice.status === 'pending') {
+          await this.deliverNotification(notice.notification_id, { allowWhilePaused: true });
+        }
+        const persisted = notice ? await this.ctx.storage.get('notification:' + notice.notification_id) : null;
+        notification = persisted ? {
+          notification_id: persisted.notification_id,
+          status: persisted.status,
+          attempts: persisted.attempts,
+          delivered_at: persisted.delivered_at,
+          last_error: persisted.last_error
+        } : null;
+      }
+      return json({
+        open: true,
+        opened_now: openedNow,
+        circuit: {
+          incident_id: circuit.incident_id,
+          status: 402,
+          classification: circuit.classification,
+          route: circuit.route,
+          opened_at: circuit.opened_at,
+          last_observed_at: circuit.last_observed_at,
+          observation_count: circuit.observation_count,
+          installation_count: circuit.installation_count
+        },
+        notification
+      });
+    }, { allowFrozen: true });
+  }
+
+  async resetGlobalGatewayCircuit(request) {
+    let body;
+    try { body = await request.json(); } catch (_) { return error('invalid_json', 400); }
+    const evidenceRef = typeof body?.evidence_ref === 'string' ? body.evidence_ref.trim() : '';
+    const operatorNote = typeof body?.operator_note === 'string' ? body.operator_note.trim() : '';
+    const evidenceRefValid =
+      /^https:\/\/(?:github\.com|app\.notion\.com)\/[A-Za-z0-9_./#-]{8,280}$/.test(evidenceRef) ||
+      /^INCIDENT-[A-Za-z0-9_-]{4,80}$/.test(evidenceRef);
+    const operatorNoteSafe = operatorNote.length >= 6 && operatorNote.length <= 240 &&
+      /^[A-Za-z0-9 .,;:()_-]+$/.test(operatorNote) &&
+      !/(bearer|token|secret|password|api[_ -]?key|sk-|or-v1-|AIza)/i.test(operatorNote);
+    if (!body || body.confirm !== 'RESET_GATEWAY_402_CIRCUIT_ONCE' ||
+        body.service_restored !== true ||
+        !evidenceRefValid ||
+        !operatorNoteSafe) {
+      return error('explicit_gateway_circuit_reset_evidence_required', 400);
+    }
+    return this.exclusive(async () => {
+      const key = 'global-service-circuit:gateway-402';
+      const prior = await this.ctx.storage.get(key);
+      if (!prior || prior.open !== true || !prior.circuit) return error('global_gateway_circuit_not_open', 409);
+      const lastReset = {
+        incident_id: prior.circuit.incident_id,
+        closed_at: nowIso(),
+        service_restored: true,
+        evidence_ref: evidenceRef,
+        operator_note: operatorNote
+      };
+      await this.ctx.storage.put(key, {
+        open: false,
+        circuit: null,
+        last_reset: lastReset
+      });
+      return json({ open: false, circuit: null, last_reset: lastReset, mission_execution_paused: MISSION_EXECUTION_PAUSED });
+    }, { allowFrozen: true });
+  }
+
   async fetch(request) {
     const url = new URL(request.url);
     const method = request.method.toUpperCase();
@@ -264,6 +433,18 @@ export class AriaMissionStore {
     }
     if (method === 'GET' && url.pathname === '/health') {
       return json({ ok: true, service: 'aria-autonomy-coordinator', storage: 'durable-object', supabase_independent: true, time: nowIso() });
+    }
+
+    if (url.pathname === '/api/worker/service-circuit') {
+      if (!authorized(request, this.env.ARIA_WORKER_TOKEN)) return error('unauthorized_worker', 401);
+      if (method === 'GET') return this.readGlobalGatewayCircuit();
+      if (method === 'POST') return this.openGlobalGatewayCircuit(request);
+      return error('method_not_allowed', 405);
+    }
+    if (url.pathname === '/api/ops/service-circuit/reset') {
+      if (!authorized(request, this.env.ARIA_CONTROL_TOKEN)) return error('unauthorized', 401);
+      if (method !== 'POST') return error('method_not_allowed', 405);
+      return this.resetGlobalGatewayCircuit(request);
     }
 
     const presenceRoute = url.pathname === '/api/worker/presence';
