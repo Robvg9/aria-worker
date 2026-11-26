@@ -73,7 +73,7 @@ async function settleModelQuota(reservationKey:string,outcome:string,providerSta
 
 
 async function safeSettleModelQuota(reservationKey:string,outcome:string,providerStatus:number|null,payload:any,providerResponseId:string|null=null) {
-  try { return await safeSettleModelQuota(reservationKey,outcome,providerStatus,payload,providerResponseId); }
+  try { return await settleModelQuota(reservationKey,outcome,providerStatus,payload,providerResponseId); }
   catch { return false; }
 }
 
@@ -87,6 +87,12 @@ async function settleMissionBudgetAttempt(context:any,outcome:string,payload:any
     actualTokens:usage.total_tokens,
     releaseEvidenceRef,
   });
+}
+
+async function settleProviderAttempt(reservationKey:string,budgetContext:any,outcome:string,providerStatus:number|null,payload:any,providerResponseId:string|null=null) {
+  const quotaSettled=await safeSettleModelQuota(reservationKey,outcome,providerStatus,payload,providerResponseId);
+  const budgetSettled=await settleMissionBudgetAttempt(budgetContext,outcome,payload);
+  return {quotaSettled,budgetSettled};
 }
 
 async function reserveProviderCall(route:any,requestId:string,budgetContext:any,suppliedOpenRouterKey:string|null=null,quotaSnapshotTimeoutMs=8000) {
@@ -156,14 +162,16 @@ async function directGemini(route:any,input:any,requestId:string,providerTimeout
     res=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,{method:"POST",headers:{"Content-Type":"application/json","x-goog-api-key":GOOGLE_API_KEY},body:JSON.stringify(body),signal:controller.signal});
     json=await res.json().catch((error:any)=>{if(error?.name==="AbortError")throw error;return null;});
   }catch(error){
-    await safeSettleModelQuota(reservationKey,"unknown",null,null);
+    const settlement=await settleProviderAttempt(reservationKey,budgetContext,"unknown",null,null);
+    if(!settlement.budgetSettled)return out(missionBudgetSettlementPending(),503);
     const timedOut=error instanceof Error&&error.name==="AbortError";
     return out({status:"failed",error:{code:timedOut?"transport_timeout":"transport_error",message:timedOut?"provider request timed out":"transport failure"}});
-  }finally{clearTimeout(timeout)}if(!res.ok){await safeSettleModelQuota(reservationKey,"failed",res.status,json);return out({status:"failed",error:{code:"provider_error",message:sanitize(json?.error?.message||`provider returned HTTP ${res.status}`),provider_status:res.status}});}
+  }finally{clearTimeout(timeout)}if(!res.ok){const settlement=await settleProviderAttempt(reservationKey,budgetContext,"failed",res.status,json);if(!settlement.budgetSettled)return out(missionBudgetSettlementPending(),503);return out({status:"failed",error:{code:"provider_error",message:sanitize(json?.error?.message||`provider returned HTTP ${res.status}`),provider_status:res.status}});}
   const parts=json?.candidates?.[0]?.content?.parts;const text=Array.isArray(parts)?parts.filter((x:any)=>typeof x?.text==="string").map((x:any)=>x.text).join(""):"";
-  if(!text){await safeSettleModelQuota(reservationKey,"failed",res.status,json);return out({status:"failed",error:{code:"invalid_response",message:"no text content in provider response"}});}
-  const settled=await safeSettleModelQuota(reservationKey,"succeeded",res.status,json);
-  return out({status:"succeeded",response:{modality:"text",content:text,provider_response_id:null,finish_reason:json?.candidates?.[0]?.content?.finishReason??json?.candidates?.[0]?.finishReason??null,provider_model:route.model_id},usage:json?.usageMetadata?{status:"known",prompt_tokens:json.usageMetadata.promptTokenCount??null,completion_tokens:json.usageMetadata.candidatesTokenCount??null,total_tokens:json.usageMetadata.totalTokenCount??null}:{status:"unknown"},metadata:{runtime:"aria-execution-runtime-v1",adapter_id:"google_gemini_generate_content",provider_id:"google",route_type:"direct",attempt:1,quota_accounting:settled?"settled":"reserved_settlement_pending",canonical_write:false,memory_authority:"none"}});
+  if(!text){const settlement=await settleProviderAttempt(reservationKey,budgetContext,"failed",res.status,json);if(!settlement.budgetSettled)return out(missionBudgetSettlementPending(),503);return out({status:"failed",error:{code:"invalid_response",message:"no text content in provider response"}});}
+  const settlement=await settleProviderAttempt(reservationKey,budgetContext,"succeeded",res.status,json);
+  if(!settlement.budgetSettled)return out(missionBudgetSettlementPending(),503);
+  return out({status:"succeeded",response:{modality:"text",content:text,provider_response_id:null,finish_reason:json?.candidates?.[0]?.content?.finishReason??json?.candidates?.[0]?.finishReason??null,provider_model:route.model_id},usage:json?.usageMetadata?{status:"known",prompt_tokens:json.usageMetadata.promptTokenCount??null,completion_tokens:json.usageMetadata.candidatesTokenCount??null,total_tokens:json.usageMetadata.totalTokenCount??null}:{status:"unknown"},metadata:{runtime:"aria-execution-runtime-v1",adapter_id:"google_gemini_generate_content",provider_id:"google",route_type:"direct",attempt:1,quota_accounting:settlement.quotaSettled?"settled":"reserved_settlement_pending",canonical_write:false,memory_authority:"none"}});
 }
 async function xaiResponses(route:any,input:any,requestId:string,providerTimeoutMs:number|null=null,budgetContext:any=null){
   if(route.capability!=="text_generation")return out({status:"blocked",reason:"capability_missing"});
@@ -204,17 +212,19 @@ async function xaiResponses(route:any,input:any,requestId:string,providerTimeout
     res=await fetch("https://api.x.ai/v1/responses",{method:"POST",headers:{Authorization:`Bearer ${sec}`,"Content-Type":"application/json"},body:JSON.stringify(body),...(controller?{signal:controller.signal}:{})});
     json=await res.json().catch((error:any)=>{if(error?.name==="AbortError")throw error;return null;});
   }catch(error){
-    await safeSettleModelQuota(reservationKey,"unknown",null,null);
+    const settlement=await settleProviderAttempt(reservationKey,budgetContext,"unknown",null,null);
+    if(!settlement.budgetSettled)return out(missionBudgetSettlementPending(),503);
     const timedOut=controller&&(error as any)?.name==="AbortError";
     return out({status:"failed",error:{code:timedOut?"transport_timeout":"transport_error",message:timedOut?"provider request timed out":"transport failure"}});
   }finally{
     if(timeout)clearTimeout(timeout);
-  }if(!res.ok){await safeSettleModelQuota(reservationKey,"failed",res.status,json);return out({status:"failed",error:{code:"provider_error",message:sanitize(json?.error?.message||`provider returned HTTP ${res.status}`),provider_status:res.status}});}
+  }if(!res.ok){const settlement=await settleProviderAttempt(reservationKey,budgetContext,"failed",res.status,json);if(!settlement.budgetSettled)return out(missionBudgetSettlementPending(),503);return out({status:"failed",error:{code:"provider_error",message:sanitize(json?.error?.message||`provider returned HTTP ${res.status}`),provider_status:res.status}});}
   const parts=Array.isArray(json?.output)?json.output:[];const text=parts.flatMap((item:any)=>item?.type==="message"&&Array.isArray(item?.content)?item.content:[]).filter((c:any)=>typeof c?.text==="string").map((c:any)=>c.text).join("")|| (typeof json?.output_text==="string"?json.output_text:"");
-  if(!text){await safeSettleModelQuota(reservationKey,"failed",res.status,json);return out({status:"failed",error:{code:"invalid_response",message:"no text content in provider response"}});}
+  if(!text){const settlement=await settleProviderAttempt(reservationKey,budgetContext,"failed",res.status,json);if(!settlement.budgetSettled)return out(missionBudgetSettlementPending(),503);return out({status:"failed",error:{code:"invalid_response",message:"no text content in provider response"}});}
   const u=json?.usage;const inTok=typeof u?.input_tokens==="number"?u.input_tokens:null;const outTok=typeof u?.output_tokens==="number"?u.output_tokens:null;const total=typeof u?.total_tokens==="number"?u.total_tokens:(inTok!==null&&outTok!==null?inTok+outTok:null);
-  const settled=await safeSettleModelQuota(reservationKey,"succeeded",res.status,json,typeof json?.id==="string"?json.id:null);
-  return out({status:"succeeded",response:{modality:"text",content:text,provider_response_id:typeof json?.id==="string"?json.id:null,finish_reason:typeof json?.status==="string"?json.status:null,provider_model:typeof json?.model==="string"?json.model:route.model_id},usage:{status:"reported",prompt_tokens:inTok,completion_tokens:outTok,total_tokens:total},metadata:{runtime:"aria-execution-runtime-v1",adapter_id:"xai_responses",provider_id:"xai",route_type:"direct",attempt:1,quota_accounting:settled?"settled":"reserved_settlement_pending",canonical_write:false,memory_authority:"none"}});
+  const settlement=await settleProviderAttempt(reservationKey,budgetContext,"succeeded",res.status,json,typeof json?.id==="string"?json.id:null);
+  if(!settlement.budgetSettled)return out(missionBudgetSettlementPending(),503);
+  return out({status:"succeeded",response:{modality:"text",content:text,provider_response_id:typeof json?.id==="string"?json.id:null,finish_reason:typeof json?.status==="string"?json.status:null,provider_model:typeof json?.model==="string"?json.model:route.model_id},usage:{status:"reported",prompt_tokens:inTok,completion_tokens:outTok,total_tokens:total},metadata:{runtime:"aria-execution-runtime-v1",adapter_id:"xai_responses",provider_id:"xai",route_type:"direct",attempt:1,quota_accounting:settlement.quotaSettled?"settled":"reserved_settlement_pending",canonical_write:false,memory_authority:"none"}});
 }
 Deno.serve(async r=>{if(r.method!=="POST")return out({error:"method_not_allowed"},405);if(!(await auth(r)))return out({error:"unauthorized"},401);const body=await r.json().catch(()=>({}));const route=body?.selected_route;const input=body?.input;const az=body?.authorization;const policy=body?.policy;const rawVoiceTimeout=Number(body?.metadata?.voice_provider_timeout_ms);const voiceProviderTimeoutMs=body?.metadata?.voice_mode===true?Math.max(1000,Math.min(8000,Number.isFinite(rawVoiceTimeout)&&rawVoiceTimeout>0?rawVoiceTimeout:6000)):null;
 const conversationOnlyAllowed=
@@ -361,20 +371,24 @@ async function openRouterChat(route:any,input:any,requestId:string,providerTimeo
     });
     json=await res.json().catch((error:any)=>{if(error?.name==="AbortError")throw error;return null;});
   }catch(error){
-    await safeSettleModelQuota(reservationKey,"unknown",null,null);
+    const settlement=await settleProviderAttempt(reservationKey,budgetContext,"unknown",null,null);
+    if(!settlement.budgetSettled)return out(missionBudgetSettlementPending(),503);
     const timedOut=error instanceof Error&&error.name==="AbortError";
     return out({status:"failed",error:{code:timedOut?"transport_timeout":"transport_error",message:timedOut?"provider request timed out":"transport failure"}});
   }finally{clearTimeout(timeout)}
   if(!res.ok){
-    await safeSettleModelQuota(reservationKey,"failed",res.status,json);
+    const settlement=await settleProviderAttempt(reservationKey,budgetContext,"failed",res.status,json);
+    if(!settlement.budgetSettled)return out(missionBudgetSettlementPending(),503);
     return out({status:"failed",error:{code:"provider_error",message:sanitize(json?.error?.message||`provider returned HTTP ${res.status}`),provider_status:res.status}});
   }
   const content=json?.choices?.[0]?.message?.content;
   if(typeof content!=="string"){
-    await safeSettleModelQuota(reservationKey,"failed",res.status,json);
+    const settlement=await settleProviderAttempt(reservationKey,budgetContext,"failed",res.status,json);
+    if(!settlement.budgetSettled)return out(missionBudgetSettlementPending(),503);
     return out({status:"failed",error:{code:"invalid_response",message:"no text content in provider response"}});
   }
-  const settled=await safeSettleModelQuota(reservationKey,"succeeded",res.status,json,typeof json?.id==="string"?json.id:null);
+  const settlement=await settleProviderAttempt(reservationKey,budgetContext,"succeeded",res.status,json,typeof json?.id==="string"?json.id:null);
+  if(!settlement.budgetSettled)return out(missionBudgetSettlementPending(),503);
   return out({
     status:"succeeded",
     response:{
@@ -385,7 +399,7 @@ async function openRouterChat(route:any,input:any,requestId:string,providerTimeo
       provider_model:typeof json?.model==="string"?json.model:null
     },
     usage:json?.usage??{status:"unknown"},
-    metadata:{runtime:"aria-execution-runtime-v1",adapter_id:"openrouter_chat_completions",provider_id:"openrouter",route_type:"mediated",attempt:1,quota_accounting:settled?"settled":"reserved_settlement_pending",canonical_write:false,memory_authority:"none"}
+    metadata:{runtime:"aria-execution-runtime-v1",adapter_id:"openrouter_chat_completions",provider_id:"openrouter",route_type:"mediated",attempt:1,quota_accounting:settlement.quotaSettled?"settled":"reserved_settlement_pending",canonical_write:false,memory_authority:"none"}
   });
 }
 if(route.provider_id==="mistral")return out({status:"blocked",reason:"provider_permanently_excluded"});
