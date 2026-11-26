@@ -348,7 +348,7 @@ async function heartbeat(){
       lastGatewayHeartbeatError={at:new Date().toISOString(),status:Number.isInteger(error?.status)?error.status:null,code:typeof error?.code==='string'?error.code:null,phase:typeof error?.phase==='string'?error.phase:null,elapsed_ms:Number.isFinite(error?.elapsed_ms)?error.elapsed_ms:null,socket_reused:typeof error?.socket_reused==='boolean'?error.socket_reused:null,timeout_kind:typeof error?.timeout_kind==='string'?error.timeout_kind:null,message:String(error?.message||error).slice(0,180)};
       try{await touchProcessHeartbeat('transport_error')}
       catch(fileError){console.error(`[heartbeat-file] ${fileError.message}`)}
-      if(error?.circuitBlocked){
+      if(error?.circuitBlocked || await remoteCircuit.isOpen()){
         try{await touchProcessHeartbeat('remote_request_blocked')}
         catch(fileError){console.error(`[heartbeat-file] ${fileError.message}`)}
         return 'blocked';
