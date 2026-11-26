@@ -11,6 +11,7 @@ const { createWindowsMeditationController } = require('./aria-meditation-control
 const { runAutonomousRwht } = require('./autonomous-rwht-controller');
 const { getWindowsResourceProfile } = require('./resource-profile');
 const { executeVoiceDeviceCommand, parseAllowlist, UUID_RE } = require('../shared/voice-command-executor.cjs');
+const { createRemoteServiceCircuitBreaker, isRetryableHttpStatus, parseRetryAfterMs } = require('../shared/remote-service-circuit-breaker.cjs');
 const { executeWindowsDesktop } = (() => {
   try { return require('./windows-desktop-adapter'); }
   catch (error) { if (error?.code !== 'MODULE_NOT_FOUND') throw error; return require('../../computer-use/windows-desktop-adapter'); }
@@ -23,6 +24,9 @@ const gatewayLookup=createGatewayLookup({
 // Keep the A6 device heartbeat capped at 30 seconds even when a legacy config.json still says 60000.
 const HEARTBEAT_MS=30_000, POLL_MS=Math.max(5_000,Number(process.env.ARIA_POLL_MS||12_000));
 const GATEWAY_TIMEOUT_MS=Math.max(3_000,Number(process.env.ARIA_GATEWAY_TIMEOUT_MS||15_000)), GATEWAY_RETRIES=Math.max(0,Number(process.env.ARIA_GATEWAY_RETRIES||1));
+const remoteCircuit=createRemoteServiceCircuitBreaker({
+  onIncident:event=>console.error(`[ARIA] ${event.type} status=${event.status} classification=${event.classification} route=${event.route} incident=${event.incident_id}`)
+});
 const OLLAMA_URL=process.env.ARIA_OLLAMA_URL||'http://127.0.0.1:11434', OLLAMA_MODEL=process.env.ARIA_OLLAMA_MODEL||'qwen3:0.6b', OLLAMA_OPERATION='ollama.qwen3', SHELL_OPERATION='shell.execute', COMPUTER_OPERATION='computer.use', AUTONOMOUS_COMPUTER_OPERATION='computer.use.autonomous';
 const RESOURCE_PROFILE=getWindowsResourceProfile();
 const OLLAMA_REQUESTED=process.env.ARIA_OLLAMA_ENABLED==='true';
@@ -178,7 +182,17 @@ const nativeGatewayRequest=createGatewayRequest({
   defaultTimeoutMs:GATEWAY_TIMEOUT_MS
 });
 async function api(p,options={}){
+  const initialPermit=await remoteCircuit.beforeRequest(p);
+  if(!initialPermit.allowed){
+    const blocked=new Error('gateway request blocked: '+initialPermit.code);
+    blocked.code=initialPermit.code;
+    blocked.status=Number.isInteger(initialPermit.status)?initialPermit.status:null;
+    blocked.circuitBlocked=true;
+    blocked.retryAfterMs=Number.isFinite(initialPermit.wait_ms)?initialPermit.wait_ms:null;
+    throw blocked;
+  }
   let lastError=null;
+  let retryAfterDelayMs=0;
   const heartbeatRequest=p==='/v1/devices/heartbeat';
   const failedHeartbeatAttempts=[];
   const requestId=crypto.randomUUID();
@@ -191,6 +205,7 @@ async function api(p,options={}){
       });
       let body=null;
       try{body=response.text?JSON.parse(response.text):null}catch{body={raw:response.text}}
+      await remoteCircuit.recordResponse(p,response.status,body,response.headers);
       if(response.status>=200&&response.status<300){
         if(heartbeatRequest){
           lastGatewayHeartbeatTransport={
@@ -213,8 +228,10 @@ async function api(p,options={}){
       error.socket_reused=typeof response.diagnostics?.socket_reused==='boolean'?response.diagnostics.socket_reused:null;
       error.phase_history=Array.isArray(response.diagnostics?.phase_history)?response.diagnostics.phase_history.slice(-8):[];
       error.timeout_kind=null;
+      error.retryAfterMs=parseRetryAfterMs(response.headers?.['retry-after']);
       lastError=error;
-      const retryable=response.status===408||response.status===429||response.status>=500;
+      const retryable=isRetryableHttpStatus(response.status);
+      if(retryable)retryAfterDelayMs=Math.max(retryAfterDelayMs,error.retryAfterMs||0);
       if(heartbeatRequest&&retryable&&attempt<GATEWAY_RETRIES){
         failedHeartbeatAttempts.push({attempt:attempt+1,code:'http_'+response.status,phase:'http_response',elapsed_ms:error.elapsed_ms,socket_reused:error.socket_reused,timeout_kind:null,status:response.status});
       }
@@ -222,6 +239,7 @@ async function api(p,options={}){
       if(!retryable||attempt>=GATEWAY_RETRIES)throw error;
     }catch(error){
       lastError=error;
+      if(Number.isInteger(error?.status)&&!isRetryableHttpStatus(error.status))throw error;
       if(heartbeatRequest){
         const failedAttempt={
           attempt:attempt+1,
@@ -234,8 +252,9 @@ async function api(p,options={}){
           status:Number.isInteger(error?.status)?error.status:null
         };
         failedHeartbeatAttempts.push(failedAttempt);
+        const terminal=attempt>=GATEWAY_RETRIES||(Number.isInteger(error?.status)&&!isRetryableHttpStatus(error.status));
         lastGatewayHeartbeatTransport={
-          at:new Date().toISOString(),outcome:attempt>=GATEWAY_RETRIES?'failure':'retrying',
+          at:new Date().toISOString(),outcome:terminal?'failure':'retrying',
           attempts:attempt+1,phase:failedAttempt.phase,elapsed_ms:failedAttempt.elapsed_ms,
           socket_reused:failedAttempt.socket_reused,timeout_kind:failedAttempt.timeout_kind,
           phase_history:failedAttempt.phase_history,
@@ -244,8 +263,10 @@ async function api(p,options={}){
       }
       log(`GATEWAY_REQUEST_ERROR id=${requestId} path=${p} code=${error.code||'unknown'} phase=${error.phase||'unknown'} attempt=${attempt+1}`);
       if(attempt>=GATEWAY_RETRIES)throw error;
+      retryAfterDelayMs=Math.max(retryAfterDelayMs,Number(error?.retryAfterMs)||0);
     }
-    await sleep(Math.min(5000,750*Math.pow(2,attempt))+Math.floor(Math.random()*500));
+    const exponentialDelayMs=Math.min(5000,750*Math.pow(2,attempt));
+    await sleep(Math.max(exponentialDelayMs,retryAfterDelayMs)+Math.floor(Math.random()*500));
   }
   throw lastError||new Error('gateway_request_failed');
 }
@@ -313,6 +334,10 @@ async function heartbeat(){
     // file I/O stalls, the watchdog must see a stale local heartbeat and recover
     // the process instead of reporting remote-online while the observer is blind.
     await touchProcessHeartbeat('attempt');
+    if(await remoteCircuit.isOpen()){
+      await touchProcessHeartbeat('remote_circuit_open');
+      return 'blocked';
+    }
     const capabilities=[SHELL_OPERATION,COMPUTER_OPERATION,AUTONOMOUS_COMPUTER_OPERATION];
     capabilities.push('app.open','browser.open_url');
     if(VOICE_BRIGHTNESS_ENABLED)capabilities.push('display.brightness.write');
@@ -323,6 +348,11 @@ async function heartbeat(){
       lastGatewayHeartbeatError={at:new Date().toISOString(),status:Number.isInteger(error?.status)?error.status:null,code:typeof error?.code==='string'?error.code:null,phase:typeof error?.phase==='string'?error.phase:null,elapsed_ms:Number.isFinite(error?.elapsed_ms)?error.elapsed_ms:null,socket_reused:typeof error?.socket_reused==='boolean'?error.socket_reused:null,timeout_kind:typeof error?.timeout_kind==='string'?error.timeout_kind:null,message:String(error?.message||error).slice(0,180)};
       try{await touchProcessHeartbeat('transport_error')}
       catch(fileError){console.error(`[heartbeat-file] ${fileError.message}`)}
+      if(error?.circuitBlocked){
+        try{await touchProcessHeartbeat('remote_request_blocked')}
+        catch(fileError){console.error(`[heartbeat-file] ${fileError.message}`)}
+        return 'blocked';
+      }
       console.error(`[heartbeat] ${error.message}`);
       return false;
     }
@@ -484,4 +514,25 @@ process.on('SIGTERM',()=>{stopping=true;void meditationController.shutdown();log
   retryMaxMs:15_000,
   onRetry:({consecutiveFailures,delayMs})=>log(`HEARTBEAT_RETRY device=${DEVICE_ID} consecutive_failures=${consecutiveFailures} retry_in_ms=${delayMs}`)
 });
-void heartbeatLoop.catch(error=>{console.error(`[heartbeat-loop] ${error.message}`);stopping=true;});let consecutivePollFailures=0;let voiceRetryAt=0;while(!stopping){let voiceState='idle';if(Date.now()>=voiceRetryAt){voiceState=await claimAndExecuteVoiceCommand();if(voiceState==='error')voiceRetryAt=Date.now()+60_000}const state=voiceState==='worked'?'worked':await claimAndExecute();if(state==='error'){consecutivePollFailures=Math.min(consecutivePollFailures+1,6)}else{consecutivePollFailures=0}const baseDelay=state==='worked'?5_000:POLL_MS;const backoff=state==='error'?Math.min(POLL_MS*Math.pow(2,consecutivePollFailures),60_000):baseDelay;const jitter=Math.floor(Math.random()*Math.max(1,Math.min(3_000,Math.round(backoff*0.25))));await sleep(backoff+jitter)}})().catch(error=>{console.error(error);process.exit(1)})
+void heartbeatLoop.catch(error=>{console.error(`[heartbeat-loop] ${error.message}`);stopping=true;});let consecutivePollFailures=0;let voiceRetryAt=0;while(!stopping){
+  if(await remoteCircuit.isOpen()){await sleep(HEARTBEAT_MS);continue;}
+  const voicePermit=await remoteCircuit.beforeRequest('/v1/voice/commands/claim');
+  let voiceState='idle';
+  if(voicePermit.allowed&&Date.now()>=voiceRetryAt){
+    voiceState=await claimAndExecuteVoiceCommand();
+    if(voiceState==='error')voiceRetryAt=Date.now()+60_000;
+  }
+  const globalAfterVoice=await remoteCircuit.isOpen();
+  const jobPermit=globalAfterVoice
+    ? {allowed:false,kind:'service_circuit_open'}
+    : await remoteCircuit.beforeRequest('/v1/jobs/claim');
+  const state=voiceState==='worked'?'worked':jobPermit.allowed?await claimAndExecute():'idle';
+  if(state==='error'){consecutivePollFailures=Math.min(consecutivePollFailures+1,6)}else{consecutivePollFailures=0}
+  const baseDelay=state==='worked'?5_000:POLL_MS;
+  const backoff=state==='error'?Math.min(POLL_MS*Math.pow(2,consecutivePollFailures),60_000):baseDelay;
+  const gateWait=Math.max(Number(voicePermit.wait_ms)||0,Number(jobPermit.wait_ms)||0);
+  const bothClaimsPaused=!voicePermit.allowed&&!jobPermit.allowed;
+  const delay=globalAfterVoice||bothClaimsPaused?HEARTBEAT_MS:Math.max(backoff,gateWait);
+  const jitter=Math.floor(Math.random()*Math.max(1,Math.min(3_000,Math.round(delay*0.25))));
+  await sleep(delay+jitter);
+}})().catch(error=>{console.error(error);process.exit(1)})
