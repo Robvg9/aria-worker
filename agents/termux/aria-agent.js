@@ -299,7 +299,7 @@ async function heartbeat() {
     });
     log(`ONLINE device=${DEVICE_ID} computer.use.android=${androidUiHealth.ok ? 'READY' : 'UNAVAILABLE:' + androidUiHealth.reason}`);
   } catch(error){
-    if(error?.circuitBlocked)return 'blocked';
+    if(error?.circuitBlocked || await remoteCircuit.isOpen())return 'blocked';
     console.error(`[heartbeat] ${error.message}`);
   }
 }
