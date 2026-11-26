@@ -389,10 +389,18 @@ export class AriaMissionStore {
   async resetGlobalGatewayCircuit(request) {
     let body;
     try { body = await request.json(); } catch (_) { return error('invalid_json', 400); }
+    const evidenceRef = typeof body?.evidence_ref === 'string' ? body.evidence_ref.trim() : '';
+    const operatorNote = typeof body?.operator_note === 'string' ? body.operator_note.trim() : '';
+    const evidenceRefValid =
+      /^https:\/\/(?:github\.com|app\.notion\.com)\/[A-Za-z0-9_./#-]{8,280}$/.test(evidenceRef) ||
+      /^INCIDENT-[A-Za-z0-9_-]{4,80}$/.test(evidenceRef);
+    const operatorNoteSafe = operatorNote.length >= 6 && operatorNote.length <= 240 &&
+      /^[A-Za-z0-9 .,;:()_-]+$/.test(operatorNote) &&
+      !/(bearer|token|secret|password|api[_ -]?key|sk-|or-v1-|AIza)/i.test(operatorNote);
     if (!body || body.confirm !== 'RESET_GATEWAY_402_CIRCUIT_ONCE' ||
         body.service_restored !== true ||
-        typeof body.evidence_ref !== 'string' || body.evidence_ref.trim().length < 12 || body.evidence_ref.length > 300 ||
-        typeof body.operator_note !== 'string' || body.operator_note.trim().length < 6 || body.operator_note.length > 240) {
+        !evidenceRefValid ||
+        !operatorNoteSafe) {
       return error('explicit_gateway_circuit_reset_evidence_required', 400);
     }
     return this.exclusive(async () => {
@@ -403,8 +411,8 @@ export class AriaMissionStore {
         incident_id: prior.circuit.incident_id,
         closed_at: nowIso(),
         service_restored: true,
-        evidence_ref: body.evidence_ref.trim(),
-        operator_note: body.operator_note.trim()
+        evidence_ref: evidenceRef,
+        operator_note: operatorNote
       };
       await this.ctx.storage.put(key, {
         open: false,
