@@ -88,7 +88,7 @@ Deno.serve(async (r) => {
       return out(repairResult);
     }
     if (toolUse) return out(await toolLoop(agent, missionId, stepId, prompt, false));
-    const requestId = `agent:${missionId}:${stepId}`;
+    const requestId = `${missionId}:${stepId}:${crypto.randomUUID()}`;
     const rr = await fetch(EXEC, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${SECRET}` }, body: JSON.stringify({ execution_version: "1", request_id: requestId, task_id: stepId, capability: "text_generation", selected_route: { status: "selected", provider_id: resource.provider.provider_id, account_id: resource.account.account_id, model_id: resource.model.model_id, capability: resource.capability.capability_id }, authorization: { status: "approved", risk_class: requestedRisk, evidence_ref: `agent:${agentId}` }, input: { payload: { prompt: `${profile.system}\n\nTask:\n${prompt}` } }, policy: b.policy || {}, metadata: { executor_type: "agent", agent_id: agentId, agent_role: catalogAgent.role, mission_id: missionId, step_id: stepId, catalog_source: "aria_agent_catalog", resource_graph: "aria_internal.resolve_agent_resource", provider_id: resource.provider.provider_id, account_id: resource.account.account_id, model_id: resource.model.model_id, capability_id: resource.capability.capability_id } }) });
     const x: any = await rr.json().catch(() => null);
     if (!rr.ok || x?.status !== "succeeded") {
