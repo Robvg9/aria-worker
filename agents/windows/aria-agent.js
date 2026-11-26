@@ -12,6 +12,7 @@ const { runAutonomousRwht } = require('./autonomous-rwht-controller');
 const { getWindowsResourceProfile } = require('./resource-profile');
 const { executeVoiceDeviceCommand, parseAllowlist, UUID_RE } = require('../shared/voice-command-executor.cjs');
 const { createRemoteServiceCircuitBreaker, isRetryableHttpStatus, parseRetryAfterMs } = require('../shared/remote-service-circuit-breaker.cjs');
+const { createRemoteServiceCircuitCoordinator } = require('../shared/remote-service-circuit-coordinator.cjs');
 const { executeWindowsDesktop } = (() => {
   try { return require('./windows-desktop-adapter'); }
   catch (error) { if (error?.code !== 'MODULE_NOT_FOUND') throw error; return require('../../computer-use/windows-desktop-adapter'); }
@@ -24,8 +25,13 @@ const gatewayLookup=createGatewayLookup({
 // Keep the A6 device heartbeat capped at 30 seconds even when a legacy config.json still says 60000.
 const HEARTBEAT_MS=30_000, POLL_MS=Math.max(5_000,Number(process.env.ARIA_POLL_MS||12_000));
 const GATEWAY_TIMEOUT_MS=Math.max(3_000,Number(process.env.ARIA_GATEWAY_TIMEOUT_MS||15_000)), GATEWAY_RETRIES=Math.max(0,Number(process.env.ARIA_GATEWAY_RETRIES||1));
+const circuitCoordinator=createRemoteServiceCircuitCoordinator({agent:'windows'});
 const remoteCircuit=createRemoteServiceCircuitBreaker({
-  onIncident:event=>console.error(`[ARIA] ${event.type} status=${event.status} classification=${event.classification} route=${event.route} incident=${event.incident_id}`)
+  onIncident:async event=>{
+    console.error(`[ARIA] ${event.type} status=${event.status} classification=${event.classification} route=${event.route} incident=${event.incident_id}`);
+    const published=await circuitCoordinator.reportIncident(event,remoteCircuit);
+    if(!published.ok)console.error(`[ARIA] GLOBAL_CIRCUIT_PUBLISH=${published.reason||'unavailable'}; local circuit remains open`);
+  }
 });
 const OLLAMA_URL=process.env.ARIA_OLLAMA_URL||'http://127.0.0.1:11434', OLLAMA_MODEL=process.env.ARIA_OLLAMA_MODEL||'qwen3:0.6b', OLLAMA_OPERATION='ollama.qwen3', SHELL_OPERATION='shell.execute', COMPUTER_OPERATION='computer.use', AUTONOMOUS_COMPUTER_OPERATION='computer.use.autonomous';
 const RESOURCE_PROFILE=getWindowsResourceProfile();
@@ -182,6 +188,7 @@ const nativeGatewayRequest=createGatewayRequest({
   defaultTimeoutMs:GATEWAY_TIMEOUT_MS
 });
 async function api(p,options={}){
+  await circuitCoordinator.sync(remoteCircuit);
   const initialPermit=await remoteCircuit.beforeRequest(p);
   if(!initialPermit.allowed){
     const blocked=new Error('gateway request blocked: '+initialPermit.code);
@@ -515,6 +522,7 @@ process.on('SIGTERM',()=>{stopping=true;void meditationController.shutdown();log
   onRetry:({consecutiveFailures,delayMs})=>log(`HEARTBEAT_RETRY device=${DEVICE_ID} consecutive_failures=${consecutiveFailures} retry_in_ms=${delayMs}`)
 });
 void heartbeatLoop.catch(error=>{console.error(`[heartbeat-loop] ${error.message}`);stopping=true;});let consecutivePollFailures=0;let voiceRetryAt=0;while(!stopping){
+  await circuitCoordinator.sync(remoteCircuit);
   if(await remoteCircuit.isOpen()){await sleep(HEARTBEAT_MS);continue;}
   const voicePermit=await remoteCircuit.beforeRequest('/v1/voice/commands/claim');
   let voiceState='idle';
