@@ -14,6 +14,36 @@ for(const marker of [
   "required_tools_unavailable",
   "specialist_agent_required"
 ]) assert.ok(source.includes(marker),'missing Mission 6 gateway marker: '+marker);
+
+const agentRuntimeSource=fs.readFileSync('supabase/functions/aria-agent-runtime-v1/index.ts','utf8');
+const mission5ModelSource=source.slice(source.indexOf('async function mission5ModelProbe'),source.indexOf('async function mission5AgentProbe'));
+const mission5AgentSource=source.slice(source.indexOf('async function mission5AgentProbe'),source.indexOf('async function markMeditationNotificationsRead'));
+const routerExecuteSource=source.slice(source.indexOf('async function intelligentRouterExecute'),source.indexOf('async function intelligentRouterParallelExecute'));
+const routerParallelSource=source.slice(source.indexOf('async function intelligentRouterParallelExecute'),source.indexOf('function objectiveHumanGate'));
+const allForOneModelSource=source.slice(source.indexOf('async function runModelAuditor'),source.indexOf('async function allForOneStart'));
+const rwhtProbeSource=source.slice(source.indexOf("if(req.method==='POST'&&p==='/v1/rwht-model-probe')"),source.indexOf("if(req.method==='GET'&&p==='/health')"));
+assert.ok(mission5ModelSource.includes("if(!missionId||!stepId)return {ok:false,status:'blocked'"),
+  'Mission 5 direct model probes require a real mission and step');
+assert.ok(mission5ModelSource.includes("request_id:requestId")&&mission5ModelSource.includes("metadata:{mission_id:missionId,step_id:stepId"),
+  'Mission 5 model probes bind the request key and metadata to the same mission/step');
+assert.ok(mission5AgentSource.includes("if(!missionId||!stepId)return {ok:false,status:'blocked'")&&!mission5AgentSource.includes("mission5-agent-probe-'+crypto.randomUUID()"),
+  'Mission 5 agent probes must not manufacture synthetic mission identity');
+assert.ok(agentRuntimeSource.includes('const requestId = `${missionId}:${stepId}:${crypto.randomUUID()}`;'),
+  'agent runtime request IDs use mission:step:nonce identity');
+assert.ok(routerExecuteSource.includes("if(!missionId||!stepId)return{status:'blocked',reason:'mission_budget_mission_context_missing'}"),
+  'Mission 6 single router requires explicit mission and step identity');
+assert.ok(routerExecuteSource.includes("request_id:`${missionId}:${stepId}:${crypto.randomUUID()}`")&&routerExecuteSource.includes("metadata:{mission_id:missionId,step_id:stepId"),
+  'Mission 6 single router passes a matching budget identity to runtime');
+assert.ok(routerExecuteSource.includes("if(budgetErrorCode.startsWith('mission_budget_'))return{status:'blocked'"),
+  'Mission 6 single router stops fallback on any budget gate error');
+assert.ok(routerParallelSource.includes("if(!missionId)return{status:'blocked',reason:'mission_budget_mission_context_missing'}")&&routerParallelSource.includes("request_id:`${missionId}:${stepId}:${crypto.randomUUID()}`"),
+  'Mission 6 parallel router binds each task attempt to a mission and step');
+assert.ok(routerParallelSource.includes("if(budgetErrorCode.startsWith('mission_budget_'))return{task_id:taskId,status:'blocked'"),
+  'Mission 6 parallel router stops route fallback on budget gate error');
+assert.ok(allForOneModelSource.includes("MODEL REVIEW BLOCKED: All-for-One audit run has no mission_state-backed mission ID"),
+  'unscoped All-for-One reviewer is blocked rather than assigned a synthetic mission');
+assert.ok(rwhtProbeSource.includes("mission_budget_mission_context_missing")&&!rwhtProbeSource.includes("await internalFunctionFetch"),
+  'unscoped RWHT direct model probe is blocked before runtime/provider dispatch');
 console.log('MISSION 6 ROUTER V2 GATEWAY CONTRACT: PASS');
 
 (async () => {
