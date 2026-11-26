@@ -377,10 +377,19 @@ function createRemoteServiceCircuitBreaker(options = {}) {
       return { applied: false, reason: 'global_circuit_reset_does_not_match_local_incident' };
     }
     try {
-      await resetAfterAuthorizedRecovery({
-        authorized: true,
-        probe: async () => ({ serviceRestored: true })
+      await withLock(async () => {
+        const latest = (await readState()).state;
+        if (!latest.service_circuit ||
+            latest.service_circuit.global !== true ||
+            latest.service_circuit.global_incident_id !== reset.incident_id) {
+          throw new Error('global_circuit_reset_does_not_match_local_incident');
+        }
+        latest.service_circuit = null;
+        // Preserve 423 route pauses. Clearing a quota circuit must never clear
+        // the canonical mission-execution freeze or route-specific pause state.
+        await writeState(latest);
       });
+      retryAfterUntil.clear();
       return { applied: true, open: false, reset };
     } catch (error) {
       return { applied: false, reason: error && error.message || 'global_circuit_reset_failed' };
