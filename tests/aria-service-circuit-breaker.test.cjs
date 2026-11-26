@@ -159,6 +159,34 @@ async function main() {
     assert.equal(globalReset.applied, true);
     assert.equal((await globalBreaker.beforeRequest('/v1/jobs/claim')).allowed, true);
 
+    const globalWithPausePath = path.join(root, 'global-with-423.json');
+    const globalWithPause = createRemoteServiceCircuitBreaker({ statePath: globalWithPausePath });
+    await globalWithPause.recordResponse('/v1/jobs/claim', 423, {
+      error: 'mission_execution_paused',
+      status: 'paused',
+      execution_enabled: false
+    });
+    await globalWithPause.applyGlobalCircuit({
+      open: true,
+      circuit: {
+        incident_id: 'gateway402_global_with_pause',
+        status: 402,
+        classification: 'unknown_402',
+        route: '/v1/devices/heartbeat',
+        opened_at: new Date().toISOString()
+      }
+    });
+    await globalWithPause.applyGlobalCircuit({
+      open: false,
+      circuit: null,
+      last_reset: {
+        incident_id: 'gateway402_global_with_pause',
+        service_restored: true
+      }
+    });
+    assert.equal((await globalWithPause.beforeRequest('/v1/jobs/claim')).kind, 'route_paused');
+    assert.equal((await globalWithPause.beforeRequest('/v1/devices/heartbeat')).allowed, true);
+
     const localOnlyPath = path.join(root, 'local-only.json');
     const localOnly = createRemoteServiceCircuitBreaker({ statePath: localOnlyPath });
     await localOnly.recordResponse('/v1/devices/heartbeat', 402, { error: 'quota_exceeded' });
