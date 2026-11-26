@@ -133,6 +133,46 @@ async function main() {
     currentTime += 3_001;
     assert.equal((await retryBreaker.beforeRequest('/v1/jobs/claim')).allowed, true);
 
+    const globalPath = path.join(root, 'global-sync.json');
+    const globalBreaker = createRemoteServiceCircuitBreaker({ statePath: globalPath });
+    const globalApplied = await globalBreaker.applyGlobalCircuit({
+      open: true,
+      circuit: {
+        incident_id: 'gateway402_global_123',
+        status: 402,
+        classification: 'unknown_402',
+        route: '/v1/devices/heartbeat',
+        opened_at: new Date().toISOString()
+      }
+    });
+    assert.equal(globalApplied.applied, true);
+    assert.equal((await globalBreaker.beforeRequest('/v1/jobs/claim')).kind, 'service_circuit_open');
+    const globalReset = await globalBreaker.applyGlobalCircuit({
+      open: false,
+      circuit: null,
+      last_reset: {
+        incident_id: 'gateway402_global_123',
+        service_restored: true,
+        closed_at: new Date().toISOString()
+      }
+    });
+    assert.equal(globalReset.applied, true);
+    assert.equal((await globalBreaker.beforeRequest('/v1/jobs/claim')).allowed, true);
+
+    const localOnlyPath = path.join(root, 'local-only.json');
+    const localOnly = createRemoteServiceCircuitBreaker({ statePath: localOnlyPath });
+    await localOnly.recordResponse('/v1/devices/heartbeat', 402, { error: 'quota_exceeded' });
+    const unrelatedReset = await localOnly.applyGlobalCircuit({
+      open: false,
+      circuit: null,
+      last_reset: {
+        incident_id: 'some-other-global-incident',
+        service_restored: true
+      }
+    });
+    assert.equal(unrelatedReset.applied, false);
+    assert.equal((await localOnly.beforeRequest('/v1/devices/heartbeat')).kind, 'service_circuit_open');
+
     let shouldContinue = true;
     let sends = 0;
     const sleeps = [];
@@ -160,13 +200,18 @@ async function main() {
   const windowsSource = await fs.readFile(path.join(__dirname, '../agents/windows/aria-agent.js'), 'utf8');
   const termuxSource = await fs.readFile(path.join(__dirname, '../agents/termux/aria-agent.js'), 'utf8');
   const transportSource = await fs.readFile(path.join(__dirname, '../agents/windows/gateway-http-client.cjs'), 'utf8');
+  assert.match(windowsSource, /circuitCoordinator\.sync\(remoteCircuit\)/);
+  assert.match(windowsSource, /circuitCoordinator\.reportIncident\(event,remoteCircuit\)/);
   assert.match(windowsSource, /remoteCircuit\.beforeRequest/);
   assert.match(windowsSource, /isRetryableHttpStatus/);
+  assert.match(termuxSource, /circuitCoordinator\.sync\(remoteCircuit\)/);
+  assert.match(termuxSource, /circuitCoordinator\.reportIncident\(event, remoteCircuit\)/);
   assert.match(termuxSource, /remoteCircuit\.beforeRequest/);
   assert.match(termuxSource, /remoteCircuit\.isOpen/);
   assert.match(transportSource, /headers:\s*incoming\.headers/);
 
   console.log('ARIA_OPTIMA_P0_CIRCUIT_BREAKER=PASS');
+  console.log('ARIA_OPTIMA_P0_DISTRIBUTED_CIRCUIT_RESET_GATE=PASS');
   console.log('ARIA_OPTIMA_P0_HTTP_402_PERSISTENT_GLOBAL_BLOCK=PASS');
   console.log('ARIA_OPTIMA_P0_HTTP_423_ROUTE_PAUSE=PASS');
   console.log('ARIA_OPTIMA_P0_LOCAL_HEARTBEAT_BLOCKED_MODE=PASS');
