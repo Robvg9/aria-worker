@@ -100,7 +100,7 @@ for (const fragment of [
 ]) {
   assert.ok(migration.includes(fragment), "migration missing: " + fragment);
 }
-assert.ok(runtime.includes("quota_reserve_model_request_v1"), "baseline runtime migration contract");
+assert.ok(runtime.includes("quota_reserve_model_request_v2"), "runtime must use the snapshot-aware quota reservation wrapper");
 
 for (const fragment of [
   "ADD COLUMN IF NOT EXISTS cached_input_tokens",
