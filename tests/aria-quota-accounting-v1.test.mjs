@@ -101,6 +101,8 @@ for (const fragment of [
   assert.ok(migration.includes(fragment), "migration missing: " + fragment);
 }
 assert.ok(runtime.includes("quota_reserve_model_request_v2"), "runtime must use the snapshot-aware quota reservation wrapper");
+assert.ok(runtime.includes("parseOpenRouterFreeDailyQuota"), "runtime must read authoritative OpenRouter daily quota");
+assert.ok(runtime.includes('route.provider_id==="mistral"'), "permanently excluded Mistral route must be blocked");
 
 for (const fragment of [
   "ADD COLUMN IF NOT EXISTS cached_input_tokens",
