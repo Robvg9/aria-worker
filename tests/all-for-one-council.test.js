@@ -45,9 +45,13 @@ assert.doesNotMatch(gateway,/\$\{URL\}\/functions\/v1\/aria-/);
 assert.doesNotMatch(gateway,/from\('all_for_one_runs'\)\.select\('\*'\)\.order\('created_at'/);
 assert.match(supervisorSource,/x-aria-autonomy-token/);
 
-assert.match(gateway,/input:\{payload:\{prompt:auditPrompt\(snapshot,'independent model reviewer',String\(m\.model_id\)\)\.slice\(0,16000\),max_tokens:1400/);
-
-assert.match(gateway,/auditPrompt\(snapshot,'independent model reviewer',String\(m\.model_id\)\)\.slice\(0,16000\)/);
+const modelAuditorStart=gateway.indexOf('async function runModelAuditor(');
+const modelAuditorEnd=gateway.indexOf('async function allForOneStart()',modelAuditorStart);
+const modelAuditorBlock=gateway.slice(modelAuditorStart,modelAuditorEnd);
+assert.match(modelAuditorBlock,/status:'blocked'/);
+assert.match(modelAuditorBlock,/mission_budget_mission_context_missing/);
+assert.doesNotMatch(modelAuditorBlock,/fetch\(|internalFunctionFetch/,
+  'All-for-One model auditor without a mission budget must not send provider requests');
 
 assert.match(executionRuntime,/reasoning:\{effort:'none'\}/);
 
