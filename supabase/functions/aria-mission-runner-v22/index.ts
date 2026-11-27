@@ -4612,6 +4612,21 @@ if (!physicalPlanValidation.ok) {
         }
         }
 
+        const budgetErrorCode = String(result?.error?.code || result?.error?.reason || result?.reason || "");
+        if (budgetErrorCode.startsWith("mission_budget_")) {
+          await emitEvent(missionId, "step_blocked", {
+            step_id: id,
+            executor_type: executorType(step),
+            operation: step.operation,
+            attempt: nextAttempt,
+            reason: budgetErrorCode,
+            result_status: result?.status ?? null,
+            budget_gate: true,
+            independent_verification_skipped: true,
+          });
+          return { step, result, passed: false, waiting: false, budgetBlocked: true };
+        }
+
         let independent = { passed: true, skipped: true };
         try { independent = await independentVerify(mission, step, result); } catch (error) { independent = { passed: false, skipped: false, reason: String(error instanceof Error ? error.message : error) }; }
         const synthesisVerification = evidenceBoundSynthesisVerification(step, result, results);
@@ -4719,6 +4734,95 @@ if (!physicalPlanValidation.ok) {
           lease_until: null,
         });
         return out({ ok: true, status: "waiting", mission_id: missionId, runtime: V, completed_steps: completed.size, pending_step: String(waiting.step.id) });
+      }
+
+      const budgetBlockedOutcomes = outcomes.filter((item) => item.budgetBlocked === true);
+      if (budgetBlockedOutcomes.length) {
+        const failedStepIds = budgetBlockedOutcomes.map((item) => String(item.step.id));
+        const budgetEvidence = budgetBlockedOutcomes.map((item) => ({
+          step_id: String(item.step.id),
+          executor_type: executorType(item.step),
+          operation: String(item.step.operation || ""),
+          error_code: String(item.result?.error?.code || item.result?.error?.reason || item.result?.reason || "mission_budget_blocked"),
+          result_status: String(item.result?.status || "blocked"),
+          provider_status: Number.isInteger(item.result?.error?.provider_status) ? item.result.error.provider_status : null,
+        }));
+        const persistedPendingJobs = checkpoint?.pending_jobs && typeof checkpoint.pending_jobs === "object"
+          ? checkpoint.pending_jobs
+          : {};
+        const pendingJobIds = Object.values(persistedPendingJobs)
+          .map((item:any) => String(item?.job_id || "").trim())
+          .filter(Boolean);
+        const details = {
+          kind: "budget_gate",
+          recoverable: false,
+          reason: "El presupuesto de misión o la liquidación de una petición no pudo confirmarse. ARIA detuvo la misión sin cambiar de proveedor ni repetir el paso.",
+          next_action: "budget:owner_review_required",
+          remediation: "Revisar el estado real de cuota y las reservas de la misión. Conciliar cualquier resultado UNKNOWN antes de considerar otra ejecución. Definir y aprobar límites explícitos; no se asignan importes ni cuotas por inferencia.",
+          evidence: {
+            failed_step_ids: failedStepIds,
+            budget_blocks: budgetEvidence,
+            pending_job_ids: pendingJobIds,
+            completed_steps_preserved: [...completed],
+          },
+        };
+        const recovery = {
+          status: "mission_budget_blocked",
+          replan_required: false,
+          failed_step_id: failedStepIds[0] || null,
+          failed_step_ids: failedStepIds,
+          budget_gate: {
+            status: "owner_review_required",
+            blocks: budgetEvidence,
+            pending_job_ids: pendingJobIds,
+          },
+          block_details: details,
+        };
+        await emitEvent(missionId, "checkpoint_saved", {
+          kind: "mission_budget_blocked",
+          completed_steps: [...completed],
+          plan: steps,
+          attempts,
+          pending_job_ids: pendingJobIds,
+          budget_gate: budgetEvidence,
+        });
+        await updateMission(missionId, {
+          status: "blocked",
+          current_step: completed.size,
+          completed_steps: completed.size,
+          next_action: details.next_action,
+          last_stderr: "mission_budget_blocked",
+          checkpoint: {
+            ...checkpoint,
+            plan: steps,
+            completed_steps: [...completed],
+            attempts,
+            results,
+            pending_jobs: persistedPendingJobs,
+            recovery,
+            active_step: null,
+          },
+          lease_owner: null,
+          lease_until: null,
+        });
+        await emitEvent(missionId, "mission_budget_blocked", {
+          recovery_status: "mission_budget_blocked",
+          replan_required: false,
+          failed_step_ids: failedStepIds,
+          pending_job_ids: pendingJobIds,
+          completed_steps: [...completed],
+        });
+        return out({
+          ok: false,
+          status: "blocked",
+          reason: "mission_budget_blocked",
+          mission_id: missionId,
+          runtime: V,
+          completed_steps: completed.size,
+          failed_step_ids: failedStepIds,
+          pending_job_ids: pendingJobIds,
+          block_details: details,
+        });
       }
 
       // Provider permission denials are operator-owned configuration gates, not

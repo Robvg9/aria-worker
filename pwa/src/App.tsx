@@ -1614,10 +1614,13 @@ function MissionDetail({ mission, events, diagnostic, onClose, onRetry, onVerify
   const block = mission?.block_details || null;
   const isHumanGate = block?.kind === 'human_gate';
   const isVerificationPending = block?.kind === 'verification_pending';
+  const isBudgetBlocked = block?.kind === 'budget_gate' || mission?.checkpoint?.recovery?.status === 'mission_budget_blocked';
   const verificationMismatch = String(mission?.checkpoint?.verification?.reason || '').toLowerCase() === 'mutation_verification_evidence_mismatch';
-  const humanProblemTitle = isHumanGate
-    ? 'Hay una acción tuya pendiente'
-    : isVerificationPending
+  const humanProblemTitle = isBudgetBlocked
+    ? 'Presupuesto o cuota bloqueó la misión'
+    : isHumanGate
+      ? 'Hay una acción tuya pendiente'
+      : isVerificationPending
       ? 'ARIA está esperando una comprobación'
       : verificationMismatch
         ? 'La comprobación final falló'
@@ -1625,19 +1628,27 @@ function MissionDetail({ mission, events, diagnostic, onClose, onRetry, onVerify
           ? 'La misión está bloqueada'
           : 'La misión necesita atención';
   const diagnosticSummary = diagnosticHumanSummary(diagnostic, mission, events);
-  const humanProblemSummary = isHumanGate
-    ? humanizeTechnicalText(block?.explanation || block?.reason || 'ARIA necesita que completes una acción antes de continuar.')
-    : isVerificationPending
+  const humanProblemSummary = isBudgetBlocked
+    ? humanizeTechnicalText(block?.explanation || 'ARIA detuvo la ejecución y guardó el checkpoint. No se debe reintentar hasta revisar cuota, resultados UNKNOWN y límites aprobados.')
+    : isHumanGate
+      ? humanizeTechnicalText(block?.explanation || block?.reason || 'ARIA necesita que completes una acción antes de continuar.')
+      : isVerificationPending
       ? 'ARIA ya hizo el cambio. No repitas el trabajo: falta una comprobación externa antes de poder cerrar la misión.'
       : verificationMismatch
         ? 'ARIA sí hizo el cambio y encontró el archivo, pero el último comprobador devolvió otra ubicación. Por seguridad, la misión quedó detenida.'
         : humanizeTechnicalText(block?.explanation || block?.reason || diagnosticSummary.problem || 'ARIA no pudo completar la misión con la estrategia actual.');
-  const recoverySteps = isVerificationPending
+  const recoverySteps = isBudgetBlocked
     ? [
-        'No repitas el cambio: ARIA ya lo ejecutó y dejó la evidencia guardada.',
-        'ARIA seguirá comprobando el resultado cuando la verificación externa esté disponible.'
+        'No pulses Reintentar misión: esta parada conserva el plan y los resultados para evitar una repetición.',
+        'Revisa cuota y reservas UNKNOWN; concilia primero cualquier petición que el proveedor pudiera haber aceptado.',
+        'Define y aprueba límites explícitos antes de solicitar una reanudación gobernada.'
       ]
-    : verificationMismatch
+    : isVerificationPending
+      ? [
+          'No repitas el cambio: ARIA ya lo ejecutó y dejó la evidencia guardada.',
+          'ARIA seguirá comprobando el resultado cuando la verificación externa esté disponible.'
+        ]
+      : verificationMismatch
       ? [
           'No repitas la escritura: ARIA ya dejó el archivo creado en una rama de trabajo.',
           block?.link ? 'Abre el cambio real en GitHub y comprueba que el archivo está ahí.' : 'La evidencia técnica conserva la rama y el archivo reales.',
@@ -1716,7 +1727,7 @@ function MissionDetail({ mission, events, diagnostic, onClose, onRetry, onVerify
             )}
             </div>
             {block?.link && <div className='recoveryActions'><a className='ghost recoveryLink' href={block.link} target='_blank' rel='noreferrer'>{block.link_label || 'Abrir recurso relacionado'}</a></div>}
-            {(isHumanGate || onRetry || onVerifyRetry) && (isHumanGate ? onHumanGateApprove : (isVerificationPending ? null : (verificationMismatch ? onVerifyRetry : onRetry))) && (
+            {(isHumanGate || onRetry || onVerifyRetry) && (isHumanGate ? onHumanGateApprove : (isBudgetBlocked || isVerificationPending ? null : (verificationMismatch ? onVerifyRetry : onRetry))) && (
               <div className='missionProblemActions'>
                 {isHumanGate ? (
                   <button className='primary' disabled={approvingGate || cancelling} onClick={async () => {
@@ -1739,7 +1750,7 @@ function MissionDetail({ mission, events, diagnostic, onClose, onRetry, onVerify
             {gateError && <div className='errorBox'>{gateError}</div>}
             {retryError && <div className='errorBox'>{retryError}</div>}
             <div className='missionRecoveryTitle'>Cómo desbloquearla</div>
-            <div className='missionProblemFooter'>{isHumanGate ? 'Después de continuar, ARIA retomará la misión desde el paso pendiente.' : verificationMismatch ? 'La escritura ya está hecha; el reintento debe volver a comprobarla, no volver a inventar el resultado.' : block?.recoverable ? 'La misión conserva la evidencia y puede continuar.' : 'La misión necesita una nueva intervención para seguir.'}</div>
+            <div className='missionProblemFooter'>{isBudgetBlocked ? 'El checkpoint se conserva. La misión no se reintentará hasta que se revisen cuota, reservas y política aprobada.' : isHumanGate ? 'Después de continuar, ARIA retomará la misión desde el paso pendiente.' : verificationMismatch ? 'La escritura ya está hecha; el reintento debe volver a comprobarla, no volver a inventar el resultado.' : block?.recoverable ? 'La misión conserva la evidencia y puede continuar.' : 'La misión necesita una nueva intervención para seguir.'}</div>
           </div>
         )}
 
