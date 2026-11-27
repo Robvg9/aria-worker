@@ -13,6 +13,7 @@ const {
   parseRetryAfterMs
 } = require('../agents/shared/remote-service-circuit-breaker.cjs');
 const { runHeartbeatLoop } = require('../agents/windows/heartbeat-scheduler.cjs');
+const { REQUIRED_CONFIRMATION, resetLocalCircuit } = require('../scripts/aria-reset-local-circuit.cjs');
 
 async function main() {
   assert.equal(classify402({ error: 'quota_exceeded' }), 'quota_exhausted');
@@ -120,6 +121,49 @@ async function main() {
     });
     assert.equal(pauseReset.cleared_paused_routes, 1);
     assert.equal((await paused.beforeRequest('/v1/jobs/claim')).allowed, true);
+
+    // The owner-facing local reset utility must not clear a route pause without
+    // explicit service-restored and canonical-freeze-cleared attestations.
+    const manualResetPath = path.join(root, 'manual-reset.json');
+    const manualBreaker = createRemoteServiceCircuitBreaker({ statePath: manualResetPath });
+    await manualBreaker.recordResponse('/v1/jobs/claim', 423, {
+      error: 'mission_execution_paused',
+      status: 'paused',
+      execution_enabled: false
+    });
+    const manualResetBase = {
+      statePath: manualResetPath,
+      confirm: REQUIRED_CONFIRMATION,
+      serviceRestored: true,
+      canonicalFreezeCleared: true,
+      evidenceRef: 'https://github.com/Robvg9/aria-worker/pull/1474',
+      operatorNote: 'Owner verified the canonical freeze is cleared in the deployed gateway.'
+    };
+    await assert.rejects(
+      () => resetLocalCircuit({ ...manualResetBase, confirm: 'wrong-confirmation' }),
+      /local_circuit_reset_confirmation_required/
+    );
+    await assert.rejects(
+      () => resetLocalCircuit({ ...manualResetBase, serviceRestored: false }),
+      /local_circuit_reset_service_restored_attestation_required/
+    );
+    await assert.rejects(
+      () => resetLocalCircuit({ ...manualResetBase, canonicalFreezeCleared: false }),
+      /local_circuit_reset_canonical_freeze_attestation_required/
+    );
+    await assert.rejects(
+      () => resetLocalCircuit({ ...manualResetBase, evidenceRef: '' }),
+      /local_circuit_reset_evidence_ref_required/
+    );
+    const manualReset = await resetLocalCircuit(manualResetBase);
+    assert.equal(manualReset.reset, true);
+    assert.equal(manualReset.cleared_paused_routes, 1);
+    assert.equal((await manualBreaker.beforeRequest('/v1/jobs/claim')).allowed, true);
+    const resetAudit = (await fs.readFile(manualResetPath + '.reset-audit.jsonl', 'utf8'))
+      .trim().split('\\n').map(line => JSON.parse(line));
+    assert.deepEqual(resetAudit.map(item => item.phase), ['requested', 'completed']);
+    assert.equal(resetAudit[1].canonical_freeze_cleared_owner_attestation, true);
+    assert.equal(resetAudit[1].evidence_ref, manualResetBase.evidenceRef);
 
     const retryPath = path.join(root, 'retry.json');
     const retryBreaker = createRemoteServiceCircuitBreaker({
