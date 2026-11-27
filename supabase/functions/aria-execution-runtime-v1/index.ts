@@ -152,8 +152,6 @@ async function directGemini(route:any,input:any,requestId:string,providerTimeout
   if(!GOOGLE_API_KEY)return out({status:"failed",error:{code:"credential_unavailable",message:"google credential unavailable"}});
   const p=input?.payload??{};const contents=Array.isArray(p.contents)&&p.contents.length?p.contents:(typeof p.prompt==="string"&&p.prompt.length?[{role:"user",parts:[{text:p.prompt}]}]:null);
   if(!contents)return out({status:"blocked",reason:"input_missing"});
-  if(!guardedReservation.allowed)return guardedReservation.response;
-  const reservationKey=guardedReservation.reservationKey;
   const body:any={contents};if(p.systemInstruction)body.systemInstruction=p.systemInstruction;if(p.generationConfig)body.generationConfig={...p.generationConfig};
   if(Array.isArray(p.tools)&&p.tools.length){
     const functions=p.tools.flatMap((group:any)=>Array.isArray(group?.functionDeclarations)?group.functionDeclarations:[]).filter((fn:any)=>typeof fn?.name==="string"&&fn.name.trim()).slice(0,5);
@@ -163,6 +161,8 @@ async function directGemini(route:any,input:any,requestId:string,providerTimeout
   if(body.generationConfig?.topP!==undefined){const {topP,...rest}=body.generationConfig;body.generationConfig=rest;}
   if(body.generationConfig?.topK!==undefined){const {topK,...rest}=body.generationConfig;body.generationConfig=rest;}
   const guardedReservation=await reserveProviderCall(route,requestId,budgetContext,null,providerTimeoutMs?Math.min(3000,providerTimeoutMs):8000,body);
+  if(!guardedReservation.allowed)return guardedReservation.response;
+  const reservationKey=guardedReservation.reservationKey;
   const controller=new AbortController();const timeout=setTimeout(()=>controller.abort(),providerTimeoutMs??20000);
   let res:Response;let json:any=null;
   try{

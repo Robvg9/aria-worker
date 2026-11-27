@@ -316,7 +316,7 @@ assert.ok(runtime.includes("estimateMissionTokenUpperBound(route,providerPayload
 assert.ok(runtime.includes('estimatedTokens:estimate.status==="bounded_estimate"?estimate.estimatedTokens:null'), "runtime must preserve unknown estimates as NULL");
 for (const [name, payloadArg] of [["directGemini","body"],["xaiResponses","body"],["openRouterChat","reqBody"]]) {
   const start = runtime.indexOf("async function " + name + "(");
-  const next = runtime.indexOf("\\nasync function ", start + 20);
+  const next = runtime.indexOf("\nasync function ", start + 20);
   const adapter = runtime.slice(start, next < 0 ? runtime.length : next);
   assert.ok(adapter.includes(payloadArg+");"), name + " must give the bounded estimator the actual provider request body");
 }
