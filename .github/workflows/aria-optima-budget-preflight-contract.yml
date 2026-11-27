@@ -4,6 +4,7 @@ on:
   pull_request:
     branches:
       - main
+      - fix/aria-optima-budget-block-checkpoint-resume-guard-20261127
     paths:
       - 'supabase/functions/aria-execution-runtime-v1/**'
       - 'tests/aria-quota-accounting-v1.test.mjs'
