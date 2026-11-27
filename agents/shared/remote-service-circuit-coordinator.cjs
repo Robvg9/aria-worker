@@ -11,6 +11,17 @@ const ALLOWED_CLASSIFICATIONS = new Set([
   'service_restriction',
   'unknown_402'
 ]);
+const ALLOWED_FIXED_ROUTES = new Set([
+  '/v1/devices/heartbeat',
+  '/v1/devices/enroll',
+  '/v1/jobs/claim',
+  '/v1/voice/commands/claim'
+]);
+const ALLOWED_JOB_ROUTE = /^\\/v1\\/jobs\\/:id\\/(?:start|progress|result|status|resolve-secret)$/;
+
+function isAllowedCircuitRoute(route) {
+  return ALLOWED_FIXED_ROUTES.has(route) || ALLOWED_JOB_ROUTE.test(route);
+}
 
 function createRemoteServiceCircuitCoordinator(options = {}) {
   const env = options.env || process.env;
@@ -64,7 +75,7 @@ function createRemoteServiceCircuitCoordinator(options = {}) {
     const route = String(event && event.route || '');
     const incidentId = String(event && event.incident_id || '');
     if (!ALLOWED_CLASSIFICATIONS.has(classification) ||
-        !/^\/v1\/(?:devices\/(?:heartbeat|enroll)|jobs\/claim|voice\/commands\/claim)$/.test(route) ||
+        !isAllowedCircuitRoute(route) ||
         !/^[A-Za-z0-9_-]{8,128}$/.test(incidentId)) {
       return { ok: false, reason: 'incident_payload_invalid' };
     }
@@ -126,5 +137,6 @@ function createRemoteServiceCircuitCoordinator(options = {}) {
 
 module.exports = {
   DEFAULT_COORDINATOR_URL,
-  createRemoteServiceCircuitCoordinator
+  createRemoteServiceCircuitCoordinator,
+  isAllowedCircuitRoute
 };
