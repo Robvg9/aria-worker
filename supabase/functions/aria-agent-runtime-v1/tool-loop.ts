@@ -534,7 +534,7 @@ export async function toolLoop(agent: any, missionId: string, stepId: string, pr
       } catch (error) {
         result = { ok: false, error: error instanceof Error ? error.message : String(error) };
       }
-      messages.push({ role: "tool", tool_call_id: toolCall.id, content: JSON.stringify(result).slice(0, 12000) });
+      messages.push({ role: "tool", tool_call_id: toolCall.id, name, content: JSON.stringify(result).slice(0, 12000) });
       if (result?.ok === false && String(result?.error || "").includes("github_404")) {
         await recordDiagnostic(missionId, stepId, {
           status: "blocked",
