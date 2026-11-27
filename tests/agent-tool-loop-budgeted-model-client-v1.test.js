@@ -152,6 +152,14 @@ const assert = require('node:assert/strict');
     caller(agent, missionId, stepId, 'gemini-3.1-flash-lite', [], [tool], true, 'google', true, {}, {}),
     /agent_tool_loop_human_gate_required/,
   );
+  await assert.rejects(
+    caller(agent, 'another-mission', stepId, 'gemini-3.1-flash-lite', [], [tool], true, 'google', true, gatePolicy, gateAuthorization),
+    /agent_tool_loop_human_gate_scope_mismatch/,
+  );
+  await assert.rejects(
+    caller(agent, missionId, 'another-step', 'gemini-3.1-flash-lite', [], [tool], true, 'google', true, gatePolicy, gateAuthorization),
+    /agent_tool_loop_human_gate_scope_mismatch/,
+  );
   assert.equal(requests.length, requestCountBeforeGuards);
 
   // A budget denial or uncertain settlement remains a typed terminal error.

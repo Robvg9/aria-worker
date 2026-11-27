@@ -51,6 +51,10 @@ assert.match(runtime, /gemini_parts:parts/);
 assert.match(runtime, /!Array\.isArray\(input\?\.payload\?\.tools\)/);
 assert.match(runtime, /const MISSION_EXECUTION_PAUSED = true/);
 
+assert.ok(runtime.includes("az.human_gate_mission_id!==requestMissionId"), 'runtime must bind Human Gate mission to execution metadata');
+assert.ok(runtime.includes("az.human_gate_step_id!==requestStepId"), 'runtime must bind Human Gate step to execution metadata');
+assert.ok(runtime.indexOf("az.human_gate_mission_id!==requestMissionId") < runtime.indexOf('sb.rpc("human_gate_authorize_execution"'),
+  'Human Gate scope must be rejected before the approval RPC');
 assert.match(guard, /mission_budget_reserve_request_v1/);
 assert.match(guard, /mission_budget_settle_request_v1/);
 assert.match(guard, /mission_budget_settlement_pending/);

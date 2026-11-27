@@ -316,7 +316,15 @@ const missionBudgetContext=budgetExempt?null:createMissionBudgetContext({
 if(!budgetExempt&&!missionBudgetContext?.ok){
   const reason=missionBudgetContext?.reason||"mission_budget_mission_context_missing";
   return out({status:"blocked",reason,error:{code:reason}},423);
-}if(policy?.human_gate_required===true){if(az.human_gate_verified!==true)return out({status:"blocked",reason:"human_gate_required"});if(typeof az.human_gate_mission_id!=="string"||typeof az.human_gate_step_id!=="string"||typeof az.human_gate_action_hash!=="string"||typeof az.human_gate_approval_token!=="string")return out({status:"blocked",reason:"human_gate_evidence_missing"});const {data:gateOk,error:gateError}=await sb.rpc("human_gate_authorize_execution",{p_mission_id:az.human_gate_mission_id,p_step_id:az.human_gate_step_id,p_action_hash:az.human_gate_action_hash,p_approval_token:az.human_gate_approval_token});if(gateError||gateOk!==true)return out({status:"blocked",reason:"human_gate_authorization_invalid"});}
+}if(policy?.human_gate_required===true){
+  if(az.human_gate_verified!==true)return out({status:"blocked",reason:"human_gate_required"});
+  if(typeof az.human_gate_mission_id!=="string"||typeof az.human_gate_step_id!=="string"||typeof az.human_gate_action_hash!=="string"||typeof az.human_gate_approval_token!=="string")return out({status:"blocked",reason:"human_gate_evidence_missing"});
+  const requestMissionId=String(body?.metadata?.mission_id||"").trim();
+  const requestStepId=String(body?.metadata?.step_id||"").trim();
+  if(az.human_gate_mission_id!==requestMissionId||az.human_gate_step_id!==requestStepId)return out({status:"blocked",reason:"human_gate_scope_mismatch"},423);
+  const {data:gateOk,error:gateError}=await sb.rpc("human_gate_authorize_execution",{p_mission_id:az.human_gate_mission_id,p_step_id:az.human_gate_step_id,p_action_hash:az.human_gate_action_hash,p_approval_token:az.human_gate_approval_token});
+  if(gateError||gateOk!==true)return out({status:"blocked",reason:"human_gate_authorization_invalid"});
+}
 // LIVE resilience fault injection: auth already required; gated by evidence_ref prefix only.
 // Produces the SAME error shapes as real upstream failures so recovery paths can be exercised end-to-end.
 const _fault=body?.metadata?.fault_injection;const _eref=String(az?.evidence_ref||"");

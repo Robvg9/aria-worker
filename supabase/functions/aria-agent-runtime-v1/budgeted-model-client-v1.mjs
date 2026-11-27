@@ -156,6 +156,12 @@ export function createBudgetedModelCaller(options = {}) {
     )) {
       throw new Error('agent_tool_loop_human_gate_required');
     }
+    if (allowWrite && (
+      authorizationInput.human_gate_mission_id !== mission
+      || authorizationInput.human_gate_step_id !== step
+    )) {
+      throw new Error('agent_tool_loop_human_gate_scope_mismatch');
+    }
 
     const nonce = String(nonceFactory() || '').trim();
     if (!nonce || nonce.length > 120) throw new Error('agent_tool_loop_request_nonce_invalid');
