@@ -21,6 +21,9 @@ assert.match(budgetClient, /canFallback: !missionBudgetTerminal && round === 0/)
 assert.match(budgetClient, /agent_tool_loop_human_gate_required/);
 assert.match(budgetClient, /human_gate_required: true/);
 assert.match(loop, /tool_call_id: toolCall.id, name/);
+assert.match(loop, /catch \\(error\\) \\{\\s*lastModelError = error;\\s*const reason = error instanceof Error \\? error.message : String\\(error \\?\\? 'provider_error'\\);\\s*const fallbackDecision = classifyAgentToolModelFailure/,
+  'provider fallback diagnostics must derive a reason inside the catch scope');
+assert.match(loop, /message:reason/, 'fallback diagnostic must retain the derived provider error message');
 assert.doesNotMatch(loop, /generativelanguage\.googleapis\.com|openrouter\.ai\/api|GOOGLE_API_KEY|credential_read_secret/);
 
 assert.match(agent, /const MISSION_EXECUTION_PAUSED = true/);
