@@ -19,6 +19,7 @@ Each candidate must provide:
 - `quality_score` in [0,1]
 - `cost_per_1k_input_usd` >= 0
 - `cost_per_1k_output_usd` >= 0
+- `cost_evidence`: an evidence object with a non-empty `source_id`, `observed: true`, and `verified: true`; numeric zero without this evidence is not a verified free price.
 - `latency_ms` > 0
 - optional `compute_units` >= 0
 - `risk_score` in [0,1]
@@ -34,7 +35,7 @@ A normalized utility score is produced only after hard budget/risk/latency const
 
 ## Fail-closed rules
 - Invalid task/candidate data -> no decision.
-- Missing required economic dimensions -> candidate is not eligible unless the caller explicitly allows unknown economics; even then it cannot win against a fully known eligible candidate with sufficient quality.
+- Missing, malformed, or unverified pricing evidence -> candidate is not eligible. A numeric zero without observed, verified source evidence is not a free-tier signal.
 - Any max budget breach -> excluded.
 - Risk above tolerance -> excluded.
 - Capability mismatch -> excluded.
