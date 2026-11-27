@@ -138,10 +138,10 @@ async function main() {
   assert.equal(insecure.configured, false, 'HTTP coordinator URL must fail closed');
 
   const windowsAgent = fs.readFileSync(path.join(__dirname, '../agents/windows/aria-agent.js'), 'utf8');
-  const authCheck = windowsAgent.match(/async function readJobAuthorization\\(job\\)\\{([\\s\\S]*?)\\n\\}/);
+  const authCheck = windowsAgent.match(/async function readJobAuthorization\(job\)\{([\s\S]*?)\n\}/);
   assert.ok(authCheck, 'Windows job authorization guard must exist');
-  assert.match(authCheck[1], /await api\\(path,/);
-  assert.doesNotMatch(authCheck[1], /nativeGatewayRequest|fetch\\(/, 'job authorization reads must pass through the persistent circuit breaker');
+  assert.match(authCheck[1], /await api\(path,/);
+  assert.doesNotMatch(authCheck[1], /nativeGatewayRequest|fetch\(/, 'job authorization reads must pass through the persistent circuit breaker');
 
   console.log('ARIA_OPTIMA_DISTRIBUTED_CIRCUIT_CLIENT=PASS');
   console.log('ARIA_OPTIMA_DISTRIBUTED_CIRCUIT_AUTH_AND_REDACTION=PASS');
