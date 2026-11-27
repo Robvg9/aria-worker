@@ -6,6 +6,7 @@ const path = require('node:path');
 const root = path.join(__dirname, '..');
 const source = fs.readFileSync(path.join(root, 'supabase/functions/aria-agent-runtime-v1/index.ts'), 'utf8');
 const loopSource = fs.readFileSync(path.join(root, 'supabase/functions/aria-agent-runtime-v1/tool-loop.ts'), 'utf8');
+const budgetClient = fs.readFileSync(path.join(root, 'supabase/functions/aria-agent-runtime-v1/budgeted-model-client-v1.mjs'), 'utf8');
 const executionRuntime = fs.readFileSync(path.join(root, 'supabase/functions/aria-execution-runtime-v1/index.ts'), 'utf8');
 
 for (const agent of [
@@ -29,18 +30,20 @@ assert.ok(source.includes('rawCode.startsWith("mission_budget_")'), 'wrapper mus
 assert.ok(source.includes('agent_tool_loop_human_gate_required'), 'missing Human Gate fail-closed handling');
 
 assert.ok(loopSource.includes('aria-execution-runtime-v1'));
-assert.ok(loopSource.includes('async function callBudgetedModel('));
-assert.ok(loopSource.includes('request_id: requestId'));
-assert.ok(loopSource.includes('String(missionId) + ":" + String(stepId) + ":" + crypto.randomUUID()'));
-assert.ok(loopSource.includes('missionBudgetTerminal'));
-assert.ok(loopSource.includes('!missionBudgetTerminal && round === 0'), 'budget denial must stop provider fallback');
-assert.ok(loopSource.includes('tool_choice: forceTool ? "required" : "auto"'));
-assert.ok(loopSource.includes('geminiParts'), 'Gemini thought-signature parts must survive tool turns');
-assert.ok(loopSource.includes('human_gate_required: true'), 'repair turns must require Human Gate');
+assert.ok(loopSource.includes('createBudgetedModelCaller'));
+assert.ok(loopSource.includes('classifyAgentToolModelFailure'));
+assert.ok(budgetClient.includes('request_id: requestId'));
+assert.ok(budgetClient.includes("mission + ':' + step + ':' + nonce"), 'request ID must bind mission, step and unique nonce');
+assert.ok(budgetClient.includes('missionBudgetTerminal'));
+assert.ok(budgetClient.includes('canFallback: !missionBudgetTerminal && round === 0'), 'budget denial must stop provider fallback');
+assert.ok(budgetClient.includes("tool_choice: forceTool ? 'required' : 'auto'"));
+assert.ok(budgetClient.includes('geminiParts'), 'Gemini thought-signature parts must survive tool turns');
+assert.ok(budgetClient.includes('human_gate_required: true'), 'repair turns must require Human Gate');
+assert.ok(budgetClient.includes('retryableProviderAvailability'));
 assert.ok(loopSource.includes('preferredProvider === "openrouter"'));
 assert.ok(loopSource.includes('providerLock'));
 assert.ok(loopSource.includes('recovery_openrouter_free_route_unavailable'));
-assert.ok(loopSource.includes('retryableProviderAvailability'));
+assert.ok(loopSource.includes('fallbackDecision.retryableProviderAvailability'));
 assert.ok(loopSource.includes('github_file_patch'));
 assert.ok(loopSource.includes('patch_match_count_'));
 assert.ok(loopSource.includes('FINDINGS:') && loopSource.includes('VERDICT:'));
