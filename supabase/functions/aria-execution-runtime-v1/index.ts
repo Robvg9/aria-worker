@@ -2,7 +2,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { m22Gate3HumanGateActionHash, m22Gate3RouteAllowed, m22MissionWonder2ScopedProbeAllowed } from "../_shared/mission-wonder-2-gate3-scope-v1.mjs";
 import { parseOpenRouterFreeDailyQuota, extractProviderUsage, parseQuotaReservation } from "./quota-accounting-v1.mjs";
-import { createMissionBudgetContext, reserveMissionBudget, settleMissionBudget, missionBudgetSettlementPending, missionBudgetProviderOutcomeUnknown } from "./mission-budget-guard-v1.mjs";
+import { createMissionBudgetContext, estimateMissionTokenUpperBound, reserveMissionBudget, settleMissionBudget, missionBudgetSettlementPending, missionBudgetProviderOutcomeUnknown } from "./mission-budget-guard-v1.mjs";
 import { isCloudflarePlanPreviewRequest } from "../_shared/cloudflare-plan-preview-auth-v1.mjs";
 const MISSION_EXECUTION_PAUSED = true;
 const URL=Deno.env.get("SUPABASE_URL")!;const KEY=Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;const SECRET=Deno.env.get("ARIA_RUNTIME_SHARED_SECRET")??"";const PLAN_BRIDGE_SECRET=Deno.env.get("ARIA_PLAN_PRODUCER_SHARED_SECRET")??"";const GOOGLE_API_KEY=Deno.env.get("GOOGLE_API_KEY")??"";
@@ -95,9 +95,12 @@ async function settleProviderAttempt(reservationKey:string,budgetContext:any,out
   return {quotaSettled,budgetSettled};
 }
 
-async function reserveProviderCall(route:any,requestId:string,budgetContext:any,suppliedOpenRouterKey:string|null=null,quotaSnapshotTimeoutMs=8000) {
+async function reserveProviderCall(route:any,requestId:string,budgetContext:any,suppliedOpenRouterKey:string|null=null,quotaSnapshotTimeoutMs=8000,providerPayload:any=null) {
   if(budgetContext){
-    const budget=await reserveMissionBudget(missionBudgetRpc,budgetContext);
+    const estimate=estimateMissionTokenUpperBound(route,providerPayload);
+    const budget=await reserveMissionBudget(missionBudgetRpc,budgetContext,{
+      estimatedTokens:estimate.status==="bounded_estimate"?estimate.estimatedTokens:null,
+    });
     if(!budget.allowed){
       return {
         allowed:false,
@@ -149,9 +152,6 @@ async function directGemini(route:any,input:any,requestId:string,providerTimeout
   if(!GOOGLE_API_KEY)return out({status:"failed",error:{code:"credential_unavailable",message:"google credential unavailable"}});
   const p=input?.payload??{};const contents=Array.isArray(p.contents)&&p.contents.length?p.contents:(typeof p.prompt==="string"&&p.prompt.length?[{role:"user",parts:[{text:p.prompt}]}]:null);
   if(!contents)return out({status:"blocked",reason:"input_missing"});
-  const guardedReservation=await reserveProviderCall(route,requestId,budgetContext,null,providerTimeoutMs?Math.min(3000,providerTimeoutMs):8000);
-  if(!guardedReservation.allowed)return guardedReservation.response;
-  const reservationKey=guardedReservation.reservationKey;
   const body:any={contents};if(p.systemInstruction)body.systemInstruction=p.systemInstruction;if(p.generationConfig)body.generationConfig={...p.generationConfig};
   if(Array.isArray(p.tools)&&p.tools.length){
     const functions=p.tools.flatMap((group:any)=>Array.isArray(group?.functionDeclarations)?group.functionDeclarations:[]).filter((fn:any)=>typeof fn?.name==="string"&&fn.name.trim()).slice(0,5);
@@ -160,6 +160,9 @@ async function directGemini(route:any,input:any,requestId:string,providerTimeout
   if(body.generationConfig?.temperature!==undefined){const {temperature,...rest}=body.generationConfig;body.generationConfig=rest;}
   if(body.generationConfig?.topP!==undefined){const {topP,...rest}=body.generationConfig;body.generationConfig=rest;}
   if(body.generationConfig?.topK!==undefined){const {topK,...rest}=body.generationConfig;body.generationConfig=rest;}
+  const guardedReservation=await reserveProviderCall(route,requestId,budgetContext,null,providerTimeoutMs?Math.min(3000,providerTimeoutMs):8000,body);
+  if(!guardedReservation.allowed)return guardedReservation.response;
+  const reservationKey=guardedReservation.reservationKey;
   const controller=new AbortController();const timeout=setTimeout(()=>controller.abort(),providerTimeoutMs??20000);
   let res:Response;let json:any=null;
   try{
@@ -208,7 +211,7 @@ async function xaiResponses(route:any,input:any,requestId:string,providerTimeout
     });
     if(tools.length)body.tools=tools;
   }
-  const guardedReservation=await reserveProviderCall(route,requestId,budgetContext,null,providerTimeoutMs?Math.min(3000,providerTimeoutMs):8000);
+  const guardedReservation=await reserveProviderCall(route,requestId,budgetContext,null,providerTimeoutMs?Math.min(3000,providerTimeoutMs):8000,body);
   if(!guardedReservation.allowed)return guardedReservation.response;
   const reservationKey=guardedReservation.reservationKey;
   let res:Response;
@@ -374,7 +377,7 @@ async function openRouterChat(route:any,input:any,requestId:string,providerTimeo
 
   const providerKey=await secret("aria_openrouter_primary");
   if(!providerKey)return out({status:"failed",error:{code:"credential_unavailable",message:"credential unavailable"}});
-  const guardedReservation=await reserveProviderCall(route,requestId,budgetContext,providerKey,providerTimeoutMs?Math.min(3000,providerTimeoutMs):8000);
+  const guardedReservation=await reserveProviderCall(route,requestId,budgetContext,providerKey,providerTimeoutMs?Math.min(3000,providerTimeoutMs):8000,reqBody);
   if(!guardedReservation.allowed)return guardedReservation.response;
   const reservationKey=guardedReservation.reservationKey;
 
