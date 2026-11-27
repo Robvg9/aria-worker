@@ -60,7 +60,8 @@ assert.doesNotMatch(loopSource, /generativelanguage\.googleapis\.com|openrouter\
   'tool-loop must not call provider endpoints or read provider credentials directly');
 
 assert.ok(executionRuntime.includes('reserveProviderCall(route,requestId,budgetContext'));
-assert.ok(executionRuntime.includes('reserveMissionBudget(missionBudgetRpc,budgetContext)'));
+assert.ok(executionRuntime.includes('reserveMissionBudget(missionBudgetRpc,budgetContext,{'), 'mission budget reservation must include any available preflight estimate');
+assert.ok(executionRuntime.includes('estimateMissionTokenUpperBound(route,providerPayload)'), 'mission token bound must be evaluated before reserve');
 assert.ok(executionRuntime.includes('body.toolConfig={functionCallingConfig:'));
 assert.ok(executionRuntime.includes('tool_calls:toolCalls'), 'provider tool calls must be normalized for the loop');
 assert.ok(executionRuntime.includes('reqBody.tool_choice=p.tool_choice==="required"?"required":"auto"'));

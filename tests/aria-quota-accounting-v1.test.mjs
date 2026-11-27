@@ -225,6 +225,12 @@ const approvedBudget = await reserveMissionBudget(async (name, args) => {
 }, budgetContext);
 assert.equal(approvedBudget.allowed, true);
 assert.equal(budgetRpcCalls.length, 1);
+const approvedEstimatedBudget = await reserveMissionBudget(async (name, args) => ({
+  data: { allowed: true, reservation_key: args.p_reservation_key },
+  error: null,
+}), budgetContext, { estimatedTokens: geminiBound.estimatedTokens });
+assert.equal(approvedEstimatedBudget.allowed, true);
+
 assert.equal(budgetRpcCalls[0].name, "mission_budget_reserve_request_v1");
 assert.equal(budgetRpcCalls[0].args.p_estimated_tokens, null);
 assert.equal(budgetRpcCalls[0].args.p_estimated_cost_amount, null);
@@ -300,7 +306,7 @@ for (const [name, endpoint] of providerCallsites) {
 }
 const reserveWrapper = runtime.slice(runtime.indexOf("async function reserveProviderCall("), runtime.indexOf("\nasync function directGemini("));
 assert.ok(
-  reserveWrapper.indexOf("reserveMissionBudget(missionBudgetRpc,budgetContext)") <
+  reserveWrapper.indexOf("reserveMissionBudget(missionBudgetRpc,budgetContext,{") <
     reserveWrapper.indexOf("reserveModelQuota(route,requestId"),
   "mission budget reservation must precede provider quota reservation",
 );
