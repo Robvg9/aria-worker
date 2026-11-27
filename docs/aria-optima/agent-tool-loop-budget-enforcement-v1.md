@@ -23,3 +23,11 @@ Repair/write tool loops require LOW_RISK_WRITE, an explicit human_gate_required 
 - Gate 3 remains read-only and cannot dispatch tools.
 - No LIVE migration, provider call, production deployment, secret mutation, cron activation, or real mission was performed by this change.
 - The integration contract is not a production or physical E2E certificate. A bounded, separately approved pilot is still required after the PR chain is merged and deployed.
+
+
+## Mock E2E del cliente presupuestado — 2026-11-27
+
+- Se extrajo la construcción de inferencias a `budgeted-model-client-v1.mjs`, inyectable por `fetchImpl`; el runtime real usa el mismo caller que ejerce el test.
+- Test dinámico `tests/agent-tool-loop-budgeted-model-client-v1.test.js`: Gemini turn 1 + función; turno 2 con preservación exacta de `gemini_parts`/thought signature y respuesta de herramienta; turno final; OpenRouter con envelope de function calling; request IDs únicos `mission:step:nonce`; misión/paso obligatorios; Human Gate fail-closed; errores `mission_budget_*` terminales; y clasificación de fallback.
+- Todas las respuestas proceden de un `fetchImpl` local simulado. No hay red, credenciales reales, POST a proveedor ni acceso a Supabase.
+- El test se registra en `npm test` y en el catálogo PWA.
