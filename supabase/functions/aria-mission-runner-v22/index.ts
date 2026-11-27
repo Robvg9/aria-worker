@@ -4721,21 +4721,6 @@ if (!physicalPlanValidation.ok) {
       // by an earlier batch; otherwise a protected step can bypass the gate.
       mission.checkpoint = checkpoint;
 
-      if (waiting) {
-        await updateMission(missionId, {
-          // A dispatched device job must remain authorized while awaiting its result.
-          // "paused" is a deliberate authorization stop used by Human Gate.
-          status: "waiting",
-          current_step: completed.size,
-          completed_steps: completed.size,
-          next_action: `resume: pending ${String(waiting.result?.pending_source || "device")} job ${String(waiting.step.id)}`,
-          checkpoint: { ...checkpoint, recovery: { status: "waiting_for_async_executor" } },
-          lease_owner: null,
-          lease_until: null,
-        });
-        return out({ ok: true, status: "waiting", mission_id: missionId, runtime: V, completed_steps: completed.size, pending_step: String(waiting.step.id) });
-      }
-
       const budgetBlockedOutcomes = outcomes.filter((item) => item.budgetBlocked === true);
       if (budgetBlockedOutcomes.length) {
         const failedStepIds = budgetBlockedOutcomes.map((item) => String(item.step.id));
@@ -4823,6 +4808,21 @@ if (!physicalPlanValidation.ok) {
           pending_job_ids: pendingJobIds,
           block_details: details,
         });
+      }
+
+      if (waiting) {
+        await updateMission(missionId, {
+          // A dispatched device job must remain authorized while awaiting its result.
+          // "paused" is a deliberate authorization stop used by Human Gate.
+          status: "waiting",
+          current_step: completed.size,
+          completed_steps: completed.size,
+          next_action: `resume: pending ${String(waiting.result?.pending_source || "device")} job ${String(waiting.step.id)}`,
+          checkpoint: { ...checkpoint, recovery: { status: "waiting_for_async_executor" } },
+          lease_owner: null,
+          lease_until: null,
+        });
+        return out({ ok: true, status: "waiting", mission_id: missionId, runtime: V, completed_steps: completed.size, pending_step: String(waiting.step.id) });
       }
 
       // Provider permission denials are operator-owned configuration gates, not

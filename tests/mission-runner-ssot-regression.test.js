@@ -13,9 +13,12 @@ test("mission budget denial checkpoints and blocks before verification, retry, r
   assert.ok(budgetCheck >= 0 && independent > budgetCheck, "budget denial must be detected before independent verifier dispatch");
   const earlyReturn = runner.indexOf("budgetBlocked: true", budgetCheck);
   assert.ok(earlyReturn > budgetCheck && earlyReturn < independent, "budget-denied step must return before external verification");
+  const outcomesWait = runner.indexOf("const waiting = outcomes.find((item) => item.waiting);");
+  const asyncWait = runner.indexOf("if (waiting) {", outcomesWait);
   const persist = runner.indexOf("const budgetBlockedOutcomes = outcomes.filter((item) => item.budgetBlocked === true);");
   const genericRecovery = runner.indexOf("const providerPermissionFailure = outcomes.find", persist);
-  assert.ok(persist >= 0 && genericRecovery > persist, "mission-wide budget checkpoint must precede generic failure recovery");
+  assert.ok(persist >= 0 && asyncWait > persist && genericRecovery > persist,
+    "mission-wide budget checkpoint must take precedence over async waiting and generic failure recovery");
   const block = runner.slice(persist, genericRecovery);
   for (const marker of [
     'status: "mission_budget_blocked"',
