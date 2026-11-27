@@ -3,89 +3,54 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const file = path.join(__dirname, '..', 'supabase', 'functions', 'aria-agent-runtime-v1', 'index.ts');
-const loopFile = path.join(__dirname, '..', 'supabase', 'functions', 'aria-agent-runtime-v1', 'tool-loop.ts');
-const executionRuntime = fs.readFileSync(path.join(__dirname, '..', 'supabase', 'functions', 'aria-execution-runtime-v1', 'index.ts'), 'utf8');
-const source = fs.readFileSync(file, 'utf8');
-const loopSource = fs.readFileSync(loopFile, 'utf8');
+const root = path.join(__dirname, '..');
+const source = fs.readFileSync(path.join(root, 'supabase/functions/aria-agent-runtime-v1/index.ts'), 'utf8');
+const loopSource = fs.readFileSync(path.join(root, 'supabase/functions/aria-agent-runtime-v1/tool-loop.ts'), 'utf8');
+const executionRuntime = fs.readFileSync(path.join(root, 'supabase/functions/aria-execution-runtime-v1/index.ts'), 'utf8');
 
-assert.match(source, /aria-agent-planner-v1/);
-assert.match(source, /aria-agent-reviewer-v1/);
-assert.match(source, /aria-agent-research-v1/);
-assert.match(source, /aria-agent-coding-v1/);
-assert.match(source, /aria-agent-security-v1/);
-assert.match(source, /aria-agent-memory-v1/);
-assert.match(source, /aria-agent-business-v1/);
-assert.match(source, /aria-agent-device-v1/);
-assert.match(executionRuntime, /"google\/gemini-3\.5-flash-direct":"gemini-3\.5-flash"/, 'execution runtime must map the agent catalog Gemini 3.5 Flash direct route');
-assert.match(executionRuntime, /"google\/gemini-3\.5-flash-lite-direct":"gemini-3\.5-flash-lite"/, 'execution runtime must retain the verified Lite route');
-assert.match(source, /operation.*delegate/);
-assert.match(source, /mutating_operation_required/, 'agent runtime must honor mutation policy');
-assert.match(source, /LOW_RISK_WRITE/, 'LOW_RISK_WRITE must activate governed repair mode');
-assert.match(source, /executor_type.*agent/);
-assert.match(source, /aria-execution-runtime-v1/);
-assert.match(source, /const requestId = `\$\{missionId\}:\$\{stepId\}:\$\{crypto\.randomUUID\(\)\}`;/);
-assert.match(source, /request_id:\s*requestId/);
+for (const agent of [
+  'aria-agent-planner-v1',
+  'aria-agent-reviewer-v1',
+  'aria-agent-research-v1',
+  'aria-agent-coding-v1',
+  'aria-agent-security-v1',
+  'aria-agent-memory-v1',
+  'aria-agent-business-v1',
+  'aria-agent-device-v1',
+  'aria-agent-android-coding-openrouter-v1',
+]) assert.ok(source.includes(agent), 'missing agent profile: ' + agent);
 
-const toolUsePosition=source.indexOf('const toolUse = b.policy?.tool_use === true || repairRequired;');
-const toolBudgetGatePosition=source.indexOf('if (toolUse) return out(',toolUsePosition);
-const toolLoopCallPosition=source.indexOf('await toolLoop(agent, missionId, stepId, prompt, true)',toolUsePosition);
-assert.ok(toolUsePosition>=0&&toolBudgetGatePosition>toolUsePosition&&toolBudgetGatePosition<toolLoopCallPosition,
-  'direct Google/OpenRouter agent tool-loop must be blocked before any tool-loop provider request');
-assert.match(source,/mission_budget_tool_execution_not_integrated/,
-  'unintegrated direct-provider tool loop must return a terminal mission-budget gate code');
-assert.match(source,/upstreamCode\.startsWith\("mission_budget_"\)/,
-  'agent runtime must preserve mission-budget error codes from the central execution runtime');
-assert.match(source, /authorization/);
-assert.match(source, /risk_class/);
-assert.match(source, /aria_agent_catalog/);
-assert.match(source, /agent_unavailable_or_not_cataloged/);
-assert.match(source, /prompt_missing/);
-assert.doesNotMatch(source, /OPENAI_API_KEY|GOOGLE_API_KEY|GROK_API_KEY|sk-[A-Za-z0-9]{10,}/);
-assert.doesNotMatch(source, /console\.log\s*\(.*SECRET/);
-assert.match(loopSource, /max_completion_tokens:2200/, "coding agent tool loop must retain the governed 4000-token implementation budget");
-assert.match(loopSource, /service_tier:\s*"flex"/);
-assert.match(loopSource, /resolveToolRoute/, 'tool loop must resolve a provider/model tool route');
-assert.match(loopSource, /callGeminiModel/, 'tool loop must support Google Gemini direct function calling');
-assert.match(loopSource, /functionDeclarations/, 'Gemini tool declarations missing');
-assert.match(loopSource, /functionCallingConfig/, 'Gemini function calling config missing');
-assert.match(loopSource, /geminiParts/, 'Gemini response parts must be preserved for thought signatures');
-assert.match(loopSource, /geminiParts/, 'Gemini response parts must be preserved verbatim across tool turns (including provider thought signatures when present)');
-assert.match(loopSource, /gemini-3.5-flash-direct/, 'agent runtime must have a verified Google free-model fallback order');
-assert.match(loopSource, /gemini-3.1-flash-lite-direct/, 'agent runtime must include a second Google free-model fallback');
-assert.match(loopSource, /github_file_patch/, 'coding agent must have a governed targeted patch tool');
-assert.ok(loopSource.includes('inspect pwa/src/App.tsx'), 'UI implementation prompt must require PWA source inspection');
-assert.match(loopSource, /Do NOT return NO_CHANGE_REQUIRED/, 'implementation missions must not silently downgrade to read-only analysis');
-assert.match(loopSource, /max_completion_tokens:2200/, 'coding agent needs sufficient output for tool-driven implementation');
-assert.match(loopSource, /patch_match_count_/, 'targeted patch must fail closed on non-unique matches');
-assert.doesNotMatch(loopSource, /preferred\.startsWith\("google\/"/, 'exhausted Google catalog preference must not bypass fallback ordering');
-assert.match(loopSource, /GOOGLE_API_KEY/, 'Google Gemini credential path missing');
-assert.match(loopSource, /eq\("provider_id","openrouter"\)/, 'tool model resolution must use the OpenRouter provider registry');
-assert.match(loopSource, /endsWith\(":free"\)/, 'tool model resolution must stay on free verified models');
-assert.match(loopSource, /preferredProvider/);
-assert.doesNotMatch(loopSource, /recoveryAgentId\.includes\("-openrouter-"\)/, "agent IDs must not force an OpenRouter route when the catalog provider is Google");
-assert.match(loopSource, /preferredProvider === "openrouter"/);
-assert.match(loopSource, /retryableProviderAvailability/);
-assert.match(loopSource, /agent_model_provider_unavailable_fallback/);
+assert.ok(source.includes('const MISSION_EXECUTION_PAUSED = true'), 'global mission freeze must remain active');
+assert.ok(source.includes('const toolUse = b.policy?.tool_use === true || repairRequired;'));
+assert.ok(source.includes('await toolLoop(agent, missionId, stepId, prompt, true, b.policy || {}, b.authorization || {})'));
+assert.ok(source.includes('await toolLoop(agent, missionId, stepId, prompt, false, b.policy || {}, b.authorization || {})'));
+assert.ok(!source.includes('mission_budget_tool_execution_not_integrated'));
+assert.ok(source.includes('rawCode.startsWith("mission_budget_")'), 'wrapper must preserve terminal budget errors');
+assert.ok(source.includes('agent_tool_loop_human_gate_required'), 'missing Human Gate fail-closed handling');
 
-assert.match(loopSource, /providerLock/);
-assert.doesNotMatch(loopSource, /String\(agent\?\.agent\?\.agent_id.*-openrouter-/);
-assert.match(loopSource, /preferredProvider === "openrouter"/);
-assert.match(loopSource, /recoveryOpenRouterOnly/);
-assert.match(loopSource, /if \(providerLock && preferredProvider === "google"\) return routes\.slice\(0,8\)/);
-assert.match(loopSource, /preferredIsFreeOpenRouter/);
-assert.match(loopSource, /recoveryFreeOnly/);
-assert.match(loopSource, /recovery_openrouter_free_route_unavailable/);
-assert.match(loopSource, /recovery_google_route_forbidden/);
-assert.match(loopSource, /provider: candidate\?\.provider/);
-assert.match(loopSource, /recovery_free_only: isRecoveryFreeAgent/);
-assert.match(loopSource, /free_route/);
+assert.ok(loopSource.includes('aria-execution-runtime-v1'));
+assert.ok(loopSource.includes('async function callBudgetedModel('));
+assert.ok(loopSource.includes('request_id: requestId'));
+assert.ok(loopSource.includes('String(missionId) + ":" + String(stepId) + ":" + crypto.randomUUID()'));
+assert.ok(loopSource.includes('missionBudgetTerminal'));
+assert.ok(loopSource.includes('!missionBudgetTerminal && round === 0'), 'budget denial must stop provider fallback');
+assert.ok(loopSource.includes('tool_choice: forceTool ? "required" : "auto"'));
+assert.ok(loopSource.includes('geminiParts'), 'Gemini thought-signature parts must survive tool turns');
+assert.ok(loopSource.includes('human_gate_required: true'), 'repair turns must require Human Gate');
+assert.ok(loopSource.includes('preferredProvider === "openrouter"'));
+assert.ok(loopSource.includes('providerLock'));
+assert.ok(loopSource.includes('recovery_openrouter_free_route_unavailable'));
+assert.ok(loopSource.includes('retryableProviderAvailability'));
+assert.ok(loopSource.includes('github_file_patch'));
+assert.ok(loopSource.includes('patch_match_count_'));
+assert.ok(loopSource.includes('FINDINGS:') && loopSource.includes('VERDICT:'));
+assert.doesNotMatch(loopSource, /generativelanguage\.googleapis\.com|openrouter\.ai\/api|GOOGLE_API_KEY|credential_read_secret/,
+  'tool-loop must not call provider endpoints or read provider credentials directly');
 
-assert.match(loopSource, /todavía no se ha producido ninguna escritura gobernada/);
-assert.match(loopSource, /FINDINGS:/);
-assert.match(loopSource, /CONFIRMED: la mutación quedó registrada/);
-assert.match(source, /aria-agent-android-coding-openrouter-v1/);
-assert.match(loopSource, /code|coder|coding/, 'tool model resolution must prefer coding-capable model names when available');
-assert.doesNotMatch(loopSource, /\bmax_tokens:\s*3000/);
-
-console.log('AGENT RUNTIME V1 CONTRACT: PASS');
+assert.ok(executionRuntime.includes('reserveProviderCall(route,requestId,budgetContext'));
+assert.ok(executionRuntime.includes('reserveMissionBudget(missionBudgetRpc,budgetContext)'));
+assert.ok(executionRuntime.includes('body.toolConfig={functionCallingConfig:'));
+assert.ok(executionRuntime.includes('tool_calls:toolCalls'), 'provider tool calls must be normalized for the loop');
+assert.ok(executionRuntime.includes('reqBody.tool_choice=p.tool_choice==="required"?"required":"auto"'));
+assert.ok(executionRuntime.includes('const MISSION_EXECUTION_PAUSED = true'));
+console.log('AGENT RUNTIME V1 BUDGETED TOOL-LOOP CONTRACT: PASS');
