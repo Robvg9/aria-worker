@@ -1,5 +1,7 @@
 'use strict';
 
+const fs = require('node:fs');
+const path = require('node:path');
 const assert = require('node:assert/strict');
 const {
   createRemoteServiceCircuitCoordinator,
@@ -73,6 +75,22 @@ async function main() {
   assert.equal(JSON.stringify(sent).includes(token), false);
   assert.equal(Object.hasOwn(sent, 'raw_body'), false);
 
+  const jobRoutePublished = await coordinator.reportIncident({
+    incident_id: 'job_result_incident_01',
+    classification: 'unknown_402',
+    route: '/v1/jobs/:id/result'
+  });
+  assert.equal(jobRoutePublished.ok, true, 'redacted per-job routes must propagate to the coordinator');
+  assert.equal(calls.length, 2);
+  assert.equal(JSON.parse(calls[1].init.body).route, '/v1/jobs/:id/result');
+  const rawJobRoute = await coordinator.reportIncident({
+    incident_id: 'raw_job_incident_01',
+    classification: 'unknown_402',
+    route: '/v1/jobs/private-job-id/result'
+  });
+  assert.equal(rawJobRoute.ok, false, 'raw job identifiers must never cross the coordinator boundary');
+  assert.equal(calls.length, 2);
+
   const applied = [];
   const breaker = {
     async applyGlobalCircuit(snapshot) {
@@ -84,16 +102,16 @@ async function main() {
   assert.equal(synced.synced, true);
   assert.equal(applied.length, 1);
   assert.equal(applied[0].open, false);
-  assert.equal(calls[1].init.method, 'GET');
+  assert.equal(calls[2].init.method, 'GET');
 
   const cached = await coordinator.sync(breaker);
   assert.equal(cached.cached, true);
-  assert.equal(calls.length, 2, 'sync interval must prevent repeated coordinator polling');
+  assert.equal(calls.length, 3, 'sync interval must prevent repeated coordinator polling');
 
   now += 30_001;
   const secondSync = await coordinator.sync(breaker);
   assert.equal(secondSync.synced, true);
-  assert.equal(calls.length, 3);
+  assert.equal(calls.length, 4);
 
   const invalid = await coordinator.reportIncident({
     incident_id: 'invalid_incident_123',
@@ -101,7 +119,7 @@ async function main() {
     route: '/v1/devices/heartbeat'
   });
   assert.equal(invalid.ok, false);
-  assert.equal(calls.length, 3, 'invalid local incident cannot be sent upstream');
+  assert.equal(calls.length, 4, 'invalid local incident cannot be sent upstream');
 
   const unconfigured = createRemoteServiceCircuitCoordinator({
     baseUrl: 'https://aria-autonomy-coordinator.robvg9.workers.dev',
@@ -118,6 +136,12 @@ async function main() {
     fetchImpl
   });
   assert.equal(insecure.configured, false, 'HTTP coordinator URL must fail closed');
+
+  const windowsAgent = fs.readFileSync(path.join(__dirname, '../agents/windows/aria-agent.js'), 'utf8');
+  const authCheck = windowsAgent.match(/async function readJobAuthorization\\(job\\)\\{([\\s\\S]*?)\\n\\}/);
+  assert.ok(authCheck, 'Windows job authorization guard must exist');
+  assert.match(authCheck[1], /await api\\(path,/);
+  assert.doesNotMatch(authCheck[1], /nativeGatewayRequest|fetch\\(/, 'job authorization reads must pass through the persistent circuit breaker');
 
   console.log('ARIA_OPTIMA_DISTRIBUTED_CIRCUIT_CLIENT=PASS');
   console.log('ARIA_OPTIMA_DISTRIBUTED_CIRCUIT_AUTH_AND_REDACTION=PASS');
