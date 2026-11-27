@@ -24,8 +24,18 @@ assert.match(source, /mutating_operation_required/, 'agent runtime must honor mu
 assert.match(source, /LOW_RISK_WRITE/, 'LOW_RISK_WRITE must activate governed repair mode');
 assert.match(source, /executor_type.*agent/);
 assert.match(source, /aria-execution-runtime-v1/);
-assert.match(source, /const requestId = `agent:/);
+assert.match(source, /const requestId = `\$\{missionId\}:\$\{stepId\}:\$\{crypto\.randomUUID\(\)\}`;/);
 assert.match(source, /request_id:\s*requestId/);
+
+const toolUsePosition=source.indexOf('const toolUse = b.policy?.tool_use === true || repairRequired;');
+const toolBudgetGatePosition=source.indexOf('if (toolUse) return out(',toolUsePosition);
+const toolLoopCallPosition=source.indexOf('await toolLoop(agent, missionId, stepId, prompt, true)',toolUsePosition);
+assert.ok(toolUsePosition>=0&&toolBudgetGatePosition>toolUsePosition&&toolBudgetGatePosition<toolLoopCallPosition,
+  'direct Google/OpenRouter agent tool-loop must be blocked before any tool-loop provider request');
+assert.match(source,/mission_budget_tool_execution_not_integrated/,
+  'unintegrated direct-provider tool loop must return a terminal mission-budget gate code');
+assert.match(source,/upstreamCode\.startsWith\("mission_budget_"\)/,
+  'agent runtime must preserve mission-budget error codes from the central execution runtime');
 assert.match(source, /authorization/);
 assert.match(source, /risk_class/);
 assert.match(source, /aria_agent_catalog/);

@@ -72,6 +72,18 @@ Deno.serve(async (r) => {
     || b.policy?.mutating_operation_required === true
     || ["LOW_RISK_WRITE","MEDIUM_RISK_WRITE","HIGH_RISK_WRITE","WRITE"].includes(requestedRisk);
   const toolUse = b.policy?.tool_use === true || repairRequired;
+  // The current tool-loop contains direct Google/OpenRouter adapters and its own fallback.
+  // Keep it disabled until every turn uses the shared mission-budget + provider-quota runtime.
+  if (toolUse) return out({
+    ok: false,
+    status: "blocked",
+    executor_type: "agent",
+    agent_id: agentId,
+    error: {
+      code: "mission_budget_tool_execution_not_integrated",
+      message: "Agent tool execution is paused until its direct provider adapters are routed through the shared budget runtime."
+    }
+  }, 423);
   try {
     if (repairRequired) {
       if (!["aria-agent-coding-v1","aria-agent-coding-openrouter-v1"].includes(agentId)) return out({ ok: false, status: "blocked", error: { code: "repair_agent_must_be_coding_agent", agent_id: agentId } });
@@ -88,13 +100,15 @@ Deno.serve(async (r) => {
       return out(repairResult);
     }
     if (toolUse) return out(await toolLoop(agent, missionId, stepId, prompt, false));
-    const requestId = `agent:${missionId}:${stepId}`;
+    const requestId = `${missionId}:${stepId}:${crypto.randomUUID()}`;
     const rr = await fetch(EXEC, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${SECRET}` }, body: JSON.stringify({ execution_version: "1", request_id: requestId, task_id: stepId, capability: "text_generation", selected_route: { status: "selected", provider_id: resource.provider.provider_id, account_id: resource.account.account_id, model_id: resource.model.model_id, capability: resource.capability.capability_id }, authorization: { status: "approved", risk_class: requestedRisk, evidence_ref: `agent:${agentId}` }, input: { payload: { prompt: `${profile.system}\n\nTask:\n${prompt}` } }, policy: b.policy || {}, metadata: { executor_type: "agent", agent_id: agentId, agent_role: catalogAgent.role, mission_id: missionId, step_id: stepId, catalog_source: "aria_agent_catalog", resource_graph: "aria_internal.resolve_agent_resource", provider_id: resource.provider.provider_id, account_id: resource.account.account_id, model_id: resource.model.model_id, capability_id: resource.capability.capability_id } }) });
     const x: any = await rr.json().catch(() => null);
     if (!rr.ok || x?.status !== "succeeded") {
       const message = String(x?.error?.message || x?.error || `execution_${rr.status}`);
-      await recordDiagnostic(missionId, stepId, { status: "failed", code: "agent_execution_failed", message, provider_status: x?.error?.provider_status ?? rr.status });
-      return out({ ok: false, status: "failed", agent_id: agentId, executor_type: "agent", error: { code: "agent_execution_failed", message } });
+      const upstreamCode = String(x?.error?.code || "");
+      const errorCode = upstreamCode.startsWith("mission_budget_") ? upstreamCode : "agent_execution_failed";
+      await recordDiagnostic(missionId, stepId, { status: "failed", code: errorCode, message, provider_status: x?.error?.provider_status ?? rr.status });
+      return out({ ok: false, status: "failed", agent_id: agentId, executor_type: "agent", error: { code: errorCode, message, provider_status: x?.error?.provider_status ?? rr.status } });
     }
     return out({ ok: true, status: "succeeded", executor_type: "agent", agent_id: agentId, role: catalogAgent.role, operation: "delegate", provider_id: resource.provider.provider_id, account_id: resource.account.account_id, model_id: resource.model.model_id, capability_id: resource.capability.capability_id, response: x.response, usage: x.usage, metadata: { mission_id: missionId, step_id: stepId, catalog_source: "aria_agent_catalog", resource_graph: "aria_internal.resolve_agent_resource", evidence_ref: `execution:${missionId}:${stepId}` } });
   } catch (e) {

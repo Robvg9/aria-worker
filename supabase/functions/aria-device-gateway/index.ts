@@ -18,6 +18,9 @@ const LEARNING=`${Deno.env.get("SUPABASE_URL")}/functions/v1/aria-learning-v3`;
 import postgres from "npm:postgres@3.4.7";
 
 function json(body:unknown,status=200){return new Response(JSON.stringify(body),{status,headers:{'content-type':'application/json','cache-control':'no-store'}})}
+function gatewayMissionBudgetOutcomeUnknown(message:string,code='mission_budget_provider_outcome_unknown'){
+  return {ok:false,status:'blocked',reason:code,error:{code,message}};
+}
 async function hash(t:string){const b=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(t));return Array.from(new Uint8Array(b)).map(x=>x.toString(16).padStart(2,'0')).join('')}
 async function body(r:Request){try{return await r.json()}catch{return {}}}
 const AUTH_CACHE_TTL_MS=Math.max(5_000,Number(Deno.env.get('ARIA_DEVICE_AUTH_CACHE_TTL_MS')||15_000));
@@ -276,6 +279,8 @@ async function androidAutonomousDecision(b:any,d:any){
         provider_status:probe?.runtime_error?.provider_status||null,
         content_head:String(probe?.response?.content||'').slice(0,220)
       });
+      const probeBudgetError=String(probe?.runtime_error?.code||probe?.error?.code||'');
+      if(probeBudgetError.startsWith('mission_budget_'))return json({ok:false,status:'blocked',error:{code:probeBudgetError,message:String(probe?.runtime_error?.message||probe?.error?.message||'Mission budget gate stopped the probe.')},attempts},423);
       if(probe?.ok!==true||probe?.runtime_status!=='succeeded')continue;
       const raw=String(probe?.response?.content||'');
       const decision=parseLine(raw);
@@ -599,6 +604,10 @@ async function mission5ModelProbe(b:any,d:any){
   const modelId=typeof b?.model_id==='string'?b.model_id.trim():'';
   const prompt=typeof b?.prompt==='string'?b.prompt.trim():'';
   const risk=typeof b?.risk==='string'?b.risk:'READ';
+  const missionId=typeof b?.mission_id==='string'?b.mission_id.trim():'';
+  const stepId=typeof b?.step_id==='string'?b.step_id.trim():'';
+  if(!missionId||!stepId)return {ok:false,status:'blocked',error:{code:'mission_budget_mission_context_missing'}};
+  const requestId=missionId+':'+stepId+':'+crypto.randomUUID();
   // Only routes that exist in model_registry with status=available + verified capability.
   // Invented model IDs (3.5-flash-direct, 3.6+, 3.7+, 3.8+) produced unauthorized / provider_error.
   const allowed={
@@ -632,23 +641,35 @@ async function mission5ModelProbe(b:any,d:any){
       headers:{'content-type':'application/json',authorization:`Bearer ${RUNTIME_SECRET}`,'x-aria-trigger':'mission5-model-probe'},
       body:JSON.stringify({
         execution_version:'1',
-        request_id:`mission5:model:${modelId}:${crypto.randomUUID()}`,
-        task_id:'mission5_model_probe',
+        request_id:requestId,
+        task_id:stepId,
         capability:'text_generation',
         selected_route:{status:'selected',provider_id:route.provider_id,account_id:route.account_id,model_id:modelId,capability:'text_generation'},
         authorization:{status:'approved',risk_class:'READ',evidence_ref:`mission5:model-probe:${modelId}`},
         input:{payload:{prompt,...(typeof b?.generationConfig==='object'&&b.generationConfig?{generationConfig:b.generationConfig}:{})}},
-        policy:{risk:'READ',mission5:true,probe:true}
+        policy:{risk:'READ',mission5:true,probe:true},
+        metadata:{mission_id:missionId,step_id:stepId,executor_type:'model',runner:'aria-device-gateway-mission5-model-probe'}
       }),
       signal:controller.signal
     });
-    const textBody=await response.text();
-    let payload:any;try{payload=textBody?JSON.parse(textBody):{}}catch{payload={status:'failed',error:'invalid_execution_runtime_json'}};
+    let textBody:string;
+    try { textBody=await response.text(); } catch {
+      const blocked=gatewayMissionBudgetOutcomeUnknown('The internal execution runtime response body was lost; provider outcome is unknown. No alternate model route or retry is permitted.','mission_budget_execution_runtime_outcome_unknown');
+      return {...blocked,device_id:d.device_id,mission5:true,probe:true,model_id:modelId,provider_id:route.provider_id,account_id:route.account_id,runtime_error:blocked.error};
+    }
+    let payload:any;
+    try { payload=textBody?JSON.parse(textBody):null; } catch { payload=null; }
+    if(!payload||typeof payload!=='object'){
+      const blocked=gatewayMissionBudgetOutcomeUnknown('The internal execution runtime returned no usable response; provider outcome is unknown. No alternate model route or retry is permitted.','mission_budget_execution_runtime_outcome_unknown');
+      return {...blocked,device_id:d.device_id,mission5:true,probe:true,model_id:modelId,provider_id:route.provider_id,account_id:route.account_id,runtime_error:blocked.error};
+    }
+    const budgetErrorCode=String(payload?.error?.code||payload?.error?.reason||'');
+    if(budgetErrorCode.startsWith('mission_budget_'))return {ok:false,status:'blocked',device_id:d.device_id,mission5:true,probe:true,model_id:modelId,provider_id:route.provider_id,account_id:route.account_id,runtime_status:payload?.status||'blocked',runtime_http_status:response.status,response:payload?.response||null,usage:payload?.usage||null,runtime_error:payload?.error||{code:budgetErrorCode},metadata:{...payload?.metadata,transport:'device-gateway',evidence_ref:`mission5:model-probe:${modelId}`}};
     if(!response.ok)return {ok:false,device_id:d.device_id,mission5:true,probe:true,model_id:modelId,provider_id:route.provider_id,account_id:route.account_id,runtime_status:payload?.status||'http_error',runtime_http_status:response.status,response:payload?.response||null,usage:payload?.usage||null,runtime_error:payload?.error||String(textBody||''),metadata:{...payload?.metadata,transport:'device-gateway',evidence_ref:`mission5:model-probe:${modelId}`}};
     return {ok:true,device_id:d.device_id,mission5:true,probe:true,model_id:modelId,provider_id:route.provider_id,account_id:route.account_id,runtime_status:payload?.status||null,response:payload?.response||null,usage:payload?.usage||null,runtime_error:payload?.error||null,metadata:{...payload?.metadata,transport:'device-gateway',evidence_ref:`mission5:model-probe:${modelId}`}};
-  }catch(e:any){
-    if(e?.name==='AbortError')throw new Error('mission5_model_probe_timeout');
-    throw e;
+  }catch{
+    const blocked=gatewayMissionBudgetOutcomeUnknown('The internal execution runtime request failed after dispatch may have started; provider outcome is unknown. No alternate model route or retry is permitted.','mission_budget_execution_runtime_outcome_unknown');
+    return {...blocked,device_id:d.device_id,mission5:true,probe:true,model_id:modelId,provider_id:route.provider_id,account_id:route.account_id,runtime_error:blocked.error};
   }finally{clearTimeout(timer)}
 }
 
@@ -656,8 +677,9 @@ async function mission5AgentProbe(b:any,d:any){
   const agentId=typeof b?.agent_id==='string'?b.agent_id.trim():'';
   const prompt=typeof b?.prompt==='string'?b.prompt.trim():'';
   const risk=typeof b?.risk==='string'?b.risk:'READ';
-  const missionId=typeof b?.mission_id==='string'&&b.mission_id.trim()?b.mission_id.trim():'mission5-agent-probe-'+crypto.randomUUID();
-  const stepId=typeof b?.step_id==='string'&&b.step_id.trim()?b.step_id.trim():'mission5_probe_1';
+  const missionId=typeof b?.mission_id==='string'?b.mission_id.trim():'';
+  const stepId=typeof b?.step_id==='string'?b.step_id.trim():'';
+  if(!missionId||!stepId)return {ok:false,status:'blocked',error:{code:'mission_budget_mission_context_missing'}};
   const allowed=new Set(['aria-agent-planner-gemini35-v1','aria-agent-verifier-gemini35-v1']);
   if(!allowed.has(agentId))throw new Error('agent_not_allowed_for_mission5_probe');
   if(risk!=='READ')throw new Error('mission5_probe_read_only');
@@ -673,13 +695,28 @@ async function mission5AgentProbe(b:any,d:any){
       body:JSON.stringify({operation:'delegate',agent_id:agentId,mission_id:missionId,step_id:stepId,risk:'READ',input:{prompt},policy:{risk:'READ',mission5:true,probe:true}})
       ,signal:controller.signal
     });
-    const textBody=await response.text();
-    let payload:any; try{payload=textBody?JSON.parse(textBody):{}}catch{payload={status:'failed',error:'invalid_agent_runtime_json'}};
-    if(!response.ok)throw new Error(String(payload?.error?.message||payload?.error||`agent_runtime_http_${response.status}`));
+    let textBody:string;
+    try { textBody=await response.text(); } catch {
+      const blocked=gatewayMissionBudgetOutcomeUnknown('The internal agent runtime response body was lost; provider outcome is unknown. Agent fallback and retries are forbidden.','mission_budget_agent_runtime_outcome_unknown');
+      return {...blocked,device_id:d.device_id,mission5:true,probe:true,agent_id:agentId,mission_id:missionId,step_id:stepId};
+    }
+    let payload:any;
+    try { payload=textBody?JSON.parse(textBody):null; } catch { payload=null; }
+    if(!payload||typeof payload!=='object'){
+      const blocked=gatewayMissionBudgetOutcomeUnknown('The internal agent runtime returned no usable response; provider outcome is unknown. Agent fallback and retries are forbidden.','mission_budget_agent_runtime_outcome_unknown');
+      return {...blocked,device_id:d.device_id,mission5:true,probe:true,agent_id:agentId,mission_id:missionId,step_id:stepId};
+    }
+    if(!response.ok){
+      const upstreamCode=String(payload?.error?.code||'');
+      const errorCode=upstreamCode.startsWith('mission_budget_')?upstreamCode:'agent_runtime_error';
+      return {ok:false,status:errorCode.startsWith('mission_budget_')?'blocked':'failed',device_id:d.device_id,mission5:true,probe:true,agent_id:agentId,mission_id:missionId,step_id:stepId,error:{code:errorCode,message:String(payload?.error?.message||payload?.error||`agent_runtime_http_${response.status}`),provider_status:response.status}};
+    }
+    const agentBudgetCode=String(payload?.error?.code||payload?.error?.reason||'');
+    if(agentBudgetCode.startsWith('mission_budget_'))return {ok:false,status:'blocked',device_id:d.device_id,mission5:true,probe:true,agent_id:agentId,mission_id:missionId,step_id:stepId,error:{code:agentBudgetCode,message:String(payload?.error?.message||agentBudgetCode)}};
     return {ok:true,device_id:d.device_id,mission5:true,probe:true,agent_id:agentId,mission_id:missionId,step_id:stepId,runtime_status:payload?.status||null,provider_id:payload?.provider_id||payload?.metadata?.provider_id||null,account_id:payload?.account_id||payload?.metadata?.account_id||null,model_id:payload?.model_id||payload?.metadata?.model_id||null,capability_id:payload?.capability_id||payload?.metadata?.capability_id||null,response:payload?.response||null,usage:payload?.usage||null,metadata:{...payload?.metadata,transport:'device-gateway',resource_graph:'aria_internal.resolve_agent_resource'}};
-  }catch(e:any){
-    if(e?.name==='AbortError')throw new Error('mission5_agent_probe_timeout');
-    throw e;
+  }catch{
+    const blocked=gatewayMissionBudgetOutcomeUnknown('The internal agent runtime request failed after dispatch may have started; provider outcome is unknown. Agent fallback and retries are forbidden.','mission_budget_agent_runtime_outcome_unknown');
+    return {...blocked,device_id:d.device_id,mission5:true,probe:true,agent_id:agentId,mission_id:missionId,step_id:stepId};
   }finally{clearTimeout(timer)}
 }
 
@@ -766,6 +803,9 @@ async function intelligentRouterDecision(b:any){
 async function intelligentRouterExecute(b:any,d:any){
   const authorization=b?.authorization;
   if(!authorization||authorization.status!=='approved')return{status:'blocked',reason:'authorization_not_approved'};
+  const missionId=typeof b?.mission_id==='string'?b.mission_id.trim():'';
+  const stepId=typeof b?.step_id==='string'?b.step_id.trim():'';
+  if(!missionId||!stepId)return{status:'blocked',reason:'mission_budget_mission_context_missing'};
   const routeDecision=await intelligentRouterDecision({
     task:b?.task,capability:b?.capability||'text_generation',complexity:b?.complexity,risk:b?.risk,
     preferred_model:b?.preferred_model,preferred_provider:b?.preferred_provider,trace_id:b?.trace_id||null
@@ -776,20 +816,42 @@ async function intelligentRouterExecute(b:any,d:any){
   while(routes.length&&attempts<4){
     const selected=routes.shift();attempts++;
     if(!RUNTIME_SECRET)throw new Error('meditation_runtime_secret_missing');
-    const response=await internalFunctionFetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/aria-execution-runtime-v1`,{
+    let response:Response;
+    try {
+      response=await internalFunctionFetch(`${SUPABASE_URL}/functions/v1/aria-execution-runtime-v1`,{
       method:'POST',
       headers:{'content-type':'application/json',authorization:`Bearer ${RUNTIME_SECRET}`,'x-aria-trigger':'mission6-router-execution'},
       body:JSON.stringify({
-        execution_version:'1',request_id:`mission6:${d.device_id}:${crypto.randomUUID()}`,
-        task_id:String(b?.task_id||'mission6-router-execution'),capability:b?.capability||'text_generation',
+        execution_version:'1',request_id:`${missionId}:${stepId}:${crypto.randomUUID()}`,
+        task_id:String(b?.task_id||stepId),capability:b?.capability||'text_generation',
         selected_route:{status:'selected',provider_id:selected.provider_id,account_id:selected.account_id,model_id:selected.model_id,capability:b?.capability||'text_generation',agent_id:selected.agent_id||null},
         authorization,input:b?.input||{payload:{prompt:String(b?.task||'')}},
-        policy:{risk:String(b?.risk||'READ'),mission6:true,router_decision:true,selected_agent_id:selected.agent_id||null}
+        policy:{risk:String(b?.risk||'READ'),mission6:true,router_decision:true,selected_agent_id:selected.agent_id||null},
+        metadata:{mission_id:missionId,step_id:stepId,executor_type:'model',runner:'aria-device-gateway-mission6-router',fallback_route:attempts>1}
       })
-    });
-    const tb=await response.text();let payload:any;try{payload=tb?JSON.parse(tb):{}}catch{payload={status:'failed',error:'invalid_execution_runtime_json'}};
+      });
+    } catch {
+      const blocked=gatewayMissionBudgetOutcomeUnknown('The Mission 6 execution-runtime response was lost; provider may have accepted the request. No alternate route or retry is permitted.','mission_budget_execution_runtime_outcome_unknown');
+      results.push({rank:attempts,route:selected,status:'blocked',error:blocked.error});
+      return {status:'blocked',reason:blocked.reason,error:blocked.error,route_decision:routeDecision,attempts,attempt_results:results,fallback_used:false,metadata:{router_version:'aria-intelligent-router-v2.0.0',device_id:d.device_id}};
+    }
+    let tb:string;
+    try { tb=await response.text(); } catch {
+      const blocked=gatewayMissionBudgetOutcomeUnknown('The Mission 6 execution-runtime response body was lost; provider outcome is unknown. No alternate route or retry is permitted.','mission_budget_execution_runtime_outcome_unknown');
+      results.push({rank:attempts,route:selected,http_status:response.status,status:'blocked',error:blocked.error});
+      return {status:'blocked',reason:blocked.reason,error:blocked.error,route_decision:routeDecision,attempts,attempt_results:results,fallback_used:false,metadata:{router_version:'aria-intelligent-router-v2.0.0',device_id:d.device_id}};
+    }
+    let payload:any;
+    try { payload=tb?JSON.parse(tb):null; } catch { payload=null; }
+    if(!payload||typeof payload!=='object'){
+      const blocked=gatewayMissionBudgetOutcomeUnknown('The Mission 6 execution runtime returned no usable response; provider outcome is unknown. No alternate route or retry is permitted.','mission_budget_execution_runtime_outcome_unknown');
+      results.push({rank:attempts,route:selected,http_status:response.status,status:'blocked',error:blocked.error});
+      return {status:'blocked',reason:blocked.reason,error:blocked.error,route_decision:routeDecision,attempts,attempt_results:results,fallback_used:false,metadata:{router_version:'aria-intelligent-router-v2.0.0',device_id:d.device_id}};
+    }
     const failureKind=payload?.status==='succeeded'&&response.ok?null:m6ClassifyFallbackFailure(payload,response.status);
     results.push({rank:attempts,route:selected,http_status:response.status,failure_kind:failureKind,status:payload?.status||'failed',response:payload?.response||null,usage:payload?.usage||null,error:payload?.error||null});
+    const budgetErrorCode=String(payload?.error?.code||payload?.error?.reason||'');
+    if(budgetErrorCode.startsWith('mission_budget_'))return{status:'blocked',reason:budgetErrorCode,route_decision:routeDecision,attempts,attempt_results:results,fallback_used:false,metadata:{router_version:'aria-intelligent-router-v2.0.0',device_id:d.device_id}};
     if(payload?.status==='succeeded'&&response.ok)return{status:'succeeded',route_decision:routeDecision,selected_route:selected,attempts,attempt_results:results,fallback_used:attempts>1,metadata:{router_version:'aria-intelligent-router-v2.0.0',device_id:d.device_id}};
     routes=m6GovernFallback(selected,routes,failureKind||'execution_failure',{allow_rate_limit_fallback:b?.allow_rate_limit_fallback===true,visited:results.map((x:any)=>m6FallbackRouteKey(x.route))});
   }
@@ -798,6 +860,8 @@ async function intelligentRouterExecute(b:any,d:any){
 async function intelligentRouterParallelExecute(b:any,d:any){
  const authorization=b?.authorization;
  if(!authorization||authorization.status!=='approved')return{status:'blocked',reason:'authorization_not_approved'};
+ const missionId=typeof b?.mission_id==='string'?b.mission_id.trim():'';
+ if(!missionId)return{status:'blocked',reason:'mission_budget_mission_context_missing'};
  const tasks=Array.isArray(b?.tasks)?b.tasks:[];
  if(!tasks.length)return{status:'blocked',reason:'tasks_required'};
  const decision=await intelligentRouterDecision({...b,tasks});
@@ -807,35 +871,61 @@ async function intelligentRouterParallelExecute(b:any,d:any){
  for(const batch of decision.parallel_plan.batches){
    const batchResults=await Promise.all(batch.map(async(taskId:string)=>{
      const task=tasks.find((t:any)=>String(t.id)===taskId);
+     const stepId=String(task?.step_id||task?.id||'').trim();
+     if(!stepId)return{task_id:taskId,status:'blocked',reason:'mission_budget_step_context_missing'};
      const selection=selectionById.get(taskId);
      if(!selection||selection.status!=='selected')return{task_id:taskId,status:'failed',error:'route_not_selected'};
      let routes=[selection.selected,...(Array.isArray(selection.fallback)?selection.fallback:[])];
      const attempts:any[]=[];let attemptCount=0;
      while(routes.length&&attemptCount<4){
        const selected=routes.shift();attemptCount++;
-       const response=await internalFunctionFetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/aria-execution-runtime-v1`,{
+       let response:Response;
+       try {
+         response=await internalFunctionFetch(`${SUPABASE_URL}/functions/v1/aria-execution-runtime-v1`,{
          method:'POST',
          headers:{'content-type':'application/json',authorization:`Bearer ${RUNTIME_SECRET}`,'x-aria-trigger':'mission6-parallel-router'},
          body:JSON.stringify({
            execution_version:'1',
-           request_id:`mission6-parallel:${d.device_id}:${crypto.randomUUID()}`,
-           task_id:taskId,
+           request_id:`${missionId}:${stepId}:${crypto.randomUUID()}`,
+           task_id:stepId,
            capability:task?.capability||b?.capability||'text_generation',
            selected_route:{status:'selected',provider_id:selected.provider_id,account_id:selected.account_id,model_id:selected.model_id,capability:task?.capability||b?.capability||'text_generation',agent_id:selected.agent_id||null},
            authorization,
            input:task?.input||b?.input||{payload:{prompt:String(task?.task||'')}},
-           policy:{risk:String(task?.risk||b?.risk||'READ'),mission6:true,router_parallel:true,selected_agent_id:selected.agent_id||null}
+           policy:{risk:String(task?.risk||b?.risk||'READ'),mission6:true,router_parallel:true,selected_agent_id:selected.agent_id||null},
+           metadata:{mission_id:missionId,step_id:stepId,executor_type:'model',runner:'aria-device-gateway-mission6-parallel-router',fallback_route:attemptCount>1}
          })
-       });
-       const tb=await response.text();let payload:any;try{payload=tb?JSON.parse(tb):{}}catch{payload={status:'failed',error:'invalid_execution_runtime_json'}};
+         });
+       } catch {
+         const blocked=gatewayMissionBudgetOutcomeUnknown('The parallel Mission 6 execution-runtime response was lost; provider may have accepted this task. Task fallback and retries are forbidden.','mission_budget_execution_runtime_outcome_unknown');
+         attempts.push({rank:attemptCount,route:selected,status:'blocked',error:blocked.error});
+         return {task_id:taskId,status:'blocked',reason:blocked.reason,error:blocked.error,attempts,fallback_used:false};
+       }
+       let tb:string;
+       try { tb=await response.text(); } catch {
+         const blocked=gatewayMissionBudgetOutcomeUnknown('The parallel Mission 6 execution-runtime response body was lost; provider outcome is unknown. Task fallback and retries are forbidden.','mission_budget_execution_runtime_outcome_unknown');
+         attempts.push({rank:attemptCount,route:selected,http_status:response.status,status:'blocked',error:blocked.error});
+         return {task_id:taskId,status:'blocked',reason:blocked.reason,error:blocked.error,attempts,fallback_used:false};
+       }
+       let payload:any;
+       try { payload=tb?JSON.parse(tb):null; } catch { payload=null; }
+       if(!payload||typeof payload!=='object'){
+         const blocked=gatewayMissionBudgetOutcomeUnknown('The parallel Mission 6 execution runtime returned no usable response; provider outcome is unknown. Task fallback and retries are forbidden.','mission_budget_execution_runtime_outcome_unknown');
+         attempts.push({rank:attemptCount,route:selected,http_status:response.status,status:'blocked',error:blocked.error});
+         return {task_id:taskId,status:'blocked',reason:blocked.reason,error:blocked.error,attempts,fallback_used:false};
+       }
        const failureKind=payload?.status==='succeeded'&&response.ok?null:m6ClassifyFallbackFailure(payload,response.status);
        attempts.push({rank:attemptCount,route:selected,http_status:response.status,failure_kind:failureKind,status:payload?.status||'failed',response:payload?.response||null,usage:payload?.usage||null,error:payload?.error||null});
+       const budgetErrorCode=String(payload?.error?.code||payload?.error?.reason||'');
+       if(budgetErrorCode.startsWith('mission_budget_'))return{task_id:taskId,status:'blocked',reason:budgetErrorCode,attempts,fallback_used:false};
        if(payload?.status==='succeeded'&&response.ok)return{task_id:taskId,status:'succeeded',selected_route:selected,attempts,fallback_used:attemptCount>1};
        routes=m6GovernFallback(selected,routes,failureKind||'execution_failure',{allow_rate_limit_fallback:b?.allow_rate_limit_fallback===true,visited:attempts.map((x:any)=>m6FallbackRouteKey(x.route))});
      }
      return{task_id:taskId,status:'failed',attempts,fallback_used:attempts.length>1};
    }));
    results.push(...batchResults);
+   const budgetBlocked=batchResults.find((item:any)=>String(item?.error?.code||item?.reason||'').startsWith('mission_budget_'));
+   if(budgetBlocked)return {status:'blocked',reason:String(budgetBlocked?.error?.code||budgetBlocked.reason),error:budgetBlocked.error||{code:String(budgetBlocked.reason)},route_decision:decision,results,parallel_verified:false,fallback_used:false,metadata:{router_version:'aria-intelligent-router-v2.0.0',device_id:d.device_id}};
  }
  const failed=results.filter((x:any)=>x.status!=='succeeded');
  return{status:failed.length?'failed':'succeeded',route_decision:decision,results,parallel_verified:true,max_parallel:decision.parallel_plan.max_parallel,metadata:{router_version:'aria-intelligent-router-v2.0.0',device_id:d.device_id}};
@@ -1432,38 +1522,13 @@ function classifyAllForOneProviderBlock(payload:any,httpStatus:number){
   return null;
 }
 async function runModelAuditor(runId:string,m:any,account:any,snapshot:any){
-  if(!account)throw new Error('model_account_unavailable');
-  const selected={status:'selected',provider_id:account.provider_id,account_id:account.account_id,model_id:m.model_id,capability:'text_generation'};
-  const r=await internalFunctionFetch(`${SUPABASE_URL}/functions/v1/aria-execution-runtime-v1`,{
-    method:'POST',
-    headers:{'content-type':'application/json',authorization:`Bearer ${RUNTIME_SECRET}`},
-    body:JSON.stringify({
-      execution_version:'1',
-      request_id:'all-for-one:'+runId+':model:'+m.model_id+':'+crypto.randomUUID(),
-      task_id:'all-for-one:'+runId,
-      capability:'text_generation',
-      selected_route:selected,
-      authorization:{status:'approved',risk_class:'READ',evidence_ref:'all-for-one-v1'},
-      input:{payload:{prompt:auditPrompt(snapshot,'independent model reviewer',String(m.model_id)).slice(0,16000),max_tokens:1400,temperature:0}},
-      policy:{read_only:true},
-      metadata:{executor_type:'model',audit_protocol:'all-for-one-v1',run_id:runId,model_id:m.model_id}
-    })
-  });
-  const b:any=await r.json().catch(()=>null);
-  if(!r.ok||b?.status!=='succeeded'){
-    const blocked=classifyAllForOneProviderBlock(b,r.status);
-    if(blocked){
-      return {
-        status:'blocked',
-        reason:blocked.reason,
-        report:'PROVIDER BLOCKED: '+blocked.reason+' — '+blocked.message,
-        model_id:m.model_id,
-        metadata:{classification:'blocked_provider',reason:blocked.reason,provider_status:blocked.provider_status,error:b?.error??null}
-      };
-    }
-    throw new Error(String(b?.error?.message||b?.error||`model_runtime_${r.status}`));
-  }
-  return {status:'succeeded',report:String(b?.response?.content??''),model_id:m.model_id,metadata:b};
+  return {
+    status:'blocked',
+    reason:'mission_budget_mission_context_missing',
+    report:'MODEL REVIEW BLOCKED: All-for-One audit run has no mission_state-backed mission ID and approved budget policy.',
+    model_id:m?.model_id||null,
+    metadata:{classification:'blocked_budget_context',run_id:runId}
+  };
 }
 async function allForOneStart(){
   const {data:existing}=await supabase.schema('aria_internal').from('all_for_one_runs').select('*').order('updated_at',{ascending:false}).limit(1).maybeSingle();
@@ -1728,26 +1793,7 @@ if((req.method==='GET'||req.method==='POST')&&p==='/v1/rwht-final-probe'){
     return new Response(text,{status:response.status,headers:{'content-type':response.headers.get('content-type')||'application/json','cache-control':'no-store','x-aria-db-reload':JSON.stringify(dbReload)}});
   }catch(e){return json({ok:false,status:'probe_failed',error:e instanceof Error?e.message:String(e),dbReload},502);}
 }if(req.method==='POST'&&p==='/v1/rwht-model-probe'){
-  try{
-    if(!RUNTIME_SECRET)return json({ok:false,error:'runtime_secret_unavailable'},503);
-    const response=await internalFunctionFetch(`${SUPABASE_URL}/functions/v1/aria-execution-runtime-v1`,{
-      method:'POST',
-      headers:{'content-type':'application/json',authorization:`Bearer ${RUNTIME_SECRET}`,'x-aria-trigger':'rwht-direct-model-probe'},
-      body:JSON.stringify({
-        execution_version:'1',
-        request_id:'rwht-direct-model-probe',
-        task_id:'rwht-direct-model-probe',
-        capability:'text_generation',
-        selected_route:{status:'selected',provider_id:'openrouter',account_id:'acct_openrouter_primary',model_id:'nex-agi/nex-n2.5-mini:free',capability:'text_generation'},
-        authorization:{status:'approved',risk_class:'READ',evidence_ref:'rwht-direct-model-probe'},
-        input:{payload:{prompt:'FINDINGS. ARIA direct runtime probe. Return the exact marker ARIA_RUNTIME_PROBE_OK and one short factual sentence.',max_tokens:120,temperature:0}},
-        policy:{risk:'READ',runtime_probe:true},
-        metadata:{source:'rwht-direct-model-probe'}
-      })
-    });
-    const text=await response.text();
-    return new Response(text,{status:response.status,headers:{'content-type':response.headers.get('content-type')||'application/json','cache-control':'no-store'}});
-  }catch(e){return json({ok:false,status:'probe_failed',error:e instanceof Error?e.message:String(e)},502);}
+  return json({ok:false,status:'blocked',error:{code:'mission_budget_mission_context_missing',message:'A mission-backed, approved budget is required for provider probes.'}},423);
 }
 if(req.method==='GET'&&p==='/health')return json({ok:true,service:'aria-device-gateway',version:'12',canonical_runtime:true,meditation_owned_missions:true,goal_completion_sync:true,recursive_failure_guard:true,idea_to_mission:true});if(req.method==='POST'&&p==='/v1/devices/enroll'){if(typeof b.device_id!=='string'||typeof b.token!=='string')return json({error:'device_id_and_token_required'},400);const {data,error}=await supabase.rpc('enroll_device',{p_device_id:b.device_id,p_token:b.token});if(error)return json({error:'enrollment_failed',code:error.code??null,message:error.message??null},409);return json(data)}if(req.method==='POST'&&p==='/v1/meditation/tick-service'){
  try{

@@ -10,6 +10,7 @@ on:
   pull_request:
     branches:
       - main
+      - feat/aria-optima-mission-budget-policy-v1-20261126
   workflow_dispatch:
 
 permissions:
