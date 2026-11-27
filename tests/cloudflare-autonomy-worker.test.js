@@ -1064,10 +1064,28 @@ async function testDistributedGatewayCircuitAndTelegramAlertWorkDuringFreeze() {
     assert.equal(repeatedPayload.notification, null);
     assert.equal(telegramSends, 1, 'other devices do not create duplicate owner alerts');
 
+    const jobRoute = await store.fetch(request('/api/worker/service-circuit', {
+      method: 'POST',
+      token: workerToken,
+      body: {
+        ...incident,
+        incident_id: 'windows-job-result-402-0003',
+        source_id_sha256: 'c'.repeat(64),
+        route: '/v1/jobs/:id/result',
+        observed_at: new Date().toISOString()
+      }
+    }));
+    assert.equal(jobRoute.status, 200, 'redacted per-job routes are valid circuit evidence');
+    const jobRoutePayload = await body(jobRoute);
+    assert.equal(jobRoutePayload.opened_now, false);
+    assert.equal(jobRoutePayload.circuit.observation_count, 3);
+    assert.equal(jobRoutePayload.circuit.installation_count, 3);
+    assert.equal(telegramSends, 1, 'additional route families do not duplicate the global alert');
+
     const readback = await store.fetch(request('/api/worker/service-circuit', { token: workerToken }));
     const readbackPayload = await body(readback);
     assert.equal(readbackPayload.open, true);
-    assert.equal(readbackPayload.circuit.installation_count, 2);
+    assert.equal(readbackPayload.circuit.installation_count, 3);
     assert.equal(JSON.stringify(readbackPayload).includes('a'.repeat(64)), false, 'readback never exposes installation hashes');
 
     const invalid = await store.fetch(request('/api/worker/service-circuit', {
@@ -1076,6 +1094,18 @@ async function testDistributedGatewayCircuitAndTelegramAlertWorkDuringFreeze() {
       body: { ...incident, route: '/v1/admin/delete', raw_body: 'raw-provider-payload' }
     }));
     assert.equal(invalid.status, 400, 'unknown routes and unapproved fields are rejected');
+
+    const rawJobRoute = await store.fetch(request('/api/worker/service-circuit', {
+      method: 'POST',
+      token: workerToken,
+      body: {
+        ...incident,
+        incident_id: 'raw-job-route-incident-01',
+        route: '/v1/jobs/private-job-id/result',
+        observed_at: new Date().toISOString()
+      }
+    }));
+    assert.equal(rawJobRoute.status, 400, 'the coordinator rejects non-redacted per-job identifiers');
 
     const deniedReset = await store.fetch(request('/api/ops/service-circuit/reset', {
       method: 'POST',
@@ -1112,7 +1142,7 @@ async function testDistributedGatewayCircuitAndTelegramAlertWorkDuringFreeze() {
     const nextIncident = await store.fetch(request('/api/worker/service-circuit', {
       method: 'POST',
       token: workerToken,
-      body: { ...incident, incident_id: 'windows-incident-402-0003', observed_at: new Date().toISOString() }
+      body: { ...incident, incident_id: 'windows-incident-402-0004', observed_at: new Date().toISOString() }
     }));
     assert.equal(nextIncident.status, 200);
     assert.equal((await body(nextIncident)).opened_now, true);
