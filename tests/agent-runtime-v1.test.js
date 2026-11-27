@@ -27,6 +27,9 @@ assert.ok(source.includes('await toolLoop(agent, missionId, stepId, prompt, true
 assert.ok(source.includes('await toolLoop(agent, missionId, stepId, prompt, false, b.policy || {}, b.authorization || {})'));
 assert.ok(!source.includes('mission_budget_tool_execution_not_integrated'));
 assert.ok(source.includes('rawCode.startsWith("mission_budget_")'), 'wrapper must preserve terminal budget errors');
+assert.ok(source.includes('const terminalBudgetBlock = errorCode.startsWith("mission_budget_")'), 'normal delegation must classify budget denial as terminal');
+assert.ok(source.includes('const failureStatus = terminalBudgetBlock ? "blocked" : "failed"'), 'normal delegation must surface budget denial as blocked');
+assert.ok(source.includes('terminalBudgetBlock ? 423 : 200'), 'normal delegation must return a blocking HTTP status for budget denial');
 assert.ok(source.includes('agent_tool_loop_human_gate_required'), 'missing Human Gate fail-closed handling');
 
 assert.ok(loopSource.includes('aria-execution-runtime-v1'));

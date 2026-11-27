@@ -95,8 +95,10 @@ Deno.serve(async (r) => {
       const message = String(x?.error?.message || x?.error || `execution_${rr.status}`);
       const upstreamCode = String(x?.error?.code || "");
       const errorCode = upstreamCode.startsWith("mission_budget_") ? upstreamCode : "agent_execution_failed";
-      await recordDiagnostic(missionId, stepId, { status: "failed", code: errorCode, message, provider_status: x?.error?.provider_status ?? rr.status });
-      return out({ ok: false, status: "failed", agent_id: agentId, executor_type: "agent", error: { code: errorCode, message, provider_status: x?.error?.provider_status ?? rr.status } });
+      const terminalBudgetBlock = errorCode.startsWith("mission_budget_");
+      const failureStatus = terminalBudgetBlock ? "blocked" : "failed";
+      await recordDiagnostic(missionId, stepId, { status: failureStatus, code: errorCode, message, provider_status: x?.error?.provider_status ?? rr.status });
+      return out({ ok: false, status: failureStatus, agent_id: agentId, executor_type: "agent", error: { code: errorCode, message, provider_status: x?.error?.provider_status ?? rr.status } }, terminalBudgetBlock ? 423 : 200);
     }
     return out({ ok: true, status: "succeeded", executor_type: "agent", agent_id: agentId, role: catalogAgent.role, operation: "delegate", provider_id: resource.provider.provider_id, account_id: resource.account.account_id, model_id: resource.model.model_id, capability_id: resource.capability.capability_id, response: x.response, usage: x.usage, metadata: { mission_id: missionId, step_id: stepId, catalog_source: "aria_agent_catalog", resource_graph: "aria_internal.resolve_agent_resource", evidence_ref: `execution:${missionId}:${stepId}` } });
   } catch (e) {

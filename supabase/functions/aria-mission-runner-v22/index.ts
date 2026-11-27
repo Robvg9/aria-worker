@@ -2528,6 +2528,22 @@ async function agentExecute(missionId: string, step: any, auth: AuthContext) {
 
     const providerStatus = Number(body?.error?.provider_status ?? body?.provider_status ?? response.status);
     const message = String(body?.error?.message || body?.error || `agent_execution_${response.status}`);
+    const agentBudgetErrorCode = String(body?.error?.code || "");
+    if (agentBudgetErrorCode.startsWith("mission_budget_")) {
+      return {
+        status: "blocked",
+        executor_type: "agent",
+        operation: "delegate",
+        agent_id: body?.agent_id || agentId,
+        error: {
+          code: agentBudgetErrorCode,
+          message: String(body?.error?.message || agentBudgetErrorCode),
+          provider_status: body?.error?.provider_status ?? response.status,
+        },
+        recovery_agent_fallback_used: false,
+        recovery_agent_fallback_trail: fallbackTrail,
+      };
+    }
     if (isProviderQuotaBlocked(response.status, providerStatus, body?.error?.code, message)) {
       throw new Error(`provider_quota_blocked:${providerStatus}:${message}`);
     }
@@ -4756,6 +4772,55 @@ if (!physicalPlanValidation.ok) {
 
       const failures = outcomes.filter((item) => !item.passed);
       if (failures.length) {
+        const missionBudgetFailure = failures.find((item) =>
+          String(item.result?.error?.code || "").startsWith("mission_budget_")
+        );
+        if (missionBudgetFailure) {
+          const failedStepId = String(missionBudgetFailure.step.id);
+          const errorCode = String(missionBudgetFailure.result?.error?.code || "mission_budget_blocked");
+          const details = {
+            kind: "mission_budget",
+            recoverable: true,
+            reason: "La reserva o liquidación del presupuesto de misión fue denegada o quedó incierta. ARIA debe detener esta misión sin reintentar ni cambiar de proveedor.",
+            next_action: "mission_budget:review_policy_and_estimates",
+            remediation: "Revisar la política aprobada y las estimaciones respaldadas por evidencia. No repetir la solicitud ni usar otra ruta mientras la liquidación siga incierta.",
+            evidence: { step_id: failedStepId, error_code: errorCode },
+          };
+          await emitEvent(missionId, "mission_budget_blocked", {
+            step_id: failedStepId,
+            error_code: errorCode,
+            terminal_for_current_attempt: true,
+            fallback_forbidden: true,
+          });
+          await updateMission(missionId, {
+            status: "blocked",
+            current_step: completed.size,
+            completed_steps: completed.size,
+            next_action: details.next_action,
+            last_stderr: errorCode,
+            checkpoint: {
+              ...checkpoint,
+              recovery: {
+                status: "mission_budget_blocked",
+                failed_step_id: failedStepId,
+                block_details: details,
+              },
+              active_step: null,
+            },
+            lease_owner: null,
+            lease_until: null,
+          });
+          return out({
+            ok: false,
+            status: "blocked",
+            mission_id: missionId,
+            runtime: V,
+            completed_steps: completed.size,
+            blocked_step_id: failedStepId,
+            error: { code: errorCode, message: details.reason },
+            recovery: details,
+          }, 423);
+        }
         const verificationWait = failures.find((item) => verificationPending(item.step, item.result));
         if (verificationWait) {
           const pendingStepId = String(verificationWait.step.id);

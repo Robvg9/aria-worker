@@ -61,7 +61,18 @@ const fallbackClassifierIndex = source.indexOf("const failureKind = m22ClassifyM
 if (budgetStopIndex < 0 || fallbackClassifierIndex < 0 || budgetStopIndex > fallbackClassifierIndex) {
   throw new Error("mission budget denial must short-circuit before model fallback classification");
 }
+const agentBudgetStopIndex = source.indexOf('const agentBudgetErrorCode = String(body?.error?.code || "");');
+const agentFallbackIndex = source.indexOf("const retryableProviderFailure =", agentBudgetStopIndex);
+if (agentBudgetStopIndex < 0 || agentFallbackIndex < 0 || agentBudgetStopIndex > agentFallbackIndex) {
+  throw new Error("agent mission budget denial must short-circuit before recovery-agent fallback");
+}
+const missionBudgetTerminalIndex = source.indexOf("const missionBudgetFailure = failures.find(");
+const retryableStepIndex = source.indexOf("const retryableFailure = failures.find(", missionBudgetTerminalIndex);
+if (missionBudgetTerminalIndex < 0 || retryableStepIndex < 0 || missionBudgetTerminalIndex > retryableStepIndex) {
+  throw new Error("mission-wide budget denial must block before step retry scheduling");
+}
 console.log("mission-runner mission budget terminal fallback gate: PASS");
+console.log("mission-runner agent budget terminal block gate: PASS");
 
 // Regression contract for durable async Windows/Ollama model jobs.
 const asyncReconciliationRequired = [
