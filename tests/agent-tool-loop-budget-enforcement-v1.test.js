@@ -15,11 +15,11 @@ assert.doesNotMatch(loop, /async function callBudgetedModel\(/);
 assert.match(budgetClient, /mission_budget_required: true/);
 assert.match(budgetClient, /request_id: requestId/);
 assert.match(budgetClient, /agent_tool_loop_human_gate_required/);
-assert.match(loop, /request_id: requestId/);
-assert.match(loop, /missionBudgetTerminal/);
-assert.match(loop, /!missionBudgetTerminal && round === 0/);
-assert.match(loop, /agent_tool_loop_human_gate_required/);
-assert.match(loop, /human_gate_required: true/);
+assert.match(budgetClient, /request_id: requestId/);
+assert.match(budgetClient, /missionBudgetTerminal/);
+assert.match(budgetClient, /canFallback: !missionBudgetTerminal && round === 0/);
+assert.match(budgetClient, /agent_tool_loop_human_gate_required/);
+assert.match(budgetClient, /human_gate_required: true/);
 assert.match(loop, /tool_call_id: toolCall.id, name/);
 assert.doesNotMatch(loop, /generativelanguage\.googleapis\.com|openrouter\.ai\/api|GOOGLE_API_KEY|credential_read_secret/);
 
