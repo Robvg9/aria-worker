@@ -47,7 +47,7 @@ try {
   await client.query("CREATE SCHEMA aria_internal");
   await client.query("CREATE TABLE aria_internal.mission_state (mission_id text PRIMARY KEY,goal text NOT NULL,status text NOT NULL DEFAULT 'queued',checkpoint jsonb NOT NULL DEFAULT '{}'::jsonb,metadata jsonb NOT NULL DEFAULT '{}'::jsonb)");
 
-  for (const id of ["mission-missing","mission-draft","mission-main","mission-release","mission-unknown","mission-revoke","mission-race","mission-version-usage"]) {
+  for (const id of ["mission-missing","mission-draft","mission-main","mission-release","mission-unknown","mission-revoke","mission-race","mission-version-usage","mission-mixed-requests","mission-mixed-tokens","mission-mixed-costs"]) {
     await createMission(client,id);
   }
   await client.query(migration);
@@ -91,6 +91,41 @@ try {
   assert.equal(testOverrun.within_budget,false);
   assert.equal(testOverrun.budget_overrun,true);
   assert.deepEqual(await settle(client,"test-001","succeeded",120,"0.70","USD"),{settled:false,reason:"mission_budget_reservation_not_open"});
+
+  // Ring-fenced test/closure reservations must not consume execution's separate allowance.
+  // Total ceilings still apply across all three request kinds.
+  await createApprovedPolicy(client,{
+    missionId:"mission-mixed-requests",maxRequests:4,testRequests:1,closeRequests:1,
+  });
+  assert.equal((await reserve(client,"mission-mixed-requests","mixed-request-test","test")).allowed,true);
+  assert.equal((await reserve(client,"mission-mixed-requests","mixed-request-close","closure")).allowed,true);
+  assert.equal((await reserve(client,"mission-mixed-requests","mixed-request-exec-001","execution")).allowed,true);
+  assert.equal((await reserve(client,"mission-mixed-requests","mixed-request-exec-002","execution")).allowed,true);
+  assert.deepEqual(await reserve(client,"mission-mixed-requests","mixed-request-exec-003","execution"),{
+    allowed:false,reason:"mission_budget_execution_request_limit",
+  });
+
+  await createApprovedPolicy(client,{
+    missionId:"mission-mixed-tokens",maxTokens:40,testTokens:10,closeTokens:10,
+  });
+  assert.equal((await reserve(client,"mission-mixed-tokens","mixed-token-test","test",10)).allowed,true);
+  assert.equal((await reserve(client,"mission-mixed-tokens","mixed-token-close","closure",10)).allowed,true);
+  assert.equal((await reserve(client,"mission-mixed-tokens","mixed-token-exec-001","execution",10)).allowed,true);
+  assert.equal((await reserve(client,"mission-mixed-tokens","mixed-token-exec-002","execution",10)).allowed,true);
+  assert.deepEqual(await reserve(client,"mission-mixed-tokens","mixed-token-exec-003","execution",1),{
+    allowed:false,reason:"mission_budget_execution_token_limit",
+  });
+
+  await createApprovedPolicy(client,{
+    missionId:"mission-mixed-costs",maxCost:"4.00000000",currency:"USD",testCost:"1.00000000",closeCost:"1.00000000",
+  });
+  assert.equal((await reserve(client,"mission-mixed-costs","mixed-cost-test","test",null,"1.00","USD")).allowed,true);
+  assert.equal((await reserve(client,"mission-mixed-costs","mixed-cost-close","closure",null,"1.00","USD")).allowed,true);
+  assert.equal((await reserve(client,"mission-mixed-costs","mixed-cost-exec-001","execution",null,"1.00","USD")).allowed,true);
+  assert.equal((await reserve(client,"mission-mixed-costs","mixed-cost-exec-002","execution",null,"1.00","USD")).allowed,true);
+  assert.deepEqual(await reserve(client,"mission-mixed-costs","mixed-cost-exec-003","execution",null,"0.01","USD"),{
+    allowed:false,reason:"mission_budget_execution_cost_limit",
+  });
 
   await createApprovedPolicy(client,{missionId:"mission-release",maxRequests:1});
   assert.equal((await reserve(client,"mission-release","release-001","execution")).allowed,true);

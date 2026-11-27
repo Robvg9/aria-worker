@@ -232,12 +232,15 @@ DECLARE
   v_policy aria_internal.mission_budget_policies_v1%ROWTYPE;
   v_latest_status text;
   v_requests_used bigint := 0;
+  v_execution_requests_used bigint := 0;
   v_test_requests_used bigint := 0;
   v_close_requests_used bigint := 0;
   v_tokens_used numeric := 0;
+  v_execution_tokens_used numeric := 0;
   v_test_tokens_used numeric := 0;
   v_close_tokens_used numeric := 0;
   v_cost_used numeric := 0;
+  v_execution_cost_used numeric := 0;
   v_test_cost_used numeric := 0;
   v_close_cost_used numeric := 0;
 BEGIN
@@ -297,10 +300,13 @@ BEGIN
 
   SELECT
     count(*) FILTER (WHERE status <> 'released')::bigint,
+    count(*) FILTER (WHERE request_kind = 'execution' AND status <> 'released')::bigint,
     count(*) FILTER (WHERE request_kind = 'test' AND status <> 'released')::bigint,
     count(*) FILTER (WHERE request_kind = 'closure' AND status <> 'released')::bigint,
     COALESCE(sum(COALESCE(actual_tokens, estimated_tokens, 0))
       FILTER (WHERE status <> 'released'), 0),
+    COALESCE(sum(COALESCE(actual_tokens, estimated_tokens, 0))
+      FILTER (WHERE request_kind = 'execution' AND status <> 'released'), 0),
     COALESCE(sum(COALESCE(actual_tokens, estimated_tokens, 0))
       FILTER (WHERE request_kind = 'test' AND status <> 'released'), 0),
     COALESCE(sum(COALESCE(actual_tokens, estimated_tokens, 0))
@@ -308,20 +314,23 @@ BEGIN
     COALESCE(sum(COALESCE(actual_cost_amount, estimated_cost_amount, 0))
       FILTER (WHERE status <> 'released'), 0),
     COALESCE(sum(COALESCE(actual_cost_amount, estimated_cost_amount, 0))
+      FILTER (WHERE request_kind = 'execution' AND status <> 'released'), 0),
+    COALESCE(sum(COALESCE(actual_cost_amount, estimated_cost_amount, 0))
       FILTER (WHERE request_kind = 'test' AND status <> 'released'), 0),
     COALESCE(sum(COALESCE(actual_cost_amount, estimated_cost_amount, 0))
       FILTER (WHERE request_kind = 'closure' AND status <> 'released'), 0)
   INTO
-    v_requests_used, v_test_requests_used, v_close_requests_used,
-    v_tokens_used, v_test_tokens_used, v_close_tokens_used,
-    v_cost_used, v_test_cost_used, v_close_cost_used
+    v_requests_used, v_execution_requests_used, v_test_requests_used, v_close_requests_used,
+    v_tokens_used, v_execution_tokens_used, v_test_tokens_used, v_close_tokens_used,
+    v_cost_used, v_execution_cost_used, v_test_cost_used, v_close_cost_used
   FROM aria_internal.mission_budget_reservations_v1
   WHERE mission_id = p_mission_id;
 
   IF v_policy.max_requests IS NOT NULL THEN
     IF p_request_kind = 'execution'
-      AND v_requests_used + 1 >
+      AND (v_execution_requests_used + 1 >
         v_policy.max_requests - v_policy.reserve_test_requests - v_policy.reserve_close_requests
+        OR v_requests_used + 1 > v_policy.max_requests)
     THEN
       RETURN jsonb_build_object('allowed', false, 'reason', 'mission_budget_execution_request_limit');
     ELSIF p_request_kind = 'test'
@@ -339,8 +348,9 @@ BEGIN
 
   IF v_policy.max_total_tokens IS NOT NULL THEN
     IF p_request_kind = 'execution'
-      AND v_tokens_used + p_estimated_tokens >
+      AND (v_execution_tokens_used + p_estimated_tokens >
         v_policy.max_total_tokens - v_policy.reserve_test_tokens - v_policy.reserve_close_tokens
+        OR v_tokens_used + p_estimated_tokens > v_policy.max_total_tokens)
     THEN
       RETURN jsonb_build_object('allowed', false, 'reason', 'mission_budget_execution_token_limit');
     ELSIF p_request_kind = 'test'
@@ -358,8 +368,9 @@ BEGIN
 
   IF v_policy.max_cost_amount IS NOT NULL THEN
     IF p_request_kind = 'execution'
-      AND v_cost_used + p_estimated_cost_amount >
+      AND (v_execution_cost_used + p_estimated_cost_amount >
         v_policy.max_cost_amount - v_policy.reserve_test_cost_amount - v_policy.reserve_close_cost_amount
+        OR v_cost_used + p_estimated_cost_amount > v_policy.max_cost_amount)
     THEN
       RETURN jsonb_build_object('allowed', false, 'reason', 'mission_budget_execution_cost_limit');
     ELSIF p_request_kind = 'test'
