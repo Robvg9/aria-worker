@@ -404,14 +404,11 @@ async function readJobAuthorization(job){
   const path='/v1/jobs/'+encodeURIComponent(job.job_id)+'/status';
   const requestId=crypto.randomUUID();
   log(`JOB_AUTH_CHECK_START id=${requestId} job_id=${job.job_id}`);
-  const response=await nativeGatewayRequest(endpoint(path),{
-    method:'GET',
-    headers:{...headers(),'x-aria-request-id':requestId,'x-aria-process-start-id':processStartId},
-    timeoutMs:2500
-  });
-  log(`JOB_AUTH_CHECK_ACK id=${requestId} job_id=${job.job_id} status=${response.status}`);
-  let body=null;try{body=response.text?JSON.parse(response.text):null}catch{body=null}
-  if(response.status<200||response.status>=300||body?.authorized!==true)throw new Error(String(body?.error||'mission_authorization_revoked'));
+  // Route authorization reads through api() so the persistent circuit breaker
+  // governs every gateway request, including this 500ms execution guard.
+  const body=await api(path,{method:'GET',timeoutMs:2500});
+  log(`JOB_AUTH_CHECK_ACK id=${requestId} job_id=${job.job_id} status=success`);
+  if(body?.authorized!==true)throw new Error(String(body?.error||'mission_authorization_revoked'));
   if(job?.lease_owner&&body.lease_owner!==job.lease_owner)throw new Error('execution_lease_lost');
   if(job?.policy?.mission_wonder_2_a6_continuity===true){
     const expectedAttempt=Math.max(1,Number(job?.metadata?.mission_wonder_2_a6_attempt||1));
