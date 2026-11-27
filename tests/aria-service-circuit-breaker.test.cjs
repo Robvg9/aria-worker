@@ -160,7 +160,7 @@ async function main() {
     assert.equal(manualReset.cleared_paused_routes, 1);
     assert.equal((await manualBreaker.beforeRequest('/v1/jobs/claim')).allowed, true);
     const resetAudit = (await fs.readFile(manualResetPath + '.reset-audit.jsonl', 'utf8'))
-      .trim().split('\\n').map(line => JSON.parse(line));
+      .trim().split(String.fromCharCode(10)).map(line => JSON.parse(line));
     assert.deepEqual(resetAudit.map(item => item.phase), ['requested', 'completed']);
     assert.equal(resetAudit[1].canonical_freeze_cleared_owner_attestation, true);
     assert.equal(resetAudit[1].evidence_ref, manualResetBase.evidenceRef);
