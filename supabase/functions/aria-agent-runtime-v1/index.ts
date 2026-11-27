@@ -1,6 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { toolLoop } from "./tool-loop.ts";
+import { fetchAgentExecutionOutcome } from "./internal-execution-outcome-v1.mjs";
 
 const MISSION_EXECUTION_PAUSED = true;
 const URL = Deno.env.get("SUPABASE_URL")!;
@@ -89,8 +90,46 @@ Deno.serve(async (r) => {
     }
     if (toolUse) return out(await toolLoop(agent, missionId, stepId, prompt, false, b.policy || {}, b.authorization || {}));
     const requestId = `${missionId}:${stepId}:${crypto.randomUUID()}`;
-    const rr = await fetch(EXEC, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${SECRET}` }, body: JSON.stringify({ execution_version: "1", request_id: requestId, task_id: stepId, capability: "text_generation", selected_route: { status: "selected", provider_id: resource.provider.provider_id, account_id: resource.account.account_id, model_id: resource.model.model_id, capability: resource.capability.capability_id }, authorization: { status: "approved", risk_class: requestedRisk, evidence_ref: `agent:${agentId}` }, input: { payload: { prompt: `${profile.system}\n\nTask:\n${prompt}` } }, policy: b.policy || {}, metadata: { executor_type: "agent", agent_id: agentId, agent_role: catalogAgent.role, mission_id: missionId, step_id: stepId, catalog_source: "aria_agent_catalog", resource_graph: "aria_internal.resolve_agent_resource", provider_id: resource.provider.provider_id, account_id: resource.account.account_id, model_id: resource.model.model_id, capability_id: resource.capability.capability_id } }) });
-    const x: any = await rr.json().catch(() => null);
+    const executionOutcome = await fetchAgentExecutionOutcome(fetch, EXEC, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${SECRET}` },
+      body: JSON.stringify({
+        execution_version: "1",
+        request_id: requestId,
+        task_id: stepId,
+        capability: "text_generation",
+        selected_route: {
+          status: "selected",
+          provider_id: resource.provider.provider_id,
+          account_id: resource.account.account_id,
+          model_id: resource.model.model_id,
+          capability: resource.capability.capability_id,
+        },
+        authorization: { status: "approved", risk_class: requestedRisk, evidence_ref: `agent:${agentId}` },
+        input: { payload: { prompt: `${profile.system}\\n\\nTask:\\n${prompt}` } },
+        policy: b.policy || {},
+        metadata: {
+          executor_type: "agent", agent_id: agentId, agent_role: catalogAgent.role,
+          mission_id: missionId, step_id: stepId, catalog_source: "aria_agent_catalog",
+          resource_graph: "aria_internal.resolve_agent_resource",
+          provider_id: resource.provider.provider_id, account_id: resource.account.account_id,
+          model_id: resource.model.model_id, capability_id: resource.capability.capability_id,
+        },
+      }),
+    });
+    if (executionOutcome.kind === "unknown") {
+      const error = executionOutcome.error;
+      await recordDiagnostic(missionId, stepId, {
+        status: "blocked", code: error.code, message: error.message,
+        provider_status: executionOutcome.status,
+      });
+      return out({
+        ok: false, status: "blocked", agent_id: agentId, executor_type: "agent",
+        error: { code: error.code, message: error.message, provider_status: executionOutcome.status },
+      }, 423);
+    }
+    const rr = { ok: executionOutcome.ok, status: executionOutcome.status };
+    const x: any = executionOutcome.body;
     if (!rr.ok || x?.status !== "succeeded") {
       const message = String(x?.error?.message || x?.error || `execution_${rr.status}`);
       const upstreamCode = String(x?.error?.code || "");
