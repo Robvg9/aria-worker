@@ -2,7 +2,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { m22Gate3HumanGateActionHash, m22Gate3RouteAllowed, m22MissionWonder2ScopedProbeAllowed } from "../_shared/mission-wonder-2-gate3-scope-v1.mjs";
 import { parseOpenRouterFreeDailyQuota, extractProviderUsage, parseQuotaReservation } from "./quota-accounting-v1.mjs";
-import { createMissionBudgetContext, reserveMissionBudget, settleMissionBudget, missionBudgetSettlementPending } from "./mission-budget-guard-v1.mjs";
+import { createMissionBudgetContext, reserveMissionBudget, settleMissionBudget, missionBudgetSettlementPending, missionBudgetProviderOutcomeUnknown } from "./mission-budget-guard-v1.mjs";
 import { isCloudflarePlanPreviewRequest } from "../_shared/cloudflare-plan-preview-auth-v1.mjs";
 const MISSION_EXECUTION_PAUSED = true;
 const URL=Deno.env.get("SUPABASE_URL")!;const KEY=Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;const SECRET=Deno.env.get("ARIA_RUNTIME_SHARED_SECRET")??"";const PLAN_BRIDGE_SECRET=Deno.env.get("ARIA_PLAN_PRODUCER_SHARED_SECRET")??"";const GOOGLE_API_KEY=Deno.env.get("GOOGLE_API_KEY")??"";
@@ -164,6 +164,7 @@ async function directGemini(route:any,input:any,requestId:string,providerTimeout
   }catch(error){
     const settlement=await settleProviderAttempt(reservationKey,budgetContext,"unknown",null,null);
     if(!settlement.budgetSettled)return out(missionBudgetSettlementPending(),503);
+    if(budgetContext)return out(missionBudgetProviderOutcomeUnknown(),503);
     const timedOut=error instanceof Error&&error.name==="AbortError";
     return out({status:"failed",error:{code:timedOut?"transport_timeout":"transport_error",message:timedOut?"provider request timed out":"transport failure"}});
   }finally{clearTimeout(timeout)}if(!res.ok){const settlement=await settleProviderAttempt(reservationKey,budgetContext,"failed",res.status,json);if(!settlement.budgetSettled)return out(missionBudgetSettlementPending(),503);return out({status:"failed",error:{code:"provider_error",message:sanitize(json?.error?.message||`provider returned HTTP ${res.status}`),provider_status:res.status}});}
@@ -214,6 +215,7 @@ async function xaiResponses(route:any,input:any,requestId:string,providerTimeout
   }catch(error){
     const settlement=await settleProviderAttempt(reservationKey,budgetContext,"unknown",null,null);
     if(!settlement.budgetSettled)return out(missionBudgetSettlementPending(),503);
+    if(budgetContext)return out(missionBudgetProviderOutcomeUnknown(),503);
     const timedOut=controller&&(error as any)?.name==="AbortError";
     return out({status:"failed",error:{code:timedOut?"transport_timeout":"transport_error",message:timedOut?"provider request timed out":"transport failure"}});
   }finally{
@@ -373,6 +375,7 @@ async function openRouterChat(route:any,input:any,requestId:string,providerTimeo
   }catch(error){
     const settlement=await settleProviderAttempt(reservationKey,budgetContext,"unknown",null,null);
     if(!settlement.budgetSettled)return out(missionBudgetSettlementPending(),503);
+    if(budgetContext)return out(missionBudgetProviderOutcomeUnknown(),503);
     const timedOut=error instanceof Error&&error.name==="AbortError";
     return out({status:"failed",error:{code:timedOut?"transport_timeout":"transport_error",message:timedOut?"provider request timed out":"transport failure"}});
   }finally{clearTimeout(timeout)}

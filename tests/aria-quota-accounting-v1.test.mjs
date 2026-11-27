@@ -12,6 +12,7 @@ import {
   reserveMissionBudget,
   settleMissionBudget,
   missionBudgetSettlementPending,
+  missionBudgetProviderOutcomeUnknown,
 } from "../supabase/functions/aria-execution-runtime-v1/mission-budget-guard-v1.mjs";
 
 const migration = await readFile(
@@ -229,6 +230,13 @@ const pendingSettlement = await settleMissionBudget(async () => ({
 }), budgetContext, { outcome: "succeeded", actualTokens: 41 });
 assert.equal(pendingSettlement, false);
 
+const unknownProviderOutcome = missionBudgetProviderOutcomeUnknown();
+assert.equal(unknownProviderOutcome.status, "blocked");
+assert.equal(unknownProviderOutcome.reason, "mission_budget_provider_outcome_unknown");
+assert.equal(unknownProviderOutcome.error.code, "mission_budget_provider_outcome_unknown");
+assert.match(unknownProviderOutcome.error.message, /outcome is unknown/i);
+assert.match(unknownProviderOutcome.error.message, /fallback and retries are forbidden/i);
+
 
 const providerCallsites = [
   ["directGemini", "https://generativelanguage.googleapis.com/v1beta/models/"],
@@ -243,6 +251,8 @@ for (const [name, endpoint] of providerCallsites) {
   const adapter = runtime.slice(start, end);
   assert.ok(adapter.includes("reserveProviderCall(route,requestId,budgetContext"), name + " must reserve mission budget before provider call");
   assert.ok(adapter.includes("settleProviderAttempt(reservationKey,budgetContext,\"unknown\""), name + " must retain UNKNOWN outcomes");
+  assert.ok(adapter.includes("if(budgetContext)return out(missionBudgetProviderOutcomeUnknown(),503)"),
+    name + " must make mission-backed UNKNOWN outcomes terminal to block fallback and retries");
   assert.ok(adapter.includes("settleProviderAttempt(reservationKey,budgetContext,\"failed\""), name + " must settle failed provider outcomes");
   assert.ok(adapter.includes("settleProviderAttempt(reservationKey,budgetContext,\"succeeded\""), name + " must settle successful provider outcomes");
   const reserveIndex = adapter.indexOf("reserveProviderCall(route,requestId,budgetContext");
