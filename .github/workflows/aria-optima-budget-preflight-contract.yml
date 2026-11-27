@@ -3,7 +3,7 @@ name: ARIA Optima Budget Preflight Contract
 on:
   pull_request:
     branches:
-      - fix/aria-optima-budget-block-checkpoint-resume-guard-20261127
+      - main
     paths:
       - 'supabase/functions/aria-execution-runtime-v1/**'
       - 'tests/aria-quota-accounting-v1.test.mjs'
