@@ -176,7 +176,9 @@ function geminiContents(messages:any[]) {
     if(role==="tool"){
       const callId=String(message?.tool_call_id||""); const name=toolNames.get(callId)||String(message?.name||"unknown_tool");
       let responseValue:any; try{responseValue=JSON.parse(String(message?.content??"{}"));}catch{responseValue={output:String(message?.content??"")};}
-      contents.push({role:"user",parts:[{functionResponse:{id:callId||undefined,name,response:responseValue&&typeof responseValue==="object"?responseValue:{output:responseValue}}}]});
+      const functionResponse:any={name,response:responseValue&&typeof responseValue==="object"?responseValue:{output:responseValue}};
+      if(toolNames.has(callId))functionResponse.id=callId;
+      contents.push({role:"user",parts:[{functionResponse}]});
     }
   }
   return {systemInstruction:systemParts.length?{parts:[{text:systemParts.join("\n\n")}]}:undefined,contents};
