@@ -36,6 +36,7 @@ test("mission budget denial checkpoints and blocks before verification, retry, r
     "budget denial must never schedule retry or continuation");
   assert.match(appApi, /const budgetBlocked = recoveryStatus === "mission_budget_blocked"/);
   assert.match(appApi, /mission_budget_owner_review_required/);
+  assert.match(appApi, /mission_budget_verification_retry_blocked/);
   assert.match(appApi, /kind: budgetBlocked \? "budget_gate"/);
   assert.match(appApi, /retry_ready: recoverable/);
   assert.match(pwaApp, /const isBudgetBlocked = block\?\.kind === 'budget_gate'/);

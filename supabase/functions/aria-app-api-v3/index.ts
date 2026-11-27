@@ -3710,6 +3710,13 @@ Deno.serve(async (req) => {
       const missionId = decodeURIComponent(path.split("/missions/")[1].replace(/\/verify-retry$/,""));
       const original = await missionForUser(missionId, user.id);
       if (!original) return json({ error: "mission_not_found", trace_id: trace }, 404);
+      if (String(original?.checkpoint?.recovery?.status || "") === "mission_budget_blocked") {
+        return json({
+          error: "mission_budget_verification_retry_blocked",
+          detail: "Esta misión está detenida por presupuesto. Una verificación manual no puede reactivar ni repetir el paso bloqueado.",
+          trace_id: trace,
+        }, 409);
+      }
       const status = String(original.status || "");
       const verification = original?.checkpoint?.verification;
       const reason = String(verification?.reason || "").toLowerCase();
