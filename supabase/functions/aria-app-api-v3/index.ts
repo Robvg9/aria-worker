@@ -1203,7 +1203,8 @@ function missionBlockDetails(m:any) {
   const verificationMismatch = verificationReason === "mutation_verification_evidence_mismatch";
   const verificationPending = recoveryStatus === "verification_pending" || gate?.status === "pending";
   const replanRequired = recoveryStatus === "replan_required";
-  const recoverable = verificationPending || replanRequired || status === "waiting" || status === "paused" || status === "blocked" || status === "failed";
+  const budgetBlocked = recoveryStatus === "mission_budget_blocked";
+  const recoverable = !budgetBlocked && (verificationPending || replanRequired || status === "waiting" || status === "paused" || status === "blocked" || status === "failed");
 
   const baseReason = gate?.reason || gate?.description || recovery?.block_details?.reason || m?.last_stderr || m?.next_action || recoveryStatus || "La misión necesita atención.";
   const reason = redactMissionDiagnostic(baseReason);
@@ -1211,26 +1212,30 @@ function missionBlockDetails(m:any) {
 
   const expected = verification?.expected && typeof verification.expected === "object" ? verification.expected : {};
   const goal = String(m?.goal || "");
-  const explanation = verificationMismatch
-    ? "ARIA hizo la parte principal del trabajo, pero la comprobación final dio información que no coincide con esa ejecución. Por seguridad, la misión quedó detenida."
-    : redactMissionDiagnostic(
-        gate?.description ||
-        gate?.reason ||
-        recovery?.block_details?.reason ||
-        (category === "credential" ? "ARIA necesita que completes o corrijas una credencial antes de continuar." :
-          category === "approval" || gate ? "ARIA necesita que apruebes una acción antes de continuar." :
-          "ARIA no pudo completar la misión con la estrategia actual.")
-      );
+  const explanation = budgetBlocked
+    ? "La cuota o el presupuesto de la misión bloqueó la ejecución. El plan, los pasos completados y los resultados ya obtenidos quedaron guardados. ARIA no debe volver a ejecutar la acción hasta que se revise la cuota, se concilie cualquier petición UNKNOWN y exista una política aprobada."
+    : verificationMismatch
+      ? "ARIA hizo la parte principal del trabajo, pero la comprobación final dio información que no coincide con esa ejecución. Por seguridad, la misión quedó detenida."
+      : redactMissionDiagnostic(
+          gate?.description ||
+          gate?.reason ||
+          recovery?.block_details?.reason ||
+          (category === "credential" ? "ARIA necesita que completes o corrijas una credencial antes de continuar." :
+            category === "approval" || gate ? "ARIA necesita que apruebes una acción antes de continuar." :
+            "ARIA no pudo completar la misión con la estrategia actual.")
+        );
 
-  const remediation = verificationMismatch
-    ? "No repitas el cambio si el archivo ya existe. Vuelve a ejecutar la comprobación para que ARIA compare la evidencia real con el resultado del verificador."
-    : redactMissionDiagnostic(
-        gate?.remediation ||
-        recovery?.block_details?.remediation ||
-        (category === "credential" ? "Completa o corrige la credencial indicada y después continúa la misión." :
-          category === "approval" || gate ? "Completa la acción humana solicitada y después continúa la misión." :
-          "Corrige la causa indicada por ARIA y vuelve a ejecutar la misión.")
-      );
+  const remediation = budgetBlocked
+    ? "No pulses Reintentar misión. Primero revisa la cuota del proveedor y el ledger (incluidas las reservas UNKNOWN); después define y aprueba los límites de esta misión por separado. La reanudación debe conservar el checkpoint y nunca repetir una petición cuyo resultado externo siga siendo incierto."
+    : verificationMismatch
+      ? "No repitas el cambio si el archivo ya existe. Vuelve a ejecutar la comprobación para que ARIA compare la evidencia real con el resultado del verificador."
+      : redactMissionDiagnostic(
+          gate?.remediation ||
+          recovery?.block_details?.remediation ||
+          (category === "credential" ? "Completa o corrige la credencial indicada y después continúa la misión." :
+            category === "approval" || gate ? "Completa la acción humana solicitada y después continúa la misión." :
+            "Corrige la causa indicada por ARIA y vuelve a ejecutar la misión.")
+        );
 
   const directLink = gate?.url || gate?.link || gate?.resource_url ||
     result?.repair?.pr?.html_url || result?.pr?.html_url ||
@@ -1251,19 +1256,26 @@ function missionBlockDetails(m:any) {
     link = "https://github.com/Robvg9"; link_label = "Abrir GitHub";
   }
 
-  const guideSteps = verificationMismatch
+  const guideSteps = budgetBlocked
     ? [
-        "No vuelvas a escribir el archivo: la evidencia indica que el cambio ya existe.",
-        link ? "Abre el archivo real en GitHub y comprueba que está en la rama de trabajo indicada." : "Revisa la evidencia técnica para localizar el archivo real de esta ejecución.",
-        "Pulsa «Reintentar misión». ARIA debe volver a comprobar la evidencia y no inventar una nueva ubicación."
+        "Comprueba el estado real de la cuota del proveedor y si hay reservas o resultados UNKNOWN sin conciliar.",
+        "Revisa el checkpoint guardado: pasos completados, intentos, resultados y trabajos pendientes.",
+        "Define y aprueba límites explícitos para esta misión. No se inventan precios, tokens ni importes.",
+        "No reanudes ni repitas la petición hasta que su resultado externo esté reconciliado. La reanudación gobernada debe conservar el checkpoint."
       ]
-    : Array.isArray(gate?.steps) && gate.steps.length
-      ? gate.steps.map((x:any) => redactMissionDiagnostic(String(x)))
-      : [
-          remediation,
-          "Comprueba que la condición indicada quedó resuelta.",
-          "Cuando esté listo, continúa o reintenta la misión."
-        ];
+    : verificationMismatch
+      ? [
+          "No vuelvas a escribir el archivo: la evidencia indica que el cambio ya existe.",
+          link ? "Abre el archivo real en GitHub y comprueba que está en la rama de trabajo indicada." : "Revisa la evidencia técnica para localizar el archivo real de esta ejecución.",
+          "Pulsa «Reintentar misión». ARIA debe volver a comprobar la evidencia y no inventar una nueva ubicación."
+        ]
+      : Array.isArray(gate?.steps) && gate.steps.length
+        ? gate.steps.map((x:any) => redactMissionDiagnostic(String(x)))
+        : [
+            remediation,
+            "Comprueba que la condición indicada quedó resuelta.",
+            "Cuando esté listo, continúa o reintenta la misión."
+          ];
 
   const evidence = {
     step_id: failedStepId || step?.id || null,
@@ -1277,9 +1289,10 @@ function missionBlockDetails(m:any) {
   };
 
   return {
-    kind: verificationPending ? (gate?.status === "pending" ? "human_gate" : "verification_pending") : replanRequired ? "replan_required" : status === "blocked" ? "hard_block" : "recovery",
+    kind: budgetBlocked ? "budget_gate" : verificationPending ? (gate?.status === "pending" ? "human_gate" : "verification_pending") : replanRequired ? "replan_required" : status === "blocked" ? "hard_block" : "recovery",
     recoverable,
     retry_ready: recoverable,
+    budget_blocked: budgetBlocked,
     category: verificationMismatch ? "verification" : category,
     reason,
     explanation,
@@ -3697,6 +3710,13 @@ Deno.serve(async (req) => {
       const missionId = decodeURIComponent(path.split("/missions/")[1].replace(/\/verify-retry$/,""));
       const original = await missionForUser(missionId, user.id);
       if (!original) return json({ error: "mission_not_found", trace_id: trace }, 404);
+      if (String(original?.checkpoint?.recovery?.status || "") === "mission_budget_blocked") {
+        return json({
+          error: "mission_budget_verification_retry_blocked",
+          detail: "Esta misión está detenida por presupuesto. Una verificación manual no puede reactivar ni repetir el paso bloqueado.",
+          trace_id: trace,
+        }, 409);
+      }
       const status = String(original.status || "");
       const verification = original?.checkpoint?.verification;
       const reason = String(verification?.reason || "").toLowerCase();
@@ -3858,6 +3878,13 @@ Deno.serve(async (req) => {
       const missionId = decodeURIComponent(path.split("/missions/")[1].replace(/\/retry$/,""));
       const original = await missionForUser(missionId, user.id);
       if (!original) return json({ error: "mission_not_found", trace_id: trace }, 404);
+      if (String(original?.checkpoint?.recovery?.status || "") === "mission_budget_blocked") {
+        return json({
+          error: "mission_budget_owner_review_required",
+          detail: "Esta misión conserva su checkpoint y no puede duplicarse mediante Reintentar. Revisa cuota, reservas UNKNOWN y política aprobada antes de habilitar una reanudación gobernada.",
+          trace_id: trace,
+        }, 409);
+      }
       const status = String(original.status || "");
       if (!["blocked","failed","waiting","paused","cancelled"].includes(status)) {
         return json({ error: "mission_not_retryable", detail: "Solo se pueden reintentar misiones detenidas por bloqueo, Human Gate o fallo.", trace_id: trace }, 409);

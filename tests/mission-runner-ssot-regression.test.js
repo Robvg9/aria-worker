@@ -6,6 +6,44 @@ const runner = fs.readFileSync("supabase/functions/aria-mission-runner-v22/index
 const appApi = fs.readFileSync("supabase/functions/aria-app-api-v3/index.ts", "utf8");
 const pwaApp = fs.readFileSync("pwa/src/App.tsx", "utf8");
 
+
+test("mission budget denial checkpoints and blocks before verification, retry, replan, and generic PWA retry", () => {
+  const budgetCheck = runner.indexOf("const budgetErrorCode = String(result?.error?.code || result?.error?.reason || result?.reason || \"\");");
+  const independent = runner.indexOf("await independentVerify(mission, step, result)", budgetCheck);
+  assert.ok(budgetCheck >= 0 && independent > budgetCheck, "budget denial must be detected before independent verifier dispatch");
+  const earlyReturn = runner.indexOf("budgetBlocked: true", budgetCheck);
+  assert.ok(earlyReturn > budgetCheck && earlyReturn < independent, "budget-denied step must return before external verification");
+  const outcomesWait = runner.indexOf("const waiting = outcomes.find((item) => item.waiting);");
+  const asyncWait = runner.indexOf("if (waiting) {", outcomesWait);
+  const persist = runner.indexOf("const budgetBlockedOutcomes = outcomes.filter((item) => item.budgetBlocked === true);");
+  const genericRecovery = runner.indexOf("const providerPermissionFailure = outcomes.find", persist);
+  assert.ok(persist >= 0 && asyncWait > persist && genericRecovery > persist,
+    "mission-wide budget checkpoint must take precedence over async waiting and generic failure recovery");
+  const block = runner.slice(persist, genericRecovery);
+  for (const marker of [
+    'status: "mission_budget_blocked"',
+    "replan_required: false",
+    "completed_steps: [...completed]",
+    "attempts",
+    "results",
+    "pending_jobs: persistedPendingJobs",
+    'status: "blocked"',
+    'lease_owner: null',
+    'lease_until: null',
+    'return out({'
+  ]) assert.ok(block.includes(marker), "budget block must preserve durable checkpoint marker: " + marker);
+  assert.ok(!block.includes("scheduleMissionRetryKick") && !block.includes("scheduleMissionContinuationKick"),
+    "budget denial must never schedule retry or continuation");
+  assert.match(appApi, /const budgetBlocked = recoveryStatus === "mission_budget_blocked"/);
+  assert.match(appApi, /mission_budget_owner_review_required/);
+  assert.match(appApi, /mission_budget_verification_retry_blocked/);
+  assert.match(appApi, /kind: budgetBlocked \? "budget_gate"/);
+  assert.match(appApi, /retry_ready: recoverable/);
+  assert.match(pwaApp, /const isBudgetBlocked = block\?\.kind === 'budget_gate'/);
+  assert.match(pwaApp, /isBudgetBlocked \|\| isVerificationPending \? null/);
+  console.log("MISSION BUDGET CHECKPOINT / NO-RETRY / NO-REPLAN CONTRACT: PASS");
+});
+
 test("async device jobs are polled instead of re-enqueued", () => {
   assert.match(
     runner,

@@ -196,8 +196,8 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "title": "Mission Runner SSoT Regression",
     "category": "Ejecución / misiones",
     "includedInNpmTest": true,
-    "how": "Comprueba que el estado canónico de misión, los leases vivos y el recovery async no creen estados activos o reintentos duplicados.",
-    "capabilities": "Detecta regresiones de Single Source of Truth, estados contradictorios y reencolado de jobs async."
+    "how": "Comprueba que el estado canónico de misión, los leases vivos, el recovery async y los bloqueos presupuestarios no creen estados activos ni reintentos duplicados.",
+    "capabilities": "Detecta regresiones de Single Source of Truth, preservación del checkpoint ante cuotas agotadas, bloqueos UNKNOWN, reencolado indebido y estados contradictorios."
   },
   {
     "id": "delivery-deterministic-v1",
