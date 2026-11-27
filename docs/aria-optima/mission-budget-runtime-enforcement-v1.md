@@ -66,6 +66,12 @@ A transport failure after dispatch is recorded as `unknown`, not released, becau
 have reached the provider. HTTP failures and invalid responses are recorded as `failed`. A success is
 returned to the runner only after the mission settlement is confirmed.
 
+When a mission-backed transport attempt is persisted as `unknown`, the runtime returns
+`mission_budget_provider_outcome_unknown` even when that UNKNOWN settlement itself was confirmed.
+This is terminal for the mission step: the runner and agent tool loop must not select another provider,
+retry the step, or risk duplicating a request whose upstream outcome is unresolved. The non-mission,
+read-only conversation/plan-preview exemptions retain their ordinary transport error response.
+
 The mission runner treats every `mission_budget_*` error as mission-wide and terminal for that step.
 It must not try another provider route after a denial or uncertain settlement, so a fallback cannot
 circumvent the budget gate or duplicate uncertain spend.

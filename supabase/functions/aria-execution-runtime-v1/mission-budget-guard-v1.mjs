@@ -112,3 +112,14 @@ export function missionBudgetSettlementPending() {
     },
   };
 }
+
+export function missionBudgetProviderOutcomeUnknown() {
+  return {
+    status: "blocked",
+    reason: "mission_budget_provider_outcome_unknown",
+    error: {
+      code: "mission_budget_provider_outcome_unknown",
+      message: "The provider may have accepted the request; its outcome is unknown. Fallback and retries are forbidden.",
+    },
+  };
+}
