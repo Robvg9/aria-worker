@@ -13,6 +13,7 @@ import {
   settleMissionBudget,
   missionBudgetSettlementPending,
   missionBudgetProviderOutcomeUnknown,
+  estimateMissionTokenUpperBound,
 } from "../supabase/functions/aria-execution-runtime-v1/mission-budget-guard-v1.mjs";
 
 const migration = await readFile(
@@ -110,6 +111,44 @@ assert.deepEqual(missionBudgetReserveArgs(budgetContext), {
   p_estimated_cost_amount: null,
   p_currency_code: null,
 });
+
+const geminiPayload = {
+  contents: [{ role: "user", parts: [{ text: "hello" }] }],
+  generationConfig: { maxOutputTokens: 4096 },
+};
+const geminiBound = estimateMissionTokenUpperBound({ provider_id: "google" }, geminiPayload);
+assert.equal(geminiBound.status, "bounded_estimate");
+assert.equal(geminiBound.inputBytes, new TextEncoder().encode(JSON.stringify(geminiPayload)).length);
+assert.equal(geminiBound.outputTokens, 4096);
+assert.equal(geminiBound.estimatedTokens, geminiBound.inputBytes * 2 + 4096 + 256);
+
+const openRouterPayload = { messages: [{ role: "user", content: "hello" }], max_completion_tokens: 1200 };
+const openRouterBound = estimateMissionTokenUpperBound({ provider_id: "openrouter" }, openRouterPayload);
+assert.equal(openRouterBound.status, "bounded_estimate");
+assert.equal(openRouterBound.outputTokens, 1200);
+
+const xaiPayload = { input: [{ role: "user", content: "hello" }], max_output_tokens: 2048 };
+const xaiBound = estimateMissionTokenUpperBound({ provider_id: "xai" }, xaiPayload);
+assert.equal(xaiBound.status, "bounded_estimate");
+assert.equal(xaiBound.outputTokens, 2048);
+
+for (const [route, payload] of [
+  [{ provider_id: "google" }, { contents: [{ role: "user", parts: [{ text: "hello" }] }] }],
+  [{ provider_id: "xai" }, { input: [{ role: "user", content: "hello" }] }],
+  [{ provider_id: "unknown" }, { prompt: "hello", max_tokens: 10 }],
+  [{ provider_id: "google" }, null],
+]) {
+  const result = estimateMissionTokenUpperBound(route, payload);
+  assert.equal(result.status, "unknown");
+  assert.equal(result.estimatedTokens, null);
+}
+
+const boundedReserveArgs = missionBudgetReserveArgs(budgetContext, { estimatedTokens: geminiBound.estimatedTokens });
+assert.equal(boundedReserveArgs.p_estimated_tokens, geminiBound.estimatedTokens);
+assert.equal(boundedReserveArgs.p_estimated_cost_amount, null);
+assert.equal(missionBudgetReserveArgs(budgetContext, { estimatedTokens: null }).p_estimated_tokens, null);
+assert.equal(missionBudgetReserveArgs(budgetContext, { estimatedTokens: -1 }).p_estimated_tokens, null);
+
 assert.equal(
   createMissionBudgetContext({ requestId: "request-only" }).reason,
   "mission_budget_mission_context_missing",
@@ -271,5 +310,15 @@ assert.ok(runtime.includes("requestKind:gate3ScopedProbeAllowed?\"test\":\"execu
 assert.ok(runtime.includes("mission_budget_mission_context_missing"), "ordinary provider calls without mission identity must fail closed");
 assert.ok(runtime.includes("if(!settlement.budgetSettled)return out(missionBudgetSettlementPending(),503)"), "uncertain settlement must not return provider output");
 assert.ok(runtime.includes("const MISSION_EXECUTION_PAUSED = true"), "global mission execution freeze must stay enabled");
+
+
+assert.ok(runtime.includes("estimateMissionTokenUpperBound(route,providerPayload)"), "runtime must pass the provider payload to the mission token bound");
+assert.ok(runtime.includes('estimatedTokens:estimate.status==="bounded_estimate"?estimate.estimatedTokens:null'), "runtime must preserve unknown estimates as NULL");
+for (const [name, payloadArg] of [["directGemini","body"],["xaiResponses","body"],["openRouterChat","reqBody"]]) {
+  const start = runtime.indexOf("async function " + name + "(");
+  const next = runtime.indexOf("\\nasync function ", start + 20);
+  const adapter = runtime.slice(start, next < 0 ? runtime.length : next);
+  assert.ok(adapter.includes(payloadArg+");"), name + " must give the bounded estimator the actual provider request body");
+}
 
 console.log("ARIA atomic provider quota accounting contract: PASS");
