@@ -17,7 +17,7 @@ const ALLOWED_FIXED_ROUTES = new Set([
   '/v1/jobs/claim',
   '/v1/voice/commands/claim'
 ]);
-const ALLOWED_JOB_ROUTE = /^\\/v1\\/jobs\\/:id\\/(?:start|progress|result|status|resolve-secret)$/;
+const ALLOWED_JOB_ROUTE = /^\/v1\/jobs\/:id\/(?:start|progress|result|status|resolve-secret)$/;
 
 function isAllowedCircuitRoute(route) {
   return ALLOWED_FIXED_ROUTES.has(route) || ALLOWED_JOB_ROUTE.test(route);
