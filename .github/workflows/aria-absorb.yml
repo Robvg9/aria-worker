@@ -68,7 +68,7 @@ concurrency:
 jobs:
   contract:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -79,6 +79,9 @@ jobs:
           node absorb/tests/absorb-engine.test.js
           node absorb/tests/absorb-app-api-contract.test.js
           node absorb/tests/pwa-absorb-ui-contract.test.js
+      - name: Full ARIA contract suite for bounded token preflight
+        if: github.event_name == 'pull_request' && github.head_ref == 'feat/aria-optima-bounded-token-preflight-20261127'
+        run: npm test
       - name: PWA build
         working-directory: pwa
         run: |
