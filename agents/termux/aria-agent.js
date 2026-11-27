@@ -8,6 +8,8 @@ const { executeAndroidAccessibilityJob, probeLocalIpcHealth, probeAndroidCommand
 const { executeAutonomousAndroidMission } = require('./android-autonomous-runner-v1');
 const { resolveAndroidUiHealth, markAndroidUiExecutionSuccess } = require('./android-ui-health-state');
 const { executeVoiceDeviceCommand, parseAllowlist, UUID_RE } = require('../shared/voice-command-executor.cjs');
+const { createRemoteServiceCircuitBreaker } = require('../shared/remote-service-circuit-breaker.cjs');
+const { createRemoteServiceCircuitCoordinator } = require('../shared/remote-service-circuit-coordinator.cjs');
 
 const GATEWAY_URL = process.env.ARIA_DEVICE_GATEWAY_URL;
 const DEVICE_TOKEN = process.env.ARIA_DEVICE_TOKEN;
@@ -21,6 +23,14 @@ const HEARTBEAT_MS = Math.max(30_000, Number(process.env.ARIA_HEARTBEAT_MS || 60
 const POLL_MS = Math.max(5_000, Number(process.env.ARIA_POLL_MS || 12_000));
 const MAX_OUTPUT = 256 * 1024;
 const DISPLAY_OUTPUT = 4096;
+const circuitCoordinator = createRemoteServiceCircuitCoordinator({ agent: 'termux' });
+const remoteCircuit = createRemoteServiceCircuitBreaker({
+  onIncident: async event => {
+    console.error(`[ARIA] ${event.type} status=${event.status} classification=${event.classification} route=${event.route} incident=${event.incident_id}`);
+    const published = await circuitCoordinator.reportIncident(event, remoteCircuit);
+    if (!published.ok) console.error(`[ARIA] GLOBAL_CIRCUIT_PUBLISH=${published.reason || 'unavailable'}; local circuit remains open`);
+  }
+});
 
 const VOICE_ALLOWED_APPS = parseAllowlist(process.env.ARIA_VOICE_ALLOWED_APPS || '');
 const VOICE_ALLOWED_URL_HOSTS = parseAllowlist(process.env.ARIA_VOICE_ALLOWED_URL_HOSTS || '');
@@ -185,6 +195,16 @@ if (!SUPABASE_API_KEY) {
   console.error('[ARIA] Missing ARIA_SUPABASE_API_KEY (or SUPABASE_PUBLISHABLE_KEY/SUPABASE_ANON_KEY); gateway requests may be rejected before device-token auth.');
 }
 async function api(path, options = {}) {
+  await circuitCoordinator.sync(remoteCircuit);
+  const permit = await remoteCircuit.beforeRequest(path);
+  if (!permit.allowed) {
+    const blocked = new Error('gateway request blocked: ' + permit.code);
+    blocked.code = permit.code;
+    blocked.status = Number.isInteger(permit.status) ? permit.status : null;
+    blocked.circuitBlocked = true;
+    blocked.retryAfterMs = Number.isFinite(permit.wait_ms) ? permit.wait_ms : null;
+    throw blocked;
+  }
   const controller = new AbortController();
   const timeoutMs = Math.max(1_000, Number(options.timeoutMs || process.env.ARIA_GATEWAY_TIMEOUT_MS || 15_000));
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -193,10 +213,19 @@ async function api(path, options = {}) {
     const response = await fetch(endpoint(path), { ...fetchOptions, signal:controller.signal, headers:{ ...headers(), ...(fetchOptions.headers||{}) } });
     const text = await response.text();
     let body = null; try { body = text ? JSON.parse(text) : null; } catch (_) { body = { raw:text }; }
-    if (!response.ok) throw new Error(`gateway ${response.status}: ${body?.error || 'request failed'}`);
+    await remoteCircuit.recordResponse(path, response.status, body, response.headers);
+    if (!response.ok) {
+      const error = new Error('gateway ' + response.status + ': ' + (body?.error || 'request failed'));
+      error.status = response.status;
+      throw error;
+    }
     return body;
   } catch (error) {
-    if (error?.name === 'AbortError') throw new Error(`gateway timeout after ${timeoutMs}ms: ${path}`);
+    if (error?.name === 'AbortError') {
+      const timeout = new Error('gateway timeout after ' + timeoutMs + 'ms: ' + path);
+      timeout.code = 'gateway_timeout';
+      throw timeout;
+    }
     throw error;
   } finally { clearTimeout(timer); }
 }
@@ -268,12 +297,16 @@ async function heartbeat() {
   if (VOICE_BRIGHTNESS_ENABLED) capabilities.push('display.brightness.write');
   if (androidUiHealth.ok) capabilities.push('computer.use.android');
   try {
+    if(await remoteCircuit.isOpen())return 'blocked';
+    const heartbeatPermit=await remoteCircuit.beforeRequest('/v1/devices/heartbeat');
+    if(!heartbeatPermit.allowed)return 'blocked';
     await api('/v1/devices/heartbeat',{
       method:'POST',
       body:JSON.stringify({device_id:DEVICE_ID,agent_type:'android-termux',capabilities,android_ui_health:{ok:Boolean(androidUiHealth.ok),reason:androidUiHealth.reason||null,protocol:androidUiHealth.payload?.protocol||null,version_name:androidUiHealth.metadata?.version_name||null,version_code:androidUiHealth.metadata?.version_code||null,build_id:androidUiHealth.metadata?.build_id||null}})
     });
     log(`ONLINE device=${DEVICE_ID} computer.use.android=${androidUiHealth.ok ? 'READY' : 'UNAVAILABLE:' + androidUiHealth.reason}`);
   } catch(error){
+    if(error?.circuitBlocked || await remoteCircuit.isOpen())return 'blocked';
     console.error(`[heartbeat] ${error.message}`);
   }
 }
@@ -350,19 +383,27 @@ let heartbeatTimer=null;
 async function loop(){
   let consecutivePollFailures=0;
   while(!stopping){
-    const voiceState = await claimAndExecuteVoiceCommand();
-    const jobState = voiceState === 'worked' ? 'idle' : await claimAndExecute();
-    const state = voiceState === 'worked' || jobState === 'worked' ? 'worked'
-      : voiceState === 'error' || jobState === 'error' ? 'error' : 'idle';
-    if(state==='error'){
-      consecutivePollFailures=Math.min(consecutivePollFailures+1,6);
-    }else{
-      consecutivePollFailures=0;
+    await circuitCoordinator.sync(remoteCircuit);
+    const globalPermit=await remoteCircuit.beforeRequest('/v1/jobs/claim');
+    if(globalPermit.kind==='service_circuit_open'||globalPermit.kind==='state_unavailable'){
+      await new Promise(r=>setTimeout(r,HEARTBEAT_MS));
+      continue;
     }
-    const baseDelay=state==='worked' ? 5_000 : POLL_MS;
-    const backoff=state==='error' ? Math.min(POLL_MS*Math.pow(2,consecutivePollFailures),60_000) : baseDelay;
-    const jitter=Math.floor(Math.random()*Math.max(1,Math.min(3_000,Math.round(backoff*0.25))));
-    await new Promise(r=>setTimeout(r,backoff+jitter));
+    const voicePermit=await remoteCircuit.beforeRequest('/v1/voice/commands/claim');
+    const voiceState=voicePermit.allowed?await claimAndExecuteVoiceCommand():'paused';
+    const jobPermit=await remoteCircuit.beforeRequest('/v1/jobs/claim');
+    const jobState=voiceState==='worked'?'idle':jobPermit.allowed?await claimAndExecute():'paused';
+    const state=voiceState==='worked'||jobState==='worked'?'worked'
+      :voiceState==='error'||jobState==='error'?'error':'idle';
+    if(state==='error')consecutivePollFailures=Math.min(consecutivePollFailures+1,6);
+    else consecutivePollFailures=0;
+    const baseDelay=state==='worked'?5_000:POLL_MS;
+    const backoff=state==='error'?Math.min(POLL_MS*Math.pow(2,consecutivePollFailures),60_000):baseDelay;
+    const gateWait=Math.max(Number(voicePermit.wait_ms)||0,Number(jobPermit.wait_ms)||0);
+    const allClaimsBlocked=!voicePermit.allowed&&!jobPermit.allowed;
+    const delay=allClaimsBlocked?HEARTBEAT_MS:Math.max(backoff,gateWait);
+    const jitter=Math.floor(Math.random()*Math.max(1,Math.min(3_000,Math.round(delay*0.25))));
+    await new Promise(r=>setTimeout(r,delay+jitter));
   }
 }
 function requestStop(signal){

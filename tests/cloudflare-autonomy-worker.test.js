@@ -934,6 +934,231 @@ async function testSubmittedReplanMustProveFailedTaskReplacement() {
   assert.equal(persisted.tasks[0].superseded_by_task_id, 'replacement-proven');
 }
 
+async function testGlobalCircuitTelegramAmbiguousDeliveryIsNeverRetried() {
+  const originalFetch = global.fetch;
+  let outbound = 0;
+  try {
+    global.fetch = async () => {
+      outbound += 1;
+      throw new Error('network response lost after possible Telegram acceptance');
+    };
+    const { state, store } = createStore({
+      paused: true,
+      extraEnv: {
+        ARIA_TELEGRAM_BOT_TOKEN: '123456:FakeTelegramCircuitBotToken_0123456789',
+        ARIA_TELEGRAM_CHAT_ID: '1472893961'
+      }
+    });
+    const event = {
+      incident_id: 'ambiguous-telegram-402-0001',
+      classification: 'unknown_402',
+      route: '/v1/devices/heartbeat',
+      source_id_sha256: 'c'.repeat(64),
+      agent: 'windows',
+      observed_at: new Date().toISOString()
+    };
+    const first = await store.fetch(request('/api/worker/service-circuit', {
+      method: 'POST', token: workerToken, body: event
+    }));
+    assert.equal(first.status, 200);
+    const firstPayload = await body(first);
+    assert.equal(firstPayload.open, true);
+    assert.equal(outbound, 1);
+    const notification = Array.from((await state.storage.list({ prefix: 'notification:' })).values())
+      .find(item => item.event.type === 'gateway_circuit_open');
+    assert.ok(notification);
+    assert.equal(notification.status, 'unknown');
+    assert.equal(notification.attempts, 1);
+    assert.equal(state.pending.length, 0, 'one-shot incident alerts must not schedule background retries');
+
+    const repeated = await store.fetch(request('/api/worker/service-circuit', {
+      method: 'POST',
+      token: workerToken,
+      body: { ...event, incident_id: 'ambiguous-telegram-402-0002', source_id_sha256: 'd'.repeat(64), agent: 'termux' }
+    }));
+    assert.equal(repeated.status, 200);
+    assert.equal((await body(repeated)).opened_now, false);
+    await store.alarm();
+    assert.equal(outbound, 1, 'ambiguous Telegram delivery is never automatically repeated');
+  } finally {
+    global.fetch = originalFetch;
+  }
+}
+
+async function testDistributedGatewayCircuitAndTelegramAlertWorkDuringFreeze() {
+  const originalFetch = global.fetch;
+  let telegramSends = 0;
+  try {
+    global.fetch = async (url, init) => {
+      assert.match(String(url), /^https:\/\/api\.telegram\.org\/bot/);
+      assert.equal(init.method, 'POST');
+      const payload = JSON.parse(init.body);
+      assert.equal(payload.chat_id, '1472893961');
+      assert.match(payload.text, /gateway_circuit_open/);
+      assert.match(payload.text, /HTTP 402/);
+      assert.equal(payload.text.includes('raw-provider-payload'), false);
+      telegramSends += 1;
+      return new Response(JSON.stringify({
+        ok: true,
+        result: { message_id: 700 + telegramSends, chat: { id: 1472893961 } }
+      }), { status: 200, headers: { 'content-type': 'application/json' } });
+    };
+
+    const { state, store } = createStore({
+      paused: true,
+      extraEnv: {
+        ARIA_TELEGRAM_BOT_TOKEN: '123456:FakeTelegramCircuitBotToken_0123456789',
+        ARIA_TELEGRAM_CHAT_ID: '1472893961'
+      }
+    });
+    assert.equal(MISSION_EXECUTION_PAUSED, true);
+    const unauthorizedRead = await store.fetch(request('/api/worker/service-circuit', { token: controlToken }));
+    assert.equal(unauthorizedRead.status, 401, 'control token cannot impersonate a worker');
+    const empty = await store.fetch(request('/api/worker/service-circuit', { token: workerToken }));
+    assert.equal(empty.status, 200);
+    assert.deepEqual(await body(empty), { open: false, circuit: null, last_reset: null });
+
+    const incident = {
+      incident_id: 'windows-incident-402-0001',
+      classification: 'unknown_402',
+      route: '/v1/devices/heartbeat',
+      source_id_sha256: 'a'.repeat(64),
+      agent: 'windows',
+      observed_at: new Date().toISOString()
+    };
+    const openedResponse = await store.fetch(request('/api/worker/service-circuit', {
+      method: 'POST', token: workerToken, body: incident
+    }));
+    assert.equal(openedResponse.status, 200);
+    const opened = await body(openedResponse);
+    assert.equal(opened.open, true);
+    assert.equal(opened.opened_now, true);
+    assert.equal(opened.circuit.status, 402);
+    assert.equal(opened.circuit.classification, 'unknown_402');
+    assert.equal(opened.circuit.route, '/v1/devices/heartbeat');
+    assert.equal(opened.notification.status, 'delivered');
+    assert.equal(opened.notification.attempts, 1);
+    assert.equal(telegramSends, 1, 'the first global 402 opens one owner Telegram alert');
+    await Promise.all(state.pending);
+
+    const repeated = await store.fetch(request('/api/worker/service-circuit', {
+      method: 'POST',
+      token: workerToken,
+      body: {
+        ...incident,
+        incident_id: 'termux-incident-402-0002',
+        source_id_sha256: 'b'.repeat(64),
+        agent: 'termux',
+        route: '/v1/voice/commands/claim',
+        classification: 'quota_exhausted',
+        observed_at: new Date().toISOString()
+      }
+    }));
+    assert.equal(repeated.status, 200);
+    const repeatedPayload = await body(repeated);
+    assert.equal(repeatedPayload.open, true);
+    assert.equal(repeatedPayload.opened_now, false);
+    assert.equal(repeatedPayload.circuit.incident_id, opened.circuit.incident_id);
+    assert.equal(repeatedPayload.circuit.observation_count, 2);
+    assert.equal(repeatedPayload.circuit.installation_count, 2);
+    assert.equal(repeatedPayload.notification, null);
+    assert.equal(telegramSends, 1, 'other devices do not create duplicate owner alerts');
+
+    const jobRoute = await store.fetch(request('/api/worker/service-circuit', {
+      method: 'POST',
+      token: workerToken,
+      body: {
+        ...incident,
+        incident_id: 'windows-job-result-402-0003',
+        source_id_sha256: 'c'.repeat(64),
+        route: '/v1/jobs/:id/result',
+        observed_at: new Date().toISOString()
+      }
+    }));
+    assert.equal(jobRoute.status, 200, 'redacted per-job routes are valid circuit evidence');
+    const jobRoutePayload = await body(jobRoute);
+    assert.equal(jobRoutePayload.opened_now, false);
+    assert.equal(jobRoutePayload.circuit.observation_count, 3);
+    assert.equal(jobRoutePayload.circuit.installation_count, 3);
+    assert.equal(telegramSends, 1, 'additional route families do not duplicate the global alert');
+
+    const readback = await store.fetch(request('/api/worker/service-circuit', { token: workerToken }));
+    const readbackPayload = await body(readback);
+    assert.equal(readbackPayload.open, true);
+    assert.equal(readbackPayload.circuit.installation_count, 3);
+    assert.equal(JSON.stringify(readbackPayload).includes('a'.repeat(64)), false, 'readback never exposes installation hashes');
+
+    const invalid = await store.fetch(request('/api/worker/service-circuit', {
+      method: 'POST',
+      token: workerToken,
+      body: { ...incident, route: '/v1/admin/delete', raw_body: 'raw-provider-payload' }
+    }));
+    assert.equal(invalid.status, 400, 'unknown routes and unapproved fields are rejected');
+
+    const rawJobRoute = await store.fetch(request('/api/worker/service-circuit', {
+      method: 'POST',
+      token: workerToken,
+      body: {
+        ...incident,
+        incident_id: 'raw-job-route-incident-01',
+        route: '/v1/jobs/private-job-id/result',
+        observed_at: new Date().toISOString()
+      }
+    }));
+    assert.equal(rawJobRoute.status, 400, 'the coordinator rejects non-redacted per-job identifiers');
+
+    const deniedReset = await store.fetch(request('/api/ops/service-circuit/reset', {
+      method: 'POST',
+      token: workerToken,
+      body: {
+        confirm: 'RESET_GATEWAY_402_CIRCUIT_ONCE',
+        service_restored: true,
+        evidence_ref: 'https://github.com/Robvg9/aria-worker/actions/runs/123456789',
+        operator_note: 'Owner verified service restoration.'
+      }
+    }));
+    assert.equal(deniedReset.status, 401, 'worker token cannot clear a global circuit');
+
+    const reset = await store.fetch(request('/api/ops/service-circuit/reset', {
+      method: 'POST',
+      token: controlToken,
+      body: {
+        confirm: 'RESET_GATEWAY_402_CIRCUIT_ONCE',
+        service_restored: true,
+        evidence_ref: 'https://github.com/Robvg9/aria-worker/actions/runs/123456789',
+        operator_note: 'Owner verified service restoration.'
+      }
+    }));
+    assert.equal(reset.status, 200);
+    const resetPayload = await body(reset);
+    assert.equal(resetPayload.open, false);
+    assert.equal(resetPayload.last_reset.service_restored, true);
+    assert.equal(resetPayload.mission_execution_paused, true);
+    const stillFrozen = await store.fetch(request('/api/worker/claim', {
+      method: 'POST', token: workerToken, body: { worker_id: 'test-worker' }
+    }));
+    assert.equal(stillFrozen.status, 423, 'resetting a quota circuit never lifts the mission freeze');
+
+    const nextIncident = await store.fetch(request('/api/worker/service-circuit', {
+      method: 'POST',
+      token: workerToken,
+      body: { ...incident, incident_id: 'windows-incident-402-0004', observed_at: new Date().toISOString() }
+    }));
+    assert.equal(nextIncident.status, 200);
+    assert.equal((await body(nextIncident)).opened_now, true);
+    assert.equal(telegramSends, 2, 'a new post-reset incident receives one new alert');
+
+    assert.equal((await state.storage.list({ prefix: 'mission:' })).size, 0, 'circuit writes never create missions');
+    assert.equal((await state.storage.list({ prefix: 'job:' })).size, 0, 'circuit writes never create jobs or leases');
+    const notifications = Array.from((await state.storage.list({ prefix: 'notification:' })).values());
+    assert.equal(notifications.filter(item => item.event.type === 'gateway_circuit_open').length, 2);
+    assert.equal(JSON.stringify(notifications).includes('raw-provider-payload'), false);
+    assert.equal(MISSION_EXECUTION_PAUSED, true);
+  } finally {
+    global.fetch = originalFetch;
+  }
+}
+
 (async () => {
   ({ AriaMissionStore, MISSION_EXECUTION_PAUSED } = await import('../cloudflare-autonomy/worker.mjs'));
   // Existing positive lifecycle tests run only against an isolated test subclass. The
@@ -942,6 +1167,8 @@ async function testSubmittedReplanMustProveFailedTaskReplacement() {
     isMissionExecutionPaused() { return false; }
   };
   await testGlobalFreezeStopsMutationsAndAlarmRecovery();
+  await testGlobalCircuitTelegramAmbiguousDeliveryIsNeverRetried();
+  await testDistributedGatewayCircuitAndTelegramAlertWorkDuringFreeze();
   await testControlAndWorkerTokensMustDiffer();
   await testAuthAndVerifiedMissionLifecycle();
   await testVerificationRejectsIncompleteMissionState();
