@@ -4,6 +4,13 @@ function asObject(value) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
 }
 
+function missionBudgetUnknownRuntimeError(providerStatus = null) {
+  const error = new Error('mission_budget_execution_runtime_outcome_unknown: the internal execution runtime response was lost; the provider may have accepted the request. Fallback and retries are forbidden.');
+  error.code = 'mission_budget_execution_runtime_outcome_unknown';
+  if (Number.isInteger(providerStatus)) error.providerStatus = providerStatus;
+  return error;
+}
+
 export function buildGeminiContents(messages, nonceFactory = () => globalThis.crypto.randomUUID()) {
   const systemParts = [];
   const contents = [];
@@ -267,8 +274,21 @@ export function createBudgetedModelCaller(options = {}) {
     };
     if (signalFactory) requestOptions.signal = signalFactory();
 
-    const response = await fetchImpl(endpoint, requestOptions);
-    const body = await response.json().catch(() => null);
+    let response;
+    try {
+      response = await fetchImpl(endpoint, requestOptions);
+    } catch {
+      throw missionBudgetUnknownRuntimeError();
+    }
+    let body;
+    try {
+      body = await response.json();
+    } catch {
+      throw missionBudgetUnknownRuntimeError(response.status);
+    }
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
+      throw missionBudgetUnknownRuntimeError(response.status);
+    }
     if (!response.ok || body?.status !== 'succeeded') {
       const code = String(body?.error?.code || body?.reason || ('execution_runtime_http_' + response.status));
       const message = String(body?.error?.message || body?.error?.code || body?.reason || 'Provider execution was blocked');

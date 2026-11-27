@@ -193,6 +193,37 @@ const assert = require('node:assert/strict');
   assert.equal(classifyAgentToolModelFailure(new Error('HTTP 429 quota exceeded'), 1, false).canFallback, false);
   assert.equal(classifyAgentToolModelFailure(new Error('HTTP 429 quota exceeded'), 0, true).canFallback, false);
 
+  const uncertainFetchCaller = createBudgetedModelCaller({
+    endpoint: 'https://mock.invalid/functions/v1/aria-execution-runtime-v1',
+    secret: 'mock-runtime-secret',
+    nonceFactory: () => 'lost-response',
+    signalFactory: () => undefined,
+    fetchImpl: async () => { throw new Error('socket reset after dispatch'); },
+  });
+  await assert.rejects(
+    uncertainFetchCaller(agent, missionId, stepId, 'gemini-3.1-flash-lite', [], [], false, 'google', false, {}, {}),
+    (error) => error.code === 'mission_budget_execution_runtime_outcome_unknown',
+  );
+
+  const truncatedResponseCaller = createBudgetedModelCaller({
+    endpoint: 'https://mock.invalid/functions/v1/aria-execution-runtime-v1',
+    secret: 'mock-runtime-secret',
+    nonceFactory: () => 'truncated-body',
+    signalFactory: () => undefined,
+    fetchImpl: async () => ({
+      ok: true,
+      status: 200,
+      json: async () => { throw new Error('truncated response body'); },
+    }),
+  });
+  await assert.rejects(
+    truncatedResponseCaller(agent, missionId, stepId, 'gemini-3.1-flash-lite', [], [], false, 'google', false, {}, {}),
+    (error) => error.code === 'mission_budget_execution_runtime_outcome_unknown',
+  );
+  const uncertainRuntimeError = new Error('mission_budget_execution_runtime_outcome_unknown');
+  uncertainRuntimeError.code = 'mission_budget_execution_runtime_outcome_unknown';
+  assert.equal(classifyAgentToolModelFailure(uncertainRuntimeError, 0, false).canFallback, false);
+
   const converted = buildGeminiContents([
     { role: 'system', content: 'one' },
     { role: 'system', content: 'two' },

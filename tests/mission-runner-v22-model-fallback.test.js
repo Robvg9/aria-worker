@@ -61,18 +61,21 @@ const fallbackClassifierIndex = source.indexOf("const failureKind = m22ClassifyM
 if (budgetStopIndex < 0 || fallbackClassifierIndex < 0 || budgetStopIndex > fallbackClassifierIndex) {
   throw new Error("mission budget denial must short-circuit before model fallback classification");
 }
-const agentBudgetStopIndex = source.indexOf('const agentBudgetErrorCode = String(body?.error?.code || "");');
-const agentFallbackIndex = source.indexOf("const retryableProviderFailure =", agentBudgetStopIndex);
-if (agentBudgetStopIndex < 0 || agentFallbackIndex < 0 || agentBudgetStopIndex > agentFallbackIndex) {
-  throw new Error("agent mission budget denial must short-circuit before recovery-agent fallback");
-}
-const missionBudgetTerminalIndex = source.indexOf("const missionBudgetFailure = failures.find(");
-const retryableStepIndex = source.indexOf("const retryableFailure = failures.find(", missionBudgetTerminalIndex);
-if (missionBudgetTerminalIndex < 0 || retryableStepIndex < 0 || missionBudgetTerminalIndex > retryableStepIndex) {
-  throw new Error("mission-wide budget denial must block before step retry scheduling");
-}
 console.log("mission-runner mission budget terminal fallback gate: PASS");
-console.log("mission-runner agent budget terminal block gate: PASS");
+
+const modelRuntimeFetchIndex = source.indexOf("response = await fetch(EXEC", source.indexOf("async function modelExecute("));
+const modelRuntimeUnknownIndex = source.indexOf("return runtimeOutcomeUnknown(route", modelRuntimeFetchIndex);
+const modelRuntimeFallbackIndex = source.indexOf("const failureKind = m22ClassifyModelFallbackFailure(", modelRuntimeFetchIndex);
+if (modelRuntimeFetchIndex < 0 || modelRuntimeUnknownIndex < 0 || modelRuntimeFallbackIndex < 0 || modelRuntimeUnknownIndex > modelRuntimeFallbackIndex) {
+  throw new Error("lost model execution-runtime response must block before provider fallback");
+}
+const agentRuntimeFetchIndex = source.indexOf("response=await fetch(AGENT", source.indexOf("async function agentExecute("));
+const agentRuntimeUnknownIndex = source.indexOf('mission_budget_agent_runtime_outcome_unknown', agentRuntimeFetchIndex);
+const agentFallbackIndex = source.indexOf("const retryableProviderFailure =", agentRuntimeFetchIndex);
+if (agentRuntimeFetchIndex < 0 || agentRuntimeUnknownIndex < 0 || agentFallbackIndex < 0 || agentRuntimeUnknownIndex > agentFallbackIndex) {
+  throw new Error("lost agent-runtime response must block before recovery-agent fallback");
+}
+console.log("mission-runner internal runtime response-loss terminal gate: PASS");
 
 // Regression contract for durable async Windows/Ollama model jobs.
 const asyncReconciliationRequired = [

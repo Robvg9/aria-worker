@@ -2260,6 +2260,18 @@ async function modelExecute(missionId: string, step: any, auth: AuthContext, mis
     };
   }
     const failures:any[] = [];
+  const runtimeOutcomeUnknown = (route:any, message:string, httpStatus:number|null=null) => {
+    const code = "mission_budget_execution_runtime_outcome_unknown";
+    failures.push({ provider_id:route.provider_id, account_id:route.account_id, model_id:route.model_id,
+      http_status:httpStatus, code, message, provider_status:null });
+    return {
+      status:"blocked", executor_type:"model", operation:step.operation,
+      provider_id:route.provider_id, account_id:route.account_id, model_id:route.model_id,
+      error:{code,message,provider_status:httpStatus,attempts:failures.length},
+      model_fallback_used:false, model_fallback_attempts:failures.length,
+      model_execution_failures:failures.map((item:any)=>({...item})),
+    };
+  };
   const authorization = step.authorization && typeof step.authorization === "object"
     ? step.authorization
     : { status: "approved", risk_class: step.risk || "READ", evidence_ref: `mission:${missionId}` };
@@ -2365,34 +2377,44 @@ async function modelExecute(missionId: string, step: any, auth: AuthContext, mis
     const authForRoute = doInject
       ? { ...authorization, evidence_ref: `live-resilience-inject:${missionId}:${step.id}` }
       : authorization;
-    const response = await fetch(EXEC, {
-      method: "POST",
-      headers: internalHeaders(),
-      body: JSON.stringify({
-        execution_version: "1",
-        request_id: `${missionId}:${step.id}:${crypto.randomUUID()}`,
-        task_id: step.id,
-        capability: String(step.operation),
-        selected_route: route,
-        authorization: authForRoute,
-        input: {
-          payload:
-            step.input?.payload && typeof step.input.payload === "object"
+    let response:Response;
+    try {
+      response = await fetch(EXEC, {
+        method:"POST",
+        headers:internalHeaders(),
+        body:JSON.stringify({
+          execution_version:"1",
+          request_id:`${missionId}:${step.id}:${crypto.randomUUID()}`,
+          task_id:step.id,
+          capability:String(step.operation),
+          selected_route:route,
+          authorization:authForRoute,
+          input:{
+            payload:step.input?.payload&&typeof step.input.payload==="object"
               ? step.input.payload
-              : (step.input && typeof step.input === "object" ? step.input : {}),
-        },
-        policy: step.policy || {},
-        metadata: {
-          mission_id: missionId,
-          step_id: step.id,
-          executor_type: "model",
-          runner: V,
-          fallback_route: route.model_id !== primary.model_id,
-          ...(doInject ? { fault_injection: injectFault } : {}),
-        },
-      }),
-    });
-    const body = await response.json().catch(() => null);
+              : (step.input&&typeof step.input==="object"?step.input:{})
+          },
+          policy:step.policy||{},
+          metadata:{
+            mission_id:missionId,
+            step_id:step.id,
+            executor_type:"model",
+            runner:V,
+            fallback_route:route.model_id!==primary.model_id,
+            ...(doInject?{fault_injection:injectFault}:{})
+          }
+        })
+      });
+    } catch {
+      return runtimeOutcomeUnknown(route,"The internal execution runtime response was lost; the provider may have accepted this request. Provider fallback and mission retries are forbidden.");
+    }
+    let body:any;
+    try { body=await response.json(); } catch {
+      return runtimeOutcomeUnknown(route,"The internal execution runtime response body could not be read; provider outcome is unknown. Provider fallback and mission retries are forbidden.",response.status);
+    }
+    if(!body||typeof body!=="object") {
+      return runtimeOutcomeUnknown(route,"The internal execution runtime returned no usable response; provider outcome is unknown. Provider fallback and mission retries are forbidden.",response.status);
+    }
     if (response.ok && body?.status === "succeeded") {
       return {
         ...body,
@@ -2499,20 +2521,40 @@ async function agentExecute(missionId: string, step: any, auth: AuthContext) {
 
   for (let hop = 0; hop < 3; hop += 1) {
     attempted.add(agentId);
-    const response = await fetch(AGENT, {
-      method: "POST",
-      headers: downstreamHeaders(auth),
-      body: JSON.stringify({
-        mission_id: missionId,
-        step_id: String(step.id),
-        agent_id: agentId,
-        operation: String(step.operation || "delegate"),
-        risk: step.risk || "READ",
-        policy: step.policy || {},
-        input: step.input || {},
-      }),
-    });
-    const body = await response.json().catch(() => null);
+    let response:Response;
+    try {
+      response=await fetch(AGENT,{
+        method:"POST",
+        headers:downstreamHeaders(auth),
+        body:JSON.stringify({
+          mission_id:missionId,
+          step_id:String(step.id),
+          agent_id:agentId,
+          operation:String(step.operation||"delegate"),
+          risk:step.risk||"READ",
+          policy:step.policy||{},
+          input:step.input||{}
+        })
+      });
+    } catch {
+      const code="mission_budget_agent_runtime_outcome_unknown";
+      return {status:"blocked",executor_type:"agent",operation:"delegate",agent_id:agentId,
+        error:{code,message:"The internal agent runtime response was lost; its provider request may have been accepted. Agent fallback and mission retries are forbidden."},
+        recovery_agent_fallback_used:false,recovery_agent_fallback_trail:fallbackTrail};
+    }
+    let body:any;
+    try { body=await response.json(); } catch {
+      const code="mission_budget_agent_runtime_outcome_unknown";
+      return {status:"blocked",executor_type:"agent",operation:"delegate",agent_id:agentId,
+        error:{code,message:"The internal agent runtime response body could not be read; provider outcome is unknown. Agent fallback and mission retries are forbidden.",provider_status:response.status},
+        recovery_agent_fallback_used:false,recovery_agent_fallback_trail:fallbackTrail};
+    }
+    if(!body||typeof body!=="object") {
+      const code="mission_budget_agent_runtime_outcome_unknown";
+      return {status:"blocked",executor_type:"agent",operation:"delegate",agent_id:agentId,
+        error:{code,message:"The internal agent runtime returned no usable response; provider outcome is unknown. Agent fallback and mission retries are forbidden.",provider_status:response.status},
+        recovery_agent_fallback_used:false,recovery_agent_fallback_trail:fallbackTrail};
+    }
 
     if (response.ok && body?.status === "succeeded") {
       return {
@@ -2528,22 +2570,6 @@ async function agentExecute(missionId: string, step: any, auth: AuthContext) {
 
     const providerStatus = Number(body?.error?.provider_status ?? body?.provider_status ?? response.status);
     const message = String(body?.error?.message || body?.error || `agent_execution_${response.status}`);
-    const agentBudgetErrorCode = String(body?.error?.code || "");
-    if (agentBudgetErrorCode.startsWith("mission_budget_")) {
-      return {
-        status: "blocked",
-        executor_type: "agent",
-        operation: "delegate",
-        agent_id: body?.agent_id || agentId,
-        error: {
-          code: agentBudgetErrorCode,
-          message: String(body?.error?.message || agentBudgetErrorCode),
-          provider_status: body?.error?.provider_status ?? response.status,
-        },
-        recovery_agent_fallback_used: false,
-        recovery_agent_fallback_trail: fallbackTrail,
-      };
-    }
     if (isProviderQuotaBlocked(response.status, providerStatus, body?.error?.code, message)) {
       throw new Error(`provider_quota_blocked:${providerStatus}:${message}`);
     }
@@ -4772,55 +4798,6 @@ if (!physicalPlanValidation.ok) {
 
       const failures = outcomes.filter((item) => !item.passed);
       if (failures.length) {
-        const missionBudgetFailure = failures.find((item) =>
-          String(item.result?.error?.code || "").startsWith("mission_budget_")
-        );
-        if (missionBudgetFailure) {
-          const failedStepId = String(missionBudgetFailure.step.id);
-          const errorCode = String(missionBudgetFailure.result?.error?.code || "mission_budget_blocked");
-          const details = {
-            kind: "mission_budget",
-            recoverable: true,
-            reason: "La reserva o liquidación del presupuesto de misión fue denegada o quedó incierta. ARIA debe detener esta misión sin reintentar ni cambiar de proveedor.",
-            next_action: "mission_budget:review_policy_and_estimates",
-            remediation: "Revisar la política aprobada y las estimaciones respaldadas por evidencia. No repetir la solicitud ni usar otra ruta mientras la liquidación siga incierta.",
-            evidence: { step_id: failedStepId, error_code: errorCode },
-          };
-          await emitEvent(missionId, "mission_budget_blocked", {
-            step_id: failedStepId,
-            error_code: errorCode,
-            terminal_for_current_attempt: true,
-            fallback_forbidden: true,
-          });
-          await updateMission(missionId, {
-            status: "blocked",
-            current_step: completed.size,
-            completed_steps: completed.size,
-            next_action: details.next_action,
-            last_stderr: errorCode,
-            checkpoint: {
-              ...checkpoint,
-              recovery: {
-                status: "mission_budget_blocked",
-                failed_step_id: failedStepId,
-                block_details: details,
-              },
-              active_step: null,
-            },
-            lease_owner: null,
-            lease_until: null,
-          });
-          return out({
-            ok: false,
-            status: "blocked",
-            mission_id: missionId,
-            runtime: V,
-            completed_steps: completed.size,
-            blocked_step_id: failedStepId,
-            error: { code: errorCode, message: details.reason },
-            recovery: details,
-          }, 423);
-        }
         const verificationWait = failures.find((item) => verificationPending(item.step, item.result));
         if (verificationWait) {
           const pendingStepId = String(verificationWait.step.id);
