@@ -1,9 +1,11 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createBudgetedModelCaller, classifyAgentToolModelFailure } from "./budgeted-model-client-v1.mjs";
 
 const URL = Deno.env.get("SUPABASE_URL")!;
 const KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const SECRET = Deno.env.get("ARIA_RUNTIME_SHARED_SECRET") ?? "";
 const GH = `${URL}/functions/v1/aria-github-app-runtime-v1`;
+const EXEC = `${URL}/functions/v1/aria-execution-runtime-v1`;
 const sb = createClient(URL, KEY, { auth: { persistSession: false, autoRefreshToken: false, autoRefreshSession: false } });
 const internal = sb.schema("aria_internal");
 
@@ -32,9 +34,9 @@ async function resolveToolRoutes(agent: any) {
     );
   const routes:any[] = [];
   const seen=new Set<string>();
-  const push=(provider:string,model:string)=>{
-    const key=provider+"|"+model;
-    if(model&& !seen.has(key)){seen.add(key);routes.push({provider,model});}
+  const push=(provider:string,model:string,model_id:string=model)=>{
+    const key=provider+"|"+model_id;
+    if(model&& !seen.has(key)){seen.add(key);routes.push({provider,model,model_id});}
   };
 
   const preferredIsFreeOpenRouter = preferredProvider === "openrouter" && preferred.endsWith(":free");
@@ -42,8 +44,8 @@ async function resolveToolRoutes(agent: any) {
     || agent?.agent_metadata?.provider_lock === true
     || agent?.metadata?.provider_lock === true;
   const recoveryOpenRouterOnly = preferredProvider === "openrouter" && recoveryFreeOnly;
-  if (preferred.startsWith("openrouter/")) push("openrouter",preferred);
-  else if (preferredIsFreeOpenRouter) push("openrouter",preferred);
+  if (preferred.startsWith("openrouter/")) push("openrouter",preferred,preferred);
+  else if (preferredIsFreeOpenRouter) push("openrouter",preferred,preferred);
 
   const { data: googleModels } = recoveryOpenRouterOnly
     ? { data: [] as any[] }
@@ -58,9 +60,9 @@ async function resolveToolRoutes(agent: any) {
     "google/gemini-3.5-flash-lite-direct",
   ];
   for (const google of preferredOrder.filter((id)=>googleCandidates.includes(id))) {
-    push("google",google.slice("google/".length,-"-direct".length));
+    push("google",google.slice("google/".length,-"-direct".length),google);
   }
-  for (const google of googleCandidates) push("google",google.slice("google/".length,-"-direct".length));
+  for (const google of googleCandidates) push("google",google.slice("google/".length,-"-direct".length),google);
 
   if (providerLock && preferredProvider === "google") return routes.slice(0,8);
 
@@ -73,7 +75,7 @@ async function resolveToolRoutes(agent: any) {
     const candidates = openModels.map((x:any)=>String(x.model_id))
       .filter((id:string)=>verified.has(id)&&id.endsWith(":free"));
     const codeFirst = candidates.filter((id:string)=>/code|coder|coding/i.test(id));
-    for (const id of [...codeFirst,...candidates]) push("openrouter",id);
+    for (const id of [...codeFirst,...candidates]) push("openrouter",id,id);
   }
 
   if (!routes.length) throw new Error("agent_tool_model_unavailable");
@@ -145,79 +147,12 @@ const writeTool = {
   },
 };
 
-export async function callOpenRouterModel(model:string,messages:any[],tools:any[],forceTool=false) {
-  const { data: secret, error } = await internal.rpc("credential_read_secret", { p_name: "aria_openrouter_primary" });
-  if (error || typeof secret !== "string" || secret.length < 10) throw new Error("openrouter_credential_unavailable");
-  const toolChoice = tools.length === 0 ? undefined : (forceTool ? "required" : "auto");
-  const response = await fetch("https://openrouter.ai/api/v1/chat/completions",{method:"POST",headers:{Authorization:`Bearer ${secret}`,"Content-Type":"application/json"},body:JSON.stringify({model,messages,temperature:0,max_completion_tokens:2200,service_tier:"flex",...(tools.length?{tools,tool_choice:toolChoice}:{})}),signal:AbortSignal.timeout(20000)});
-  const body:any=await response.json().catch(()=>null);
-  if(!response.ok) throw new Error(`openrouter_http_${response.status}:${body?.error?.message??"provider_error"}`);
-  return body?.choices?.[0]?.message??null;
-}
-function geminiContents(messages:any[]) {
-  const systemParts:string[]=[]; const contents:any[]=[]; const toolNames=new Map<string,string>();
-  for(const message of messages){
-    const role=String(message?.role||"");
-    if(role==="system"){if(typeof message?.content==="string"&&message.content.trim())systemParts.push(message.content.trim());continue;}
-    if(role==="user"){contents.push({role:"user",parts:[{text:String(message?.content??"")}]});continue;}
-    if(role==="assistant"){
-      const exactParts=Array.isArray(message?.geminiParts)?message.geminiParts:null;
-      if(exactParts&&exactParts.length){
-        for(const part of exactParts){
-          const call=part?.functionCall;
-          if(call?.id&&call?.name)toolNames.set(String(call.id),String(call.name));
-        }
-        contents.push({role:"model",parts:exactParts});
-        continue;
-      }
-      const parts:any[]=[]; if(typeof message?.content==="string"&&message.content.trim())parts.push({text:message.content});
-      for(const call of Array.isArray(message?.tool_calls)?message.tool_calls:[]){
-        const name=String(call?.function?.name||""); const id=String(call?.id||crypto.randomUUID()); let args:any={};
-        try{args=JSON.parse(call?.function?.arguments||"{}");}catch{}
-        const original=call?.geminiPart&&typeof call.geminiPart==="object"?call.geminiPart:null;
-        if(original){ parts.push(original); if(name)toolNames.set(id,name); continue; }
-        if(name){toolNames.set(id,name);parts.push({functionCall:{id,name,args}});}
-      }
-      if(parts.length)contents.push({role:"model",parts});
-      continue;
-    }
-    if(role==="tool"){
-      const callId=String(message?.tool_call_id||""); const name=toolNames.get(callId)||String(message?.name||"unknown_tool");
-      let responseValue:any; try{responseValue=JSON.parse(String(message?.content??"{}"));}catch{responseValue={output:String(message?.content??"")};}
-      contents.push({role:"user",parts:[{functionResponse:{id:callId||undefined,name,response:responseValue&&typeof responseValue==="object"?responseValue:{output:responseValue}}}]});
-    }
+const callBudgetedModel = createBudgetedModelCaller({ endpoint: EXEC, secret: SECRET });
+
+export async function toolLoop(agent: any, missionId: string, stepId: string, prompt: string, allowWrite: boolean, callerPolicy: Record<string, any> = {}, callerAuthorization: Record<string, any> = {}) {
+  if (allowWrite && (callerPolicy?.human_gate_required !== true || callerAuthorization?.human_gate_verified !== true || !callerAuthorization?.human_gate_mission_id || !callerAuthorization?.human_gate_step_id || !callerAuthorization?.human_gate_action_hash || !callerAuthorization?.human_gate_approval_token)) {
+    throw new Error("agent_tool_loop_human_gate_required");
   }
-  return {systemInstruction:systemParts.length?{parts:[{text:systemParts.join("\n\n")}]}:undefined,contents};
-}
-function geminiTools(tools:any[]) {
-  return tools.length?[{functionDeclarations:tools.filter((tool:any)=>tool?.type==="function"&&tool?.function?.name).map((tool:any)=>({name:String(tool.function.name),description:String(tool.function.description||""),parameters:tool.function.parameters||{type:"object",properties:{},required:[]}}))}]:undefined;
-}
-function geminiMessage(json:any){
-  const candidate=json?.candidates?.[0]??{};
-  const parts=Array.isArray(candidate?.content?.parts)?candidate.content.parts:[];
-  const text=parts.filter((p:any)=>typeof p?.text==="string").map((p:any)=>p.text).join("").trim();
-  const calls=parts.filter((p:any)=>p?.functionCall?.name).map((p:any)=>({
-    id:String(p.functionCall.id||crypto.randomUUID()),
-    type:"function",
-    function:{name:String(p.functionCall.name),arguments:JSON.stringify(p.functionCall.args||{})},
-    geminiPart:p,
-  }));
-  return {role:"assistant",content:text,tool_calls:calls,geminiParts:parts,geminiMeta:{finish_reason:candidate?.finishReason??null,prompt_feedback:json?.promptFeedback??null}};
-}
-export async function callGeminiModel(model:string,messages:any[],tools:any[],forceTool=false){
-  const secret=String(Deno.env.get("GOOGLE_API_KEY")||"").trim(); if(!secret)throw new Error("google_credential_unavailable");
-  const {systemInstruction,contents}=geminiContents(messages);
-  const body:any={contents,generationConfig:{temperature:0,maxOutputTokens:4096,...(tools.length?{thinkingConfig:{thinkingLevel:forceTool?"low":"medium"}}:{})}};
-  if(systemInstruction)body.systemInstruction=systemInstruction;
-  const declaredTools=geminiTools(tools); if(declaredTools){body.tools=declaredTools;if(forceTool)body.toolConfig={functionCallingConfig:{mode:"ANY"}};}
-  const response=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,{method:"POST",headers:{"Content-Type":"application/json","x-goog-api-key":secret},body:JSON.stringify(body)});
-  const json:any=await response.json().catch(()=>null); if(!response.ok)throw new Error(`google_http_${response.status}:${json?.error?.message??"provider_error"}`);
-  return geminiMessage(json);
-}
-export async function callModel(model:string,messages:any[],tools:any[],forceTool=false,provider="openrouter"){
-  return provider==="google"?callGeminiModel(model,messages,tools,forceTool):callOpenRouterModel(model,messages,tools,forceTool);
-}
-export async function toolLoop(agent: any, missionId: string, stepId: string, prompt: string, allowWrite: boolean) {
   const resolvedRoutes = await resolveToolRoutes(agent);
   const preferredProvider = String(agent?.provider?.provider_id ?? agent?.provider_id ?? "").trim().toLowerCase();
   const isRecoveryFreeAgent =
@@ -286,22 +221,17 @@ export async function toolLoop(agent: any, missionId: string, stepId: string, pr
         recovery_free_only: isRecoveryFreeAgent,
       });
       try {
-        message = await callModel(candidate.model, messages, roundTools, forceTool, candidate.provider);
+        message = await callBudgetedModel(agent, missionId, stepId, candidate.model, messages, roundTools, forceTool, candidate.provider, allowWrite, callerPolicy, callerAuthorization);
         toolRoute = candidate;
         break;
       } catch (error) {
         lastModelError = error;
-        const reason = error instanceof Error ? error.message : String(error);
-        const retryableQuota = /(^|[^0-9])429([^0-9]|$)|rate.?limit|quota|too many requests/i.test(reason);
-        const retryableProviderAvailability =
-          /(^|[^0-9])503([^0-9]|$)|high demand|temporarily unavailable|overloaded|service unavailable/i.test(reason);
-        const retryableCredential =
-          /(^|[^0-9])401([^0-9]|$)|(^|[^0-9])403([^0-9]|$)|unauthorized|forbidden|invalid credential|credential unavailable|invalid api key|authentication failed/i.test(reason);
-        const canFallback = round === 0 && !sawToolCall && (retryableQuota || retryableProviderAvailability || retryableCredential);
-        if (!canFallback) throw error;
+        const reason = error instanceof Error ? error.message : String(error ?? 'provider_error');
+        const fallbackDecision = classifyAgentToolModelFailure(error, round, sawToolCall);
+        if (!fallbackDecision.canFallback) throw error;
         await recordDiagnostic(missionId, stepId, {
           status:"fallback",
-          code: retryableProviderAvailability ? "agent_model_provider_unavailable_fallback" : "agent_model_quota_fallback",
+          code: fallbackDecision.retryableProviderAvailability ? "agent_model_provider_unavailable_fallback" : "agent_model_quota_fallback",
           failed_route:candidate,
           message:reason,
           next_route:toolRoutes[toolRoutes.indexOf(candidate)+1]??null
@@ -421,7 +351,7 @@ export async function toolLoop(agent: any, missionId: string, stepId: string, pr
       } catch (error) {
         result = { ok: false, error: error instanceof Error ? error.message : String(error) };
       }
-      messages.push({ role: "tool", tool_call_id: toolCall.id, content: JSON.stringify(result).slice(0, 12000) });
+      messages.push({ role: "tool", tool_call_id: toolCall.id, name, content: JSON.stringify(result).slice(0, 12000) });
       if (result?.ok === false && String(result?.error || "").includes("github_404")) {
         await recordDiagnostic(missionId, stepId, {
           status: "blocked",
@@ -439,7 +369,7 @@ export async function toolLoop(agent: any, missionId: string, stepId: string, pr
       role: "user",
       content: "You have finished tool inspection. Now produce the mandatory final report using only the evidence in this conversation. Begin exactly with FINDINGS: and finish with VERDICT:. Do not call any more tools. Do not claim any change/test/deployment you did not verify.",
     });
-    const finalMessage = await callModel(toolRoute.model, messages, [], false, toolRoute.provider);
+    const finalMessage = await callBudgetedModel(agent, missionId, stepId, toolRoute.model, messages, [], false, toolRoute.provider, allowWrite, callerPolicy, callerAuthorization);
     text = typeof finalMessage?.content === "string" ? finalMessage.content.trim() : "";
   }
   if (!/^FINDINGS:/i.test(text) || !/VERDICT:/i.test(text)) {

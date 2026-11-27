@@ -153,6 +153,10 @@ async function directGemini(route:any,input:any,requestId:string,providerTimeout
   if(!guardedReservation.allowed)return guardedReservation.response;
   const reservationKey=guardedReservation.reservationKey;
   const body:any={contents};if(p.systemInstruction)body.systemInstruction=p.systemInstruction;if(p.generationConfig)body.generationConfig={...p.generationConfig};
+  if(Array.isArray(p.tools)&&p.tools.length){
+    const functions=p.tools.flatMap((group:any)=>Array.isArray(group?.functionDeclarations)?group.functionDeclarations:[]).filter((fn:any)=>typeof fn?.name==="string"&&fn.name.trim()).slice(0,5);
+    if(functions.length){body.tools=[{functionDeclarations:functions}];body.toolConfig={functionCallingConfig:{mode:p.tool_choice==="required"?"ANY":"AUTO"}};}
+  }
   if(body.generationConfig?.temperature!==undefined){const {temperature,...rest}=body.generationConfig;body.generationConfig=rest;}
   if(body.generationConfig?.topP!==undefined){const {topP,...rest}=body.generationConfig;body.generationConfig=rest;}
   if(body.generationConfig?.topK!==undefined){const {topK,...rest}=body.generationConfig;body.generationConfig=rest;}
@@ -168,11 +172,13 @@ async function directGemini(route:any,input:any,requestId:string,providerTimeout
     const timedOut=error instanceof Error&&error.name==="AbortError";
     return out({status:"failed",error:{code:timedOut?"transport_timeout":"transport_error",message:timedOut?"provider request timed out":"transport failure"}});
   }finally{clearTimeout(timeout)}if(!res.ok){const settlement=await settleProviderAttempt(reservationKey,budgetContext,"failed",res.status,json);if(!settlement.budgetSettled)return out(missionBudgetSettlementPending(),503);return out({status:"failed",error:{code:"provider_error",message:sanitize(json?.error?.message||`provider returned HTTP ${res.status}`),provider_status:res.status}});}
-  const parts=json?.candidates?.[0]?.content?.parts;const text=Array.isArray(parts)?parts.filter((x:any)=>typeof x?.text==="string").map((x:any)=>x.text).join(""):"";
-  if(!text){const settlement=await settleProviderAttempt(reservationKey,budgetContext,"failed",res.status,json);if(!settlement.budgetSettled)return out(missionBudgetSettlementPending(),503);return out({status:"failed",error:{code:"invalid_response",message:"no text content in provider response"}});}
+  const parts=Array.isArray(json?.candidates?.[0]?.content?.parts)?json.candidates[0].content.parts:[];
+  const text=parts.filter((x:any)=>typeof x?.text==="string").map((x:any)=>x.text).join("");
+  const toolCalls=parts.filter((x:any)=>x?.functionCall?.name).map((part:any)=>({id:String(part.functionCall.id||crypto.randomUUID()),type:"function",function:{name:String(part.functionCall.name),arguments:JSON.stringify(part.functionCall.args||{})}}));
+  if(!text&&!toolCalls.length){const settlement=await settleProviderAttempt(reservationKey,budgetContext,"failed",res.status,json);if(!settlement.budgetSettled)return out(missionBudgetSettlementPending(),503);return out({status:"failed",error:{code:"invalid_response",message:"provider returned neither text nor a function call"}});}
   const settlement=await settleProviderAttempt(reservationKey,budgetContext,"succeeded",res.status,json);
   if(!settlement.budgetSettled)return out(missionBudgetSettlementPending(),503);
-  return out({status:"succeeded",response:{modality:"text",content:text,provider_response_id:null,finish_reason:json?.candidates?.[0]?.content?.finishReason??json?.candidates?.[0]?.finishReason??null,provider_model:route.model_id},usage:json?.usageMetadata?{status:"known",prompt_tokens:json.usageMetadata.promptTokenCount??null,completion_tokens:json.usageMetadata.candidatesTokenCount??null,total_tokens:json.usageMetadata.totalTokenCount??null}:{status:"unknown"},metadata:{runtime:"aria-execution-runtime-v1",adapter_id:"google_gemini_generate_content",provider_id:"google",route_type:"direct",attempt:1,quota_accounting:settlement.quotaSettled?"settled":"reserved_settlement_pending",canonical_write:false,memory_authority:"none"}});
+  return out({status:"succeeded",response:{modality:"text",content:text,tool_calls:toolCalls,gemini_parts:parts,gemini_meta:{finish_reason:json?.candidates?.[0]?.finishReason??json?.candidates?.[0]?.content?.finishReason??null},provider_response_id:null,finish_reason:json?.candidates?.[0]?.content?.finishReason??json?.candidates?.[0]?.finishReason??null,provider_model:route.model_id},usage:json?.usageMetadata?{status:"known",prompt_tokens:json.usageMetadata.promptTokenCount??null,completion_tokens:json.usageMetadata.candidatesTokenCount??null,total_tokens:json.usageMetadata.totalTokenCount??null}:{status:"unknown"},metadata:{runtime:"aria-execution-runtime-v1",adapter_id:"google_gemini_generate_content",provider_id:"google",route_type:"direct",attempt:1,quota_accounting:settlement.quotaSettled?"settled":"reserved_settlement_pending",canonical_write:false,memory_authority:"none"}});
 }
 async function xaiResponses(route:any,input:any,requestId:string,providerTimeoutMs:number|null=null,budgetContext:any=null){
   if(route.capability!=="text_generation")return out({status:"blocked",reason:"capability_missing"});
@@ -253,7 +259,7 @@ let cloudflarePlanPreviewAllowed=false;
 if(MISSION_EXECUTION_PAUSED){
   const missionId=String(body?.metadata?.mission_id||"");
   const stepId=String(body?.metadata?.step_id||"");
-  if(missionId&&stepId&&policy?.mission_wonder_2_gate3_probe===true&&policy?.human_gate_required===true&&az?.human_gate_verified===true&&m22Gate3RouteAllowed(route)){
+  if(missionId&&stepId&&policy?.mission_wonder_2_gate3_probe===true&&policy?.human_gate_required===true&&az?.human_gate_verified===true&&!Array.isArray(input?.payload?.tools)&&m22Gate3RouteAllowed(route)){
     try{
       const {data:probeMission,error:probeError}=await sb.schema("aria_internal").from("mission_state").select("mission_id,status,checkpoint,metadata").eq("mission_id",missionId).maybeSingle();
       const probeStep=Array.isArray(probeMission?.checkpoint?.plan)?probeMission.checkpoint.plan.find((candidate:any)=>String(candidate?.id||"")===stepId):null;
@@ -312,7 +318,15 @@ const missionBudgetContext=budgetExempt?null:createMissionBudgetContext({
 if(!budgetExempt&&!missionBudgetContext?.ok){
   const reason=missionBudgetContext?.reason||"mission_budget_mission_context_missing";
   return out({status:"blocked",reason,error:{code:reason}},423);
-}if(policy?.human_gate_required===true){if(az.human_gate_verified!==true)return out({status:"blocked",reason:"human_gate_required"});if(typeof az.human_gate_mission_id!=="string"||typeof az.human_gate_step_id!=="string"||typeof az.human_gate_action_hash!=="string"||typeof az.human_gate_approval_token!=="string")return out({status:"blocked",reason:"human_gate_evidence_missing"});const {data:gateOk,error:gateError}=await sb.rpc("human_gate_authorize_execution",{p_mission_id:az.human_gate_mission_id,p_step_id:az.human_gate_step_id,p_action_hash:az.human_gate_action_hash,p_approval_token:az.human_gate_approval_token});if(gateError||gateOk!==true)return out({status:"blocked",reason:"human_gate_authorization_invalid"});}
+}if(policy?.human_gate_required===true){
+  if(az.human_gate_verified!==true)return out({status:"blocked",reason:"human_gate_required"});
+  if(typeof az.human_gate_mission_id!=="string"||typeof az.human_gate_step_id!=="string"||typeof az.human_gate_action_hash!=="string"||typeof az.human_gate_approval_token!=="string")return out({status:"blocked",reason:"human_gate_evidence_missing"});
+  const requestMissionId=String(body?.metadata?.mission_id||"").trim();
+  const requestStepId=String(body?.metadata?.step_id||"").trim();
+  if(az.human_gate_mission_id!==requestMissionId||az.human_gate_step_id!==requestStepId)return out({status:"blocked",reason:"human_gate_scope_mismatch"},423);
+  const {data:gateOk,error:gateError}=await sb.rpc("human_gate_authorize_execution",{p_mission_id:az.human_gate_mission_id,p_step_id:az.human_gate_step_id,p_action_hash:az.human_gate_action_hash,p_approval_token:az.human_gate_approval_token});
+  if(gateError||gateOk!==true)return out({status:"blocked",reason:"human_gate_authorization_invalid"});
+}
 // LIVE resilience fault injection: auth already required; gated by evidence_ref prefix only.
 // Produces the SAME error shapes as real upstream failures so recovery paths can be exercised end-to-end.
 const _fault=body?.metadata?.fault_injection;const _eref=String(az?.evidence_ref||"");
@@ -353,6 +367,10 @@ async function openRouterChat(route:any,input:any,requestId:string,providerTimeo
   const boundedCompletion=Math.max(1,Math.min(Math.floor(requestedCompletion),4000));
   const reqBody:any={model:route.model_id,messages,max_completion_tokens:boundedCompletion,reasoning:{effort:'none'}};
   if(typeof p.temperature==="number")reqBody.temperature=p.temperature;
+  if(Array.isArray(p.tools)&&p.tools.length){
+    const functions=p.tools.filter((tool:any)=>tool?.type==="function"&&typeof tool?.function?.name==="string"&&tool.function.name.trim()).slice(0,5);
+    if(functions.length){reqBody.tools=functions;reqBody.tool_choice=p.tool_choice==="required"?"required":"auto";}
+  }
 
   const providerKey=await secret("aria_openrouter_primary");
   if(!providerKey)return out({status:"failed",error:{code:"credential_unavailable",message:"credential unavailable"}});
@@ -385,10 +403,11 @@ async function openRouterChat(route:any,input:any,requestId:string,providerTimeo
     return out({status:"failed",error:{code:"provider_error",message:sanitize(json?.error?.message||`provider returned HTTP ${res.status}`),provider_status:res.status}});
   }
   const content=json?.choices?.[0]?.message?.content;
-  if(typeof content!=="string"){
+  const toolCalls=Array.isArray(json?.choices?.[0]?.message?.tool_calls)?json.choices[0].message.tool_calls.filter((call:any)=>call?.type==="function"&&typeof call?.function?.name==="string").slice(0,4):[];
+  if(typeof content!=="string"&&!toolCalls.length){
     const settlement=await settleProviderAttempt(reservationKey,budgetContext,"failed",res.status,json);
     if(!settlement.budgetSettled)return out(missionBudgetSettlementPending(),503);
-    return out({status:"failed",error:{code:"invalid_response",message:"no text content in provider response"}});
+    return out({status:"failed",error:{code:"invalid_response",message:"no text content or function call in provider response"}});
   }
   const settlement=await settleProviderAttempt(reservationKey,budgetContext,"succeeded",res.status,json,typeof json?.id==="string"?json.id:null);
   if(!settlement.budgetSettled)return out(missionBudgetSettlementPending(),503);
@@ -396,7 +415,8 @@ async function openRouterChat(route:any,input:any,requestId:string,providerTimeo
     status:"succeeded",
     response:{
       modality:"text",
-      content,
+      content:typeof content==="string"?content:"",
+      tool_calls:toolCalls,
       provider_response_id:typeof json?.id==="string"?json.id:null,
       finish_reason:typeof json?.choices?.[0]?.finish_reason==="string"?json.choices[0].finish_reason:null,
       provider_model:typeof json?.model==="string"?json.model:null

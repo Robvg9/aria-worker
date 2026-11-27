@@ -1,6 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { toolLoop } from "./tool-loop.ts";
+import { fetchAgentExecutionOutcome } from "./internal-execution-outcome-v1.mjs";
 
 const MISSION_EXECUTION_PAUSED = true;
 const URL = Deno.env.get("SUPABASE_URL")!;
@@ -72,24 +73,12 @@ Deno.serve(async (r) => {
     || b.policy?.mutating_operation_required === true
     || ["LOW_RISK_WRITE","MEDIUM_RISK_WRITE","HIGH_RISK_WRITE","WRITE"].includes(requestedRisk);
   const toolUse = b.policy?.tool_use === true || repairRequired;
-  // The current tool-loop contains direct Google/OpenRouter adapters and its own fallback.
-  // Keep it disabled until every turn uses the shared mission-budget + provider-quota runtime.
-  if (toolUse) return out({
-    ok: false,
-    status: "blocked",
-    executor_type: "agent",
-    agent_id: agentId,
-    error: {
-      code: "mission_budget_tool_execution_not_integrated",
-      message: "Agent tool execution is paused until its direct provider adapters are routed through the shared budget runtime."
-    }
-  }, 423);
   try {
     if (repairRequired) {
       if (!["aria-agent-coding-v1","aria-agent-coding-openrouter-v1"].includes(agentId)) return out({ ok: false, status: "blocked", error: { code: "repair_agent_must_be_coding_agent", agent_id: agentId } });
       if (requestedRisk !== "LOW_RISK_WRITE") return out({ ok: false, status: "blocked", error: { code: "repair_requires_low_risk_write", requested_risk: requestedRisk } });
       if (!catalogAgent.scope.includes("code")) return out({ ok: false, status: "blocked", error: { code: "repair_agent_lacks_code_scope" } });
-      const repairResult = await toolLoop(agent, missionId, stepId, prompt, true);
+      const repairResult = await toolLoop(agent, missionId, stepId, prompt, true, b.policy || {}, b.authorization || {});
       await recordDiagnostic(missionId, stepId, {
         status: String(repairResult?.status || "unknown"),
         code: "agent_repair_result",
@@ -99,21 +88,64 @@ Deno.serve(async (r) => {
       });
       return out(repairResult);
     }
-    if (toolUse) return out(await toolLoop(agent, missionId, stepId, prompt, false));
+    if (toolUse) return out(await toolLoop(agent, missionId, stepId, prompt, false, b.policy || {}, b.authorization || {}));
     const requestId = `${missionId}:${stepId}:${crypto.randomUUID()}`;
-    const rr = await fetch(EXEC, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${SECRET}` }, body: JSON.stringify({ execution_version: "1", request_id: requestId, task_id: stepId, capability: "text_generation", selected_route: { status: "selected", provider_id: resource.provider.provider_id, account_id: resource.account.account_id, model_id: resource.model.model_id, capability: resource.capability.capability_id }, authorization: { status: "approved", risk_class: requestedRisk, evidence_ref: `agent:${agentId}` }, input: { payload: { prompt: `${profile.system}\n\nTask:\n${prompt}` } }, policy: b.policy || {}, metadata: { executor_type: "agent", agent_id: agentId, agent_role: catalogAgent.role, mission_id: missionId, step_id: stepId, catalog_source: "aria_agent_catalog", resource_graph: "aria_internal.resolve_agent_resource", provider_id: resource.provider.provider_id, account_id: resource.account.account_id, model_id: resource.model.model_id, capability_id: resource.capability.capability_id } }) });
-    const x: any = await rr.json().catch(() => null);
+    const executionOutcome = await fetchAgentExecutionOutcome(fetch, EXEC, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${SECRET}` },
+      body: JSON.stringify({
+        execution_version: "1",
+        request_id: requestId,
+        task_id: stepId,
+        capability: "text_generation",
+        selected_route: {
+          status: "selected",
+          provider_id: resource.provider.provider_id,
+          account_id: resource.account.account_id,
+          model_id: resource.model.model_id,
+          capability: resource.capability.capability_id,
+        },
+        authorization: { status: "approved", risk_class: requestedRisk, evidence_ref: `agent:${agentId}` },
+        input: { payload: { prompt: `${profile.system}\\n\\nTask:\\n${prompt}` } },
+        policy: b.policy || {},
+        metadata: {
+          executor_type: "agent", agent_id: agentId, agent_role: catalogAgent.role,
+          mission_id: missionId, step_id: stepId, catalog_source: "aria_agent_catalog",
+          resource_graph: "aria_internal.resolve_agent_resource",
+          provider_id: resource.provider.provider_id, account_id: resource.account.account_id,
+          model_id: resource.model.model_id, capability_id: resource.capability.capability_id,
+        },
+      }),
+    });
+    if (executionOutcome.kind === "unknown") {
+      const error = executionOutcome.error;
+      await recordDiagnostic(missionId, stepId, {
+        status: "blocked", code: error.code, message: error.message,
+        provider_status: executionOutcome.status,
+      });
+      return out({
+        ok: false, status: "blocked", agent_id: agentId, executor_type: "agent",
+        error: { code: error.code, message: error.message, provider_status: executionOutcome.status },
+      }, 423);
+    }
+    const rr = { ok: executionOutcome.ok, status: executionOutcome.status };
+    const x: any = executionOutcome.body;
     if (!rr.ok || x?.status !== "succeeded") {
       const message = String(x?.error?.message || x?.error || `execution_${rr.status}`);
       const upstreamCode = String(x?.error?.code || "");
       const errorCode = upstreamCode.startsWith("mission_budget_") ? upstreamCode : "agent_execution_failed";
-      await recordDiagnostic(missionId, stepId, { status: "failed", code: errorCode, message, provider_status: x?.error?.provider_status ?? rr.status });
-      return out({ ok: false, status: "failed", agent_id: agentId, executor_type: "agent", error: { code: errorCode, message, provider_status: x?.error?.provider_status ?? rr.status } });
+      const terminalBudgetBlock = errorCode.startsWith("mission_budget_");
+      const failureStatus = terminalBudgetBlock ? "blocked" : "failed";
+      await recordDiagnostic(missionId, stepId, { status: failureStatus, code: errorCode, message, provider_status: x?.error?.provider_status ?? rr.status });
+      return out({ ok: false, status: failureStatus, agent_id: agentId, executor_type: "agent", error: { code: errorCode, message, provider_status: x?.error?.provider_status ?? rr.status } }, terminalBudgetBlock ? 423 : 200);
     }
     return out({ ok: true, status: "succeeded", executor_type: "agent", agent_id: agentId, role: catalogAgent.role, operation: "delegate", provider_id: resource.provider.provider_id, account_id: resource.account.account_id, model_id: resource.model.model_id, capability_id: resource.capability.capability_id, response: x.response, usage: x.usage, metadata: { mission_id: missionId, step_id: stepId, catalog_source: "aria_agent_catalog", resource_graph: "aria_internal.resolve_agent_resource", evidence_ref: `execution:${missionId}:${stepId}` } });
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
-    await recordDiagnostic(missionId, stepId, { status: "failed", code: "agent_runtime_exception", message });
-    return out({ ok: false, status: "failed", executor_type: "agent", agent_id: agentId, error: { code: "agent_runtime_exception", message } });
+    const rawCode = String((e as any)?.code || message.split(":")[0] || "");
+    const errorCode = rawCode.startsWith("mission_budget_") ? rawCode : rawCode === "agent_tool_loop_human_gate_required" ? rawCode : "agent_runtime_exception";
+    const terminalStatus = errorCode.startsWith("mission_budget_") || errorCode === "agent_tool_loop_human_gate_required" ? "blocked" : "failed";
+    await recordDiagnostic(missionId, stepId, { status: terminalStatus, code: errorCode, message });
+    return out({ ok: false, status: terminalStatus, executor_type: "agent", agent_id: agentId, error: { code: errorCode, message } }, terminalStatus === "blocked" ? 423 : 500);
   }
 });

@@ -8,7 +8,7 @@ export type TestCatalogItem = {
   capabilities: string;
 };
 
-export const TEST_CATALOG_VERSION = '2026-11-12-compact-mobile-home-chat-v1';
+export const TEST_CATALOG_VERSION = '2026-11-27-aria-optima-budgeted-tool-loop-mock-e2e-v1';
 export const TEST_CATALOG: TestCatalogItem[] = [
   {
     "id": "voice-v4-telegram-delivery",
@@ -396,6 +396,24 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "includedInNpmTest": true,
     "how": "Verifica que una ruta de ejecución, executor o misión produzca el estado y las evidencias esperadas.",
     "capabilities": "Comprueba orquestación, misiones, executors, recuperación, persistencia y ejecución universal."
+  },
+  {
+    "id": "agent-tool-loop-budgeted-model-client-v1",
+    "file": "tests/agent-tool-loop-budgeted-model-client-v1.test.js",
+    "title": "Agent Tool-Loop Budgeted Runtime Mock E2E",
+    "category": "Ejecución / misiones",
+    "includedInNpmTest": true,
+    "how": "Ejecuta llamadas simuladas al caller real del runtime compartido y comprueba identidad única por turno, function calling de Gemini/OpenRouter, conservación de thought signatures, denegación presupuestaria terminal y Human Gate fail-closed.",
+    "capabilities": "Detecta regresiones que permitan inferencias sin mission/step, pérdida de function responses o fallback tras una denegación o liquidación incierta del presupuesto."
+  },
+  {
+    "id": "agent-tool-loop-budget-enforcement-v1",
+    "file": "tests/agent-tool-loop-budget-enforcement-v1.test.js",
+    "title": "Agent Tool-Loop Mission Budget",
+    "category": "Ejecución / misiones",
+    "includedInNpmTest": true,
+    "how": "Comprueba que cada turno y la respuesta final del bucle de herramientas pasan por el runtime compartido, reservan y liquidan presupuesto, y detienen fallbacks ante denegaciones económicas.",
+    "capabilities": "Evita inferencias directas fuera del ledger, function calls sin reserva, reintentos tras resultados inciertos y reparaciones de GitHub sin Human Gate."
   },
   {
     "id": "all-for-one-council",
