@@ -297,10 +297,12 @@ export class AriaMissionStore {
       '/v1/jobs/claim',
       '/v1/voice/commands/claim'
     ]);
+    // Per-job identifiers are redacted by the agent before crossing this boundary.
+    const allowedJobRoute = /^\/v1\/jobs\/:id\/(?:start|progress|result|status|resolve-secret)$/.test(route);
     const observedTimestamp = Date.parse(observedAt);
     if (!/^[A-Za-z0-9_-]{8,128}$/.test(incidentId) ||
         !allowedClassifications.has(classification) ||
-        !allowedRoutes.has(route) ||
+        !(allowedRoutes.has(route) || allowedJobRoute) ||
         !/^[a-f0-9]{64}$/.test(sourceHash) ||
         !['windows', 'termux', 'unknown'].includes(agent) ||
         !Number.isFinite(observedTimestamp) ||
