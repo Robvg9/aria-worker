@@ -53,6 +53,23 @@ The owner must verify service restoration independently before submitting the re
 
 Agents apply the reset only when its incident ID matches their recorded global incident. A purely local 402 circuit that was never confirmed by the coordinator is not cleared by an unrelated global reset.
 
+### Local 423 pause recovery — owner only
+
+A `423 mission_execution_paused` pause is stored in each affected host's local circuit file. The coordinator's global 402 reset deliberately does not clear it. After the owner has independently verified that the canonical freeze is cleared in both the source of truth and the deployed gateway, clear the local circuit on each host:
+
+```bash
+node scripts/aria-reset-local-circuit.cjs \
+  --confirm RESET_ARIA_LOCAL_CIRCUIT_ONCE \
+  --service-restored \
+  --canonical-freeze-cleared \
+  --evidence-ref "https://github.com/Robvg9/aria-worker/pull/1474" \
+  --operator-note "Owner verified the canonical freeze is cleared in the deployed gateway."
+```
+
+Run as the same OS user/profile that runs the agent. The tool uses `ARIA_AGENT_STATE_DIR` when configured, otherwise `~/.aria/state/remote-service-circuit.json`. It makes no network, Supabase, provider or coordinator requests. It requires both explicit owner attestations, the exact confirmation phrase, an evidence reference and an operator note. It appends a local audit receipt to `remote-service-circuit.json.reset-audit.jsonl`. It does not deploy or change the canonical freeze. If a global 402 incident remains open in the coordinator, the next coordinator sync will reapply that separate circuit.
+
+Do not run this command while `MISSION_EXECUTION_PAUSED=true` remains active.
+
 ## Telegram alert
 
 - Uses the coordinator's server-only `ARIA_TELEGRAM_BOT_TOKEN` and `ARIA_TELEGRAM_CHAT_ID` secrets. The deployment workflow accepts GitHub secrets `ARIA_AUTONOMY_TELEGRAM_BOT_TOKEN` and `ARIA_AUTONOMY_TELEGRAM_CHAT_ID` and transfers them to Wrangler without printing values. When `send_telegram_test=true`, preflight requires both; the default remains false.
