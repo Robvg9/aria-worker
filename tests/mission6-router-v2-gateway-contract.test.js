@@ -47,6 +47,20 @@ assert.ok(allForOneModelSource.includes("MODEL REVIEW BLOCKED: All-for-One audit
   'unscoped All-for-One reviewer is blocked rather than assigned a synthetic mission');
 assert.ok(rwhtProbeSource.includes("mission_budget_mission_context_missing")&&!rwhtProbeSource.includes("await internalFunctionFetch"),
   'unscoped RWHT direct model probe is blocked before runtime/provider dispatch');
+assert.ok(source.includes("function gatewayMissionBudgetOutcomeUnknown("),
+  'device gateway must expose one terminal internal-runtime outcome helper');
+assert.ok(mission5ModelSource.includes("mission_budget_execution_runtime_outcome_unknown"),
+  'Mission 5 model probe must stop after its internal execution response is lost');
+assert.ok(mission5AgentSource.includes("mission_budget_agent_runtime_outcome_unknown"),
+  'Mission 5 agent probe must stop after its internal agent response is lost');
+assert.ok(routerExecuteSource.includes("mission_budget_execution_runtime_outcome_unknown"),
+  'Mission 6 single route must stop on a lost execution-runtime response');
+assert.ok(routerParallelSource.includes("mission_budget_execution_runtime_outcome_unknown"),
+  'Mission 6 parallel task must stop on a lost execution-runtime response');
+assert.ok(routerParallelSource.includes("if(budgetBlocked)return {status:'blocked'"),
+  'Mission 6 parallel gateway must propagate a blocked budget outcome to the whole batch');
+assert.ok(source.includes("if(probeBudgetError.startsWith('mission_budget_'))"),
+  'Autonomous Mission 5 route selection must not try a different model after a budget block');
 console.log('MISSION 6 ROUTER V2 GATEWAY CONTRACT: PASS');
 
 (async () => {

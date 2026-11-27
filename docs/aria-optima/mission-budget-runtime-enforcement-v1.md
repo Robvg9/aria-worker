@@ -72,6 +72,12 @@ This is terminal for the mission step: the runner and agent tool loop must not s
 retry the step, or risk duplicating a request whose upstream outcome is unresolved. The non-mission,
 read-only conversation/plan-preview exemptions retain their ordinary transport error response.
 
+The internal execution boundary follows the same rule. If the mission runner, agent budgeted tool-loop
+client, Mission 5 probe, or Mission 6 gateway loses the response from an internal Edge Function after
+dispatch, it returns a mission-budget terminal `blocked` result. The caller must not switch agents or
+providers or schedule a retry because the downstream provider may already have accepted the request.
+An unreadable or empty internal response is treated as unknown, not as an ordinary provider failure.
+
 The mission runner treats every `mission_budget_*` error as mission-wide and terminal for that step.
 It must not try another provider route after a denial or uncertain settlement, so a fallback cannot
 circumvent the budget gate or duplicate uncertain spend.
