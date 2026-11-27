@@ -11,13 +11,22 @@ function score01(value, fallback = 0) {
   return number === null ? fallback : Math.max(0, Math.min(1, number));
 }
 
+function hasVerifiedCostEvidence(candidate = {}) {
+  const evidence = candidate.cost_evidence;
+  return Boolean(
+    evidence &&
+    typeof evidence === 'object' &&
+    !Array.isArray(evidence) &&
+    evidence.observed === true &&
+    evidence.verified === true &&
+    typeof evidence.source_id === 'string' &&
+    evidence.source_id.trim()
+  );
+}
+
 function verifiedUnitCost(candidate = {}) {
   const price = finiteNonNegative(candidate.usd_per_1k);
-  const evidence = candidate.cost_evidence;
-  if (price === null || !evidence || typeof evidence !== 'object' || Array.isArray(evidence)) return null;
-  if (evidence.observed !== true || evidence.verified !== true) return null;
-  if (typeof evidence.source_id !== 'string' || !evidence.source_id.trim()) return null;
-  return price;
+  return price !== null && hasVerifiedCostEvidence(candidate) ? price : null;
 }
 
 function normalizeCandidate(candidate = {}) {
@@ -64,12 +73,17 @@ function optimize(candidates = [], options = {}) {
     return { ...normalized, utility: utility(candidate, options) };
   }).filter(candidate => !requireKnownCost || candidate.usd_per_1k !== null);
 
-  ranked.sort((a, b) =>
-    b.utility - a.utility ||
-    (a.usd_per_1k === null ? 1 : b.usd_per_1k === null ? -1 : a.usd_per_1k - b.usd_per_1k) ||
-    String(a.model_id || '').localeCompare(String(b.model_id || ''))
-  );
+  ranked.sort((a, b) => {
+    const scoreOrder = b.utility - a.utility;
+    if (scoreOrder) return scoreOrder;
+    if (a.usd_per_1k === null && b.usd_per_1k !== null) return 1;
+    if (b.usd_per_1k === null && a.usd_per_1k !== null) return -1;
+    if (a.usd_per_1k !== null && b.usd_per_1k !== null && a.usd_per_1k !== b.usd_per_1k) {
+      return a.usd_per_1k - b.usd_per_1k;
+    }
+    return String(a.model_id || '').localeCompare(String(b.model_id || ''));
+  });
   return ranked[0] || null;
 }
 
-module.exports = { finiteNonNegative, verifiedUnitCost, normalizeCandidate, utility, optimize };
+module.exports = { finiteNonNegative, hasVerifiedCostEvidence, verifiedUnitCost, normalizeCandidate, utility, optimize };

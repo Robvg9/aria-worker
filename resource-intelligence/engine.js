@@ -2,6 +2,8 @@
  * ARIA Resource / Cost Intelligence 1.0
  * Pure, deterministic, secret-free economic decision engine.
  */
+const { hasVerifiedCostEvidence } = require('../intelligence/cost-optimizer.js');
+
 const registry = {
   version: 'resource-intelligence-v1'
 };
@@ -40,6 +42,7 @@ function validCandidate(c) {
     typeof c.provider_id === 'string' && c.provider_id &&
     typeof c.account_id === 'string' && c.account_id &&
     typeof c.model_id === 'string' && c.model_id &&
+    hasVerifiedCostEvidence(c) &&
     Number.isFinite(c.quality_score) && c.quality_score >= 0 && c.quality_score <= 1 &&
     Number.isFinite(c.cost_per_1k_input_usd) && c.cost_per_1k_input_usd >= 0 &&
     Number.isFinite(c.cost_per_1k_output_usd) && c.cost_per_1k_output_usd >= 0 &&
