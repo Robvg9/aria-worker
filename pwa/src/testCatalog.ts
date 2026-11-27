@@ -8,7 +8,7 @@ export type TestCatalogItem = {
   capabilities: string;
 };
 
-export const TEST_CATALOG_VERSION = '2026-11-27-aria-optima-budgeted-tool-loop-mock-e2e-v1';
+export const TEST_CATALOG_VERSION = '2026-11-27-aria-optima-verified-pricing-v1';
 export const TEST_CATALOG: TestCatalogItem[] = [
   {
     "id": "voice-v4-telegram-delivery",
@@ -990,6 +990,15 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "includedInNpmTest": true,
     "how": "Comprueba el comportamiento específico indicado por el nombre del test y detecta regresiones.",
     "capabilities": "Comprueba orquestación, misiones, executors, recuperación, persistencia y ejecución universal."
+  },
+  {
+    "id": "cost-optimizer-pricing-evidence-v1",
+    "file": "tests/cost-optimizer-pricing-evidence-v1.test.js",
+    "title": "Cost Optimizer Verified Pricing Evidence",
+    "category": "IA / modelos / routing",
+    "includedInNpmTest": true,
+    "how": "Comprueba que el optimizador solo otorgue señales de coste a precios respaldados por evidencia observada y verificada.",
+    "capabilities": "Evita clasificar precios ausentes o no verificados como gratuitos y permite bloquear la selección económica cuando el precio es desconocido."
   },
   {
     "id": "credential-boundary",
