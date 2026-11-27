@@ -96,6 +96,6 @@ test("model execution runtime receives internal service auth, not the user JWT",
   const end = runner.indexOf("\n      });", start);
   assert.notEqual(end, -1, "EXEC request block must be closed inside its response-loss guard");
   const block = runner.slice(start, end);
-  assert.match(block, /headers: internalHeaders\(\)/, "internal model execution must use the shared internal auth contract");
-  assert.doesNotMatch(block, /headers: downstreamHeaders\(auth\)/, "a PWA user JWT is not the internal executor credential");
+  assert.match(block, /headers:\s*internalHeaders\(\)/, "internal model execution must use the shared internal auth contract");
+  assert.doesNotMatch(block, /headers:\s*downstreamHeaders\(auth\)/, "a PWA user JWT is not the internal executor credential");
 });
