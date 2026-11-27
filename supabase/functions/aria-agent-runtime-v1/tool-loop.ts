@@ -226,6 +226,7 @@ export async function toolLoop(agent: any, missionId: string, stepId: string, pr
         break;
       } catch (error) {
         lastModelError = error;
+        const reason = error instanceof Error ? error.message : String(error ?? 'provider_error');
         const fallbackDecision = classifyAgentToolModelFailure(error, round, sawToolCall);
         if (!fallbackDecision.canFallback) throw error;
         await recordDiagnostic(missionId, stepId, {
