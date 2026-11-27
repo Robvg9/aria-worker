@@ -3,11 +3,18 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 
 const loop = fs.readFileSync('supabase/functions/aria-agent-runtime-v1/tool-loop.ts', 'utf8');
+const budgetClient = fs.readFileSync('supabase/functions/aria-agent-runtime-v1/budgeted-model-client-v1.mjs', 'utf8');
 const agent = fs.readFileSync('supabase/functions/aria-agent-runtime-v1/index.ts', 'utf8');
 const runtime = fs.readFileSync('supabase/functions/aria-execution-runtime-v1/index.ts', 'utf8');
 const guard = fs.readFileSync('supabase/functions/aria-execution-runtime-v1/mission-budget-guard-v1.mjs', 'utf8');
 
 assert.match(loop, /aria-execution-runtime-v1/);
+assert.match(loop, /createBudgetedModelCaller/);
+assert.match(loop, /classifyAgentToolModelFailure/);
+assert.doesNotMatch(loop, /async function callBudgetedModel\(/);
+assert.match(budgetClient, /mission_budget_required: true/);
+assert.match(budgetClient, /request_id: requestId/);
+assert.match(budgetClient, /agent_tool_loop_human_gate_required/);
 assert.match(loop, /request_id: requestId/);
 assert.match(loop, /missionBudgetTerminal/);
 assert.match(loop, /!missionBudgetTerminal && round === 0/);
