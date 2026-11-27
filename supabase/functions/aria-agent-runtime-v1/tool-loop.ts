@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createBudgetedModelCaller, classifyAgentToolModelFailure } from "./budgeted-model-client-v1.mjs";
 
 const URL = Deno.env.get("SUPABASE_URL")!;
 const KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -146,186 +147,7 @@ const writeTool = {
   },
 };
 
-function geminiContents(messages:any[]) {
-  const systemParts:string[]=[]; const contents:any[]=[]; const toolNames=new Map<string,string>();
-  for(const message of messages){
-    const role=String(message?.role||"");
-    if(role==="system"){if(typeof message?.content==="string"&&message.content.trim())systemParts.push(message.content.trim());continue;}
-    if(role==="user"){contents.push({role:"user",parts:[{text:String(message?.content??"")}]});continue;}
-    if(role==="assistant"){
-      const exactParts=Array.isArray(message?.geminiParts)?message.geminiParts:null;
-      if(exactParts&&exactParts.length){
-        for(const part of exactParts){
-          const call=part?.functionCall;
-          if(call?.id&&call?.name)toolNames.set(String(call.id),String(call.name));
-        }
-        contents.push({role:"model",parts:exactParts});
-        continue;
-      }
-      const parts:any[]=[]; if(typeof message?.content==="string"&&message.content.trim())parts.push({text:message.content});
-      for(const call of Array.isArray(message?.tool_calls)?message.tool_calls:[]){
-        const name=String(call?.function?.name||""); const id=String(call?.id||crypto.randomUUID()); let args:any={};
-        try{args=JSON.parse(call?.function?.arguments||"{}");}catch{}
-        const original=call?.geminiPart&&typeof call.geminiPart==="object"?call.geminiPart:null;
-        if(original){ parts.push(original); if(name)toolNames.set(id,name); continue; }
-        if(name){toolNames.set(id,name);parts.push({functionCall:{id,name,args}});}
-      }
-      if(parts.length)contents.push({role:"model",parts});
-      continue;
-    }
-    if(role==="tool"){
-      const callId=String(message?.tool_call_id||""); const name=toolNames.get(callId)||String(message?.name||"unknown_tool");
-      let responseValue:any; try{responseValue=JSON.parse(String(message?.content??"{}"));}catch{responseValue={output:String(message?.content??"")};}
-      const functionResponse:any={name,response:responseValue&&typeof responseValue==="object"?responseValue:{output:responseValue}};
-      if(toolNames.has(callId))functionResponse.id=callId;
-      contents.push({role:"user",parts:[{functionResponse}]});
-    }
-  }
-  return {systemInstruction:systemParts.length?{parts:[{text:systemParts.join("\n\n")}]}:undefined,contents};
-}
-function geminiTools(tools:any[]) {
-  return tools.length?[{functionDeclarations:tools.filter((tool:any)=>tool?.type==="function"&&tool?.function?.name).map((tool:any)=>({name:String(tool.function.name),description:String(tool.function.description||""),parameters:tool.function.parameters||{type:"object",properties:{},required:[]}}))}]:undefined;
-}
-function geminiMessage(json:any){
-  const candidate=json?.candidates?.[0]??{};
-  const parts=Array.isArray(candidate?.content?.parts)?candidate.content.parts:[];
-  const text=parts.filter((p:any)=>typeof p?.text==="string").map((p:any)=>p.text).join("").trim();
-  const calls=parts.filter((p:any)=>p?.functionCall?.name).map((p:any)=>({
-    id:String(p.functionCall.id||crypto.randomUUID()),
-    type:"function",
-    function:{name:String(p.functionCall.name),arguments:JSON.stringify(p.functionCall.args||{})},
-    geminiPart:p,
-  }));
-  return {role:"assistant",content:text,tool_calls:calls,geminiParts:parts,geminiMeta:{finish_reason:candidate?.finishReason??null,prompt_feedback:json?.promptFeedback??null}};
-}
-
-async function callBudgetedModel(
-  agent: any,
-  missionId: string,
-  stepId: string,
-  model: string,
-  messages: any[],
-  tools: any[],
-  forceTool: boolean,
-  provider: string,
-  allowWrite: boolean,
-  callerPolicy: Record<string, any>,
-  callerAuthorization: Record<string, any>,
-) {
-  const requestId = String(missionId) + ":" + String(stepId) + ":" + crypto.randomUUID();
-  const isGoogle = provider === "google";
-  const routeModelId = isGoogle ? "google/" + model + "-direct" : model;
-  const selectedRoute = {
-    status: "selected",
-    provider_id: provider,
-    account_id: isGoogle ? "acct_google_gemini_free" : "acct_openrouter_primary",
-    model_id: routeModelId,
-    capability: "text_generation",
-  };
-
-  let payload: Record<string, unknown>;
-  if (isGoogle) {
-    const converted = geminiContents(messages);
-    const declaredTools = geminiTools(tools);
-    payload = {
-      contents: converted.contents,
-      ...(converted.systemInstruction ? { systemInstruction: converted.systemInstruction } : {}),
-      generationConfig: {
-        temperature: 0,
-        maxOutputTokens: 4096,
-        ...(tools.length ? { thinkingConfig: { thinkingLevel: forceTool ? "low" : "medium" } } : {}),
-      },
-      ...(declaredTools ? { tools: declaredTools } : {}),
-      ...(declaredTools ? { tool_choice: forceTool ? "required" : "auto" } : {}),
-    };
-  } else {
-    const normalizedMessages = messages.map((message: any) => ({
-      role: String(message?.role || "user"),
-      ...(typeof message?.content === "string" ? { content: message.content } : {}),
-      ...(Array.isArray(message?.tool_calls) ? {
-        tool_calls: message.tool_calls.map((call: any) => ({
-          id: String(call?.id || ""),
-          type: "function",
-          function: {
-            name: String(call?.function?.name || ""),
-            arguments: String(call?.function?.arguments || "{}"),
-          },
-        })),
-      } : {}),
-      ...(typeof message?.tool_call_id === "string" ? { tool_call_id: message.tool_call_id } : {}),
-      ...(typeof message?.name === "string" ? { name: message.name } : {}),
-    }));
-    payload = {
-      messages: normalizedMessages,
-      ...(tools.length ? { tools, tool_choice: forceTool ? "required" : "auto" } : {}),
-      temperature: 0,
-      max_completion_tokens: 2200,
-    };
-  }
-
-  const authorization = {
-    ...callerAuthorization,
-    status: "approved",
-    risk_class: allowWrite ? "LOW_RISK_WRITE" : "READ",
-    evidence_ref: String(callerAuthorization?.evidence_ref || ("agent-tool-loop:" + String(agent?.agent_id || "unknown"))),
-  };
-  const policy = {
-    ...callerPolicy,
-    tool_use: tools.length > 0,
-    mission_budget_required: true,
-    ...(allowWrite ? { human_gate_required: true } : {}),
-  };
-
-  const response = await fetch(EXEC, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: "Bearer " + SECRET,
-    },
-    body: JSON.stringify({
-      execution_version: "1",
-      request_id: requestId,
-      task_id: stepId,
-      capability: "text_generation",
-      selected_route: selectedRoute,
-      authorization,
-      input: { payload },
-      policy,
-      metadata: {
-        executor_type: "agent_tool_loop",
-        agent_id: String(agent?.agent_id || ""),
-        agent_role: String(agent?.role || ""),
-        mission_id: missionId,
-        step_id: stepId,
-        provider_id: provider,
-        account_id: selectedRoute.account_id,
-        model_id: routeModelId,
-        capability_id: "text_generation",
-        tool_turn: true,
-      },
-    }),
-    signal: AbortSignal.timeout(30000),
-  });
-
-  const body: any = await response.json().catch(() => null);
-  if (!response.ok || body?.status !== "succeeded") {
-    const code = String(body?.error?.code || body?.reason || ("execution_runtime_http_" + response.status));
-    const message = String(body?.error?.message || body?.error?.code || body?.reason || "Provider execution was blocked");
-    const error: any = new Error(code + ":" + message);
-    error.code = code;
-    error.providerStatus = body?.error?.provider_status ?? response.status;
-    throw error;
-  }
-
-  const result = body?.response || {};
-  return {
-    role: "assistant",
-    content: typeof result.content === "string" ? result.content : "",
-    tool_calls: Array.isArray(result.tool_calls) ? result.tool_calls : [],
-    ...(Array.isArray(result.gemini_parts) ? { geminiParts: result.gemini_parts } : {}),
-    ...(result.gemini_meta && typeof result.gemini_meta === "object" ? { geminiMeta: result.gemini_meta } : {}),
-  };
-}
+const callBudgetedModel = createBudgetedModelCaller({ endpoint: EXEC, secret: SECRET });
 
 export async function toolLoop(agent: any, missionId: string, stepId: string, prompt: string, allowWrite: boolean, callerPolicy: Record<string, any> = {}, callerAuthorization: Record<string, any> = {}) {
   if (allowWrite && (callerPolicy?.human_gate_required !== true || callerAuthorization?.human_gate_verified !== true || !callerAuthorization?.human_gate_mission_id || !callerAuthorization?.human_gate_step_id || !callerAuthorization?.human_gate_action_hash || !callerAuthorization?.human_gate_approval_token)) {
@@ -404,19 +226,11 @@ export async function toolLoop(agent: any, missionId: string, stepId: string, pr
         break;
       } catch (error) {
         lastModelError = error;
-        const reason = error instanceof Error ? error.message : String(error);
-        const retryableQuota = /(^|[^0-9])429([^0-9]|$)|rate.?limit|quota|too many requests/i.test(reason);
-        const retryableProviderAvailability =
-          /(^|[^0-9])503([^0-9]|$)|high demand|temporarily unavailable|overloaded|service unavailable/i.test(reason);
-        const retryableCredential =
-          /(^|[^0-9])401([^0-9]|$)|(^|[^0-9])403([^0-9]|$)|unauthorized|forbidden|invalid credential|credential unavailable|invalid api key|authentication failed/i.test(reason);
-        const errorCode = String((error as any)?.code || "");
-        const missionBudgetTerminal = errorCode.startsWith("mission_budget_") || /mission_budget_/.test(reason);
-        const canFallback = !missionBudgetTerminal && round === 0 && !sawToolCall && (retryableQuota || retryableProviderAvailability || retryableCredential);
-        if (!canFallback) throw error;
+        const fallbackDecision = classifyAgentToolModelFailure(error, round, sawToolCall);
+        if (!fallbackDecision.canFallback) throw error;
         await recordDiagnostic(missionId, stepId, {
           status:"fallback",
-          code: retryableProviderAvailability ? "agent_model_provider_unavailable_fallback" : "agent_model_quota_fallback",
+          code: fallbackDecision.retryableProviderAvailability ? "agent_model_provider_unavailable_fallback" : "agent_model_quota_fallback",
           failed_route:candidate,
           message:reason,
           next_route:toolRoutes[toolRoutes.indexOf(candidate)+1]??null
