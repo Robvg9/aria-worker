@@ -9,20 +9,30 @@ const unverifiedZero = {
   usd_per_1k: 0,
 };
 const verifiedFree = {
+  provider_id: 'provider-a', account_id: 'account-a',
   model_id: 'verified-free', quality: 0.90, reliability: 0.90, latency_ms: 300,
   usd_per_1k: 0,
-  cost_evidence: { source_id: 'provider-catalog:verified-entry-1', observed: true, verified: true },
+  cost_evidence: { source_id: 'provider-catalog:verified-entry-1', observed: true, verified: true, provider_id: 'provider-a', account_id: 'account-a', model_id: 'verified-free' },
 };
 const verifiedPaid = {
+  provider_id: 'provider-a', account_id: 'account-a',
   model_id: 'verified-paid', quality: 0.90, reliability: 0.90, latency_ms: 300,
   usd_per_1k: 0.002,
-  cost_evidence: { source_id: 'provider-catalog:verified-entry-2', observed: true, verified: true },
+  cost_evidence: { source_id: 'provider-catalog:verified-entry-2', observed: true, verified: true, provider_id: 'provider-a', account_id: 'account-a', model_id: 'verified-paid' },
 };
 
 assert.equal(verifiedUnitCost(missing), null);
 assert.equal(verifiedUnitCost(unverifiedZero), null);
 assert.equal(verifiedUnitCost(verifiedFree), 0);
 assert.equal(verifiedUnitCost(verifiedPaid), 0.002);
+assert.equal(verifiedUnitCost({ ...verifiedFree, usd_per_1k: '0' }), null,
+  'numeric strings cannot become verified prices through coercion');
+assert.equal(verifiedUnitCost({ ...verifiedFree, account_id: 'other-account' }), null,
+  'pricing evidence cannot be reused across accounts');
+assert.equal(verifiedUnitCost({ ...verifiedPaid, model_id: 'other-model' }), null,
+  'pricing evidence cannot be reused across models');
+assert.equal(verifiedUnitCost({ ...verifiedPaid, provider_id: 'other-provider' }), null,
+  'pricing evidence cannot be reused across providers');
 
 assert.equal(normalizeCandidate(missing).usd_per_1k, null);
 assert.equal(normalizeCandidate(missing).cost_status, 'unknown');

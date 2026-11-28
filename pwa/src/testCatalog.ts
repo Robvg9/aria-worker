@@ -997,8 +997,8 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "title": "Cost Optimizer Verified Pricing Evidence",
     "category": "IA / modelos / routing",
     "includedInNpmTest": true,
-    "how": "Comprueba que el optimizador solo otorgue señales de coste a precios respaldados por evidencia observada y verificada.",
-    "capabilities": "Evita clasificar precios ausentes o no verificados como gratuitos y permite bloquear la selección económica cuando el precio es desconocido."
+    "how": "Comprueba que el optimizador solo acepte precios numéricos con evidencia observada/verificada ligada al proveedor, cuenta y modelo exactos.",
+    "capabilities": "Evita falsos precios gratuitos, coerción de cadenas numéricas y reutilización de evidencia entre rutas distintas; mantiene desconocido el coste no probado."
   },
   {
     "id": "credential-boundary",
