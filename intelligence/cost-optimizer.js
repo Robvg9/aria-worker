@@ -20,12 +20,22 @@ function hasVerifiedCostEvidence(candidate = {}) {
     evidence.observed === true &&
     evidence.verified === true &&
     typeof evidence.source_id === 'string' &&
-    evidence.source_id.trim()
+    evidence.source_id.trim() &&
+    typeof candidate.provider_id === 'string' && candidate.provider_id.trim() &&
+    typeof candidate.account_id === 'string' && candidate.account_id.trim() &&
+    typeof candidate.model_id === 'string' && candidate.model_id.trim() &&
+    evidence.provider_id === candidate.provider_id &&
+    evidence.account_id === candidate.account_id &&
+    evidence.model_id === candidate.model_id
   );
 }
 
 function verifiedUnitCost(candidate = {}) {
-  const price = finiteNonNegative(candidate.usd_per_1k);
+  const price = typeof candidate.usd_per_1k === 'number' &&
+    Number.isFinite(candidate.usd_per_1k) &&
+    candidate.usd_per_1k >= 0
+    ? candidate.usd_per_1k
+    : null;
   return price !== null && hasVerifiedCostEvidence(candidate) ? price : null;
 }
 

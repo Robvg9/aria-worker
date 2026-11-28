@@ -15,6 +15,20 @@ for(const marker of [
   "specialist_agent_required"
 ]) assert.ok(source.includes(marker),'missing Mission 6 gateway marker: '+marker);
 
+const androidDecisionStart=source.indexOf('async function androidAutonomousDecision');
+const androidDecisionEnd=source.indexOf('\nasync function ',androidDecisionStart+32);
+const androidDecisionSource=source.slice(androidDecisionStart,androidDecisionEnd);
+assert.ok(androidDecisionSource.includes("a.account_id==='acct_google_gemini_free'"),
+  'Google Direct free exception must bind to the dedicated free account');
+assert.ok(androidDecisionSource.includes('verifiedPricingEvidence(m.pricing,identity)')&&androidDecisionSource.includes('verifiedZeroPricing(m.pricing)'),
+  'OpenRouter Android free route must have observed, verified, identity-bound zero pricing');
+assert.ok(!androidDecisionSource.includes("pricing?.tier==='free'")&&!androidDecisionSource.includes("metadata?.free_tier===true"),
+  'unverified free labels cannot qualify Android autonomous routes');
+assert.ok(source.includes("function m6PriceNumber(v:any){return typeof v==='number'&&Number.isFinite(v)?v:null}"),
+  'null or numeric-string pricing cannot be coerced into a verified zero');
+assert.ok(source.includes('function m6FreeCost(p:any,identity:any)')&&source.includes('verifiedPricingEvidence(p,identity)'),
+  'Mission 6 cost scoring must require identity-bound source evidence');
+
 const agentRuntimeSource=fs.readFileSync('supabase/functions/aria-agent-runtime-v1/index.ts','utf8');
 const geminiLiveCheckSource=fs.readFileSync('supabase/functions/aria-gemini-direct-live-check-v1/index.ts','utf8');
 const mission5ModelSource=source.slice(source.indexOf('async function mission5ModelProbe'),source.indexOf('async function mission5AgentProbe'));
@@ -76,6 +90,9 @@ console.log('MISSION 6 ROUTER V2 GATEWAY CONTRACT: PASS');
     console.log('PASS:', label);
   };
   const primary = { provider_id: 'google', account_id: 'acct_google', model_id: 'google/model-a' };
+assert.ok(source.includes("e.provider_id===identity?.provider_id")&&source.includes("e.account_id===identity?.account_id")&&source.includes("e.model_id===identity?.model_id"),
+  'pricing evidence must match the selected provider, account and model exactly');
+assert.ok(source.includes('i===0&&o===0?1:.5'), 'only verified two-sided zero pricing receives the free-tier score');
   const sameAccountOtherModel = { provider_id: 'google', account_id: 'acct_google', model_id: 'google/model-b' };
   const sameProviderOtherAccount = { provider_id: 'google', account_id: 'acct_google_2', model_id: 'google/model-c' };
   const alternate = { provider_id: 'mistral', account_id: 'acct_mistral', model_id: 'mistral/model-a' };

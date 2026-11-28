@@ -6,7 +6,7 @@ Prevent the economic optimizer from interpreting missing, malformed, or unverifi
 
 ## Contract
 
-- A unit price is known only when `usd_per_1k` is a finite non-negative number and `cost_evidence` contains a non-empty `source_id`, `observed: true`, and `verified: true`.
+- A unit price is known only when `usd_per_1k` is a finite non-negative JSON number (not a numeric string) and `cost_evidence` contains a non-empty `source_id`, `observed: true`, `verified: true`, and exact matching `provider_id`, `account_id`, and `model_id`.
 - A verified zero price is represented as `cost_status: verified_free`.
 - Missing, malformed, or unverified prices are represented as `usd_per_1k: null` and `cost_status: unknown`.
 - Unknown pricing receives no cost-efficiency utility credit.
@@ -16,7 +16,7 @@ Prevent the economic optimizer from interpreting missing, malformed, or unverifi
 
 ## Validation
 
-`tests/cost-optimizer-pricing-evidence-v1.test.js` covers absent, unverified-zero, verified-free, verified-paid and malformed price inputs; strict unknown-price rejection; deterministic selection; and input immutability.
+`tests/cost-optimizer-pricing-evidence-v1.test.js` covers absent, unverified-zero, verified-free, verified-paid, numeric-string prices and provider/account/model evidence mismatches; strict unknown-price rejection; deterministic selection; and input immutability.
 
 ## Safety boundary
 

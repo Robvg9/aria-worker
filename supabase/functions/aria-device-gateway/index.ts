@@ -132,30 +132,25 @@ async function androidAutonomousDecision(b:any,d:any){
     if(modelId.startsWith('google/'))return 40;
     return 60;
   };
-  const isFree=(m:any)=>{
-    const modelId=String(m?.model_id||'');
-    // Google Direct LIVE-certified models are eligible for autonomous decision routing
-    // without requiring free-tier pricing markers in model_registry.
-    if(modelId.startsWith('google/') && modelId.endsWith('-direct')) return true;
-    const pricing=m?.pricing||{};
-    const metadata=m?.metadata||{};
-    return pricing?.cost==='$0' || pricing?.tier==='free' || metadata?.free_tier===true;
-  };
   const routes=(candidatesRes.data||[]).map((m:any)=>{
     const modelId=String(m.model_id||'');
-    if(!modelId||!isFree(m)||!verified.has(modelId))return null;
+    if(!modelId||!verified.has(modelId))return null;
     const account=(acctRes.data||[]).find((a:any)=>{
       if(a.provider_id!==m.provider_id)return false;
       if(Array.isArray(a.models)&&a.models.includes(modelId))return true;
-      // Certified Google Direct may be bound at account level without explicit models[] entry.
-      if(m.provider_id==='google' && modelId.endsWith('-direct') && verified.has(modelId))return true;
+      // Google Direct may be bound at account level only to the dedicated free account.
+      if(m.provider_id==='google' && modelId.endsWith('-direct') && a.account_id==='acct_google_gemini_free' && verified.has(modelId))return true;
       return false;
     });
     if(!account)return null;
+    const identity={provider_id:String(m.provider_id),account_id:String(account.account_id),model_id:modelId};
+    const googleFreeDirect=m.provider_id==='google'&&modelId.startsWith('google/')&&modelId.endsWith('-direct')&&identity.account_id==='acct_google_gemini_free';
+    const openRouterVerifiedFree=m.provider_id==='openrouter'&&verifiedPricingEvidence(m.pricing,identity)&&verifiedZeroPricing(m.pricing);
+    if(!googleFreeDirect&&!openRouterVerifiedFree)return null;
     return {
       status:'selected',
-      provider_id:String(m.provider_id),
-      account_id:String(account.account_id),
+      provider_id:identity.provider_id,
+      account_id:identity.account_id,
       model_id:modelId,
       capability:'text_generation'
     };
@@ -747,7 +742,16 @@ function m6RiskAllowed(maxRisk:string,taskRisk:string){return Number.isFinite(M6
 function m6Complexity(task:string,explicit?:string){if(explicit&&['low','medium','high','critical'].includes(explicit))return explicit;if(/critical|production|irreversible|destructive|security|migration/i.test(task))return'critical';if(/complex|architecture|multi[- ]step|debug|research|deep|audit/i.test(task)||task.length>240)return'high';if(/write|summarize|classify|extract|transform|explain/i.test(task)||task.length>80)return'medium';return'low'}
 function m6Domains(task:string){return M6_RULES.filter(x=>x.re.test(task)).map(x=>x.domain)}
 function m6Num(v:any){return Number.isFinite(Number(v))?Number(v):null}
-function m6FreeCost(p:any){const tier=String(p?.tier||p?.billing_tier||'').toLowerCase();if(tier==='free'||p?.cost==='$0'||p?.cost===0)return 1;const i=m6Num(p?.input_per_1m_tokens??p?.cost_per_1k_input_usd),o=m6Num(p?.output_per_1m_tokens??p?.cost_per_1k_output_usd);if(i===0&&o===0)return 1;if(i!==null||o!==null)return .5;return null}
+function m6PriceNumber(v:any){return typeof v==='number'&&Number.isFinite(v)?v:null}
+function verifiedPricingEvidence(p:any,identity:any){
+ const e=p?.cost_evidence;
+ return Boolean(e&&typeof e==='object'&&!Array.isArray(e)&&e.observed===true&&e.verified===true&&typeof e.source_id==='string'&&e.source_id.trim()&&e.provider_id===identity?.provider_id&&e.account_id===identity?.account_id&&e.model_id===identity?.model_id);
+}
+function verifiedZeroPricing(p:any){
+ const i=m6PriceNumber(p?.input_per_1m_tokens??p?.cost_per_1k_input_usd),o=m6PriceNumber(p?.output_per_1m_tokens??p?.cost_per_1k_output_usd);
+ return i===0&&o===0;
+}
+function m6FreeCost(p:any,identity:any){if(!verifiedPricingEvidence(p,identity))return null;const i=m6PriceNumber(p?.input_per_1m_tokens??p?.cost_per_1k_input_usd),o=m6PriceNumber(p?.output_per_1m_tokens??p?.cost_per_1k_output_usd);if(i===null||o===null||i<0||o<0)return null;return i===0&&o===0?1:.5}
 
 let routerSnapshotCache:{expires_at:number,snapshot:any}|null=null;
 async function getRouterLiveSnapshot(){
@@ -779,7 +783,7 @@ async function intelligentRouterDecision(b:any){
    if(input?.preferred_model&&c.model_id!==input.preferred_model)hard.push('preferred_model_mismatch');
    if(hard.length){rejected.push({model_id:c.model_id,reasons:hard});continue}
    const attempts=m6Num(c.attempts)||0,successes=m6Num(c.successes)||0,reliability=attempts>0?Math.max(0,Math.min(1,successes/attempts)):null,latency=m6Num(c.avg_latency_ms),finite=latencies,latScore=latency===null?null:(Math.max(...finite)===Math.min(...finite)?1:(Math.max(...finite)-latency)/(Math.max(...finite)-Math.min(...finite)));
-   const specialists=agents.filter((a:any)=>domains.some(d=>M6_RULES.find(x=>x.domain===d)?.roles.includes(String(a.role||''))));const rolePriority=domains.flatMap(d=>M6_RULES.find(x=>x.domain===d)?.roles||[]);const orderedAgents=specialists.slice().sort((a:any,b:any)=>{const ai=rolePriority.indexOf(String(a.role||'')),bi=rolePriority.indexOf(String(b.role||''));return (ai<0?999:ai)-(bi<0?999:bi)||String(a.agent_id).localeCompare(String(b.agent_id));});const spec=orderedAgents.length?1:(agents.some((a:any)=>Array.isArray(a.capabilities)&&a.capabilities.includes(capability))?.45:.5);const cost=m6FreeCost(c.pricing),direct=String(c.metadata?.access_path||'').includes('direct')?1:.5;const score=Number((.20+.15+.15*(reliability??.25)+.10*(latScore??.25)+.05*(cost??.25)+.30*spec+.05*direct).toFixed(6));const agent=orderedAgents[0]||agents[0]||null;
+   const specialists=agents.filter((a:any)=>domains.some(d=>M6_RULES.find(x=>x.domain===d)?.roles.includes(String(a.role||''))));const rolePriority=domains.flatMap(d=>M6_RULES.find(x=>x.domain===d)?.roles||[]);const orderedAgents=specialists.slice().sort((a:any,b:any)=>{const ai=rolePriority.indexOf(String(a.role||'')),bi=rolePriority.indexOf(String(b.role||''));return (ai<0?999:ai)-(bi<0?999:bi)||String(a.agent_id).localeCompare(String(b.agent_id));});const spec=orderedAgents.length?1:(agents.some((a:any)=>Array.isArray(a.capabilities)&&a.capabilities.includes(capability))?.45:.5);const cost=m6FreeCost(c.pricing,{provider_id:c.provider_id,account_id:c.account_id,model_id:c.model_id}),direct=String(c.metadata?.access_path||'').includes('direct')?1:.5;const score=Number((.20+.15+.15*(reliability??.25)+.10*(latScore??.25)+.05*(cost??.25)+.30*spec+.05*direct).toFixed(6));const agent=orderedAgents[0]||agents[0]||null;
    ranked.push({...c,score,selection_evidence:{complexity,task_risk:risk,domains,reliability:{state:reliability===null?'unknown':'observed',attempts,successes,score:reliability},latency:{state:latency===null?'unknown':'observed',avg_latency_ms:latency,score:latScore},cost_state:cost===null?'unknown':cost,specialization:{score:spec,matches:specialists.map((a:any)=>a.agent_id)},live_verified:true,capability_verified:true,direct_path:direct},selected_agent_id:agent?.agent_id||null,selected_agent_role:agent?.role||null});
   }
   ranked.sort((a,b2)=>b2.score-a.score||String(a.provider_id).localeCompare(String(b2.provider_id))||String(a.model_id).localeCompare(String(b2.model_id)));

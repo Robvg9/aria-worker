@@ -2,9 +2,9 @@ const assert = require('assert');
 const ri = require('../resource-intelligence/engine.js');
 
 const candidates = [
-  {provider_id:'p-expensive',account_id:'a1',model_id:'m-premium',quality_score:0.98,cost_per_1k_input_usd:0.02,cost_per_1k_output_usd:0.04,latency_ms:900,compute_units:8,risk_score:0.15,capabilities:['research'],cost_evidence:{source_id:'fixture:verified-price',observed:true,verified:true}},
-  {provider_id:'p-cheap',account_id:'a2',model_id:'m-efficient',quality_score:0.88,cost_per_1k_input_usd:0.001,cost_per_1k_output_usd:0.002,latency_ms:350,compute_units:2,risk_score:0.10,capabilities:['research'],cost_evidence:{source_id:'fixture:verified-price',observed:true,verified:true}},
-  {provider_id:'p-weak',account_id:'a3',model_id:'m-weak',quality_score:0.50,cost_per_1k_input_usd:0,cost_per_1k_output_usd:0,latency_ms:10,compute_units:1,risk_score:0.05,capabilities:['research'],cost_evidence:{source_id:'fixture:verified-price',observed:true,verified:true}},
+  {provider_id:'p-expensive',account_id:'a1',model_id:'m-premium',quality_score:0.98,cost_per_1k_input_usd:0.02,cost_per_1k_output_usd:0.04,latency_ms:900,compute_units:8,risk_score:0.15,capabilities:['research'],cost_evidence:{source_id:'fixture:verified-price',observed:true,verified:true,provider_id:'p-expensive',account_id:'a1',model_id:'m-premium'}},
+  {provider_id:'p-cheap',account_id:'a2',model_id:'m-efficient',quality_score:0.88,cost_per_1k_input_usd:0.001,cost_per_1k_output_usd:0.002,latency_ms:350,compute_units:2,risk_score:0.10,capabilities:['research'],cost_evidence:{source_id:'fixture:verified-price',observed:true,verified:true,provider_id:'p-cheap',account_id:'a2',model_id:'m-efficient'}},
+  {provider_id:'p-weak',account_id:'a3',model_id:'m-weak',quality_score:0.50,cost_per_1k_input_usd:0,cost_per_1k_output_usd:0,latency_ms:10,compute_units:1,risk_score:0.05,capabilities:['research'],cost_evidence:{source_id:'fixture:verified-price',observed:true,verified:true,provider_id:'p-weak',account_id:'a3',model_id:'m-weak'}},
 ];
 
 const unverifiedZero = { ...candidates[2], cost_per_1k_input_usd:0, cost_per_1k_output_usd:0 };
@@ -22,9 +22,13 @@ const verifiedFreeCandidate = {
   quality_score:0.90,
   cost_per_1k_input_usd:0,
   cost_per_1k_output_usd:0,
-  cost_evidence: { source_id:'provider-catalog:verified-free-entry', observed:true, verified:true },
+  cost_evidence: { source_id:'provider-catalog:verified-free-entry', observed:true, verified:true, provider_id:'p-weak', account_id:'a3', model_id:'m-weak' },
 };
 assert.equal(ri.validCandidate(verifiedFreeCandidate), true);
+assert.equal(ri.validCandidate({...verifiedFreeCandidate,account_id:'another-account'}),false,
+  'verified prices cannot be reused across accounts');
+assert.equal(ri.validCandidate({...verifiedFreeCandidate,model_id:'another-model'}),false,
+  'verified prices cannot be reused across models');
 const verifiedFreeChoice = ri.decide({task:'summarize a short note',candidates:[verifiedFreeCandidate]});
 assert.equal(verifiedFreeChoice.status,'selected');
 assert.equal(verifiedFreeChoice.estimated_cost_usd,0);
