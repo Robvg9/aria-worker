@@ -5,14 +5,31 @@ const assert=require('node:assert/strict');
 const r=require('../router/intelligent-v2.js');
 
 const candidates=[
- {model:{model_id:'m-fast',provider_id:'p1',status:'available',enabled:true,integration_status:'connected',pricing:{tier:'free',cost:'$0'},context_window:100000,metadata:{access_path:'direct'}},capability_verified:true,live_verified:true,account:{account_id:'a1',status:'active',enabled:true},quota:{status:'available',rate_limit_status:'unknown'},agents:[{agent_id:'a1-coder',role:'coder',capabilities:['coding'],max_risk:'high',status:'available'}],observation:{attempts:10,successes:10,avg_latency_ms:500}},
- {model:{model_id:'m-research',provider_id:'p2',status:'available',enabled:true,integration_status:'connected',pricing:{tier:'free',cost:'$0'},context_window:100000,metadata:{access_path:'direct'}},capability_verified:true,live_verified:true,account:{account_id:'a2',status:'active',enabled:true},quota:{status:'available',rate_limit_status:'unknown'},agents:[{agent_id:'a2-research',role:'researcher',capabilities:['research'],max_risk:'medium',status:'available'}],observation:{attempts:8,successes:7,avg_latency_ms:900}},
- {model:{model_id:'m-blocked',provider_id:'p3',status:'available',enabled:true,integration_status:'connected',pricing:{tier:'free',cost:'$0'}},capability_verified:true,live_verified:false,account:{account_id:'a3',status:'active',enabled:true},quota:{status:'available'},agents:[],observation:{attempts:0,successes:0}}
+ {model:{model_id:'m-fast',provider_id:'p1',status:'available',enabled:true,integration_status:'connected',pricing:{tier:'free',cost:'$0',input_per_1m_tokens:0,output_per_1m_tokens:0},context_window:100000,metadata:{access_path:'direct'}},capability_verified:true,live_verified:true,account:{account_id:'a1',status:'active',enabled:true},quota:{status:'available',rate_limit_status:'unknown'},agents:[{agent_id:'a1-coder',role:'coder',capabilities:['coding'],max_risk:'high',status:'available'}],observation:{attempts:10,successes:10,avg_latency_ms:500}},
+ {model:{model_id:'m-research',provider_id:'p2',status:'available',enabled:true,integration_status:'connected',pricing:{tier:'free',cost:'$0',input_per_1m_tokens:0,output_per_1m_tokens:0},context_window:100000,metadata:{access_path:'direct'}},capability_verified:true,live_verified:true,account:{account_id:'a2',status:'active',enabled:true},quota:{status:'available',rate_limit_status:'unknown'},agents:[{agent_id:'a2-research',role:'researcher',capabilities:['research'],max_risk:'medium',status:'available'}],observation:{attempts:8,successes:7,avg_latency_ms:900}},
+ {model:{model_id:'m-blocked',provider_id:'p3',status:'available',enabled:true,integration_status:'connected',pricing:{tier:'free',cost:'$0',input_per_1m_tokens:0,output_per_1m_tokens:0}},capability_verified:true,live_verified:false,account:{account_id:'a3',status:'active',enabled:true},quota:{status:'available'},agents:[],observation:{attempts:0,successes:0}}
 ];
+
+
+const unverifiedIdentity={provider_id:'p1',account_id:'a1',model_id:'m-fast'};
+const unverifiedZero={tier:'free',cost:'$0',input_per_1m_tokens:0,output_per_1m_tokens:0};
+assert.equal(r.freeCostScore(unverifiedZero,unverifiedIdentity),null,
+  'tier free and zero prices without provenance must not be credited');
+const verifiedFree={...unverifiedZero,cost_evidence:{source_id:'fixture:verified-free',observed:true,verified:true,provider_id:'p1',account_id:'a1',model_id:'m-fast'}};
+assert.equal(r.freeCostScore(verifiedFree,unverifiedIdentity),1);
+const verifiedPaid={input_per_1m_tokens:0.15,output_per_1m_tokens:0.60,cost_evidence:{source_id:'fixture:verified-paid',observed:true,verified:true,provider_id:'p1',account_id:'a1',model_id:'m-fast'}};
+assert.equal(r.freeCostScore(verifiedPaid,unverifiedIdentity),0.5);
+assert.equal(r.freeCostScore(verifiedFree,{...unverifiedIdentity,account_id:'another-account'}),null,
+  'pricing evidence for another account cannot be reused');
+assert.equal(r.freeCostScore({...verifiedFree,cost_evidence:{...verifiedFree.cost_evidence,model_id:'other-model'}},unverifiedIdentity),null,
+  'pricing evidence for another model cannot be reused');
+assert.equal(r.freeCostScore({...verifiedFree,input_per_1m_tokens:null},unverifiedIdentity),null,
+  'both input and output prices must be known');
 
 let out=r.select(candidates,{task:'research and compare architecture approaches',capability:'text_generation',risk:'medium'});
 assert.equal(out.status,'selected');
 assert.equal(out.selected.model_id,'m-research');
+assert.equal(out.selection_evidence.cost_state, 'unknown', 'unverified zero labels cannot gain the free-tier bonus');
 assert.ok(out.fallback.length>=1);
 assert.ok(out.selection_evidence.specialization.score===1);
 

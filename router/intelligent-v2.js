@@ -88,15 +88,25 @@ function reliabilityScore(obs){
   return {score:Math.max(0,Math.min(1,successes/attempts)),state:'observed',attempts,successes};
 }
 
-function freeCostScore(pricing){
-  const tier=String(pricing?.tier||pricing?.billing_tier||'').toLowerCase();
-  const cost=pricing?.cost;
-  if(tier==='free'||cost==='$0'||cost===0)return 1;
+function verifiedPricingEvidence(pricing,identity={}){
+  const e=pricing?.cost_evidence;
+  return Boolean(
+    e&&typeof e==='object'&&!Array.isArray(e)&&
+    e.observed===true&&e.verified===true&&
+    typeof e.source_id==='string'&&e.source_id.trim()&&
+    e.provider_id===identity.provider_id&&
+    e.account_id===identity.account_id&&
+    e.model_id===identity.model_id
+  );
+}
+
+function freeCostScore(pricing,identity){
+  if(!verifiedPricingEvidence(pricing,identity))return null;
   const input=numeric(pricing?.input_per_1m_tokens??pricing?.cost_per_1k_input_usd);
   const output=numeric(pricing?.output_per_1m_tokens??pricing?.cost_per_1k_output_usd);
+  if(input===null||output===null||input<0||output<0)return null;
   if(input===0&&output===0)return 1;
-  if(input!==null||output!==null)return 0.5;
-  return null;
+  return 0.5;
 }
 
 function latencyScore(latency,allLatencies){
@@ -156,7 +166,7 @@ function select(candidates,input={}){
     }
     if(input.prefer_specialist_agent===true&&!c.agents.some(a=>String(a.status||'available')==='available'&&riskAllowed(a.max_risk,taskRisk)))hard.push('specialist_agent_required');
     if(hard.length){rejected.push({model_id:c.model_id,provider_id:c.provider_id,reasons:hard});continue;}
-    const rel=reliabilityScore(c.observation);const lat=latencyScore(c.observation.avg_latency_ms,allLatencies);const cost=freeCostScore(c.pricing);const spec=specializationScore(c,domains);
+    const rel=reliabilityScore(c.observation);const lat=latencyScore(c.observation.avg_latency_ms,allLatencies);const cost=freeCostScore(c.pricing,{provider_id:c.provider_id,account_id:c.account_id,model_id:c.model_id});const spec=specializationScore(c,domains);
     const live=c.live_verified?1:0;const capabilityScore=c.capability_verified?1:0;const providerDirect=String(c.metadata?.access_path||'').includes('direct')?1:0.5;
     const score=
       live*0.20+
@@ -211,4 +221,4 @@ function parallelPlan(tasks,{maxParallel=2,risk=null}={}){
   return {status:'planned',version:VERSION,max_parallel:Math.max(1,Math.floor(maxParallel)),batches};
 }
 
-module.exports={VERSION,classifyTask,domainsForTask,riskAllowed,normalizeCandidate,reliabilityScore,select,parallelPlan,classifyFallbackFailure,governFallback};
+module.exports={VERSION,classifyTask,domainsForTask,riskAllowed,normalizeCandidate,reliabilityScore,verifiedPricingEvidence,freeCostScore,select,parallelPlan,classifyFallbackFailure,governFallback};

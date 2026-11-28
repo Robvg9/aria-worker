@@ -8,7 +8,7 @@ export type TestCatalogItem = {
   capabilities: string;
 };
 
-export const TEST_CATALOG_VERSION = '2026-11-27-aria-optima-verified-pricing-v1';
+export const TEST_CATALOG_VERSION = '2026-11-27-aria-optima-universal-verified-pricing-v2';
 export const TEST_CATALOG: TestCatalogItem[] = [
   {
     "id": "voice-v4-telegram-delivery",
@@ -1393,8 +1393,8 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "title": "Intelligent Router V",
     "category": "IA / modelos / routing",
     "includedInNpmTest": true,
-    "how": "Comprueba el comportamiento específico indicado por el nombre del test y detecta regresiones.",
-    "capabilities": "Valida selección de modelos, planner, routing, fallback, multi-IA y coordinación."
+    "how": "Comprueba que la selección de modelos no interprete etiquetas de gratuidad como evidencia de precio.",
+    "capabilities": "Valida procedencia verificada ligada a proveedor/cuenta/modelo, score desconocido cuando falta evidencia, planner, routing y fallback."
   },
   {
     "id": "intelligent-router",
@@ -1843,8 +1843,8 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "title": "Mission6 Router V Gateway Contract",
     "category": "IA / modelos / routing",
     "includedInNpmTest": true,
-    "how": "Comprueba que una interfaz o contrato estructural siga existiendo y no se rompa.",
-    "capabilities": "Valida selección de modelos, planner, routing, fallback, multi-IA y coordinación."
+    "how": "Comprueba que Mission 6 y el selector Android exijan precio gratuito verificado y ligado a la ruta exacta.",
+    "capabilities": "Valida el bloqueo de falsos precios cero, la identidad proveedor/cuenta/modelo, el fallback presupuestario y el routing multi-IA."
   },
   {
     "id": "mission7-autonomy-loop",
