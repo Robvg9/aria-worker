@@ -15,7 +15,9 @@ for(const marker of [
   "specialist_agent_required"
 ]) assert.ok(source.includes(marker),'missing Mission 6 gateway marker: '+marker);
 
-const androidDecisionSource=source.slice(source.indexOf('async function androidAutonomousDecision'),source.indexOf('async function androidAutonomous'));
+const androidDecisionStart=source.indexOf('async function androidAutonomousDecision');
+const androidDecisionEnd=source.indexOf('\nasync function ',androidDecisionStart+32);
+const androidDecisionSource=source.slice(androidDecisionStart,androidDecisionEnd);
 assert.ok(androidDecisionSource.includes("a.account_id==='acct_google_gemini_free'"),
   'Google Direct free exception must bind to the dedicated free account');
 assert.ok(androidDecisionSource.includes('verifiedPricingEvidence(m.pricing,identity)')&&androidDecisionSource.includes('verifiedZeroPricing(m.pricing)'),
