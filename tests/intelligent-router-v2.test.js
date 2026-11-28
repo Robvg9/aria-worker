@@ -23,8 +23,10 @@ assert.equal(r.freeCostScore(verifiedFree,{...unverifiedIdentity,account_id:'ano
   'pricing evidence for another account cannot be reused');
 assert.equal(r.freeCostScore({...verifiedFree,cost_evidence:{...verifiedFree.cost_evidence,model_id:'other-model'}},unverifiedIdentity),null,
   'pricing evidence for another model cannot be reused');
-assert.equal(r.freeCostScore({...verifiedFree,input_per_1m_tokens:null},unverifiedIdentity),null,
-  'both input and output prices must be known');
+assert.equal(r.freeCostScore({...verifiedFree,input_per_1m_tokens:null,cost_per_1k_input_usd:null},unverifiedIdentity),null,
+  'a null input price must not coerce to numeric zero');
+assert.equal(r.freeCostScore({...verifiedFree,output_per_1m_tokens:null,cost_per_1k_output_usd:null},unverifiedIdentity),null,
+  'a null output price must not coerce to numeric zero');
 
 let out=r.select(candidates,{task:'research and compare architecture approaches',capability:'text_generation',risk:'medium'});
 assert.equal(out.status,'selected');

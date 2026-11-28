@@ -16,12 +16,14 @@ for(const marker of [
 ]) assert.ok(source.includes(marker),'missing Mission 6 gateway marker: '+marker);
 
 const androidDecisionSource=source.slice(source.indexOf('async function androidAutonomousDecision'),source.indexOf('async function androidAutonomous'));
-assert.ok(androidDecisionSource.includes("account.account_id==='acct_google_gemini_free'"),
+assert.ok(androidDecisionSource.includes("a.account_id==='acct_google_gemini_free'"),
   'Google Direct free exception must bind to the dedicated free account');
 assert.ok(androidDecisionSource.includes('verifiedPricingEvidence(m.pricing,identity)')&&androidDecisionSource.includes('verifiedZeroPricing(m.pricing)'),
   'OpenRouter Android free route must have observed, verified, identity-bound zero pricing');
 assert.ok(!androidDecisionSource.includes("pricing?.tier==='free'")&&!androidDecisionSource.includes("metadata?.free_tier===true"),
   'unverified free labels cannot qualify Android autonomous routes');
+assert.ok(source.includes("function m6PriceNumber(v:any){return typeof v==='number'&&Number.isFinite(v)?v:null}"),
+  'null or numeric-string pricing cannot be coerced into a verified zero');
 assert.ok(source.includes('function m6FreeCost(p:any,identity:any)')&&source.includes('verifiedPricingEvidence(p,identity)'),
   'Mission 6 cost scoring must require identity-bound source evidence');
 

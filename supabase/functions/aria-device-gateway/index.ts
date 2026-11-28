@@ -742,15 +742,16 @@ function m6RiskAllowed(maxRisk:string,taskRisk:string){return Number.isFinite(M6
 function m6Complexity(task:string,explicit?:string){if(explicit&&['low','medium','high','critical'].includes(explicit))return explicit;if(/critical|production|irreversible|destructive|security|migration/i.test(task))return'critical';if(/complex|architecture|multi[- ]step|debug|research|deep|audit/i.test(task)||task.length>240)return'high';if(/write|summarize|classify|extract|transform|explain/i.test(task)||task.length>80)return'medium';return'low'}
 function m6Domains(task:string){return M6_RULES.filter(x=>x.re.test(task)).map(x=>x.domain)}
 function m6Num(v:any){return Number.isFinite(Number(v))?Number(v):null}
+function m6PriceNumber(v:any){return typeof v==='number'&&Number.isFinite(v)?v:null}
 function verifiedPricingEvidence(p:any,identity:any){
  const e=p?.cost_evidence;
  return Boolean(e&&typeof e==='object'&&!Array.isArray(e)&&e.observed===true&&e.verified===true&&typeof e.source_id==='string'&&e.source_id.trim()&&e.provider_id===identity?.provider_id&&e.account_id===identity?.account_id&&e.model_id===identity?.model_id);
 }
 function verifiedZeroPricing(p:any){
- const i=m6Num(p?.input_per_1m_tokens??p?.cost_per_1k_input_usd),o=m6Num(p?.output_per_1m_tokens??p?.cost_per_1k_output_usd);
+ const i=m6PriceNumber(p?.input_per_1m_tokens??p?.cost_per_1k_input_usd),o=m6PriceNumber(p?.output_per_1m_tokens??p?.cost_per_1k_output_usd);
  return i===0&&o===0;
 }
-function m6FreeCost(p:any,identity:any){if(!verifiedPricingEvidence(p,identity))return null;const i=m6Num(p?.input_per_1m_tokens??p?.cost_per_1k_input_usd),o=m6Num(p?.output_per_1m_tokens??p?.cost_per_1k_output_usd);if(i===null||o===null||i<0||o<0)return null;return i===0&&o===0?1:.5}
+function m6FreeCost(p:any,identity:any){if(!verifiedPricingEvidence(p,identity))return null;const i=m6PriceNumber(p?.input_per_1m_tokens??p?.cost_per_1k_input_usd),o=m6PriceNumber(p?.output_per_1m_tokens??p?.cost_per_1k_output_usd);if(i===null||o===null||i<0||o<0)return null;return i===0&&o===0?1:.5}
 
 let routerSnapshotCache:{expires_at:number,snapshot:any}|null=null;
 async function getRouterLiveSnapshot(){

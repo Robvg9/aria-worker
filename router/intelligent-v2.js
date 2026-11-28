@@ -100,10 +100,14 @@ function verifiedPricingEvidence(pricing,identity={}){
   );
 }
 
+function priceNumber(value){
+  return typeof value==='number'&&Number.isFinite(value)?value:null;
+}
+
 function freeCostScore(pricing,identity){
   if(!verifiedPricingEvidence(pricing,identity))return null;
-  const input=numeric(pricing?.input_per_1m_tokens??pricing?.cost_per_1k_input_usd);
-  const output=numeric(pricing?.output_per_1m_tokens??pricing?.cost_per_1k_output_usd);
+  const input=priceNumber(pricing?.input_per_1m_tokens??pricing?.cost_per_1k_input_usd);
+  const output=priceNumber(pricing?.output_per_1m_tokens??pricing?.cost_per_1k_output_usd);
   if(input===null||output===null||input<0||output<0)return null;
   if(input===0&&output===0)return 1;
   return 0.5;
