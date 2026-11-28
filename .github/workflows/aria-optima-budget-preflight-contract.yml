@@ -1,13 +1,18 @@
-name: ARIA Optima Budget Preflight Contract
+name: ARIA Optima Full Contract Suite
 
 on:
   pull_request:
     branches:
       - main
       - fix/aria-optima-budget-block-checkpoint-resume-guard-20261127
+      - feat/aria-optima-bounded-token-preflight-20261127
     paths:
       - 'supabase/functions/aria-execution-runtime-v1/**'
+      - 'supabase/functions/aria-device-gateway/**'
+      - 'router/intelligent-v2.js'
       - 'tests/aria-quota-accounting-v1.test.mjs'
+      - 'tests/intelligent-router-v2.test.js'
+      - 'tests/mission6-router-v2-gateway-contract.test.js'
       - 'package.json'
       - '.github/workflows/aria-optima-budget-preflight-contract.yml'
 
